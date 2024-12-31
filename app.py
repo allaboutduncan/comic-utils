@@ -35,7 +35,7 @@ def stream_logs(script_type):
             if process.returncode != 0:
                 yield f"data: An error occurred while streaming logs. Return code: {process.returncode}.\n\n"
             else:
-                yield f"data: Process completed successfully.\n\n"
+                yield "event: completed\ndata: Process completed successfully.\n\n"
 
         return Response(generate_logs(), content_type='text/event-stream')
 
@@ -60,7 +60,7 @@ def stream_logs(script_type):
             if process.returncode != 0:
                 yield f"data: An error occurred while streaming logs. Return code: {process.returncode}.\n\n"
             else:
-                yield f"data: Process completed successfully.\n\n"
+                yield "event: completed\ndata: Process completed successfully.\n\n"
 
         return Response(generate_logs(), content_type='text/event-stream')
 

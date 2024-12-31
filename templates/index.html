@@ -12,44 +12,68 @@
             const scriptType = document.getElementById('script-type').value;
             const logsContainer = document.getElementById('logs');
             logsContainer.innerHTML = ''; // Clear previous logs
-
+    
             if (!directory) {
                 logsContainer.innerHTML = `<h3>Error:</h3><pre>Directory path is required.</pre>`;
                 return;
             }
-
-            // Use file_path instead of directory for 'single_file' type
+    
+            // Build the URL according to script type
             let url;
             if (scriptType === 'single_file' || scriptType === 'crop' || scriptType === 'remove') {
-                url = `/stream/${scriptType}?file_path=${encodeURIComponent(directory)}`;  // Use file_path here
+                url = `/stream/${scriptType}?file_path=${encodeURIComponent(directory)}`;  
             } else {
                 url = `/stream/${scriptType}?directory=${encodeURIComponent(directory)}`;
             }
-
+    
             // Create a new EventSource to receive logs
             const eventSource = new EventSource(url);
-
-            // Append new log lines as they arrive
+    
+            // 1) Listen for all SSE messages, checking for "Error:" prefix
             eventSource.onmessage = (event) => {
+                const line = event.data.trim();
                 const logLine = document.createElement('div');
-                logLine.textContent = event.data;
+    
+                // If the line starts with "Error:", display an alert-danger
+                if (line.startsWith("Error:")) {
+                    logLine.textContent = line;  // Or remove the prefix if you prefer
+                    logLine.className = "alert alert-danger";
+                    logLine.setAttribute("role", "alert");
+                } else {
+                    // Normal log line
+                    logLine.textContent = line;
+                }
+    
                 logsContainer.appendChild(logLine);
                 logsContainer.scrollTop = logsContainer.scrollHeight; // Auto-scroll to the bottom
             };
-
-            // Handle errors
+    
+            // 2) Handle a "completed" custom event (if sent by the server)
+            eventSource.addEventListener("completed", (e) => {
+                const successLine = document.createElement('div');
+                successLine.textContent = "Process completed successfully!";
+                successLine.className = "alert alert-success";
+                successLine.setAttribute("role", "alert");
+                logsContainer.appendChild(successLine);
+                logsContainer.scrollTop = logsContainer.scrollHeight;
+    
+                // Close the SSE
+                eventSource.close();
+            });
+    
+            // 3) Consider onerror a network/connection problem, not a script error
             eventSource.onerror = () => {
                 const errorLine = document.createElement('div');
-                errorLine.textContent = "An error occurred while streaming logs.";
-                errorLine.className = "alert alert-danger";
+                // This message is for SSE/network issues only, not script errors:
+                errorLine.textContent = "Network or connection error occurred while streaming logs.";
+                errorLine.className = "alert alert-warning";
                 errorLine.setAttribute("role", "alert");
                 logsContainer.appendChild(errorLine);
                 eventSource.close();
             };
-
-            // Close the stream when the process is completed
+    
+            // 4) (Optional) Listen for a "close" event if the server emits it
             eventSource.addEventListener('close', () => {
-                // Check for a successful return code (simulated via server-side 'close' event)
                 const successLine = document.createElement('div');
                 successLine.textContent = "Process completed successfully!";
                 successLine.className = "alert alert-success";
@@ -60,6 +84,7 @@
             });
         }
     </script>
+    
 </head>
 <body>
     <!-- Main Container with Bootstrap classes for styling -->
