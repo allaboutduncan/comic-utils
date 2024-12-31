@@ -44,7 +44,7 @@ I often see, in both newer and older files, that Komga doesn't recognize or scan
 Currently this functiuon does 3 things to all files in a directory and any sub-directories.
 
 1. Removes everything in parentheses with the exepction of the 4-digit year (if available)
-2. Removes ==c2c==
+2. Removes `c2c`
 3. Removes any extra spaces before the file entenstion
 
 Mylar and ComicRack should be your first choice for performing these actions, but I wanted something I could easliy run on my manual downloads directory.
