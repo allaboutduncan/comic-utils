@@ -32,7 +32,10 @@ def stream_logs(script_type):
             for line in process.stderr:
                 yield f"data: ERROR: {line}\n\n"
             process.wait()
-            yield f"data: Process completed with return code {process.returncode}.\n\n"
+            if process.returncode != 0:
+                yield f"data: An error occurred while streaming logs. Return code: {process.returncode}.\n\n"
+            else:
+                yield f"data: Process completed successfully.\n\n"
 
         return Response(generate_logs(), content_type='text/event-stream')
 
@@ -54,7 +57,10 @@ def stream_logs(script_type):
             for line in process.stderr:
                 yield f"data: ERROR: {line}\n\n"
             process.wait()
-            yield f"data: Process completed with return code {process.returncode}.\n\n"
+            if process.returncode != 0:
+                yield f"data: An error occurred while streaming logs. Return code: {process.returncode}.\n\n"
+            else:
+                yield f"data: Process completed successfully.\n\n"
 
         return Response(generate_logs(), content_type='text/event-stream')
 

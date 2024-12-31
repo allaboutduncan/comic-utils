@@ -41,12 +41,21 @@
             eventSource.onerror = () => {
                 const errorLine = document.createElement('div');
                 errorLine.textContent = "An error occurred while streaming logs.";
+                errorLine.className = "alert alert-danger";
+                errorLine.setAttribute("role", "alert");
                 logsContainer.appendChild(errorLine);
                 eventSource.close();
             };
 
             // Close the stream when the process is completed
             eventSource.addEventListener('close', () => {
+                // Check for a successful return code (simulated via server-side 'close' event)
+                const successLine = document.createElement('div');
+                successLine.textContent = "Process completed successfully!";
+                successLine.className = "alert alert-success";
+                successLine.setAttribute("role", "alert");
+                logsContainer.appendChild(successLine);
+                logsContainer.scrollTop = logsContainer.scrollHeight;
                 eventSource.close();
             });
         }
@@ -75,6 +84,7 @@
         </form>
 
         <!-- Logs container with Bootstrap classes -->
+        <div id="liveAlertPlaceholder"></div>
         <div id="logs" class="mt-4 p-3 border rounded" style="max-height: 400px; overflow-y: auto; white-space: pre-wrap;"></div>
     </div>
 
