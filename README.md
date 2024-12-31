@@ -1,7 +1,7 @@
 # Comic Library Utilities
 This is a set of utilities that I developed while moving my 70,000+ comic library to <img src="https://komga.org/img/logo.svg" alt="Komga Logo" width="20"/> [Komga](https://komga.org/).
 
-## Installation via Docker Compose (Portainer)
+## Installation via Docker Compose
 
 Copy the following and edit the environment variables
 
@@ -23,6 +23,16 @@ Copy the following and edit the environment variables
             environment:
                 - FLASK_ENV=development
 
+### More About Volumes Mapping for Your Library
+For the utility to work, you'll want to mimic your [Komga](https://komga.org/) settings. 
+
+I am running [Komga](https://komga.org/) on my Windows home server, via Docker.
+
+My comics are located on `D:/Comics` and when installing [Komga](https://komga.org/) I didn't change the default mapping of `target: /data`
+
+Mirroring this setup in the Docker Compose install looks like this: `- "D:/Comics:/data"`
+
+
 ---
 
 ## Using the Utilities
@@ -31,7 +41,15 @@ In your browser, navigate to http://localhost:5577
 
 You'll be presented with the main screen, where you can select which option you'd like to perform
 
-![Main Menu](/images/example.png)
+![Main Menu](/images/home.png)
+
+When popularing the *Directory* path, you should enter what you see in [Komga](https://komga.org/)
+
+![Path Example](/images/path.png)
+
+To regenerate this file, before clicking run, it should look like this:
+
+![Single Example](/images/single.png)
 
 ---
 
