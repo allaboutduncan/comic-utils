@@ -1,5 +1,5 @@
 # Comic Library Utilities
-This is a set of utilities that I developed while moving my 70,000+ comic library to Komga.
+This is a set of utilities that I developed while moving my 70,000+ comic library to ![Komga Logo](https://komga.org/img/logo.svg) [Komga](https://komga.org/).
 
 ## Installation via Docker Compose (Portainer)
 
