@@ -32,10 +32,22 @@ You'll be presented with the main screen, where you can select which option you'
 ![Main Menu](/images/example.png)
 
 ### Rebuild Directory
-Text
+Rebuilds all files in a directory. 
+
+This utility does 2 things:
+1. Convert all RAR / CBR files to CBZ
+2. Rebuild all ZIP / CBZ files
+
+I often see, in both newer and older files, that Komga doesn't recognize or scan them correctly. More often than not, rebuilding them corrects the error.
  
 ### Rename - All Files in Diretory
-Text
+Currently this functiuon does 3 things to all files in a directory and any sub-directories.
+
+1. Removes everything in parentheses with the exepction of the 4-digit year (if available)
+2. Removes ==c2c==
+3. Removes any extra spaces before the file entenstion
+
+Mylar and ComicRack should be your first choice for performing these actions, but I wanted something I could easliy run on my manual downloads directory.
 
 ### Single File - Rebuild/Convert
 Running this will rebuild a CBZ file in an attempt to fix issues/errors with it not displaying correctly.
@@ -46,7 +58,9 @@ Additionally, this will also convert a single CBR file to a CBZ
 |  ![Rebuild - Before](/images/rebuild01.png)  |  ![Rebuild - After](/images/rebuild02.png)    |
 
 ### Crop Cover
-Text
+Use this tool to crop a cover that is front & back, to front only.
+
+The wraparound cover is not deleted, but re-ordered in the CBZ to be the 2nd image.
 
 | Before    | After |
 | -------- | ------- |
@@ -61,3 +75,4 @@ Use this utility to remove the first image in the file.
 | Before    | After |
 | -------- | ------- |
 |  ![Remove - Before](/images/remove01.png)  |  ![Remove - After](/images/remove02.png)    |
+| Page Count: 23 | Page Count: 22 |
