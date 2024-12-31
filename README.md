@@ -31,7 +31,7 @@ You'll be presented with the main screen, where you can select which option you'
 
 ![Main Menu](/images/example.png)
 
-### Rebuild Directory
+### 1. Rebuild Directory
 Rebuilds all files in a directory. 
 
 This utility does 2 things:
@@ -40,7 +40,7 @@ This utility does 2 things:
 
 I often see, in both newer and older files, that Komga doesn't recognize or scan them correctly. More often than not, rebuilding them corrects the error.
  
-### Rename - All Files in Diretory
+### 2. Rename - All Files in Diretory
 Currently this functiuon does 3 things to all files in a directory and any sub-directories.
 
 1. Removes everything in parentheses with the exepction of the 4-digit year (if available)
@@ -49,7 +49,7 @@ Currently this functiuon does 3 things to all files in a directory and any sub-d
 
 Mylar and ComicRack should be your first choice for performing these actions, but I wanted something I could easliy run on my manual downloads directory.
 
-### Single File - Rebuild/Convert
+### 3. Single File - Rebuild/Convert
 Running this will rebuild a CBZ file in an attempt to fix issues/errors with it not displaying correctly.
 Additionally, this will also convert a single CBR file to a CBZ
 
@@ -57,7 +57,7 @@ Additionally, this will also convert a single CBR file to a CBZ
 | -------- | ------- |
 |  ![Rebuild - Before](/images/rebuild01.png)  |  ![Rebuild - After](/images/rebuild02.png)    |
 
-### Crop Cover
+### 4. Crop Cover
 Use this tool to crop a cover that is front & back, to front only.
 
 The wraparound cover is not deleted, but re-ordered in the CBZ to be the 2nd image.
@@ -67,7 +67,7 @@ The wraparound cover is not deleted, but re-ordered in the CBZ to be the 2nd ima
 |  ![Crop - Before](/images/crop01.png)  |  ![Crop - After](/images/crop02.png)    |
 | Page Count: 63 | Page Count: 64 |
 
-### Remove First Image
+### 5. Remove First Image
 Many older files will have a cover image that is not the cover of the comic.
 
 Use this utility to remove the first image in the file.
