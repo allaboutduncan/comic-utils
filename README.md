@@ -7,29 +7,21 @@ Copy the following and edit the environment variables
 
     version: '3.9'
     services:
-        notion-books:
-            image: allaboutduncan/notion-isbn:latest
-            container_name: notion-books
+        comic-utils:
+            image: allaboutduncan/comic-utils-web:latest
+
+            container_name: comic-utils
             logging:
                 options:
                     max-size: 1g
             restart: always
             volumes:
-                - '/var/run/docker.sock:/tmp/docker.sock:ro'
+                - '/var/run/docker.sock:/tmp/docker.sock:ro' # do not change this line
+                - "D:/Comics:/data" #update this line to map to your library. If you are running Komga via Docker - this should be the same setting
             ports:
-                - '3331:3331'
+                - '5577:5577'
             environment:
-                - AWS_ACCESS_KEY_ID=ENTER-YOUR-ACCESS-KEY-HERE
-                - AWS_SECRET_ACCESS_KEY=ENTER-YOUR-SECRET-KEY-HERE
-                - AWS_BUCKET=bucket-name
-                - NOTION_TOKEN=notion_secret
-                - NOTION_DATABASE_ID=notion-database-id
-                - GoogleAPIKey=Google-Books-API-Key
-                - USE_PUSHOVER=yes/no
-                - PO_TOKEN=pushover-app-API-key
-                - PO_USER=pushover_user_key
-                - USE_PUSHBULLET=yes/no
-                - PB_TOKEN=pushbullet_access_token
+                - FLASK_ENV=development
 
 ## Using the Utilities
 
