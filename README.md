@@ -50,7 +50,8 @@ Text
 
 | Before    | After |
 | -------- | ------- |
-|  ![Rebuild - Before](/images/rebuild01.png)  |  ![Rebuild - After](/images/rebuild02.png)    |
+|  ![Crop - Before](/images/crop01.png)  |  ![Crop - After](/images/crop02.png)    |
+| Page Count: 63 | Page Count: 64 |
 
 ### Remove First Image
 Many older files will have a cover image that is not the cover of the comic.
