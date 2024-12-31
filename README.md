@@ -23,6 +23,8 @@ Copy the following and edit the environment variables
             environment:
                 - FLASK_ENV=development
 
+---
+
 ## Using the Utilities
 
 In your browser, navigate to http://localhost:5577
@@ -30,6 +32,8 @@ In your browser, navigate to http://localhost:5577
 You'll be presented with the main screen, where you can select which option you'd like to perform
 
 ![Main Menu](/images/example.png)
+
+---
 
 ### 1. Rebuild Directory
 Rebuilds all files in a directory. 
