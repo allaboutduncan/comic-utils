@@ -52,6 +52,8 @@ To regenerate this file, before clicking run, it should look like this:
 ![Single Example](/images/single.png)
 
 ---
+## Features
+Below are examples and explanations of each feature available
 
 ### 1. Rebuild Directory
 Rebuilds all files in a directory. 
