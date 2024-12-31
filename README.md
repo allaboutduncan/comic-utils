@@ -37,8 +37,34 @@ In your browser, navigate to http://localhost:5577
 
 You'll be presented with the main screen, where you can select which option you'd like to perform
 
-| Month    | Savings |
+![Main Menu](/images/example.png)
+
+### Rebuild Directory
+Text
+ 
+### Rename - All Files in Diretory
+Text
+
+### Single File - Rebuild/Convert
+Running this will rebuild a CBZ file in an attempt to fix issues/errors with it not displaying correctly.
+Additionally, this will also convert a single CBR file to a CBZ
+
+| Before    | After |
 | -------- | ------- |
-| January  | $250    |
-| February | $80     |
-| March    | $420    |
+|  ![Rebuild - Before](/images/rebuild01.png)  |  ![Rebuild - After](/images/rebuild02.png)    |
+
+### Crop Cover
+Text
+
+| Before    | After |
+| -------- | ------- |
+|  ![Rebuild - Before](/images/rebuild01.png)  |  ![Rebuild - After](/images/rebuild02.png)    |
+
+### Remove First Image
+Many older files will have a cover image that is not the cover of the comic.
+
+Use this utility to remove the first image in the file.
+
+| Before    | After |
+| -------- | ------- |
+|  ![Remove - Before](/images/remove01.png)  |  ![Remove - After](/images/remove02.png)    |
