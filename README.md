@@ -17,7 +17,9 @@ Copy the following and edit the environment variables
             restart: always
             volumes:
                 - '/var/run/docker.sock:/tmp/docker.sock:ro' # do not change this line
-                - "D:/Comics:/data" #update this line to map to your library. If you are running Komga via Docker - this should be the same setting
+                ## update the line below to map to your library.
+                ## If you are running Komga via Docker - this should match
+                - "D:/Comics:/data"
             ports:
                 - '5577:5577'
             environment:
