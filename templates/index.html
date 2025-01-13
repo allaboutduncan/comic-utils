@@ -20,7 +20,7 @@
     
             // Build the URL according to script type
             let url;
-            if (scriptType === 'single_file' || scriptType === 'crop' || scriptType === 'remove') {
+            if (scriptType === 'single_file' || scriptType === 'crop' || scriptType === 'remove' || scriptType === 'add' || scriptType === 'delete') {
                 url = `/stream/${scriptType}?file_path=${encodeURIComponent(directory)}`;  
             } else {
                 url = `/stream/${scriptType}?directory=${encodeURIComponent(directory)}`;
@@ -103,6 +103,8 @@
                     <option value="single_file">Single File Rebuild</option>
                     <option value="crop">Crop Cover</option>
                     <option value="remove">Remove 1st Image</option>
+                    <option value="add">Add Blank Image at End</option>
+                    <option value="delete">Delete File</option>
                 </select>
             </div>
             <button type="submit" class="btn btn-primary">Run</button>
