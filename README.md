@@ -53,6 +53,8 @@ To regenerate this file, before clicking run, it should look like this:
 
 ![Single Example](/images/single.png)
 
+Validation has been added and the app checks to see if directory / single file path has been entered. Based on entry, you can perform the related options.
+
 ---
 ## Features
 Below are examples and explanations of each feature available
@@ -102,3 +104,13 @@ Use this utility to remove the first image in the file.
 | -------- | ------- |
 |  ![Remove - Before](/images/remove01.png)  |  ![Remove - After](/images/remove02.png)    |
 | Page Count: 23 | Page Count: 22 |
+
+### 6. Add blank Image at End
+Requested feature from Komga Discord. Corrects display issues with Manga files.
+
+Adds a blank / empty PNG file (zzzz9999.png) to the archive.
+
+### 7. Delete File
+Utility to delete a single file and requires confirmation before performing the delete action.
+
+|  ![Remove - Before](/images/delete01.png)  |  ![Remove - After](/images/delete02.png)    |
