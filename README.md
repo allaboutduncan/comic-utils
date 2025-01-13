@@ -113,4 +113,5 @@ Adds a blank / empty PNG file (zzzz9999.png) to the archive.
 ### 7. Delete File
 Utility to delete a single file and requires confirmation before performing the delete action.
 
-|  ![Remove - Before](/images/delete01.png)  |  ![Remove - After](/images/delete02.png)    |
+![Delete File](/images/delete01.png)
+![Delete Confirmation](/images/delete02.png)
