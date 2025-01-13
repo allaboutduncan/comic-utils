@@ -5,11 +5,12 @@ import zipfile
 import shutil
 from PIL import Image, ImageFilter
 
-
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(message)s', stream=sys.stdout)
 logger = logging.getLogger(__name__)
 
+# Define supported image extensions
+SUPPORTED_IMAGE_EXTENSIONS = ['.jpg', '.jpeg', '.bmp', '.gif', '.png']
 
 def handle_cbz_file(file_path):
     """
@@ -42,8 +43,11 @@ def handle_cbz_file(file_path):
             zf.extractall(folder_name)
         
         # Step 4: Process the extracted images
-        #logger.info(f"Processing images in folder: {folder_name}")
-        remove_first_jpg_file(folder_name)
+        remove_first_image_file(folder_name)
+
+        # Optional: Apply image processing to all supported images
+        # Uncomment the following line if you want to process images
+        # process_images(folder_name)
 
         # Step 5: Rename the original .zip file to .bak
         bak_file_path = zip_path + '.bak'
@@ -53,9 +57,13 @@ def handle_cbz_file(file_path):
         with zipfile.ZipFile(file_path, 'w', zipfile.ZIP_DEFLATED) as zf:
             for root, _, files in os.walk(folder_name):
                 for file in files:
-                    file_path_in_folder = os.path.join(root, file)
-                    arcname = os.path.relpath(file_path_in_folder, folder_name)
-                    zf.write(file_path_in_folder, arcname)
+                    file_ext = os.path.splitext(file)[1].lower()
+                    if file_ext in SUPPORTED_IMAGE_EXTENSIONS:
+                        file_path_in_folder = os.path.join(root, file)
+                        arcname = os.path.relpath(file_path_in_folder, folder_name)
+                        zf.write(file_path_in_folder, arcname)
+                    else:
+                        logger.info(f"Skipping unsupported file type: {file}")
 
         logger.info(f"Successfully re-compressed: {file_path}")
 
@@ -69,29 +77,55 @@ def handle_cbz_file(file_path):
         if os.path.exists(folder_name):
             shutil.rmtree(folder_name)
 
+def remove_first_image_file(dir_path):
+    """
+    Remove the first image file found in the directory or its subdirectories.
 
-def remove_first_jpg_file(dir_path):
+    :param dir_path: Path to the directory.
+    :return: None
+    """
     # Check if the given directory exists
     if not os.path.exists(dir_path):
         logger.info(f"The directory {dir_path} does not exist.")
         return
     
-    # First, try to find a .jpg file in the main directory
+    # Traverse the directory to find the first supported image file
     for root, dirs, files in os.walk(dir_path):
-        # Skip subdirectories if we already found a .jpg in the current directory
         for file in files:
-            if file.lower().endswith('.jpg'):
+            file_ext = os.path.splitext(file)[1].lower()
+            if file_ext in SUPPORTED_IMAGE_EXTENSIONS:
                 file_path = os.path.join(root, file)
                 try:
                     os.remove(file_path)
                     logger.info(f"Removed: {file_path}")
-                    return
+                    return  # Exit after removing the first image
                 except Exception as e:
                     logger.info(f"Failed to remove {file_path}. Error: {e}")
                 return
     
-    logger.info(f"No .jpg files found in {dir_path} or its subdirectories.")
+    logger.info(f"No supported image files found in {dir_path} or its subdirectories.")
 
+# Optional: Function to process images (e.g., apply a filter)
+def process_images(dir_path):
+    """
+    Apply a filter to all supported image files in the directory and its subdirectories.
+
+    :param dir_path: Path to the directory.
+    :return: None
+    """
+    for root, dirs, files in os.walk(dir_path):
+        for file in files:
+            file_ext = os.path.splitext(file)[1].lower()
+            if file_ext in SUPPORTED_IMAGE_EXTENSIONS:
+                file_path = os.path.join(root, file)
+                try:
+                    with Image.open(file_path) as img:
+                        # Example: Apply a blur filter
+                        processed_img = img.filter(ImageFilter.BLUR)
+                        processed_img.save(file_path)
+                        logger.info(f"Processed: {file_path}")
+                except Exception as e:
+                    logger.error(f"Failed to process image {file_path}: {e}")
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
