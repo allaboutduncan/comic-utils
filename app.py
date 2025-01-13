@@ -10,10 +10,10 @@ def stream_logs(script_type):
     directory = request.args.get('directory')  # Get directory for rebuild/rename script
 
     # Check if the correct parameter is passed for 'single_file' script
-    if script_type in ['single_file', 'crop', 'remove']:
+    if script_type in ['single_file', 'crop', 'remove', 'delete', 'add']:
         print(script_type)
         if not file_path:
-            return Response("Missing file_path for single_file/crop/remove script.", status=400)
+            return Response("Missing file_path for single file action.", status=400)
         elif not os.path.isfile(file_path):
             return Response("Invalid file_path.", status=400)
 
@@ -21,7 +21,7 @@ def stream_logs(script_type):
 
         def generate_logs():
             process = subprocess.Popen(
-                ['python', script_file, file_path if script_type in ['single_file', 'crop', 'remove'] else directory],
+                ['python', script_file, file_path if script_type in ['single_file', 'crop', 'remove', 'delete', 'add'] else directory],
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=True

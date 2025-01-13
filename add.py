@@ -42,7 +42,7 @@ def handle_cbz_file(file_path):
             zf.extractall(folder_name)
         
         # Step 4: Add the new image to the folder
-        add_image_to_folder(folder_name, 'images/zzzz9999.png')
+        add_image_to_folder(folder_name)
 
         # Step 5: Rename the original .zip file to .bak
         bak_file_path = zip_path + '.bak'
@@ -69,32 +69,28 @@ def handle_cbz_file(file_path):
             shutil.rmtree(folder_name)
 
 
-def add_image_to_folder(folder_path, image_filename):
+def add_image_to_folder(folder_path):
     """
-    Add a specific image to the given folder.
+    Add the specific image "/app/images/zzzz9999.png" to the given folder.
 
     :param folder_path: Path to the folder where the image will be added.
-    :param image_filename: Name of the image file to add.
     :return: None
     """
-    # Define the path to the image to be added
-    # Assuming 'zzzz9999.png' is in the same directory as this script
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    source_image_path = os.path.join(script_dir, image_filename)
+    # Define the fixed path to the image to be added
+    source_image_path = "/app/images/zzzz9999.png"
     
     if not os.path.exists(source_image_path):
-        logger.error(f"The image {image_filename} does not exist in {script_dir}.")
+        logger.error(f"The image {source_image_path} does not exist.")
         return
 
-    # Define the destination path
-    destination_image_path = os.path.join(folder_path, image_filename)
+    # Define the destination path with the fixed image name
+    destination_image_path = os.path.join(folder_path, "zzzz9999.png")
     
     try:
         shutil.copy(source_image_path, destination_image_path)
         logger.info(f"Added image: {destination_image_path}")
     except Exception as e:
-        logger.error(f"Failed to add image {image_filename}: {e}")
-
+        logger.error(f"Failed to add image zzzzz9999.png: {e}")
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:

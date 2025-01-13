@@ -7,47 +7,57 @@
     <!-- Bootstrap CSS -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet">
     <script>
-        function runScript() {
-            const directory = document.getElementById('directory').value;
+        // Function to run the selected script
+        function runScript(filePath) {
             const scriptType = document.getElementById('script-type').value;
             const logsContainer = document.getElementById('logs');
             logsContainer.innerHTML = ''; // Clear previous logs
-    
-            if (!directory) {
-                logsContainer.innerHTML = `<h3>Error:</h3><pre>Directory path is required.</pre>`;
+
+            if (!filePath) {
+                logsContainer.innerHTML = `<h3>Error:</h3><pre>File path is required.</pre>`;
                 return;
             }
-    
+
             // Build the URL according to script type
             let url;
-            if (scriptType === 'single_file' || scriptType === 'crop' || scriptType === 'remove' || scriptType === 'add' || scriptType === 'delete') {
-                url = `/stream/${scriptType}?file_path=${encodeURIComponent(directory)}`;  
+            if (['single_file', 'crop', 'remove', 'add', 'delete'].includes(scriptType)) {
+                url = `/stream/${scriptType}?file_path=${encodeURIComponent(filePath)}`;  
             } else {
-                url = `/stream/${scriptType}?directory=${encodeURIComponent(directory)}`;
+                url = `/stream/${scriptType}?directory=${encodeURIComponent(filePath)}`;
             }
-    
+
             // Create a new EventSource to receive logs
             const eventSource = new EventSource(url);
-    
+
             // 1) Listen for all SSE messages, checking for "Error:" prefix
             eventSource.onmessage = (event) => {
                 const line = event.data.trim();
                 const logLine = document.createElement('div');
-    
+
                 // If the line starts with "Error:", display an alert-danger
-                if (line.startsWith("Error:")) {
-                    logLine.textContent = line;  // Or remove the prefix if you prefer
+                if (line.startsWith("ERROR:")) {
+                    logLine.textContent = line;
                     logLine.className = "alert alert-danger";
                     logLine.setAttribute("role", "alert");
+                } else if (line.startsWith("SUCCESS:")) {
+                    logLine.textContent = line;
+                    logLine.className = "alert alert-success";
+                    logLine.setAttribute("role", "alert");
+                } else if (line.startsWith("IMAGE:")) {
+                    const imageUrl = line.substring(6).trim();
+                    const img = document.createElement('img');
+                    img.src = imageUrl;
+                    img.className = "mt-2 img-fluid";
+                    logsContainer.appendChild(img);
                 } else {
                     // Normal log line
                     logLine.textContent = line;
                 }
-    
+
                 logsContainer.appendChild(logLine);
                 logsContainer.scrollTop = logsContainer.scrollHeight; // Auto-scroll to the bottom
             };
-    
+
             // 2) Handle a "completed" custom event (if sent by the server)
             eventSource.addEventListener("completed", (e) => {
                 const successLine = document.createElement('div');
@@ -56,11 +66,11 @@
                 successLine.setAttribute("role", "alert");
                 logsContainer.appendChild(successLine);
                 logsContainer.scrollTop = logsContainer.scrollHeight;
-    
+
                 // Close the SSE
                 eventSource.close();
             });
-    
+
             // 3) Consider onerror a network/connection problem, not a script error
             eventSource.onerror = () => {
                 const errorLine = document.createElement('div');
@@ -71,7 +81,7 @@
                 logsContainer.appendChild(errorLine);
                 eventSource.close();
             };
-    
+
             // 4) (Optional) Listen for a "close" event if the server emits it
             eventSource.addEventListener('close', () => {
                 const successLine = document.createElement('div');
@@ -83,21 +93,109 @@
                 eventSource.close();
             });
         }
+
+        // Function to handle form submission
+        function handleFormSubmit(event) {
+            event.preventDefault(); // Prevent the default form submission
+
+            const scriptType = document.getElementById('script-type').value;
+            const directoryInput = document.getElementById('directory').value.trim();
+
+            if (scriptType === 'delete') {
+                // If the selected script is 'delete', show the confirmation modal
+                document.getElementById('filePathToDelete').textContent = directoryInput; // Set the file path in modal
+                const deleteModal = new bootstrap.Modal(document.getElementById('confirmDeleteModal'));
+                deleteModal.show();
+            } else {
+                // For other script types, run the script directly
+                runScript(directoryInput);
+            }
+        }
+
+        // Function to confirm deletion
+        function confirmDeletion() {
+            const directoryInput = document.getElementById('directory').value.trim();
+            const deleteModal = bootstrap.Modal.getInstance(document.getElementById('confirmDeleteModal'));
+            deleteModal.hide(); // Hide the modal
+            runScript(directoryInput); // Proceed with deletion
+        }
+
+        // Function to update the availability of script options based on file path
+        function updateScriptOptions() {
+            const directoryInput = document.getElementById('directory').value.trim();
+            const scriptSelect = document.getElementById('script-type');
+            const rebuildOption = scriptSelect.querySelector('option[value="rebuild"]');
+            const renameOption = scriptSelect.querySelector('option[value="rename"]');
+            const singleFileOption = scriptSelect.querySelector('option[value="single_file"]');
+            const cropOption = scriptSelect.querySelector('option[value="crop"]');
+            const removeOption = scriptSelect.querySelector('option[value="remove"]');
+            const addOption = scriptSelect.querySelector('option[value="add"]');
+            const deleteOption = scriptSelect.querySelector('option[value="delete"]');
+
+            // Define the forbidden and required extensions
+            const forbiddenExtensions = ['zip', 'rar', 'cbr', 'cbz'];
+            const requiredExtensions = ['zip', 'rar', 'cbr', 'cbz'];
+
+            // Extract the file extension from the input
+            const extensionMatch = directoryInput.match(/\.([^.\\/:*?"<>|\r\n]+)$/);
+            const extension = extensionMatch ? extensionMatch[1].toLowerCase() : '';
+
+            // Check if the extension is in the forbidden or required list
+            const isForbidden = forbiddenExtensions.includes(extension);
+            const isRequired = requiredExtensions.includes(extension);
+
+            // Disable or enable the 'rebuild' and 'rename' options accordingly
+            rebuildOption.disabled = isForbidden;
+            renameOption.disabled = isForbidden;
+
+            // Disable or enable the 'single_file', 'crop', 'remove', 'add', 'delete' options
+            singleFileOption.disabled = !isRequired;
+            cropOption.disabled = !isRequired;
+            removeOption.disabled = !isRequired;
+            addOption.disabled = !isRequired;
+            deleteOption.disabled = !isRequired;
+
+            // Determine if there are any enabled options besides 'Select Option'
+            const hasEnabledOptions = (isForbidden === false) || isRequired;
+
+            if (!hasEnabledOptions) {
+                // No valid options available, set select to 'Select Option'
+                scriptSelect.value = "";
+            } else {
+                // If the currently selected option is disabled, switch to 'Select Option'
+                const selectedOption = scriptSelect.value;
+                const selectedOptionElement = scriptSelect.querySelector(`option[value="${selectedOption}"]`);
+
+                if (selectedOptionElement && selectedOptionElement.disabled) {
+                    scriptSelect.value = "";
+                }
+            }
+        }
+
+        // Add event listeners after the DOM content is loaded
+        document.addEventListener('DOMContentLoaded', () => {
+            const directoryInputField = document.getElementById('directory');
+            // Listen for input changes to update script options dynamically
+            directoryInputField.addEventListener('input', updateScriptOptions);
+
+            // Optionally, initialize the script options on page load
+            updateScriptOptions();
+        });
     </script>
-    
 </head>
 <body>
     <!-- Main Container with Bootstrap classes for styling -->
     <div class="container mt-4">
         <h1 class="text-center">Comic Library Utilities</h1>
-        <form onsubmit="event.preventDefault(); runScript();" class="mt-4">
+        <form onsubmit="handleFormSubmit(event);" class="mt-4">
             <div class="mb-3">
-                <label for="directory" class="form-label">Directory Path:</label>
+                <label for="directory" class="form-label">Directory/File Path:</label>
                 <input type="text" id="directory" name="directory" class="form-control" required>
             </div>
             <div class="mb-3">
                 <label for="script-type" class="form-label">Select Script:</label>
                 <select id="script-type" name="script-type" class="form-select" required>
+                    <option value="" disabled selected>Select Option</option>
                     <option value="rebuild">Rebuild Directory</option>
                     <option value="rename">Rename Directory</option>
                     <option value="single_file">Single File Rebuild</option>
@@ -115,7 +213,28 @@
         <div id="logs" class="mt-4 p-3 border rounded" style="max-height: 400px; overflow-y: auto; white-space: pre-wrap;"></div>
     </div>
 
-    <!-- Bootstrap JS (Optional, but recommended for full Bootstrap functionality) -->
+    <!-- Confirmation Modal -->
+    <div class="modal fade" id="confirmDeleteModal" tabindex="-1" aria-labelledby="confirmDeleteModalLabel" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 id="confirmDeleteModalLabel" class="modal-title">Confirm Deletion</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <p>Are you sure you want to delete the following file?</p>
+                    <p><strong id="filePathToDelete"></strong></p>
+                    <p>This action cannot be undone.</p>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-danger" onclick="confirmDeletion()">Delete</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Bootstrap JS (Required for Modal functionality) -->
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>
