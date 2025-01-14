@@ -77,9 +77,19 @@ def handle_cbz_file(file_path):
         if os.path.exists(folder_name):
             shutil.rmtree(folder_name)
 
+import os
+import logging
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# Define supported image extensions
+SUPPORTED_IMAGE_EXTENSIONS = {'.jpg', '.jpeg', '.png', '.gif', '.bmp', '.tiff'}
+
 def remove_first_image_file(dir_path):
     """
-    Remove the first image file found in the directory or its subdirectories.
+    Remove the first image file in alphanumerical order from the directory or its subdirectories.
 
     :param dir_path: Path to the directory.
     :return: None
@@ -89,21 +99,33 @@ def remove_first_image_file(dir_path):
         logger.info(f"The directory {dir_path} does not exist.")
         return
     
-    # Traverse the directory to find the first supported image file
+    # List to hold all supported image file paths
+    image_files = []
+
+    # Traverse the directory to collect all supported image files
     for root, dirs, files in os.walk(dir_path):
         for file in files:
             file_ext = os.path.splitext(file)[1].lower()
             if file_ext in SUPPORTED_IMAGE_EXTENSIONS:
                 file_path = os.path.join(root, file)
-                try:
-                    os.remove(file_path)
-                    logger.info(f"Removed: {file_path}")
-                    return  # Exit after removing the first image
-                except Exception as e:
-                    logger.info(f"Failed to remove {file_path}. Error: {e}")
-                return
+                image_files.append(file_path)
     
-    logger.info(f"No supported image files found in {dir_path} or its subdirectories.")
+    if not image_files:
+        logger.info(f"No supported image files found in {dir_path} or its subdirectories.")
+        return
+    
+    # Sort the image files alphanumerically
+    image_files.sort()
+    
+    # The first image in alphanumerical order
+    first_image = image_files[0]
+    
+    try:
+        os.remove(first_image)
+        logger.info(f"Removed: {first_image}")
+    except Exception as e:
+        logger.info(f"Failed to remove {first_image}. Error: {e}")
+        
 
 # Optional: Function to process images (e.g., apply a filter)
 def process_images(dir_path):
