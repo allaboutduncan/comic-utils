@@ -15,25 +15,30 @@ def rename_files(directory):
             # Construct the full file path
             file_path = os.path.join(dirpath, filename)
             
-            # Apply the regex to clean the filename
-            new_filename = re.sub(r'\((?!\d{4}\))(.*?)\)', '', filename)
-            new_filename = re.sub(r'\[.*?\]', '', new_filename)
-            new_filename = re.sub(r'\s+\.', '.', new_filename)  # Remove spaces before the file extension
-            new_filename = re.sub(r'\s*c2c', '', new_filename)  # Remove " c2c"
-            pattern = r'^(.*?\d{3}(?:\s*\(\d{4}\))?)\b.*(\.\w+)$'
-            match = re.match(pattern, new_filename)
-            
+            pattern = r'^(.*?\d{3})(?:\s*\((\d{4})\))?.*?(\.\w+)$'
+            match = re.match(pattern, filename)
+
             if match:
-                # Reconstruct the filename with the desired part and the extension.
-                new_filename = match.group(1) + match.group(2)
-                # Example:
-                # Original: "Captain Marvel, Jr. 019 inc JVJ rh Yoc.cbz"
-                # Group 1: "Captain Marvel, Jr. 019"
-                # Group 2: ".cbz"
-                # Result: "Captain Marvel, Jr. 019.cbz"
+                # Extract issue number, optional year, and file extension
+                base_name = match.group(1)
+                year = f" ({match.group(2)})" if match.group(2) else ""
+                extension = match.group(3)
+                # Combine the cleaned parts
+                new_filename = f"{base_name}{year}{extension}"
+                print(f"New Filename: {new_filename}")
             else:
-                # If the pattern doesn't match, optionally handle it or leave as is.
-                pass
+                # If no match, default to removing everything after issue number
+                fallback_pattern = r'^(.*?\d{3}).*?(\.\w+)$'
+                fallback_match = re.match(fallback_pattern, filename)
+                if fallback_match:
+                    base_name = fallback_match.group(1)
+                    extension = fallback_match.group(2)
+                    new_filename = f"{base_name}{extension}"
+                    print(f"New Filename: {new_filename}")
+                else:
+                    # Leave filename unchanged if no patterns match
+                    new_filename = filename
+                    print(f"New Filename: {new_filename}")
             
             # Only rename if the filename has changed
             if filename != new_filename:
