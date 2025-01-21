@@ -17,8 +17,23 @@ def rename_files(directory):
             
             # Apply the regex to clean the filename
             new_filename = re.sub(r'\((?!\d{4}\))(.*?)\)', '', filename)
+            new_filename = re.sub(r'\[.*?\]', '', new_filename)
             new_filename = re.sub(r'\s+\.', '.', new_filename)  # Remove spaces before the file extension
             new_filename = re.sub(r'\s*c2c', '', new_filename)  # Remove " c2c"
+            pattern = r'^(.*?\d{3}(?:\s*\(\d{4}\))?)\b.*(\.\w+)$'
+            match = re.match(pattern, new_filename)
+            
+            if match:
+                # Reconstruct the filename with the desired part and the extension.
+                new_filename = match.group(1) + match.group(2)
+                # Example:
+                # Original: "Captain Marvel, Jr. 019 inc JVJ rh Yoc.cbz"
+                # Group 1: "Captain Marvel, Jr. 019"
+                # Group 2: ".cbz"
+                # Result: "Captain Marvel, Jr. 019.cbz"
+            else:
+                # If the pattern doesn't match, optionally handle it or leave as is.
+                pass
             
             # Only rename if the filename has changed
             if filename != new_filename:

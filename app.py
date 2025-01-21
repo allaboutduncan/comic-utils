@@ -39,7 +39,7 @@ def stream_logs(script_type):
 
         return Response(generate_logs(), content_type='text/event-stream')
 
-    elif script_type in ['rebuild', 'rename']:
+    elif script_type in ['rebuild', 'rename', 'convert']:
         if not directory or not os.path.isdir(directory):
             return Response("Invalid or missing directory path.", status=400)
 

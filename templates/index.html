@@ -124,6 +124,7 @@
         function updateScriptOptions() {
             const directoryInput = document.getElementById('directory').value.trim();
             const scriptSelect = document.getElementById('script-type');
+            const convertOption = scriptSelect.querySelector('option[value="convert"]');
             const rebuildOption = scriptSelect.querySelector('option[value="rebuild"]');
             const renameOption = scriptSelect.querySelector('option[value="rename"]');
             const singleFileOption = scriptSelect.querySelector('option[value="single_file"]');
@@ -147,6 +148,7 @@
             // Disable or enable the 'rebuild' and 'rename' options accordingly
             rebuildOption.disabled = isForbidden;
             renameOption.disabled = isForbidden;
+            convertOption.disabled = isForbidden;
 
             // Disable or enable the 'single_file', 'crop', 'remove', 'add', 'delete' options
             singleFileOption.disabled = !isRequired;
@@ -196,8 +198,9 @@
                 <label for="script-type" class="form-label">Select Script:</label>
                 <select id="script-type" name="script-type" class="form-select" required>
                     <option value="" disabled selected>Select Option</option>
-                    <option value="rebuild">Rebuild Directory</option>
                     <option value="rename">Rename Directory</option>
+                    <option value="convert">Convert Directory (CBR / RAR Only)</option>
+                    <option value="rebuild">Rebuild Full Directory</option>
                     <option value="single_file">Single File Rebuild</option>
                     <option value="crop">Crop Cover</option>
                     <option value="remove">Remove 1st Image</option>
