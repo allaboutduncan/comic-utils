@@ -1,1 +1,5 @@
 .env
+/bak
+/files
+temp-*
+.dockerignore
