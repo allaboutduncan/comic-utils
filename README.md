@@ -68,7 +68,7 @@ Currently this functiuon does 5 things to all files in a directory and any sub-d
 4. Removes any text / characters after "filename issue (year)"
 5. Removes any extra spaces before the file entenstion
 
-Mylar and ComicRack should be your first choice for performing these actions, but I wanted something I could easliy run on my manual downloads directory.
+Mylar and ComicRack should be your first choice for performing these actions, but I wanted something I could easliy run on my manual downloads directory. Oftentimes series archives or torrent files will have numerous naming patterns with information in parentesis, brackets, before the year, after and all over the place. I continuously update these to handle as many as I encounter.
 
 ### 2. Convert Directory (CBR / RAR Only)
 Converts all CBR / RAR files in a directory to ZIP. This will skip any existing CBZ files.
