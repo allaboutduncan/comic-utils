@@ -25,6 +25,7 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y git
 RUN pip3 install --upgrade pip --user
 RUN apt-get install unar -y
+RUN apt-get install poppler-utils -y
 RUN pip install --no-cache-dir flask rarfile pillow
 
 # Copy the source code into the container.
