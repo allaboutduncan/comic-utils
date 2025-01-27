@@ -127,6 +127,7 @@
             const convertOption = scriptSelect.querySelector('option[value="convert"]');
             const rebuildOption = scriptSelect.querySelector('option[value="rebuild"]');
             const renameOption = scriptSelect.querySelector('option[value="rename"]');
+            const pdfOption = scriptSelect.querySelector('option[value="pdf"]');
             const singleFileOption = scriptSelect.querySelector('option[value="single_file"]');
             const cropOption = scriptSelect.querySelector('option[value="crop"]');
             const removeOption = scriptSelect.querySelector('option[value="remove"]');
@@ -149,6 +150,7 @@
             rebuildOption.disabled = isForbidden;
             renameOption.disabled = isForbidden;
             convertOption.disabled = isForbidden;
+            pdfOption.disabled = isForbidden;
 
             // Disable or enable the 'single_file', 'crop', 'remove', 'add', 'delete' options
             singleFileOption.disabled = !isRequired;
@@ -204,6 +206,7 @@
                     <option value="rename">Rename Directory</option>
                     <option value="convert">Convert Directory (CBR / RAR Only)</option>
                     <option value="rebuild">Rebuild Full Directory</option>
+                    <option value="pdf">Convert PDFs in Directory to CBZ </option>
                     <option value="single_file">Single File Rebuild</option>
                     <option value="crop">Crop Cover</option>
                     <option value="remove">Remove 1st Image</option>
