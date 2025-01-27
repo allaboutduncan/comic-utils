@@ -1,7 +1,7 @@
 import os
 import sys
 import zipfile
-from pdf2image import convert_from_path
+from pdf2image import convert_from_path, pdfinfo_from_path
 
 def scan_and_convert(directory):
     """
@@ -10,7 +10,6 @@ def scan_and_convert(directory):
 
     :param directory: Root directory to scan
     """
-    print(f"Scanning directory: {directory}")
     for root, _, files in os.walk(directory):
         for file in files:
             if file.lower().endswith('.pdf'):
@@ -21,14 +20,17 @@ def scan_and_convert(directory):
                 output_folder = os.path.join(root, pdf_name)
                 os.makedirs(output_folder, exist_ok=True)
 
-                # Convert PDF pages to images
+                # Convert PDF pages to images in chunks
                 print(f"Processing: {pdf_path}")
                 try:
-                    pages = convert_from_path(pdf_path)
-                    for i, page in enumerate(pages):
-                        page_filename = f"{pdf_name} page_{i + 1}.jpg"
+                    pdf_info = pdfinfo_from_path(pdf_path)
+                    total_pages = pdf_info["Pages"]
+
+                    for page_number in range(1, total_pages + 1):
+                        page = convert_from_path(pdf_path, first_page=page_number, last_page=page_number, thread_count=1)[0]
+                        page_filename = f"{pdf_name} page_{page_number}.jpg"
                         page_path = os.path.join(output_folder, page_filename)
-                        page.save(page_path, 'JPEG')
+                        page.save(page_path, "JPEG")
 
                     # Compress the folder into a CBZ file
                     cbz_path = os.path.join(root, f"{pdf_name}.cbz")
