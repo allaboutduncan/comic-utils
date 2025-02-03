@@ -3,38 +3,100 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Rebuild and Rename</title>
+    <title>Comic Library Utilities</title>
     <!-- Bootstrap CSS -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
     <script>
+        // Global variable to hold the current EventSource
+        let currentEventSource = null;
+
         // Function to run the selected script
-        function runScript(filePath) {
-            const scriptType = document.getElementById('script-type').value;
+        function runScript(scriptType) {
+            const directoryInput = document.getElementById('directory').value.trim();
             const logsContainer = document.getElementById('logs');
             logsContainer.innerHTML = ''; // Clear previous logs
 
-            if (!filePath) {
-                logsContainer.innerHTML = `<h3>Error:</h3><pre>File path is required.</pre>`;
+            if (!directoryInput) {
+                logsContainer.innerHTML = `<div class="alert alert-danger" role="alert"><strong>Error:</strong> Directory/File path is required.</div>`;
                 return;
+            }
+
+            // Handle 'delete' script type with confirmation
+            if (scriptType === 'delete') {
+                document.getElementById('filePathToDelete').textContent = directoryInput;
+                const deleteModal = new bootstrap.Modal(document.getElementById('confirmDeleteModal'));
+                deleteModal.show();
+
+                // Store the scriptType to run after confirmation
+                window.confirmedScriptType = scriptType;
+                return;
+            }
+
+            executeScript(scriptType, directoryInput);
+        }
+
+        // Function to execute the script after confirmation (for 'delete')
+        function executeScript(scriptType, directoryInput) {
+            // Close any existing EventSource to prevent multiple connections
+            if (currentEventSource) {
+                currentEventSource.close();
+                currentEventSource = null;
             }
 
             // Build the URL according to script type
             let url;
             if (['single_file', 'crop', 'remove', 'add', 'delete'].includes(scriptType)) {
-                url = `/stream/${scriptType}?file_path=${encodeURIComponent(filePath)}`;  
+                url = `/stream/${scriptType}?file_path=${encodeURIComponent(directoryInput)}`;  
             } else {
-                url = `/stream/${scriptType}?directory=${encodeURIComponent(filePath)}`;
+                url = `/stream/${scriptType}?directory=${encodeURIComponent(directoryInput)}`;
             }
+
+            console.log(`Connecting to: ${url}`);
 
             // Create a new EventSource to receive logs
             const eventSource = new EventSource(url);
+            currentEventSource = eventSource;
 
-            // 1) Listen for all SSE messages, checking for "Error:" prefix
+            const logsContainer = document.getElementById('logs');
+
+            // EventSource onopen handler
+            eventSource.onopen = () => {
+                console.log(`Connected to ${url}`);
+                
+                // Create alert div
+                const infoLine = document.createElement('div');
+                infoLine.className = "alert alert-info alert-dismissible fade show";
+
+                // Create icon element
+                const icon = document.createElement("i");
+                icon.className = "bi bi-info-circle-fill me-2"; // Added 'me-2' for spacing
+
+                // Create text node for message
+                const message = document.createTextNode("Connection established. Streaming logs...");
+
+                // Create close button
+                const closeButton = document.createElement("button");
+                closeButton.type = "button";
+                closeButton.className = "btn-close";
+                closeButton.setAttribute("data-bs-dismiss", "alert");
+                closeButton.setAttribute("aria-label", "Close");
+
+                // Append icon and message to alert div
+                infoLine.appendChild(icon);
+                infoLine.appendChild(message);
+                infoLine.appendChild(closeButton);
+
+                // Append the alert div to logs container
+                logsContainer.appendChild(infoLine);
+            };
+
+            // Listen for all SSE messages
             eventSource.onmessage = (event) => {
                 const line = event.data.trim();
                 const logLine = document.createElement('div');
 
-                // If the line starts with "Error:", display an alert-danger
+                // If the line starts with "ERROR:", display an alert-danger
                 if (line.startsWith("ERROR:")) {
                     logLine.textContent = line;
                     logLine.className = "alert alert-danger";
@@ -49,16 +111,17 @@
                     img.src = imageUrl;
                     img.className = "mt-2 img-fluid";
                     logsContainer.appendChild(img);
+                    return; // Exit to avoid appending to logs again
                 } else {
                     // Normal log line
-                    logLine.textContent = line;
+                    logLine.innerHTML = line;  // Use innerHTML to render HTML content
                 }
 
                 logsContainer.appendChild(logLine);
                 logsContainer.scrollTop = logsContainer.scrollHeight; // Auto-scroll to the bottom
             };
 
-            // 2) Handle a "completed" custom event (if sent by the server)
+            // Handle custom "completed" event
             eventSource.addEventListener("completed", (e) => {
                 const successLine = document.createElement('div');
                 successLine.textContent = "Process completed successfully!";
@@ -67,49 +130,24 @@
                 logsContainer.appendChild(successLine);
                 logsContainer.scrollTop = logsContainer.scrollHeight;
 
-                // Close the SSE
+                // Close the SSE connection
                 eventSource.close();
+                currentEventSource = null;
+                console.log(`Process completed for ${url}`);
             });
 
-            // 3) Consider onerror a network/connection problem, not a script error
-            eventSource.onerror = () => {
+            // Handle network or connection errors
+            eventSource.onerror = (err) => {
+                console.error(`EventSource error:`, err);
                 const errorLine = document.createElement('div');
-                // This message is for SSE/network issues only, not script errors:
                 errorLine.textContent = "Network or connection error occurred while streaming logs.";
                 errorLine.className = "alert alert-warning";
                 errorLine.setAttribute("role", "alert");
                 logsContainer.appendChild(errorLine);
-                eventSource.close();
-            };
-
-            // 4) (Optional) Listen for a "close" event if the server emits it
-            eventSource.addEventListener('close', () => {
-                const successLine = document.createElement('div');
-                successLine.textContent = "Process completed successfully!";
-                successLine.className = "alert alert-success";
-                successLine.setAttribute("role", "alert");
-                logsContainer.appendChild(successLine);
                 logsContainer.scrollTop = logsContainer.scrollHeight;
                 eventSource.close();
-            });
-        }
-
-        // Function to handle form submission
-        function handleFormSubmit(event) {
-            event.preventDefault(); // Prevent the default form submission
-
-            const scriptType = document.getElementById('script-type').value;
-            const directoryInput = document.getElementById('directory').value.trim();
-
-            if (scriptType === 'delete') {
-                // If the selected script is 'delete', show the confirmation modal
-                document.getElementById('filePathToDelete').textContent = directoryInput; // Set the file path in modal
-                const deleteModal = new bootstrap.Modal(document.getElementById('confirmDeleteModal'));
-                deleteModal.show();
-            } else {
-                // For other script types, run the script directly
-                runScript(directoryInput);
-            }
+                currentEventSource = null;
+            };
         }
 
         // Function to confirm deletion
@@ -117,24 +155,16 @@
             const directoryInput = document.getElementById('directory').value.trim();
             const deleteModal = bootstrap.Modal.getInstance(document.getElementById('confirmDeleteModal'));
             deleteModal.hide(); // Hide the modal
-            runScript(directoryInput); // Proceed with deletion
+
+            const scriptType = window.confirmedScriptType;
+            window.confirmedScriptType = null; // Reset the temporary variable
+
+            executeScript(scriptType, directoryInput); // Proceed with deletion
         }
 
         // Function to update the availability of script options based on file path
         function updateScriptOptions() {
             const directoryInput = document.getElementById('directory').value.trim();
-            const scriptSelect = document.getElementById('script-type');
-            const convertOption = scriptSelect.querySelector('option[value="convert"]');
-            const rebuildOption = scriptSelect.querySelector('option[value="rebuild"]');
-            const renameOption = scriptSelect.querySelector('option[value="rename"]');
-            const pdfOption = scriptSelect.querySelector('option[value="pdf"]');
-            const singleFileOption = scriptSelect.querySelector('option[value="single_file"]');
-            const cropOption = scriptSelect.querySelector('option[value="crop"]');
-            const removeOption = scriptSelect.querySelector('option[value="remove"]');
-            const addOption = scriptSelect.querySelector('option[value="add"]');
-            const deleteOption = scriptSelect.querySelector('option[value="delete"]');
-
-            // Define the forbidden and required extensions
             const forbiddenExtensions = ['zip', 'rar', 'cbr', 'cbz'];
             const requiredExtensions = ['zip', 'rar', 'cbr', 'cbz'];
 
@@ -146,34 +176,46 @@
             const isForbidden = forbiddenExtensions.includes(extension);
             const isRequired = requiredExtensions.includes(extension);
 
-            // Disable or enable the 'rebuild' and 'rename' options accordingly
-            rebuildOption.disabled = isForbidden;
-            renameOption.disabled = isForbidden;
-            convertOption.disabled = isForbidden;
-            pdfOption.disabled = isForbidden;
+            // Get the multiple and single divs
+            const multipleContainer = document.getElementById('multiple');
+            const singleContainer = document.getElementById('single');
 
-            // Disable or enable the 'single_file', 'crop', 'remove', 'add', 'delete' options
-            singleFileOption.disabled = !isRequired;
-            cropOption.disabled = !isRequired;
-            removeOption.disabled = !isRequired;
-            addOption.disabled = !isRequired;
-            deleteOption.disabled = !isRequired;
-
-            // Determine if there are any enabled options besides 'Select Option'
-            const hasEnabledOptions = (isForbidden === false) || isRequired;
-
-            if (!hasEnabledOptions) {
-                // No valid options available, set select to 'Select Option'
-                scriptSelect.value = "";
+            // If the directory contains the forbidden extensions, collapse the multiple div
+            if (isForbidden) {
+                multipleContainer.classList.add('collapse');
+                singleContainer.classList.remove('collapse');
             } else {
-                // If the currently selected option is disabled, switch to 'Select Option'
-                const selectedOption = scriptSelect.value;
-                const selectedOptionElement = scriptSelect.querySelector(`option[value="${selectedOption}"]`);
-
-                if (selectedOptionElement && selectedOptionElement.disabled) {
-                    scriptSelect.value = "";
-                }
+                multipleContainer.classList.remove('collapse');
+                singleContainer.classList.add('collapse');
             }
+
+            // Mapping of script types to whether they should be enabled
+            const scriptAvailability = {
+                'rename': !isForbidden,
+                'convert': !isForbidden,
+                'rebuild': !isForbidden,
+                'pdf': !isForbidden,
+                'missing': !isForbidden,
+                'single_file': isRequired,
+                'crop': isRequired,
+                'remove': isRequired,
+                'add': isRequired,
+                'delete': isRequired
+            };
+
+            // Iterate over each script type and enable/disable the corresponding button
+            Object.keys(scriptAvailability).forEach(scriptType => {
+                const button = document.getElementById(`btn-${scriptType}`);
+                if (button) {
+                    if (scriptAvailability[scriptType]) {
+                        button.disabled = false;
+                        button.classList.remove('disabled');
+                    } else {
+                        button.disabled = true;
+                        button.classList.add('disabled');
+                    }
+                }
+            });
         }
 
         // Add event listeners after the DOM content is loaded
@@ -182,44 +224,149 @@
             // Listen for input changes to update script options dynamically
             directoryInputField.addEventListener('input', updateScriptOptions);
 
-            // Optionally, initialize the script options on page load
+            // Initialize the script options on page load
             updateScriptOptions();
         });
     </script>
 </head>
 <body>
     <!-- Main Container with Bootstrap classes for styling -->
-    <div class="container mt-4">
+    <div class="container-lg">
         <h1 class="text-center">
             Comic Library Utilities 
-            <small class="text-muted"><sup>v0.9.5b</sup></small>
-          </h1>          
-        <form onsubmit="handleFormSubmit(event);" class="mt-4">
+            <small class="text-muted"><sup>v1.0.0</sup></small>
+        </h1>          
+        <form class="mt-4" onsubmit="event.preventDefault();">
             <div class="mb-3">
-                <label for="directory" class="form-label">Directory/File Path:</label>
+                <label for="directory" class="form-label badge text-bg-secondary">Enter Directory or File Path:</label>
                 <input type="text" id="directory" name="directory" class="form-control" required>
             </div>
-            <div class="mb-3">
-                <label for="script-type" class="form-label">Select Script:</label>
-                <select id="script-type" name="script-type" class="form-select" required>
-                    <option value="" disabled selected>Select Option</option>
-                    <option value="rename">Rename Directory</option>
-                    <option value="convert">Convert Directory (CBR / RAR Only)</option>
-                    <option value="rebuild">Rebuild Full Directory</option>
-                    <option value="pdf">Convert PDFs in Directory to CBZ </option>
-                    <option value="single_file">Single File Rebuild</option>
-                    <option value="crop">Crop Cover</option>
-                    <option value="remove">Remove 1st Image</option>
-                    <option value="add">Add Blank Image at End</option>
-                    <option value="delete">Delete File</option>
-                </select>
+
+            <!-- Bootstrap Cards for Script Options -->
+            <div class="row p-3 collapse.show" id="multiple">
+                <h2 class="text-primary-emphasis">Full Directory Options</h2>
+                <!-- Rename Directory -->
+                <div class="col">
+                    <div class="card h-100">
+                        <div class="card-body d-flex flex-column">
+                            <h5 class="card-title">Rename Files</h5>
+                            <p class="card-text">Rename all files in a directory (including sub-directories).</p>
+                            <p class="card-text fw-light">Uses {Series Name} {Issue Number} ({Year}) pattern.</p>
+                            <button type="button" id="btn-rename" class="btn btn-primary mt-auto" onclick="runScript('rename')">Run Rename</button>
+                        </div>
+                    </div>
+                </div>
+                <!-- Convert Directory -->
+                <div class="col">
+                    <div class="card h-100">
+                        <div class="card-body d-flex flex-column">
+                            <h5 class="card-title">Convert Directory</h5>
+                            <p class="card-text">Convert all RAR/CBR files in a directory to CBZ.</p>
+                            <button type="button" id="btn-convert" class="btn btn-primary mt-auto" onclick="runScript('convert')">Run Convert</button>
+                        </div>
+                    </div>
+                </div>
+                <!-- Rebuild Full Directory -->
+                <div class="col">
+                    <div class="card h-100">
+                        <div class="card-body d-flex flex-column">
+                            <h5 class="card-title">Rebuild Directory</h5>
+                            <p class="card-text">Rebuild all files in a directory to CBZ.</p>
+                            <button type="button" id="btn-rebuild" class="btn btn-primary mt-auto" onclick="runScript('rebuild')">Run Rebuild</button>
+                        </div>
+                    </div>
+                </div>
+                <!-- Convert PDFs to CBZ -->
+                <div class="col">
+                    <div class="card h-100">
+                        <div class="card-body d-flex flex-column">
+                            <h5 class="card-title">Convert PDFs to CBZ</h5>
+                            <p class="card-text">Convert all PDFs in the directory to CBZ format.</p>
+                            <button type="button" id="btn-pdf" class="btn btn-primary mt-auto" onclick="runScript('pdf')">Run PDF Conversion</button>
+                        </div>
+                    </div>
+                </div>
+                <!-- Check for Missing Files -->
+                <div class="col">
+                    <div class="card h-100">
+                        <div class="card-body d-flex flex-column">
+                            <h5 class="card-title">Missing File Check</h5>
+                            <p class="card-text">Check the directory for any missing files.</p>
+                            <button type="button" id="btn-missing" class="btn btn-primary mt-auto" onclick="runScript('missing')">Run Check</button>
+                        </div>
+                    </div>
+                </div>
             </div>
-            <button type="submit" class="btn btn-primary">Run</button>
+            <div class="row p-3 collapse" id="single">
+                <h2 class="text-primary-emphasis">Single File Options</h2>
+                <!-- Single File Rebuild -->
+                <div class="col">
+                    <div class="card h-100">
+                        <div class="card-body d-flex flex-column">
+                            <h5 class="card-title">Single File Rebuild</h5>
+                            <p class="card-text">Rebuild a single file within the directory.</p>
+                            <button type="button" id="btn-single_file" class="btn btn-primary mt-auto" onclick="runScript('single_file')">Run Rebuild</button>
+                        </div>
+                    </div>
+                </div>
+                <!-- Crop Cover -->
+                <div class="col">
+                    <div class="card h-100">
+                        <div class="card-body d-flex flex-column">
+                            <h5 class="card-title">Crop Cover</h5>
+                            <p class="card-text">Crop the cover image of the comic.</p>
+                            <button type="button" id="btn-crop" class="btn btn-primary mt-auto" onclick="runScript('crop')">Run Crop</button>
+                        </div>
+                    </div>
+                </div>
+                <!-- Remove 1st Image -->
+                <div class="col">
+                    <div class="card h-100">
+                        <div class="card-body d-flex flex-column">
+                            <h5 class="card-title">Remove 1st Image</h5>
+                            <p class="card-text">Remove the first image from the comic.</p>
+                            <button type="button" id="btn-remove" class="btn btn-primary mt-auto" onclick="runScript('remove')">Run Remove</button>
+                        </div>
+                    </div>
+                </div>
+                <!-- Add Blank Image at End -->
+                <div class="col">
+                    <div class="card h-100">
+                        <div class="card-body d-flex flex-column">
+                            <h5 class="card-title">Add Blank Image at End</h5>
+                            <p class="card-text">Add a blank image at the end of the comic.</p>
+                            <button type="button" id="btn-add" class="btn btn-primary mt-auto" onclick="runScript('add')">Run Add</button>
+                        </div>
+                    </div>
+                </div>
+                <!-- Delete File -->
+                <div class="col">
+                    <div class="card h-100">
+                        <div class="card-body d-flex flex-column">
+                            <h5 class="card-title">Delete File</h5>
+                            <p class="card-text">Delete the specified file.</p>
+                            <button type="button" id="btn-delete" class="btn btn-danger mt-auto" onclick="runScript('delete')">Delete File</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
         </form>
 
         <!-- Logs container with Bootstrap classes -->
-        <div id="liveAlertPlaceholder"></div>
-        <div id="logs" class="mt-4 p-3 border rounded" style="max-height: 400px; overflow-y: auto; white-space: pre-wrap;"></div>
+        <div class="row p-3">
+            <div id="liveAlertPlaceholder"></div>
+            <div id="logs" class="mt-4 p-3 border rounded" style="max-height: 400px; overflow-y: auto; white-space: pre-wrap;"></div>
+        </div>
+
+        {% if monitor == "yes" %}
+        <div class="row p-3">
+            <div class="alert alert-info alert-dismissible fade show" role="alert">
+                <i class="bi bi-eye"></i> Folder Monitoring is enabled on <strong>{{ watch }}</strong>
+                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+            </div>
+        </div>
+        {% endif %}
+
     </div>
 
     <!-- Confirmation Modal -->

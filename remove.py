@@ -19,7 +19,7 @@ def handle_cbz_file(file_path):
     :param file_path: Path to the .cbz file.
     :return: None
     """
-    logger.info(f"Handling CBZ file: {file_path}")
+    logger.info(f"<strong>Handling CBZ file:</strong> {file_path}")
     
     if not file_path.lower().endswith('.cbz'):
         logger.info("Provided file is not a CBZ file.")
@@ -29,7 +29,7 @@ def handle_cbz_file(file_path):
     zip_path = base_name + '.zip'
     folder_name = base_name + '_folder'
     
-    logger.info(f"Processing CBZ: {file_path} -> {zip_path}")
+    logger.info(f"<strong>Processing CBZ:<strong> {file_path} --> {zip_path}")
 
     try:
         # Step 1: Rename .cbz to .zip
@@ -65,7 +65,7 @@ def handle_cbz_file(file_path):
                     else:
                         logger.info(f"Skipping unsupported file type: {file}")
 
-        logger.info(f"Successfully re-compressed: {file_path}")
+        logger.info(f"<strong>Successfully re-compressed:</strong> {file_path}")
 
         # Step 7: Delete the .bak file
         os.remove(bak_file_path)
@@ -122,9 +122,9 @@ def remove_first_image_file(dir_path):
     
     try:
         os.remove(first_image)
-        logger.info(f"Removed: {first_image}")
+        logger.info(f"<strong>Removed:</strong> {first_image}")
     except Exception as e:
-        logger.info(f"Failed to remove {first_image}. Error: {e}")
+        logger.info(f"Failed to remove {first_image}. <strong>Error:</strong> {e}")
         
 
 # Optional: Function to process images (e.g., apply a filter)

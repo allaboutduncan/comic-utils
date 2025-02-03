@@ -18,7 +18,7 @@ def handle_cbz_file(file_path):
     :param file_path: Path to the .cbz file.
     :return: None
     """
-    logger.info(f"Handling CBZ file: {file_path}")
+    logger.info(f"<strong>Handling CBZ file:</strong> {file_path}")
     
     if not file_path.lower().endswith('.cbz'):
         logger.info("Provided file is not a CBZ file.")
@@ -28,7 +28,7 @@ def handle_cbz_file(file_path):
     zip_path = base_name + '.zip'
     folder_name = base_name + '_folder'
     
-    logger.info(f"Processing CBZ: {file_path} -> {zip_path}")
+    logger.info(f"<strong>Processing CBZ:</strong> {file_path} --> {zip_path}")
 
     try:
         # Step 1: Rename .cbz to .zip
@@ -57,13 +57,13 @@ def handle_cbz_file(file_path):
                     arcname = os.path.relpath(file_path_in_folder, folder_name)
                     zf.write(file_path_in_folder, arcname)
 
-        logger.info(f"Successfully re-compressed: {file_path}")
+        logger.info(f"<strong>Successfully re-compressed:</strong> {file_path}")
 
         # Step 7: Delete the .bak file
         os.remove(bak_file_path)
 
     except Exception as e:
-        logger.error(f"Failed to process {file_path}: {e}")
+        logger.error(f"<strong>Failed to process {file_path}:</strong> {e}")
     finally:
         # Clean up the temporary folder
         if os.path.exists(folder_name):
@@ -112,7 +112,7 @@ def process_image(directory: str) -> None:
         # Delete the original image
         os.remove(first_image_path)
 
-        print(f"Processed {os.path.basename(first_image_path)}: original saved as {backup_path}, right half saved as {new_image_path}.")
+        print(f"<strong>Processed:</strong> {os.path.basename(first_image_path)}<br /> original saved as {backup_path}, <br />right half saved as {new_image_path}.")
     except Exception as e:
         print(f"Error processing the image: {e}")
 

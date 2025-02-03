@@ -1,5 +1,8 @@
 .env
+*.bak
 /bak
 /files
+/processed
 temp-*
 .dockerignore
+.DS_Store
