@@ -73,7 +73,7 @@ def add_image_to_folder(folder_path):
     :return: None
     """
     # Define the fixed path to the image to be added
-    source_image_path = "/app/images/zzzz9999.png"
+    source_image_path = "/app/app-images/zzzz9999.png"
     
     if not os.path.exists(source_image_path):
         app_logger.error(f"The image {source_image_path} does not exist.")
