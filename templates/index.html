@@ -1,24 +1,361 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Comic Library Utilities</title>
-    <!-- Bootstrap CSS -->
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
-    <script>
-        // Global variable to hold the current EventSource
+<!-- templates/index.html -->
+{% extends 'base.html' %}
+
+{% block title %}CLU (Comic Library Utilities){% endblock %}
+
+{% block content %}
+
+<div class="container-lg">      
+    <form class="mt-4" onsubmit="event.preventDefault();">
+
+        <label for="selected-directory" class="form-label">Select Your Directory:</label>
+        <div class="input-group mb-3">
+            <button id="browse-btn" type="button" class="btn btn-outline-primary" onclick="openDirectoryModal()">
+                <i class="bi bi-folder-symlink-fill"></i>
+                Browse</button>
+            <input type="text" id="selected-directory" name="selected_directory" class="form-control" value="/data">
+        </div>
+
+        <!-- Bootstrap Cards for Script Options -->
+        <div class="row p-3 collapse.show" id="multiple">
+            <h2 class="text-primary-emphasis">Full Directory Options</h2>
+            <!-- Rename Directory -->
+            <div class="col-lg-4 col-md-6 col-sm-12 mb-4">
+                <div class="card h-100 shadow-sm">
+                    <div class="card-body d-flex flex-column">
+                        <h5 class="card-title">Rename Files</h5>
+                        <p class="card-text">Rename all files in a directory (including sub-directories).</p>
+                        <p class="card-text fw-light">Uses {Series Name} {Issue Number} ({Year}) pattern.</p>
+                        <button type="button" id="btn-rename" class="btn btn-primary mt-auto run-script-btn" onclick="runScript('rename')">Run Rename</button>
+                    </div>
+                </div>
+            </div>
+            <!-- Convert Directory -->
+            <div class="col-lg-4 col-md-6 col-sm-12 mb-4">
+                <div class="card h-100 shadow-sm">
+                    <div class="card-body d-flex flex-column">
+                        <h5 class="card-title">Convert Directory</h5>
+                        <p class="card-text">Convert all RAR/CBR files in a directory to CBZ.</p>
+                        <button type="button" id="btn-convert" class="btn btn-primary mt-auto run-script-btn" onclick="runScript('convert')">Run Convert</button>
+                    </div>
+                </div>
+            </div>
+            <!-- Rebuild Full Directory -->
+            <div class="col-lg-4 col-md-6 col-sm-12 mb-4">
+                <div class="card h-100 shadow-sm">
+                    <div class="card-body d-flex flex-column">
+                        <h5 class="card-title">Rebuild Directory</h5>
+                        <p class="card-text">Rebuild all files in a directory to CBZ.</p>
+                        <button type="button" id="btn-rebuild" class="btn btn-primary mt-auto run-script-btn" onclick="runScript('rebuild')">Run Rebuild</button>
+                    </div>
+                </div>
+            </div>
+            <!-- Convert PDFs to CBZ -->
+            <div class="col-lg-4 col-md-6 col-sm-12 mb-4">
+                <div class="card h-100 shadow-sm">
+                    <div class="card-body d-flex flex-column">
+                        <h5 class="card-title">Convert PDFs to CBZ</h5>
+                        <p class="card-text">Convert all PDFs in the directory to CBZ format.</p>
+                        <button type="button" id="btn-pdf" class="btn btn-primary mt-auto run-script-btn" onclick="runScript('pdf')">Run PDF Conversion</button>
+                    </div>
+                </div>
+            </div>
+            <!-- Check for Missing Files -->
+            <div class="col-lg-4 col-md-6 col-sm-12 mb-4">
+                <div class="card h-100 shadow-sm">
+                    <div class="card-body d-flex flex-column">
+                        <h5 class="card-title">Missing File Check</h5>
+                        <p class="card-text">Check the directory for any missing files.</p>
+                        <button type="button" id="btn-missing" class="btn btn-primary mt-auto run-script-btn" onclick="runScript('missing')">Run Check</button>
+                    </div>
+                </div>
+            </div>
+            <div class="col-lg-4 col-md-6 col-sm-12 mb-4">
+                <div class="card h-100 shadow-sm">
+                    <div class="card-body d-flex flex-column">
+                        <h5 class="card-title">Update ComicInfo.xml</h5>
+                        <p class="card-text">Updates <code>ComicInfo.xml</code> for each file in a directory based on your config settings.</p>
+                        <p class="card-text fw-light">Note: This is not enabled for sub-directories and must be run for each directory.</p>
+                        <button type="button" id="btn-comicinfo" class="btn btn-primary mt-auto run-script-btn" onclick="runScript('comicinfo')">Update ComicInfo.xml</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="row p-3 collapse" id="single">
+            <h2 class="text-primary-emphasis">Single File Options</h2>
+            <!-- Single File Rebuild -->
+            <div class="col">
+                <div class="card h-100 shadow-sm">
+                    <div class="card-body d-flex flex-column">
+                        <h5 class="card-title">Single File Rebuild</h5>
+                        <p class="card-text">Rebuild a single file within the directory.</p>
+                        <button type="button" id="btn-single_file" class="btn btn-primary mt-auto run-script-btn" onclick="runScript('single_file')">Run Rebuild</button>
+                    </div>
+                </div>
+            </div>
+            <!-- Crop Cover -->
+            <div class="col">
+                <div class="card h-100 shadow-sm">
+                    <div class="card-body d-flex flex-column">
+                        <h5 class="card-title">Crop Cover</h5>
+                        <p class="card-text">Crop the cover image of the comic.</p>
+                        <button type="button" id="btn-crop" class="btn btn-primary mt-auto run-script-btn" onclick="runScript('crop')">Run Crop</button>
+                    </div>
+                </div>
+            </div>
+            <!-- Remove 1st Image -->
+            <div class="col">
+                <div class="card h-100 shadow-sm">
+                    <div class="card-body d-flex flex-column">
+                        <h5 class="card-title">Remove 1st Image</h5>
+                        <p class="card-text">Remove the first image from the comic.</p>
+                        <button type="button" id="btn-remove" class="btn btn-primary mt-auto run-script-btn" onclick="runScript('remove')">Run Remove</button>
+                    </div>
+                </div>
+            </div>
+            <!-- Add Blank Image at End -->
+            <div class="col">
+                <div class="card h-100 shadow-sm">
+                    <div class="card-body d-flex flex-column">
+                        <h5 class="card-title">Add Blank Image at End</h5>
+                        <p class="card-text">Add a blank image at the end of the comic.</p>
+                        <button type="button" id="btn-add" class="btn btn-primary mt-auto run-script-btn" onclick="runScript('add')">Run Add</button>
+                    </div>
+                </div>
+            </div>
+            <!-- Delete File -->
+            <div class="col">
+                <div class="card h-100 shadow-sm">
+                    <div class="card-body d-flex flex-column">
+                        <h5 class="card-title">Delete File</h5>
+                        <p class="card-text">Delete the specified file.</p>
+                        <button type="button" id="btn-delete" class="btn btn-danger mt-auto run-script-btn" onclick="runScript('delete')">Delete File</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </form>
+
+    <!-- Logs container with Bootstrap classes -->
+    <div class="row p-3">
+        <div id="liveAlertPlaceholder"></div>
+        <div id="logs" class="mt-4 p-3 border rounded" style="max-height: 400px; overflow-y: auto; white-space: pre-wrap;"></div>
+    </div>
+
+    {% if monitor == "yes" %}
+    <div class="row p-3">
+        <div class="alert alert-info alert-dismissible fade show" role="alert">
+            <i class="bi bi-folder-check"></i> Folder Monitoring is enabled on <strong>{{ watch }}</strong>
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+        </div>
+    </div>
+    {% endif %}
+
+</div>
+
+<!-- Confirmation Modal -->
+<div class="modal fade" id="confirmDeleteModal" tabindex="-1" aria-labelledby="confirmDeleteModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 id="confirmDeleteModalLabel" class="modal-title">Confirm Deletion</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <p>Are you sure you want to delete the following file?</p>
+                <p><strong id="filePathToDelete"></strong></p>
+                <p>This action cannot be undone.</p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-danger" onclick="confirmDeletion()">Delete</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Directory Selection Modal -->
+<div class="modal fade" id="directoryModal" tabindex="-1" aria-labelledby="directoryModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Library's Root Folder</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <p id="current-path-display" class="fw-bold">/data</p>
+                <ul id="directory-list" class="list-group">
+                    <!-- Directories will be loaded here dynamically -->
+                </ul>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" onclick="selectDirectory()" data-bs-dismiss="modal">Choose</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+
+let currentPath = "/data"; // Root directory
         let currentEventSource = null;
+        let isScriptRunning = false;
+
+        function disableButtons() {
+            document.querySelectorAll('button').forEach(button => button.disabled = true);
+        }
+
+        function enableButtons() {
+            document.querySelectorAll('button').forEach(button => button.disabled = false);
+        }
+
+        function selectFile(filePath) {
+            console.log("Selected file:", filePath);
+
+            let selectedDirectoryInput = document.getElementById("selected-directory");
+            if (selectedDirectoryInput) {
+                selectedDirectoryInput.value = filePath;
+            }
+
+            let directoryInput = document.getElementById("selected-directory");
+            if (directoryInput) {
+                directoryInput.value = filePath;
+            }
+
+            let currentPathDisplay = document.getElementById("current-path-display");
+            if (currentPathDisplay) {
+                currentPathDisplay.textContent = filePath;
+            }
+
+            updateScriptOptions();
+
+            // Move focus to the "Browse" button before closing modal
+            let browseButton = document.getElementById("browse-btn");
+            if (browseButton) {
+                browseButton.focus();
+            }
+
+            // Close the modal after file selection
+            let modalElement = document.getElementById("directoryModal");
+            let modalInstance = bootstrap.Modal.getInstance(modalElement);
+            if (modalInstance) {
+                modalInstance.hide();
+            }
+
+            // Remove modal backdrop after a short delay to prevent focus issues
+            setTimeout(() => {
+                document.querySelectorAll('.modal-backdrop').forEach(el => el.remove());
+                document.body.classList.remove('modal-open');
+            }, 300);
+        }
+
+        function selectDirectory() {
+            let selectedDirectoryInput = document.getElementById("selected-directory");
+            if (selectedDirectoryInput) {
+                document.getElementById("selected-directory").value = selectedDirectoryInput.value;
+            }
+
+            // Move focus to the "Browse" button before closing modal
+            let browseButton = document.getElementById("browse-btn");
+            if (browseButton) {
+                browseButton.focus();
+            }
+
+            // Close modal when a directory is confirmed with "Choose" button
+            let modalElement = document.getElementById("directoryModal");
+            let modalInstance = bootstrap.Modal.getInstance(modalElement);
+            if (modalInstance) {
+                modalInstance.hide();
+            }
+
+            // Remove modal backdrop after a short delay to prevent focus issues
+            setTimeout(() => {
+                document.querySelectorAll('.modal-backdrop').forEach(el => el.remove());
+                document.body.classList.remove('modal-open');
+            }, 300);
+        }
+
+        function loadDirectories(path = "/data") {
+            fetch(`/list-directories?path=${encodeURIComponent(path)}`)
+                .then(response => response.json())
+                .then(data => {
+                    let directoryList = document.getElementById("directory-list");
+                    if (!directoryList) return;
+
+                    directoryList.innerHTML = ""; // Clear previous list
+                    currentPath = data.current_path;
+
+                    // Add "Go Back" at the top if applicable
+                    if (data.parent) {
+                        let backItem = document.createElement("li");
+                        backItem.className = "list-group-item list-group-item-action d-flex align-items-center";
+                        backItem.innerHTML = `<i class="bi bi-arrow-left-square me-2"></i> Parent`;
+                        backItem.onclick = () => loadDirectories(data.parent);
+                        directoryList.appendChild(backItem);
+                    }
+
+                    // Add directories
+                    data.directories.forEach(dir => {
+                        let item = document.createElement("li");
+                        item.className = "list-group-item list-group-item-action d-flex align-items-center";
+                        item.innerHTML = `<i class="bi bi-folder me-2"></i> ${dir}`;
+                        item.onclick = () => loadDirectories(data.current_path + "/" + dir);
+                        directoryList.appendChild(item);
+                    });
+
+                    // Add files
+                    if (data.files && data.files.length > 0) {
+                        data.files.forEach(file => {
+                            let fileItem = document.createElement("li");
+                            fileItem.className = "list-group-item list-group-item-action";
+                            fileItem.innerHTML = `<i class="bi bi-file-earmark-zip"></i> ${file}`;
+                            fileItem.onclick = function() { selectFile(data.current_path + "/" + file); }; // Auto-close modal
+                            directoryList.appendChild(fileItem);
+                        });
+                    }
+
+                    // Update the UI with the selected directory
+                    let selectedDirectoryInput = document.getElementById("selected-directory");
+                    if (selectedDirectoryInput) {
+                        selectedDirectoryInput.value = currentPath;
+                    }
+
+                    let directoryInput = document.getElementById("selected-directory");
+                    if (directoryInput) {
+                        directoryInput.value = currentPath;
+                    }
+
+                    let currentPathDisplay = document.getElementById("current-path-display");
+                    if (currentPathDisplay) {
+                        currentPathDisplay.textContent = currentPath;
+                    }
+
+                    updateScriptOptions();
+                })
+                .catch(error => console.error("Error fetching directories:", error));
+        }
+
+        function openDirectoryModal() {
+            loadDirectories(); // Load root directory when modal opens
+            let modal = new bootstrap.Modal(document.getElementById("directoryModal"));
+            modal.show();
+        }
 
         // Function to run the selected script
         function runScript(scriptType) {
-            const directoryInput = document.getElementById('directory').value.trim();
+            const directoryInput = document.getElementById('selected-directory').value.trim();
             const logsContainer = document.getElementById('logs');
             logsContainer.innerHTML = ''; // Clear previous logs
 
-            if (!directoryInput) {
-                logsContainer.innerHTML = `<div class="alert alert-danger" role="alert"><strong>Error:</strong> Directory/File path is required.</div>`;
+            // Prevent execution if directory is empty, "/", or "/data"
+            if (!directoryInput || directoryInput === "/" || directoryInput === "/data") {
+                logsContainer.innerHTML = `<div class="alert alert-danger" role="alert">
+                    <strong>Error:</strong> Please select a valid directory or file.
+                </div>`;
                 return;
             }
 
@@ -36,67 +373,41 @@
             executeScript(scriptType, directoryInput);
         }
 
-        // Function to execute the script after confirmation (for 'delete')
-        function executeScript(scriptType, directoryInput) {
-            // Close any existing EventSource to prevent multiple connections
+        function executeScript(scriptType) {
+            const directoryInput = document.getElementById('selected-directory').value.trim();
+            if (!directoryInput) {
+                alert("Please select a directory or file first.");
+                return;
+            }
+
             if (currentEventSource) {
                 currentEventSource.close();
                 currentEventSource = null;
             }
 
-            // Build the URL according to script type
             let url;
-            if (['single_file', 'crop', 'remove', 'add', 'delete'].includes(scriptType)) {
-                url = `/stream/${scriptType}?file_path=${encodeURIComponent(directoryInput)}`;  
+            const isFile = directoryInput.match(/\.\w+$/); // Detects file extensions
+            if (isFile) {
+                url = `/stream/${scriptType}?file_path=${encodeURIComponent(directoryInput)}`;
             } else {
                 url = `/stream/${scriptType}?directory=${encodeURIComponent(directoryInput)}`;
             }
 
             console.log(`Connecting to: ${url}`);
 
-            // Create a new EventSource to receive logs
             const eventSource = new EventSource(url);
             currentEventSource = eventSource;
+            isScriptRunning = true;
+            disableButtons();
 
             const logsContainer = document.getElementById('logs');
+            logsContainer.innerHTML = ""; // Clear logs before starting new process
 
-            // EventSource onopen handler
-            eventSource.onopen = () => {
-                console.log(`Connected to ${url}`);
-                
-                // Create alert div
-                const infoLine = document.createElement('div');
-                infoLine.className = "alert alert-info alert-dismissible fade show";
-
-                // Create icon element
-                const icon = document.createElement("i");
-                icon.className = "bi bi-info-circle-fill me-2"; // Added 'me-2' for spacing
-
-                // Create text node for message
-                const message = document.createTextNode("Connection established. Streaming logs...");
-
-                // Create close button
-                const closeButton = document.createElement("button");
-                closeButton.type = "button";
-                closeButton.className = "btn-close";
-                closeButton.setAttribute("data-bs-dismiss", "alert");
-                closeButton.setAttribute("aria-label", "Close");
-
-                // Append icon and message to alert div
-                infoLine.appendChild(icon);
-                infoLine.appendChild(message);
-                infoLine.appendChild(closeButton);
-
-                // Append the alert div to logs container
-                logsContainer.appendChild(infoLine);
-            };
-
-            // Listen for all SSE messages
+            // Enhanced SSE message handling for better UI display
             eventSource.onmessage = (event) => {
                 const line = event.data.trim();
                 const logLine = document.createElement('div');
 
-                // If the line starts with "ERROR:", display an alert-danger
                 if (line.startsWith("ERROR:")) {
                     logLine.textContent = line;
                     logLine.className = "alert alert-danger";
@@ -106,291 +417,158 @@
                     logLine.className = "alert alert-success";
                     logLine.setAttribute("role", "alert");
                 } else if (line.startsWith("IMAGE:")) {
+                    // Properly handle image URLs and append to logs
                     const imageUrl = line.substring(6).trim();
                     const img = document.createElement('img');
                     img.src = imageUrl;
                     img.className = "mt-2 img-fluid";
                     logsContainer.appendChild(img);
-                    return; // Exit to avoid appending to logs again
+                    logsContainer.scrollTop = logsContainer.scrollHeight;
+                    return; // Exit early to avoid double appending
                 } else {
-                    // Normal log line
-                    logLine.innerHTML = line;  // Use innerHTML to render HTML content
+                    // Preserve HTML content properly
+                    logLine.innerHTML = line; 
                 }
 
                 logsContainer.appendChild(logLine);
                 logsContainer.scrollTop = logsContainer.scrollHeight; // Auto-scroll to the bottom
             };
 
-            // Handle custom "completed" event
-            eventSource.addEventListener("completed", (e) => {
+            // ✅ Handle script completion
+            eventSource.addEventListener("completed", () => {
                 const successLine = document.createElement('div');
                 successLine.textContent = "Process completed successfully!";
                 successLine.className = "alert alert-success";
-                successLine.setAttribute("role", "alert");
                 logsContainer.appendChild(successLine);
                 logsContainer.scrollTop = logsContainer.scrollHeight;
 
-                // Close the SSE connection
                 eventSource.close();
                 currentEventSource = null;
-                console.log(`Process completed for ${url}`);
+                isScriptRunning = false;
+                enableButtons();
             });
 
-            // Handle network or connection errors
-            eventSource.onerror = (err) => {
-                console.error(`EventSource error:`, err);
+            // ✅ Handle errors and enable buttons again
+            eventSource.onerror = () => {
                 const errorLine = document.createElement('div');
-                errorLine.textContent = "Network or connection error occurred while streaming logs.";
+                errorLine.textContent = "Network or connection error occurred.";
                 errorLine.className = "alert alert-warning";
-                errorLine.setAttribute("role", "alert");
                 logsContainer.appendChild(errorLine);
                 logsContainer.scrollTop = logsContainer.scrollHeight;
+
                 eventSource.close();
                 currentEventSource = null;
+                isScriptRunning = false;
+                enableButtons();
             };
-        }
+        }       
 
-        // Function to confirm deletion
         function confirmDeletion() {
-            const directoryInput = document.getElementById('directory').value.trim();
-            const deleteModal = bootstrap.Modal.getInstance(document.getElementById('confirmDeleteModal'));
-            deleteModal.hide(); // Hide the modal
-
-            const scriptType = window.confirmedScriptType;
-            window.confirmedScriptType = null; // Reset the temporary variable
-
-            executeScript(scriptType, directoryInput); // Proceed with deletion
+            const directoryInput = document.getElementById('selected-directory').value.trim();
+            if (!directoryInput) return;
+            bootstrap.Modal.getInstance(document.getElementById('confirmDeleteModal')).hide();
+            executeScript('delete');
         }
 
-        // Function to update the availability of script options based on file path
         function updateScriptOptions() {
-            const directoryInput = document.getElementById('directory').value.trim();
+            const directoryInput = document.getElementById('selected-directory').value.trim();
             const forbiddenExtensions = ['zip', 'rar', 'cbr', 'cbz'];
             const requiredExtensions = ['zip', 'rar', 'cbr', 'cbz'];
 
-            // Extract the file extension from the input
             const extensionMatch = directoryInput.match(/\.([^.\\/:*?"<>|\r\n]+)$/);
             const extension = extensionMatch ? extensionMatch[1].toLowerCase() : '';
-
-            // Check if the extension is in the forbidden or required list
             const isForbidden = forbiddenExtensions.includes(extension);
             const isRequired = requiredExtensions.includes(extension);
 
-            // Get the multiple and single divs
-            const multipleContainer = document.getElementById('multiple');
-            const singleContainer = document.getElementById('single');
+            document.getElementById('multiple').classList.toggle('collapse', isForbidden);
+            document.getElementById('single').classList.toggle('collapse', !isForbidden);
 
-            // If the directory contains the forbidden extensions, collapse the multiple div
-            if (isForbidden) {
-                multipleContainer.classList.add('collapse');
-                singleContainer.classList.remove('collapse');
-            } else {
-                multipleContainer.classList.remove('collapse');
-                singleContainer.classList.add('collapse');
-            }
-
-            // Mapping of script types to whether they should be enabled
             const scriptAvailability = {
-                'rename': !isForbidden,
-                'convert': !isForbidden,
-                'rebuild': !isForbidden,
-                'pdf': !isForbidden,
-                'missing': !isForbidden,
-                'single_file': isRequired,
-                'crop': isRequired,
-                'remove': isRequired,
-                'add': isRequired,
-                'delete': isRequired
+                'rename': !isForbidden, 'convert': !isForbidden,
+                'rebuild': !isForbidden, 'pdf': !isForbidden,
+                'missing': !isForbidden, 'comicinfo': !isForbidden,
+                'single_file': isRequired, 'crop': isRequired,
+                'remove': isRequired, 'add': isRequired, 'delete': isRequired
             };
 
-            // Iterate over each script type and enable/disable the corresponding button
             Object.keys(scriptAvailability).forEach(scriptType => {
                 const button = document.getElementById(`btn-${scriptType}`);
                 if (button) {
-                    if (scriptAvailability[scriptType]) {
-                        button.disabled = false;
-                        button.classList.remove('disabled');
-                    } else {
-                        button.disabled = true;
-                        button.classList.add('disabled');
-                    }
+                    button.disabled = !scriptAvailability[scriptType];
                 }
             });
         }
 
-        // Add event listeners after the DOM content is loaded
         document.addEventListener('DOMContentLoaded', () => {
-            const directoryInputField = document.getElementById('directory');
-            // Listen for input changes to update script options dynamically
-            directoryInputField.addEventListener('input', updateScriptOptions);
+            let browseButton = document.getElementById('browse-btn');
+            let directoryInput = document.getElementById('selected-directory');
+            let directoryModal = document.getElementById("directoryModal");
+            let scriptButtons = document.querySelectorAll(".run-script-btn");
 
-            // Initialize the script options on page load
-            updateScriptOptions();
+            if (!browseButton) {
+                    console.error("Browse button not found in the DOM.");
+                    return;
+                }
+
+                browseButton.addEventListener("click", function () {
+                    if (!directoryInput) return;
+
+                    let fullPath = directoryInput.value.trim();
+                    if (!fullPath) {
+                        loadDirectories("/data"); // Default to root if empty
+                        return;
+                    }
+
+                    // Extract directory path only (remove file if present)
+                    let lastSlashIndex = fullPath.lastIndexOf("/");
+                    let directoryPath = lastSlashIndex > 0 ? fullPath.substring(0, lastSlashIndex) : "/data";
+
+                    // Ensure directoryPath is not empty; fallback to "/data"
+                    if (!directoryPath.trim() || directoryPath === "/") {
+                        directoryPath = "/data";
+                    }
+
+                    console.log("Opening directory modal in:", directoryPath);
+                    loadDirectories(directoryPath);
+                });
+
+            if (directoryInput) {
+                // Allow manual path entry and trigger updates
+                directoryInput.addEventListener("input", () => {
+                    console.log("User entered:", directoryInput.value);
+                    updateScriptOptions(); // Ensure script buttons update dynamically
+                });
+
+                // Detect paste event to update script options immediately
+                directoryInput.addEventListener("paste", () => {
+                    setTimeout(() => {
+                        console.log("Pasted path:", directoryInput.value);
+                        updateScriptOptions();
+                    }, 100); // Delay to allow input update
+                });
+            } else {
+                console.error("Error: 'selected-directory' not found in DOM.");
+            }
+
+            if (directoryModal) {
+                directoryModal.addEventListener("hidden.bs.modal", () => {
+                    console.log("Modal closed, cleaning up...");
+
+                    // Move focus back to "Browse" button to prevent aria-hidden issues
+                    if (browseButton) {
+                        browseButton.focus();
+                    }
+
+                    // Remove any lingering modal backdrops
+                    setTimeout(() => {
+                        document.querySelectorAll('.modal-backdrop').forEach(el => el.remove());
+                        document.body.classList.remove('modal-open');
+                    }, 300);
+                });
+            } else {
+                console.error("Error: #directoryModal not found.");
+            }
         });
-    </script>
-</head>
-<body>
-    <!-- Main Container with Bootstrap classes for styling -->
-    <div class="container-lg">
-        <h1 class="text-center">
-            Comic Library Utilities 
-            <small class="text-muted"><sup>v1.0.0</sup></small>
-        </h1>          
-        <form class="mt-4" onsubmit="event.preventDefault();">
-            <div class="mb-3">
-                <label for="directory" class="form-label badge text-bg-secondary">Enter Directory or File Path:</label>
-                <input type="text" id="directory" name="directory" class="form-control" required>
-            </div>
 
-            <!-- Bootstrap Cards for Script Options -->
-            <div class="row p-3 collapse.show" id="multiple">
-                <h2 class="text-primary-emphasis">Full Directory Options</h2>
-                <!-- Rename Directory -->
-                <div class="col">
-                    <div class="card h-100">
-                        <div class="card-body d-flex flex-column">
-                            <h5 class="card-title">Rename Files</h5>
-                            <p class="card-text">Rename all files in a directory (including sub-directories).</p>
-                            <p class="card-text fw-light">Uses {Series Name} {Issue Number} ({Year}) pattern.</p>
-                            <button type="button" id="btn-rename" class="btn btn-primary mt-auto" onclick="runScript('rename')">Run Rename</button>
-                        </div>
-                    </div>
-                </div>
-                <!-- Convert Directory -->
-                <div class="col">
-                    <div class="card h-100">
-                        <div class="card-body d-flex flex-column">
-                            <h5 class="card-title">Convert Directory</h5>
-                            <p class="card-text">Convert all RAR/CBR files in a directory to CBZ.</p>
-                            <button type="button" id="btn-convert" class="btn btn-primary mt-auto" onclick="runScript('convert')">Run Convert</button>
-                        </div>
-                    </div>
-                </div>
-                <!-- Rebuild Full Directory -->
-                <div class="col">
-                    <div class="card h-100">
-                        <div class="card-body d-flex flex-column">
-                            <h5 class="card-title">Rebuild Directory</h5>
-                            <p class="card-text">Rebuild all files in a directory to CBZ.</p>
-                            <button type="button" id="btn-rebuild" class="btn btn-primary mt-auto" onclick="runScript('rebuild')">Run Rebuild</button>
-                        </div>
-                    </div>
-                </div>
-                <!-- Convert PDFs to CBZ -->
-                <div class="col">
-                    <div class="card h-100">
-                        <div class="card-body d-flex flex-column">
-                            <h5 class="card-title">Convert PDFs to CBZ</h5>
-                            <p class="card-text">Convert all PDFs in the directory to CBZ format.</p>
-                            <button type="button" id="btn-pdf" class="btn btn-primary mt-auto" onclick="runScript('pdf')">Run PDF Conversion</button>
-                        </div>
-                    </div>
-                </div>
-                <!-- Check for Missing Files -->
-                <div class="col">
-                    <div class="card h-100">
-                        <div class="card-body d-flex flex-column">
-                            <h5 class="card-title">Missing File Check</h5>
-                            <p class="card-text">Check the directory for any missing files.</p>
-                            <button type="button" id="btn-missing" class="btn btn-primary mt-auto" onclick="runScript('missing')">Run Check</button>
-                        </div>
-                    </div>
-                </div>
-            </div>
-            <div class="row p-3 collapse" id="single">
-                <h2 class="text-primary-emphasis">Single File Options</h2>
-                <!-- Single File Rebuild -->
-                <div class="col">
-                    <div class="card h-100">
-                        <div class="card-body d-flex flex-column">
-                            <h5 class="card-title">Single File Rebuild</h5>
-                            <p class="card-text">Rebuild a single file within the directory.</p>
-                            <button type="button" id="btn-single_file" class="btn btn-primary mt-auto" onclick="runScript('single_file')">Run Rebuild</button>
-                        </div>
-                    </div>
-                </div>
-                <!-- Crop Cover -->
-                <div class="col">
-                    <div class="card h-100">
-                        <div class="card-body d-flex flex-column">
-                            <h5 class="card-title">Crop Cover</h5>
-                            <p class="card-text">Crop the cover image of the comic.</p>
-                            <button type="button" id="btn-crop" class="btn btn-primary mt-auto" onclick="runScript('crop')">Run Crop</button>
-                        </div>
-                    </div>
-                </div>
-                <!-- Remove 1st Image -->
-                <div class="col">
-                    <div class="card h-100">
-                        <div class="card-body d-flex flex-column">
-                            <h5 class="card-title">Remove 1st Image</h5>
-                            <p class="card-text">Remove the first image from the comic.</p>
-                            <button type="button" id="btn-remove" class="btn btn-primary mt-auto" onclick="runScript('remove')">Run Remove</button>
-                        </div>
-                    </div>
-                </div>
-                <!-- Add Blank Image at End -->
-                <div class="col">
-                    <div class="card h-100">
-                        <div class="card-body d-flex flex-column">
-                            <h5 class="card-title">Add Blank Image at End</h5>
-                            <p class="card-text">Add a blank image at the end of the comic.</p>
-                            <button type="button" id="btn-add" class="btn btn-primary mt-auto" onclick="runScript('add')">Run Add</button>
-                        </div>
-                    </div>
-                </div>
-                <!-- Delete File -->
-                <div class="col">
-                    <div class="card h-100">
-                        <div class="card-body d-flex flex-column">
-                            <h5 class="card-title">Delete File</h5>
-                            <p class="card-text">Delete the specified file.</p>
-                            <button type="button" id="btn-delete" class="btn btn-danger mt-auto" onclick="runScript('delete')">Delete File</button>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </form>
-
-        <!-- Logs container with Bootstrap classes -->
-        <div class="row p-3">
-            <div id="liveAlertPlaceholder"></div>
-            <div id="logs" class="mt-4 p-3 border rounded" style="max-height: 400px; overflow-y: auto; white-space: pre-wrap;"></div>
-        </div>
-
-        {% if monitor == "yes" %}
-        <div class="row p-3">
-            <div class="alert alert-info alert-dismissible fade show" role="alert">
-                <i class="bi bi-eye"></i> Folder Monitoring is enabled on <strong>{{ watch }}</strong>
-                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
-            </div>
-        </div>
-        {% endif %}
-
-    </div>
-
-    <!-- Confirmation Modal -->
-    <div class="modal fade" id="confirmDeleteModal" tabindex="-1" aria-labelledby="confirmDeleteModalLabel" aria-hidden="true">
-        <div class="modal-dialog">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h5 id="confirmDeleteModalLabel" class="modal-title">Confirm Deletion</h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-                </div>
-                <div class="modal-body">
-                    <p>Are you sure you want to delete the following file?</p>
-                    <p><strong id="filePathToDelete"></strong></p>
-                    <p>This action cannot be undone.</p>
-                </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                    <button type="button" class="btn btn-danger" onclick="confirmDeletion()">Delete</button>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <!-- Bootstrap JS (Required for Modal functionality) -->
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js"></script>
-</body>
-</html>
+</script>
+{% endblock %}

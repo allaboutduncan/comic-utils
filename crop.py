@@ -1,15 +1,9 @@
 import os
-import logging
 import sys
 import zipfile
 import shutil
 from PIL import Image, ImageFilter
-
-
-# Configure logging
-logging.basicConfig(level=logging.INFO, format='%(message)s', stream=sys.stdout)
-logger = logging.getLogger(__name__)
-
+from app_logging import app_logger
 
 def handle_cbz_file(file_path):
     """
@@ -18,17 +12,18 @@ def handle_cbz_file(file_path):
     :param file_path: Path to the .cbz file.
     :return: None
     """
-    logger.info(f"<strong>Handling CBZ file:</strong> {file_path}")
+    app_logger.info(f"********************// Crop Cover Image //********************")
+    app_logger.info(f"-- Handling CBZ file: {file_path}")
     
     if not file_path.lower().endswith('.cbz'):
-        logger.info("Provided file is not a CBZ file.")
+        app_logger.info("Provided file is not a CBZ file.")
         return
 
     base_name = os.path.splitext(file_path)[0]  # Removes the .cbz extension
     zip_path = base_name + '.zip'
     folder_name = base_name + '_folder'
     
-    logger.info(f"<strong>Processing CBZ:</strong> {file_path} --> {zip_path}")
+    app_logger.info(f"<strong>Processing CBZ:</strong> {file_path} --> {zip_path}")
 
     try:
         # Step 1: Rename .cbz to .zip
@@ -57,13 +52,13 @@ def handle_cbz_file(file_path):
                     arcname = os.path.relpath(file_path_in_folder, folder_name)
                     zf.write(file_path_in_folder, arcname)
 
-        logger.info(f"<strong>Successfully re-compressed:</strong> {file_path}")
+        app_logger.info(f"<strong>Successfully re-compressed:</strong> {file_path}")
 
         # Step 7: Delete the .bak file
         os.remove(bak_file_path)
 
     except Exception as e:
-        logger.error(f"<strong>Failed to process {file_path}:</strong> {e}")
+        app_logger.error(f"<strong>Failed to process {file_path}:</strong> {e}")
     finally:
         # Clean up the temporary folder
         if os.path.exists(folder_name):
@@ -73,7 +68,7 @@ def handle_cbz_file(file_path):
 def process_image(directory: str) -> None:
     # Ensure the directory exists
     if not os.path.exists(directory):
-        print(f"Directory {directory} does not exist.")
+        app_logger.info(f"Directory {directory} does not exist.")
         return
 
     # Recursively search for files in the directory and subdirectories
@@ -86,7 +81,7 @@ def process_image(directory: str) -> None:
     # Get the first image file found
     image_files = list(find_images(directory))
     if not image_files:
-        print("No files found in the directory or its subdirectories.")
+        app_logger.info("No files found in the directory or its subdirectories.")
         return
 
     first_image_path = image_files[0]
@@ -112,14 +107,14 @@ def process_image(directory: str) -> None:
         # Delete the original image
         os.remove(first_image_path)
 
-        print(f"<strong>Processed:</strong> {os.path.basename(first_image_path)}<br /> original saved as {backup_path}, <br />right half saved as {new_image_path}.")
+        app_logger.info(f"<strong>Processed:</strong> {os.path.basename(first_image_path)}<br /> original saved as {backup_path}, <br />right half saved as {new_image_path}.")
     except Exception as e:
-        print(f"Error processing the image: {e}")
+        app_logger.error(f"Error processing the image: {e}")
 
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
-        logger.error("No file provided!")
+        app_logger.error("No file provided!")
     else:
         file_path = sys.argv[1]
         handle_cbz_file(file_path)

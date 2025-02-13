@@ -1,14 +1,9 @@
 import os
-import logging
 import sys
 import zipfile
 import shutil
 from PIL import Image, ImageFilter
-
-
-# Configure logging
-logging.basicConfig(level=logging.INFO, format='%(message)s', stream=sys.stdout)
-logger = logging.getLogger(__name__)
+from app_logging import app_logger
 
 
 def handle_cbz_file(file_path):
@@ -18,17 +13,18 @@ def handle_cbz_file(file_path):
     :param file_path: Path to the .cbz file.
     :return: None
     """
-    logger.info(f"Handling CBZ file: {file_path}")
+    app_logger.info(f"********************// Add Blank Image //********************")
+    app_logger.info(f"-- Handling CBZ file: {file_path}")
     
     if not file_path.lower().endswith('.cbz'):
-        logger.info("Provided file is not a CBZ file.")
+        app_logger.error("Provided file is not a CBZ file.")
         return
 
     base_name = os.path.splitext(file_path)[0]  # Removes the .cbz extension
     zip_path = base_name + '.zip'
     folder_name = base_name + '_folder'
     
-    logger.info(f"Processing CBZ: {file_path} -> {zip_path}")
+    app_logger.info(f"Processing CBZ: {file_path} -> {zip_path}")
 
     try:
         # Step 1: Rename .cbz to .zip
@@ -56,13 +52,13 @@ def handle_cbz_file(file_path):
                     arcname = os.path.relpath(file_path_in_folder, folder_name)
                     zf.write(file_path_in_folder, arcname)
 
-        logger.info(f"Successfully re-compressed: {file_path}")
+        loapp_loggergger.info(f"Successfully re-compressed: {file_path}")
 
         # Step 7: Delete the .bak file
         os.remove(bak_file_path)
 
     except Exception as e:
-        logger.error(f"Failed to process {file_path}: {e}")
+        app_logger.error(f"Failed to process {file_path}: {e}")
     finally:
         # Clean up the temporary folder
         if os.path.exists(folder_name):
@@ -80,7 +76,7 @@ def add_image_to_folder(folder_path):
     source_image_path = "/app/images/zzzz9999.png"
     
     if not os.path.exists(source_image_path):
-        logger.error(f"The image {source_image_path} does not exist.")
+        app_logger.error(f"The image {source_image_path} does not exist.")
         return
 
     # Define the destination path with the fixed image name
@@ -88,13 +84,13 @@ def add_image_to_folder(folder_path):
     
     try:
         shutil.copy(source_image_path, destination_image_path)
-        logger.info(f"Added image: {destination_image_path}")
+        app_logger.info(f"Added image: {destination_image_path}")
     except Exception as e:
-        logger.error(f"Failed to add image zzzzz9999.png: {e}")
+        app_logger.error(f"Failed to add image zzzzz9999.png: {e}")
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
-        logger.error("No file provided!")
+        app_logger.error("No file provided!")
     else:
         file_path = sys.argv[1]
         handle_cbz_file(file_path)

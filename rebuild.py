@@ -3,11 +3,7 @@ import sys
 import subprocess
 import zipfile
 import shutil
-import logging
-
-# Configure logging
-logging.basicConfig(level=logging.INFO, format='%(message)s', stream=sys.stdout)
-logger = logging.getLogger(__name__)
+from app_logging import app_logger
 
 def extract_rar_with_unar(rar_path, output_dir):
     """
@@ -34,6 +30,8 @@ def convert_rar_to_zip_in_directory(directory):
     :param directory: Path to the directory containing RAR files.
     :return: List of successfully converted files (without extensions).
     """
+    app_logger.info(f"********************// Rebuild ALL Files in Directory //********************")
+
     os.makedirs(directory, exist_ok=True)
     converted_files = []
 
@@ -43,7 +41,7 @@ def convert_rar_to_zip_in_directory(directory):
             temp_extraction_dir = os.path.join(directory, f"temp_{file_name[:-4]}")
             zip_path = os.path.join(directory, file_name[:-4] + '.cbz')
 
-            print(f"Converting: {rar_path} -> {zip_path}")
+            app_logger.info(f"Converting: {rar_path} -> {zip_path}")
             try:
                 os.makedirs(temp_extraction_dir, exist_ok=True)
                 extract_rar_with_unar(rar_path, temp_extraction_dir)
@@ -55,13 +53,13 @@ def convert_rar_to_zip_in_directory(directory):
                             arcname = os.path.relpath(file_path, temp_extraction_dir)
                             zf.write(file_path, arcname)
 
-                print(f"Successfully converted: {file_name}")
+                app_logger.info(f"Successfully converted: {file_name}")
                 converted_files.append(file_name[:-4])  # Track the file without extension
 
                 # Delete the original RAR/CBR file
                 os.remove(rar_path)
             except Exception as e:
-                print(f"Failed to convert {file_name}: {e}")
+                app_logger.error(f"Failed to convert {file_name}: {e}")
             finally:
                 if os.path.exists(temp_extraction_dir):
                     shutil.rmtree(temp_extraction_dir)
@@ -70,35 +68,35 @@ def convert_rar_to_zip_in_directory(directory):
 
 def rebuild_task(directory):
     if not os.path.isdir(directory):
-        print(f"Directory {directory} not found.")
+        app_logger.error(f"Directory {directory} not found.")
         return
 
-    logger.info(f"Checking for rar/cbr files in directory: {directory}...")
+    app_logger.info(f"Checking for rar/cbr files in directory: {directory}...")
 
     converted_files = convert_rar_to_zip_in_directory(directory)
 
-    logger.info(f"Rebuilding project in directory: {directory}...")
+    app_logger.info(f"Rebuilding project in directory: {directory}...")
 
     cbz_files = [f for f in os.listdir(directory) if f.lower().endswith(".cbz")]
     total_files = len(cbz_files)
-    logger.info(f"Total .cbz files to process: {total_files}")
+    app_logger.info(f"Total .cbz files to process: {total_files}")
 
     for filename in cbz_files:
         base_name, original_ext = os.path.splitext(filename)
 
         # Skip files that were just converted
         if base_name in converted_files:
-            logger.info(f"Skipping rebuild for recently converted file: {filename}")
+            app_logger.info(f"Skipping rebuild for recently converted file: {filename}")
             continue
 
         file_path = os.path.join(directory, filename)
         new_zip_file = os.path.join(directory, base_name + ".zip")
 
-        logger.info(f"Processing file: {filename} ({total_files} remaining)")
+        app_logger.info(f"Processing file: {filename} ({total_files} remaining)")
         os.rename(file_path, new_zip_file)
 
         folder_path = os.path.join(directory, base_name)
-        logger.info(f"Creating folder: {folder_path}")
+        app_logger.info(f"Creating folder: {folder_path}")
         os.makedirs(folder_path, exist_ok=True)
 
         with zipfile.ZipFile(new_zip_file, 'r') as zip_ref:
@@ -128,11 +126,11 @@ def rebuild_task(directory):
         if filename.lower().endswith(".bak"):
             os.remove(os.path.join(directory, filename))
 
-    logger.info(f"Rebuild completed in {directory}!")
+    app_logger.info(f"Rebuild completed in {directory}!")
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
-        logger.info("No directory provided!")
+        app_logger.info("No directory provided!")
     else:
         directory = sys.argv[1]
         rebuild_task(directory)

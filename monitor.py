@@ -1,148 +1,262 @@
-import os
 import time
 import logging
 import shutil
+import os
 from watchdog.observers.polling import PollingObserver
 from watchdog.events import FileSystemEventHandler
-from rename import rename_file  # Make sure it returns the new path or None
+from rename import rename_file
+from single_file import convert_to_cbz
+from config import config, load_config
 
-# Ensure the log directory exists
-LOG_FILE_PATH = "/logs/log.txt"
-os.makedirs(os.path.dirname(LOG_FILE_PATH), exist_ok=True)
+load_config()
 
-# Configure logging
-logging.basicConfig(
-    filename=LOG_FILE_PATH,
-    level=logging.INFO,
-    format="%(asctime)s - %(levelname)s - %(message)s"
-)
+# These initial reads remain for startup.
+directory_to_watch = config.get("SETTINGS", "WATCH", fallback="/temp")
+target_directory = config.get("SETTINGS", "TARGET", fallback="/processed")
+ignored_exts_config = config.get("SETTINGS", "IGNORED_EXTENSIONS", fallback=".crdownload")
+ignored_extensions = [ext.strip() for ext in ignored_exts_config.split(",") if ext.strip()]
+autoconvert = config.getboolean("SETTINGS", "AUTOCONVERT", fallback=False)
+subdirectories = config.getboolean("SETTINGS", "SUBDIRECTORIES", fallback=False)
+
+# Logging setup
+MONITOR_LOG = "logs/monitor.log"
+os.makedirs(os.path.dirname(MONITOR_LOG), exist_ok=True)
+if not os.path.exists(MONITOR_LOG):
+    with open(MONITOR_LOG, "w") as f:
+        f.write("")  # Create an empty file
+
+monitor_logger = logging.getLogger("monitor_logger")
+monitor_logger.setLevel(logging.INFO)
+monitor_handler = logging.FileHandler(MONITOR_LOG)
+monitor_handler.setFormatter(logging.Formatter("%(asctime)s - %(levelname)s - %(message)s"))
+monitor_logger.addHandler(monitor_handler)
+
+monitor_logger.info("Monitor script started!")
+monitor_logger.info(f"1. Monitoring: {directory_to_watch}")
+monitor_logger.info(f"2. Target: {target_directory}")
+monitor_logger.info(f"3. Ignored Extensions: {ignored_extensions}")
+monitor_logger.info(f"4. Auto-Conversion Enabled: {autoconvert}")
+monitor_logger.info(f"5. Monitor Sub-Directories Enabled: {subdirectories}")
+
 
 class DownloadCompleteHandler(FileSystemEventHandler):
-    def __init__(self, directory, target_directory, ignored_extensions=None):
+    def __init__(self, directory, target_directory, ignored_extensions):
         """
-        :param directory: The directory to watch.
-        :param target_directory: The directory where completed files should go.
-        :param ignored_extensions: An iterable of file extensions (e.g. [".crdownload", ".tmp"]).
-                                  Files with these extensions will be ignored.
+        Store initial values. We'll refresh them on each event
+        to get updated config values.
         """
         self.directory = directory
         self.target_directory = target_directory
-        
-        # Provide a default list if none is supplied
-        if ignored_extensions is None:
-            ignored_extensions = [".crdownload", ".torrent", ".tmp"]
-        
-        # Convert to a set for fast membership checks
         self.ignored_extensions = set(ext.lower() for ext in ignored_extensions)
+        self.autoconvert = autoconvert  # We store this as well
+
+    def reload_settings(self):
+        """
+        Re-reads config values so that if config.ini changes,
+        this handler will use the latest settings.
+        """
+        self.directory = config.get("SETTINGS", "WATCH", fallback="/temp")
+        self.target_directory = config.get("SETTINGS", "TARGET", fallback="/processed")
+
+        ignored_exts_config = config.get("SETTINGS", "IGNORED_EXTENSIONS", fallback=".crdownload")
+        self.ignored_extensions = set(ext.strip().lower() for ext in ignored_exts_config.split(",") if ext.strip())
+
+        self.autoconvert = config.getboolean("SETTINGS", "AUTOCONVERT", fallback=False)
+
+        monitor_logger.info(
+            f"Config reloaded. Now watching: {self.directory}, target: {self.target_directory}, "
+            f"ignored: {self.ignored_extensions}, autoconvert: {self.autoconvert}"
+        )
 
     def on_created(self, event):
+        # Refresh settings on every event
+        self.reload_settings()
+        monitor_logger.info(f"** on_created triggered ** => Path: {event.src_path}, Is directory? {event.is_directory}")
+
         if not event.is_directory:
             self._handle_file_if_complete(event.src_path)
+            monitor_logger.info(f"File created: {event.src_path}")
+        else:
+            monitor_logger.info(f"Directory created: {event.src_path}")
+            self._scan_directory(event.src_path)
 
     def on_modified(self, event):
+        self.reload_settings()
+
         if not event.is_directory:
             self._handle_file_if_complete(event.src_path)
+            monitor_logger.info(f"File Modified: {event.src_path}")
 
     def on_moved(self, event):
-        if not event.is_directory:
-            # event.dest_path is the new file path after the rename
-            self._handle_file_if_complete(event.dest_path)
+        self.reload_settings()
 
+        if not event.is_directory:
+            self._handle_file_if_complete(event.dest_path)
+            monitor_logger.info(f"File Moved: {event.dest_path}")
+        else:
+            monitor_logger.info(f"Directory Moved: {event.dest_path}")
+            self._scan_directory(event.dest_path)
+
+    def _scan_directory(self, directory):
+        for root, dirs, files in os.walk(directory):
+            for file in files:
+                file_path = os.path.join(root, file)
+                self._handle_file_if_complete(file_path)
+                monitor_logger.info(f"Scanning directory - found file: {file_path}")
 
     def _handle_file_if_complete(self, filepath):
-        """Check if the file is done downloading, then process it (unless it's ignored)."""
-        # Determine the extension in lowercase
         _, extension = os.path.splitext(filepath)
         extension = extension.lower()
-        
-        # If the file extension is in the ignored list, skip processing
         if extension in self.ignored_extensions:
-            logging.info(f"Ignoring file with extension '{extension}': {filepath}")
+            monitor_logger.info(f"Ignoring file with extension '{extension}': {filepath}")
             return
 
-        # Proceed if download is complete
         if self._is_download_complete(filepath):
             self._process_file(filepath)
+            monitor_logger.info(f"File Download Complete: {filepath}")
         else:
-            logging.info(f"File not yet complete: {filepath}")
+            monitor_logger.info(f"File not yet complete: {filepath}")
 
     def _process_file(self, filepath):
-        """Try to rename the file. If no rename needed, just move it."""
         try:
-            logging.info(f"Processing file: {filepath}")
+            monitor_logger.info(f"Processing file: {filepath}")
             renamed_filepath = self._rename_file(filepath)
-            
-            # If rename_file returns None or the same path, assume "no rename needed."
             if not renamed_filepath or renamed_filepath == filepath:
-                logging.info(f"No rename needed (or rename failed) for: {filepath}")
-                # Move the original file
+                monitor_logger.info(f"No rename needed for: {filepath}")
                 self._move_file(filepath)
             else:
-                # Move the renamed file
-                logging.info(f"Renamed file: {renamed_filepath}")
+                monitor_logger.info(f"Renamed file: {renamed_filepath}")
                 self._move_file(renamed_filepath)
         except Exception as e:
-            logging.info(f"Error processing {filepath}: {e}")
+            monitor_logger.info(f"Error processing {filepath}: {e}")
 
     def _rename_file(self, filepath):
-        """Call rename_file and return the new path (or None if no rename needed)."""
         try:
             new_filepath = rename_file(filepath)
-            return new_filepath  # Could be None if no rename done
+            if new_filepath:
+                monitor_logger.info(f"Renamed File: {new_filepath}")
+            return new_filepath
         except Exception as e:
-            logging.info(f"Error renaming file {filepath}: {e}")
+            monitor_logger.info(f"Error renaming file {filepath}: {e}")
             return None
 
     def _move_file(self, filepath):
-        """Move a file to the target directory."""
+        """
+        Moves the file from its source location to the target directory,
+        ensuring the move is completed before proceeding with conversion.
+        Then checks if the source sub-directory is empty and removes it if so.
+        """
         filename = os.path.basename(filepath)
         target_path = os.path.join(self.target_directory, filename)
-        os.makedirs(self.target_directory, exist_ok=True)
 
         if not os.path.exists(filepath):
-            logging.info(f"File not found for moving: {filepath}")
+            monitor_logger.info(f"File not found for moving: {filepath}")
             return
 
+        # **Wait for file download completion**
+        monitor_logger.info(f"Waiting for '{filepath}' to finish downloading before moving...")
+        if not _wait_for_download_completion(filepath):
+            monitor_logger.warning(f"File not yet complete: {filepath}")
+            return  # Exit early; do not move an incomplete file
+
         if os.path.exists(target_path):
-            logging.info(f"File already exists in target directory: {target_path}")
+            monitor_logger.info(f"File already exists in target directory: {target_path}")
         else:
             try:
+                os.makedirs(self.target_directory, exist_ok=True)
                 shutil.move(filepath, target_path)
-                logging.info(f"Moved file to: {target_path}")
+                monitor_logger.info(f"Moved file to: {target_path}")
+
+                # Ensure the file is fully moved before proceeding
+                time.sleep(1)  # Allow filesystem update
+
+                if os.path.exists(target_path):
+                    monitor_logger.info(f"Check if '{target_path}' is CBR and convert")
+
+                    # Re-check autoconvert setting each time (using self.autoconvert)
+                    if self.autoconvert:
+                        monitor_logger.info(f"Sending Convert Request for '{target_path}'")
+
+                        # Extra safety check - ensure the file is still accessible before conversion
+                        retries = 3
+                        for _ in range(retries):
+                            if os.path.exists(target_path):
+                                break
+                            time.sleep(0.5)
+
+                        try:
+                            convert_to_cbz(target_path)
+                        except Exception as e:
+                            monitor_logger.error(f"Conversion failed for '{target_path}': {e}")
+                else:
+                    monitor_logger.warning(f"File move verification failed: {target_path} not found.")
+
             except Exception as e:
-                logging.info(f"Error moving file {filepath} to {target_path}: {e}")
+                monitor_logger.error(f"Error moving file {filepath} to {target_path}: {e}")
+
+        # Remove the source directory if it's now empty (and it's not the main watch folder).
+        source_folder = os.path.dirname(filepath)
+        if os.path.abspath(source_folder) != os.path.abspath(self.directory):
+            try:
+                if not os.listdir(source_folder):
+                    os.rmdir(source_folder)
+                    monitor_logger.info(f"Deleted empty sub-directory: {source_folder}")
+            except Exception as e:
+                monitor_logger.error(f"Error removing directory {source_folder}: {e}")
 
     def _is_download_complete(self, filepath):
-        """Check if a file is still being written to by monitoring its size."""
         try:
             initial_size = os.path.getsize(filepath)
-            time.sleep(5)
+            time.sleep(5)  # Adjust sleep time as needed
             final_size = os.path.getsize(filepath)
             return initial_size == final_size
         except (PermissionError, FileNotFoundError):
             return False
 
+
+def _wait_for_download_completion(filepath, wait_time=2.0, retries=20):
+    """
+    Waits until a file is fully downloaded before proceeding.
+    - Checks for stable file size.
+    - Ensures any ".part" or ".tmp" files are gone.
+    - Retries several times with a delay before confirming the file is complete.
+    """
+    if not os.path.exists(filepath):
+        return False
+
+    previous_size = -1
+    for _ in range(retries):
+        if not os.path.exists(filepath):  # Ensure file hasn't disappeared
+            return False
+
+        current_size = os.path.getsize(filepath)
+        if current_size == previous_size:
+            return True  # File size is stable, assume complete
+
+        previous_size = current_size
+        time.sleep(wait_time)
+
+    return False
+
+
 if __name__ == "__main__":
-    directory_to_watch = os.environ.get("WATCH", "/temp")
-    logging.info(f"Monitoring: {directory_to_watch}")
-    target_directory = os.environ.get("TARGET", "/processed")
-    logging.info(f"Target: {target_directory}")
-
-    #   IGNORED_EXTENSIONS=".crdownload,.torrent,.tmp"
-    ignored_exts_env = os.environ.get("IGNORED_EXTENSIONS", ".crdownload,.torrent,.tmp,.zip,.mega")
-    # Convert the comma-separated string into a list of extensions
-    ignored_extensions = [ext.strip() for ext in ignored_exts_env.split(",") if ext.strip()]
-
-    if not os.path.exists(directory_to_watch):
-        os.makedirs(directory_to_watch)
+    os.makedirs(directory_to_watch, exist_ok=True)
 
     event_handler = DownloadCompleteHandler(
         directory=directory_to_watch,
         target_directory=target_directory,
         ignored_extensions=ignored_extensions
     )
+
+    # Initial scan
+    for root, _, files in os.walk(directory_to_watch):
+        for file in files:
+            filepath = os.path.join(root, file)
+            monitor_logger.info(f"Initial startup scan for: {filepath}")
+            event_handler._handle_file_if_complete(filepath)
+
     observer = PollingObserver(timeout=30)
-    observer.schedule(event_handler, directory_to_watch, recursive=False)
+    observer.schedule(event_handler, directory_to_watch, recursive=subdirectories)
     observer.start()
 
     try:

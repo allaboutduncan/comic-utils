@@ -1,75 +1,21 @@
-# Comic Library Utilities
-This is a set of utilities that I developed while moving my 70,000+ comic library to <img src="https://komga.org/img/logo.svg" alt="Komga Logo" width="20"/> [Komga](https://komga.org/).
+# Comic Library Utilities (CLU)
 
-## Installation via Docker Compose
+![Docker Pulls](https://img.shields.io/docker/pulls/allaboutduncan/comic-utils-web)
+![GitHub Release](https://img.shields.io/github/v/release/allaboutduncan/comic-utils)
+![GitHub commits since latest release](https://img.shields.io/github/commits-since/allaboutduncan/comic-utils/latest)
 
-Copy the following and edit the environment variables
+![Comic Library Utilities (CLU)](images/clu-logo-360.png "Comic Library Utilities")
 
-    version: '3.9'
-    services:
-        comic-utils:
-            image: allaboutduncan/comic-utils-web:latest
+## What is CLU & Why Does it Exist
 
-            container_name: comic-utils
-            logging:
-                options:
-                    max-size: 1g
-            restart: always
-            ports:
-                - '5577:5577'
-            volumes:
-                - '/var/run/docker.sock:/tmp/docker.sock:ro' # do not change this line
-                ## update the line below to map to your library.
-                ## If you are running Komga via Docker - this should match
-                - "D:/Comics:/data"
-                ## Required if Folder Monitoring is set to "yes". Map this to the folder you want watched for renaming
-                - "F:/downloads:/temp"
-                ## Required if Folder Monitoring is set to "yes". Map this to the folder where renamed files will be moved
-                - "F:/downloads/processed:/processed"
-            environment:
-                - FLASK_ENV=development
-                ## For 'Missing File Check' files with these names will be ignored
-                - IGNORE="Annual","(Director's Cut)"
-                ## Set to 'yes' if you want to use folder monitoring.
-                - MONITOR=yes/no 
-                # Update to path for the "Watched" folder set above. Defaults to "/temp"
-                - WATCH=/temp
-                # Update to path for the "Processed" folder set above. Defaults to "/processed"
-                - TARGET=/processed
+This is a set of utilities that I developed while moving my 70,000+ comic library to [Komga](https://komga.org/).
 
-### More About Volumes Mapping for Your Library
-For the utility to work, you'll want to mimic your [Komga](https://komga.org/) settings. 
+As I've continued to work on it, add features and discuss with other users, I wanted to pivot away from usage as a side-load to Komga and focus on it as a stand-alone app.
 
-I am running [Komga](https://komga.org/) on my Windows home server, via Docker.
+With the v1.1 Update, you can now browse your dictories and files directly from that app. This enables you to easily maintain and update your Comic Library no matter the app you use for browsing, organizing and reading.
 
-My comics are located on `D:/Comics` and when installing [Komga](https://komga.org/) I didn't change the default mapping of `target: /data`
+![Comic Library Utilities (CLU)](images/home.png "Comic Library Utilities Homepage")
 
-Mirroring this setup in the Docker Compose install looks like this: `- "D:/Comics:/data"`
-
-
----
-
-## Using the Utilities
-
-In your browser, navigate to http://localhost:5577
-
-You'll be presented with the main screen, where you can select which option you'd like to perform. The app will default to "Directory" operations.
-
-![Directory Main Menu](/images/home.png)
-
-When a path to a single file is entered - the app will switch to the "Single File" options
-
-![Single File Main Menu](/images/home-single.png)
-
-When popularing the *Directory* path, you should enter what you see in [Komga](https://komga.org/)
-
-![Path Example](/images/path.png)
-
-To regenerate this file, before clicking run, it should look like this:
-
-![Single Example](/images/single.png)
-
----
 ## Features
 Below are examples and explanations of each feature available
 
@@ -83,9 +29,6 @@ Currently this functiuon does 5 things to all files in a directory and any sub-d
 5. Removes any extra spaces before the file entenstion
 
 Mylar and ComicRack should be your first choice for performing these actions, but I wanted something I could easliy run on my manual downloads directory. Oftentimes series archives or torrent files will have numerous naming patterns with information in parentesis, brackets, before the year, after and all over the place. I continuously update these to handle as many as I encounter.
-
-#### Folder Monitor Renaming
-During installation, you can setup a "/temp" folder to be monitored. All CBR/CBZ files added to this folder will be renamed and moved to the configured "/processed" folder. 
 
 ### 2. Convert Directory (CBR / RAR Only)
 Converts all CBR / RAR files in a directory to ZIP. This will skip any existing CBZ files.
@@ -169,7 +112,16 @@ This is useful when publsihers revert to the original number of a long-running s
 
 *Note:* This is not a "smart" feature and simply assumes each folder should have files starting with (#01, 01, 001) and the "last" file is the last alpha-numeric file in the folder.
 
-### 6. Single File - Rebuild/Convert
+### 6. Clean / Update ComicInfo.xml
+
+Requested by a user on Discord, this feature will let you bulk update specific items in the `ComicInfo.xml` of each *CBZ* file in a directory. Currently (Fed 2025) it supports two fields and will only work on the selected directory (no traversing sub-directories). Both options need to be enabled in the CONFIG section of the app. 
+
+1. Update Volume: This will update `Volume` all files in the selected directory using the (YEAR) obtained from the first file in the directory. If a 4-digit YEAR in parentheses is not available, no updates will be made.
+2. Clean Comments: This feature will REMOVE content from the `Comments` field each file of the selected sub-directory. There are two options available for cleaning comments.
+    1. Remove any content that starts with '*List' until the next paragraph/blank line. This specifically targets *List of covers and their creators:* and the table data that follows
+    2. Remove all content that is '## Header', '__Bold__' or in a '| Table |'
+
+### 7. Single File - Rebuild/Convert
 Running this will rebuild a CBZ file in an attempt to fix issues/errors with it not displaying correctly.
 Additionally, this will also convert a single CBR file to a CBZ
 
@@ -177,7 +129,7 @@ Additionally, this will also convert a single CBR file to a CBZ
 | -------- | ------- |
 |  ![Rebuild - Before](/images/rebuild01.png)  |  ![Rebuild - After](/images/rebuild02.png)    |
 
-### 7. Crop Cover
+### 8. Crop Cover
 Use this tool to crop a cover that is front & back, to front only.
 
 The wraparound cover is not deleted, but re-ordered in the CBZ to be the 2nd image.
@@ -187,7 +139,7 @@ The wraparound cover is not deleted, but re-ordered in the CBZ to be the 2nd ima
 |  ![Crop - Before](/images/crop01.png)  |  ![Crop - After](/images/crop02.png)    |
 | Page Count: 63 | Page Count: 64 |
 
-### 8. Remove First Image
+### 9. Remove First Image
 Many older files will have a cover image that is not the cover of the comic.
 
 Use this utility to remove the first image in the file.
@@ -197,13 +149,123 @@ Use this utility to remove the first image in the file.
 |  ![Remove - Before](/images/remove01.png)  |  ![Remove - After](/images/remove02.png)    |
 | Page Count: 23 | Page Count: 22 |
 
-### 9. Add blank Image at End
+### 10. Add blank Image at End
 Requested feature from Komga Discord. Corrects display issues with Manga files.
 
 Adds a blank / empty PNG file (zzzz9999.png) to the archive.
 
-### 10. Delete File
+### 11. Delete File
 Utility to delete a single file and requires confirmation before performing the delete action.
 
 ![Delete File](/images/delete01.png)
 ![Delete Confirmation](/images/delete02.png)
+
+## Folder Monitoring
+
+![Folder Monitoring Enabled](/images/monitoring.png)
+
+During installation, you can enable foldering monitoring. If enabled, you will see a dismissable notice on the home page, informing you that folder monitoring is enabled and it will list the folder being monitored.
+
+The following options are available for Folder Monitoring:
+
+1. __Auto-Renaming:__ Based on the manually triggered renaming, this option will monitor the configured folder.
+    * Renaming pattern is `{Series} {Issue} ({YEAR})`. If a *Volume* exists, this will be added between `{Series} v1 {Issue}`
+    * The *default monitoring location* is `/downloads/temp`. This can be updated to any folder you map during installation.
+    * Renaming moves the files to a new folder. The default location is `/downloads/processed`. This can be updated in the config menu
+2. __Auto-Convert to CBZ:__ If this is enabled, files that are not CBZ will be converted to CBZ when they are moved to the `/downloads/processed` location
+3. __Processing Sub-Directories:__ If this is enabled, the app will monitor and perform all functions on any sub-directory within the *default monitoring location*. 
+    * Sub-directory structure IS NOT maintained when files are moved
+
+## Installation via Docker Compose
+
+Copy the following and edit the environment variables
+
+    version: '3.9'
+    services:
+        comic-utils:
+            image: allaboutduncan/comic-utils-web:latest
+
+            container_name: comic-utils
+            logging:
+                options:
+                max-size: '20m'  # Reduce log size to 20MB
+                max-file: '3'     # Keep only 3 rotated files
+            restart: always
+            ports:
+                - '5577:5577'
+            volumes:
+                - '/var/run/docker.sock:/tmp/docker.sock:ro' # do not change this line
+                ## update the line below to map to your library.
+                ## Your library MUST be mapped to '/data' for the app to work
+                - 'D:/Comics:/data'
+                ## Additional folder is you want to use Folder Monitoring.
+                - 'F:/downloads:/temp'
+            environment:
+                - FLASK_ENV=development
+                ## Set to 'yes' if you want to use folder monitoring.
+                - MONITOR=yes/no 
+
+### More About Volumes Mapping for Your Library
+For the utility to work, you need to map your Library to `/data`
+
+I am running [Komga](https://komga.org/) on my Windows home server, via Docker.
+
+My comics are located in `D:/Comics` therefore, my mapping is: `- "D:/Comics:/data"`
+
+## Using the Utilities
+
+In your browser, navigate to http://localhost:5577
+
+You'll be presented with the main screen, where you can select which option you'd like to perform. The app will default to "Directory" operations.
+
+![Directory Main Menu](/images/home.png)
+
+### Browsing for directories / files
+
+1. CLick the Browse button to get started
+
+![Browse](/images/browse01.png)
+
+2. You should see the contents of your Library
+
+![Browse Directory](/images/browse02.png)
+
+3. As you navigate through your folders, clicking in the __<-- Parent__ option will take you back up the tree.
+
+![Browse](/images/browse03.png)
+
+4. If you want to perform actions on a __Directory__ click the __Choose__ button
+
+![Browse - Select Folder](/images/browse06.png)
+
+5. The app will allow you run any of the Directory options on the path selected
+
+![Browse - Select Folder](/images/browse07.png)
+
+### Single File Options
+
+When a path to a single file is selected - the app will switch to the "Single File" options
+
+![Single File Main Menu](/images/home-single.png)
+
+You may continue navigating to select a single file
+
+![Browse - Select File](/images/browse05.png)
+
+Additionally, you may populate the __Directory__ path. In the example below, I've entered my file path provided by [Komga](https://komga.org/)
+
+![Path Example](/images/path.png)
+
+## Configuration
+
+Configuration options are available in the Web UI. The app will install with the recommended options. All options will be updated in the App once you click __Save__
+
+See the explanation for each feature for more information on the config options.
+
+![Config Page](/images/configure.png)
+
+## Folder Monitoring
+
+
+
+## Trouble-Shooting

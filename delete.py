@@ -1,5 +1,6 @@
 import os
 import sys
+from app_logging import app_logger
 
 def delete_file(file_path):
     """
@@ -16,26 +17,28 @@ def delete_file(file_path):
         PermissionError: If the file cannot be deleted due to permission issues.
         Exception: For any other exceptions that may occur.
     """
+    app_logger.info(f"********************// Delete File //********************")
+
     try:
         if not os.path.isfile(file_path):
-            print(f"ERROR: The file '{file_path}' does not exist.", file=sys.stderr)
+            app_logger.error(f"ERROR: The file '{file_path}' does not exist.", file=sys.stderr)
             sys.exit(1)
         
         os.remove(file_path)
-        print(f"SUCCESS: The file '{file_path}' has been deleted.")
+        app_logger.info(f"SUCCESS: The file '{file_path}' has been deleted.")
     
     except PermissionError:
-        print(f"ERROR: Permission denied while trying to delete '{file_path}'.", file=sys.stderr)
+        app_logger.error(f"ERROR: Permission denied while trying to delete '{file_path}'.", file=sys.stderr)
         sys.exit(1)
     
     except Exception as e:
-        print(f"ERROR: An unexpected error occurred: {e}", file=sys.stderr)
+        app_logger.error(f"ERROR: An unexpected error occurred: {e}", file=sys.stderr)
         sys.exit(1)
 
 def main():
     if len(sys.argv) != 2:
-        print("ERROR: Incorrect number of arguments.", file=sys.stderr)
-        print("Usage: python delete.py <file_path>", file=sys.stderr)
+        app_logger.error("ERROR: Incorrect number of arguments.", file=sys.stderr)
+        app_logger.error("Usage: python delete.py <file_path>", file=sys.stderr)
         sys.exit(1)
     
     file_path = sys.argv[1]

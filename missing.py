@@ -1,20 +1,13 @@
 import sys
 import os
 import re
-import logging
+from app_logging import app_logger
+from config import config, load_config
 
-IGNORE = [os.environ.get("IGNORE")]
+load_config()
 
-# Ensure the log directory exists
-LOG_FILE_PATH = "/logs/log.txt"
-os.makedirs(os.path.dirname(LOG_FILE_PATH), exist_ok=True)
-
-# Configure logging
-logging.basicConfig(
-    filename=LOG_FILE_PATH,
-    level=logging.INFO,
-    format="%(asctime)s - %(levelname)s - %(message)s"
-)
+raw_terms = config.get("SETTINGS", "IGNORED_TERMS", fallback="Annual")
+terms = [t.strip() for t in raw_terms.split(",") if t.strip()]
 
 def check_missing_issues(root_directory):
     """
@@ -41,36 +34,25 @@ def check_missing_issues(root_directory):
     there are missing issues for that series.
     """
 
-    # Regex to capture series name, issue number, optional year, extension
-    pattern = re.compile(r'^(.+?)\s+#?(\d+)(?:\s*\((\d+)\))?\.(?:cbz|cbr)$', re.IGNORECASE)
+    app_logger.info(f"********************// Missing File Check //********************")
 
+    pattern = re.compile(r'^(.+?)\s+#?(\d+)(?:\s*\((\d+)\))?\.(?:cbz|cbr)$', re.IGNORECASE)
     data_dict = {}
     not_matched = []
 
-    # Walk through all files in the root directory (recursively)
     for dirpath, dirnames, filenames in os.walk(root_directory):
         for fname in filenames:
             fname_stripped = fname.strip()
+            normalized_fname = fname_stripped.replace("‘", "'").replace("’", "'").replace("“", '"').replace("”", '"')
 
-            # Normalize curly quotes to straight quotes
-            normalized_fname = (fname_stripped
-                                .replace("‘", "'")
-                                .replace("’", "'")
-                                .replace("“", '"')
-                                .replace("”", '"'))
-
-            # Check if this file should be ignored (case-insensitive substring check)
-            if any(ignore_word and ignore_word.lower() in normalized_fname.lower() for ignore_word in IGNORE):
-                # If needed, uncomment to see which files are being skipped:
-                # print(f"SKIPPING (ignored): {os.path.join(dirpath, fname)}")
+            if any(ignore_word and ignore_word.lower() in normalized_fname.lower() for ignore_word in terms):
                 continue
 
-            # Attempt to match with the comic filename pattern
             match = pattern.match(fname_stripped)
             if match:
                 series_name = match.group(1).strip()
-                issue_str   = match.group(2)
-                year_str    = match.group(3)  # may be None if no (Year)
+                issue_str = match.group(2)
+                year_str = match.group(3)
 
                 try:
                     issue_num = int(issue_str)
@@ -80,53 +62,29 @@ def check_missing_issues(root_directory):
 
                 key = (dirpath, series_name.lower())
                 if key not in data_dict:
-                    data_dict[key] = {
-                        "series_name": series_name,
-                        "years": set(),
-                        "issues": set()
-                    }
-
+                    data_dict[key] = {"series_name": series_name, "years": set(), "issues": set()}
+                
                 if year_str:
                     data_dict[key]["years"].add(year_str)
                 data_dict[key]["issues"].add(issue_num)
             else:
                 not_matched.append(os.path.join(dirpath, fname))
 
-    if not data_dict:
-        print("No matching comic files found in the entire directory tree (or all were ignored).")
-        if not_matched:
-            print("Files not matched (or skipped):")
-            for nm in not_matched:
-                print("  ", nm)
-        return
-
     missing_file_path = os.path.join(root_directory, "missing.txt")
     num_missing_total = 0
 
     with open(missing_file_path, 'w') as f_out:
-        # Sort keys for consistent output
         for (dirpath, series_name_lower) in sorted(data_dict.keys()):
             info = data_dict[(dirpath, series_name_lower)]
-
             series_name_original = info["series_name"]
-            years_found          = info["years"]
-            issues_found         = sorted(info["issues"])
+            years_found = info["years"]
+            issues_found = sorted(info["issues"])
 
-            if not years_found:
-                adopted_year = None
-            elif len(years_found) == 1:
-                adopted_year = next(iter(years_found))  # or list(years_found)[0]
-            else:
-                # if multiple years, adopt earliest (or first) year
-                adopted_year = min(years_found)
-
+            adopted_year = min(years_found) if years_found else None
             if not issues_found:
-                # No valid issues found (unlikely if matched, but just in case)
                 continue
 
             max_issue = issues_found[-1]
-
-            # Identify all consecutive ranges of missing issues
             missing_runs = []
             start_run = None
 
@@ -136,69 +94,40 @@ def check_missing_issues(root_directory):
                         start_run = i
                 else:
                     if start_run is not None:
-                        # We were in a missing run; close it
                         missing_runs.append((start_run, i - 1))
                         start_run = None
 
-            # If we end the loop in a run, close it out
             if start_run is not None:
                 missing_runs.append((start_run, max_issue))
 
             if missing_runs:
-                # Only now do we print/write the directory path 
-                # (i.e., for this series) if there are missing issues
                 f_out.write(f"Directory: {dirpath}\n")
-
-            # Write out the missing info for each run
+            
             for (start_miss, end_miss) in missing_runs:
                 run_length = end_miss - start_miss + 1
                 num_missing_total += run_length
 
-                # If the run is large (>= 50), condense it
                 if run_length >= 50:
-                    if adopted_year:
-                        missing_str = (
-                            f"{series_name_original} "
-                            f"{start_miss:03d}-{end_miss:03d} ({adopted_year}) "
-                            f"[Total missing: {run_length}]"
-                        )
-                    else:
-                        missing_str = (
-                            f"{series_name_original} "
-                            f"{start_miss:03d}-{end_miss:03d} "
-                            f"[Total missing: {run_length}]"
-                        )
+                    missing_str = f"{series_name_original} {start_miss:03d}-{end_miss:03d} ({adopted_year}) [Total missing: {run_length}]" if adopted_year else f"{series_name_original} {start_miss:03d}-{end_miss:03d} [Total missing: {run_length}]"
                     f_out.write(missing_str + "\n")
                 else:
-                    # List each missing issue individually
                     for m in range(start_miss, end_miss + 1):
-                        if adopted_year:
-                            missing_str = f"{series_name_original} {m:03d} ({adopted_year}).cbz"
-                        else:
-                            missing_str = f"{series_name_original} {m:03d}.cbz"
+                        missing_str = f"{series_name_original} {m:03d} ({adopted_year}).cbz" if adopted_year else f"{series_name_original} {m:03d}.cbz"
                         f_out.write(missing_str + "\n")
 
-            # Add a blank line if any missing issues were found, 
-            # to space out sections for each series
             if missing_runs:
                 f_out.write("\n")
 
     if num_missing_total == 0:
-        os.remove(missing_file_path)
-        print("No missing issues found.")
+        with open(missing_file_path, 'w') as f_out:
+            f_out.write("No missing issues found.\n")
+        app_logger.info("No missing issues found.")
     else:
-        print(f"Found {num_missing_total} missing issues.")
-
-
-    if not_matched:
-        print("The following files did NOT match our pattern (or were skipped):")
-        for nm in not_matched:
-            print("  ", nm)
-
-
+        app_logger.info(f"Found <code>{num_missing_total}</code> missing issues in <code>{root_directory}</code>.")
+    
 if __name__ == "__main__":
     if len(sys.argv) < 2:
-        logging.info("No directory provided!")
+        app_logger.error("No directory provided!")
     else:
         directory = sys.argv[1]
         check_missing_issues(directory)

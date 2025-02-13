@@ -1,0 +1,36 @@
+<!-- templates/header.html -->
+{% set current_page = request.path %}
+
+<div class="container">
+    <header class="d-flex flex-wrap justify-content-center py-3 mb-4 border-bottom">
+      <a href="/" class="d-flex align-items-center mb-3 mb-md-0 me-md-auto link-body-emphasis text-decoration-none">
+        <img src="{{ url_for('static', filename='images/clu.png') }}" alt="CLU (Comic Library Utilities) Logo" width="72"">
+      </a>
+
+      <ul class="nav nav-pills">
+        <li class="nav-item">
+            <a href="{{ url_for('index') }}" class="nav-link {% if current_page == url_for('index') %}active{% endif %}" aria-current="page">
+                Home
+            </a>
+        </li>
+        <li class="nav-item">
+            <a href="{{ url_for('config_page') }}" class="nav-link {% if current_page == url_for('config_page') %}active{% endif %}">
+                Configure
+            </a>
+        </li>
+        <li class="nav-item">
+          <a href="{{ url_for('app_logs_page') }}" class="nav-link {% if current_page == url_for('app_logs_page') %}active{% endif %}">
+              App Logs
+          </a>
+        </li>
+        {% if monitor == "yes" %}
+        <li class="nav-item">
+          <a href="{{ url_for('mon_logs_page') }}" class="nav-link {% if current_page == url_for('mon_logs_page') %}active{% endif %}">
+              Monitor Logs
+          </a>
+        </li>
+        {% endif %}
+    </ul>
+
+    </header>
+  </div>
