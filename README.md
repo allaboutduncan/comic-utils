@@ -14,7 +14,7 @@ As I've continued to work on it, add features and discuss with other users, I wa
 
 With the v1.1 Update, you can now browse your dictories and files directly from that app. This enables you to easily maintain and update your Comic Library no matter the app you use for browsing, organizing and reading.
 
-![Comic Library Utilities (CLU)](images/home.png "Comic Library Utilities Homepage")
+![Comic Library Utilities (CLU)](/images/home_v1.png "Comic Library Utilities Homepage")
 
 ## Features
 Below are examples and explanations of each feature available
@@ -218,7 +218,7 @@ In your browser, navigate to http://localhost:5577
 
 You'll be presented with the main screen, where you can select which option you'd like to perform. The app will default to "Directory" operations.
 
-![Directory Main Menu](/images/home.png)
+![Directory Main Menu](/images/home_v1.png)
 
 ### Browsing for directories / files
 
@@ -266,6 +266,22 @@ See the explanation for each feature for more information on the config options.
 
 ## Folder Monitoring
 
+Folder Monitoring will "watch" a configured folder for new files. Once it detects a new file, it will rename it using the naming conventions of the app and them move it to a configured "processed" folder.
 
+This must be enabled via an Environment Variable during install. You can update your Docker container without re-pulling the image to turn this feature on or off.
+
+Additionally, you can enable via the Config menu, the ability to convert files to CBZ after they are renamed and moved. This will only convery CBR files.
+
+In the Config menu, you'll file an __Ignored Extensions__ setting that comes pre-configured to ignore popular *temp* file types. This ensures these files are not converted until the download is completed. 
 
 ## Trouble-Shooting
+
+Info and error logging is now visible in the app, via the *App Logs* and *Monitor Logs* (if enabled) links in the header navigation. As processes are performed, details are logged here for reivew and trouble-shooting.
+
+### Example App Log
+
+![App Log Screen](/images/app-log.png)
+
+### Example Monitor Log
+
+![Monitor Log Screen](/images/mon-log.png)
