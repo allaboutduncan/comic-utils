@@ -76,6 +76,9 @@ def clean_filename_pre(filename):
     # Replace all (...) groups according to the logic above
     filename = re.sub(r'\([^)]*\)', parentheses_replacer, filename)
 
+    # 4) Remove " - Issue" from the filename
+    filename = re.sub(r'\s*-\s*Issue\b', '', filename, flags=re.IGNORECASE)
+
     # Trim extra spaces that might result
     filename = re.sub(r'\s+', ' ', filename).strip()
 
