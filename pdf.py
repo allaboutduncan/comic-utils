@@ -3,6 +3,7 @@ import sys
 import zipfile
 from pdf2image import convert_from_path, pdfinfo_from_path
 from app_logging import app_logger
+from PIL import Image
 
 def scan_and_convert(directory):
     """
@@ -11,6 +12,8 @@ def scan_and_convert(directory):
 
     :param directory: Root directory to scan
     """
+    Image.MAX_IMAGE_PIXELS = 500000000
+
     app_logger.info("********************// Convert All PDF to CBZ //********************")
 
     for root, _, files in os.walk(directory):
@@ -34,17 +37,28 @@ def scan_and_convert(directory):
                             pdf_path, 
                             first_page=page_number, 
                             last_page=page_number, 
-                            thread_count=1
+                            thread_count=1,
+                            fmt="jpeg"
                         )[0]
 
                         width, height = page.size
-                        app_logger.info(f"Page {page_number} size: {width}x{height} pixels")
+                        total = width * height
+                        app_logger.info(f"Page {page_number} size: {width}x{height} pixels ({total}px)")
 
                         page_filename = f"{pdf_name} page_{page_number}.jpg"
                         app_logger.info(f"Saving page {page_number} as {page_filename}")
-                        
+
                         page_path = os.path.join(output_folder, page_filename)
-                        page.save(page_path, "JPEG")
+
+                        # Resize image aggressively if still too large
+                        max_width, max_height = 6000, 9000  # Reduce size significantly
+
+                        if width * height > 179478485:  # If image exceeds Pillow's old limit
+                            app_logger.info(f"Resizing large image: {page_filename}")
+                            page.thumbnail((max_width, max_height))  # Resizes while keeping aspect ratio
+
+                        # Save the resized image
+                        page.save(page_path, "JPEG", dpi=(96, 96), quality=75)
 
                     # Compress the folder into a CBZ file
                     cbz_path = os.path.join(root, f"{pdf_name}.cbz")

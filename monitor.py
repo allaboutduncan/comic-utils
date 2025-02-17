@@ -117,6 +117,18 @@ class DownloadCompleteHandler(FileSystemEventHandler):
         else:
             monitor_logger.info(f"File not yet complete: {filepath}")
 
+
+    def _rename_file(self, filepath):
+        try:
+            new_filepath = rename_file(filepath)
+            if new_filepath:
+                monitor_logger.info(f"Renamed File: {new_filepath}")
+            return new_filepath
+        except Exception as e:
+            monitor_logger.info(f"Error renaming file {filepath}: {e}")
+            return None
+
+
     def _process_file(self, filepath):
         try:
             monitor_logger.info(f"Processing file: {filepath}")
@@ -130,15 +142,6 @@ class DownloadCompleteHandler(FileSystemEventHandler):
         except Exception as e:
             monitor_logger.info(f"Error processing {filepath}: {e}")
 
-    def _rename_file(self, filepath):
-        try:
-            new_filepath = rename_file(filepath)
-            if new_filepath:
-                monitor_logger.info(f"Renamed File: {new_filepath}")
-            return new_filepath
-        except Exception as e:
-            monitor_logger.info(f"Error renaming file {filepath}: {e}")
-            return None
 
     def _move_file(self, filepath):
         """
