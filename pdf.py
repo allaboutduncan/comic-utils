@@ -36,7 +36,13 @@ def scan_and_convert(directory):
                             last_page=page_number, 
                             thread_count=1
                         )[0]
+
+                        width, height = page.size
+                        app_logger.info(f"Page {page_number} size: {width}x{height} pixels")
+
                         page_filename = f"{pdf_name} page_{page_number}.jpg"
+                        app_logger.info(f"Saving page {page_number} as {page_filename}")
+                        
                         page_path = os.path.join(output_folder, page_filename)
                         page.save(page_path, "JPEG")
 
