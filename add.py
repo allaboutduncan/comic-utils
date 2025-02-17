@@ -52,7 +52,7 @@ def handle_cbz_file(file_path):
                     arcname = os.path.relpath(file_path_in_folder, folder_name)
                     zf.write(file_path_in_folder, arcname)
 
-        loapp_loggergger.info(f"Successfully re-compressed: {file_path}")
+        app_logger.info(f"Successfully re-compressed: {file_path}")
 
         # Step 7: Delete the .bak file
         os.remove(bak_file_path)
