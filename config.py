@@ -67,6 +67,8 @@ def load_flask_config(app, logger=None):
     app.config["XML_YEAR"] = settings.get("XML_YEAR", "False") == "False"
     app.config["XML_MARKDOWN"] = settings.get("XML_MARKDOWN", "False") == "True"
     app.config["XML_LIST"] = settings.get("XML_LIST", "False") == "True"
+    app.config["MOVE_DIRECTORY"] = settings.get("MOVE_DIRECTORY", "False") == "True"
+    app.config["AUTO_UNPACK"] = settings.get("AUTO_UNPACK", "False") == "True"
 
     if logger:
         logger.info(f"Watching: {app.config['WATCH']}")
