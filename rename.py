@@ -39,37 +39,45 @@ FALLBACK_PATTERN = re.compile(
 
 def parentheses_replacer(match):
     """
-    If the parentheses group contains a 4-digit year, keep it
-    (while removing any '-NN' month after the year).
-    Otherwise, remove the entire parentheses group.
+    Process a parentheses group:
+      - If it contains a 4-digit year, return just that year in parentheses.
+      - Otherwise, remove the entire parentheses group.
     """
-    text_with_parens = match.group(0)  # e.g. "(2018)" or "(Scan Final)"
-    inner_text = text_with_parens[1:-1]  # strip outer parentheses
-
-    # Check for a 4-digit year.
+    # Strip the outer parentheses
+    inner_text = match.group(0)[1:-1]
+    # Look for a 4-digit year
     year_match = re.search(r'\d{4}', inner_text)
-    if not year_match:
-        return ''  # remove the parentheses altogether
-
-    # Remove the dash-month if present (e.g. "2023-07" -> "2023")
-    new_inner = re.sub(r'(\d{4})-\d{2}\b', r'\1', inner_text)
-    return f"({new_inner})"
+    if year_match:
+        year = year_match.group(0)
+        return f"({year})"
+    return ''
 
 
 def clean_filename_pre(filename):
     """
     Pre-process the filename to:
       1) Remove anything in [brackets].
-      2) Remove parentheses that don't contain a 4-digit year.
-      3) If a parentheses contains a 4-digit year followed by -XX (month),
-         remove that -XX piece (e.g. "2023-04" -> "2023").
+      2) Process parentheses:
+         - If a 4-digit year is present, keep only that year.
+         - Otherwise, remove the parentheses entirely.
+      3) Handle dash-separated numbers:
+         - Replace patterns like 'YYYY-XX' or 'YYYY-YYYY' with 'YYYY'.
+         - Remove any other dash-separated numbers (e.g. '01-05').
+      4) Remove " - Issue" from the filename.
     """
 
     # 1) Remove bracketed text [ ... ]
     filename = re.sub(r'\[.*?\]', '', filename)
 
-    # 2 & 3) Process parentheses using the external function
+    # 2) Process parentheses using the helper
     filename = re.sub(r'\([^)]*\)', parentheses_replacer, filename)
+
+    # 3a) Replace 4-digit–dash–2-digit (e.g. "2018-04") with the 4-digit year.
+    filename = re.sub(r'\b(\d{4})-\d{2}\b', r'\1', filename)
+    # 3b) Replace 4-digit–dash–4-digit (e.g. "1989-1990") with the first 4-digit year.
+    filename = re.sub(r'\b(\d{4})-\d{4}\b', r'\1', filename)
+    # 3c) Remove any other dash-separated numbers (e.g. "01-05")
+    filename = re.sub(r'\b\d+(?:-\d+)+\b', '', filename)
 
     # 4) Remove " - Issue" from the filename
     filename = re.sub(r'\s*-\s*Issue\b', '', filename, flags=re.IGNORECASE)

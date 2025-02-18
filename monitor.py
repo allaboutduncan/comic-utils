@@ -19,6 +19,7 @@ ignored_extensions = [ext.strip() for ext in ignored_exts_config.split(",") if e
 autoconvert = config.getboolean("SETTINGS", "AUTOCONVERT", fallback=False)
 subdirectories = config.getboolean("SETTINGS", "SUBDIRECTORIES", fallback=False)
 move_directories = config.getboolean("SETTINGS", "MOVE_DIRECTORY", fallback=False)
+auto_unpack = config.getboolean("SETTINGS", "AUTO_UNPACK", fallback=False)
 
 # Logging setup
 MONITOR_LOG = "logs/monitor.log"
@@ -40,23 +41,6 @@ monitor_logger.info(f"3. Ignored Extensions: {ignored_extensions}")
 monitor_logger.info(f"4. Auto-Conversion Enabled: {autoconvert}")
 monitor_logger.info(f"5. Monitor Sub-Directories Enabled: {subdirectories}")
 monitor_logger.info(f"6. Move Sub-Directories Enabled: {move_directories}")
-
-
-def unzip_file(zip_filename):
-    """
-    Unzips the specified .zip file located in the current directory.
-    Extracts all contents into the current directory.
-    """
-    # Check if the file exists in the current directory
-    if not os.path.isfile(zip_filename):
-        print(f"Error: {zip_filename} not found in the current directory.")
-        return
-
-    # Open and extract the zip file
-    with zipfile.ZipFile(zip_filename, 'r') as zip_ref:
-        zip_ref.extractall()  # Defaults to current directory
-
-    print(f"Successfully extracted {zip_filename} into {os.getcwd()}")
 
 
 class DownloadCompleteHandler(FileSystemEventHandler):
@@ -89,6 +73,33 @@ class DownloadCompleteHandler(FileSystemEventHandler):
             f"ignored: {self.ignored_extensions}, autoconvert: {self.autoconvert}, "
             f"subdirectories: {subdirectories}, move_directories: {move_directories}"
         )
+
+
+    def unzip_file(self, zip_filename):
+        """
+        Unzips the specified .zip file located in the current directory.
+        Extracts all contents into the current directory.
+        """
+        # Check if the file exists in the current directory
+        if not os.path.isfile(zip_filename):
+            print(f"Error: {zip_filename} not found in the current directory.")
+            return
+
+        # Open and extract the zip file
+        with zipfile.ZipFile(zip_filename, 'r') as zip_ref:
+            zip_ref.extractall(directory)  # Defaults to current directory
+
+        monitor_logger.info(f"Successfully extracted {zip_filename} into {os.getcwd()}")
+
+        # Delete the zip file after extraction if it still exists
+        if os.path.exists(zip_filename):
+            try:
+                os.remove(zip_filename)
+                monitor_logger.info(f"Deleted zip file: {zip_filename}")
+            except Exception as e:
+                monitor_logger.error(f"Error deleting {zip_filename}: {e}")
+        else:
+            monitor_logger.info(f"Zip file {zip_filename} not found during deletion; it may have been already removed.")
 
 
     def on_created(self, event):
@@ -133,6 +144,7 @@ class DownloadCompleteHandler(FileSystemEventHandler):
     def _handle_file_if_complete(self, filepath):
         _, extension = os.path.splitext(filepath)
         extension = extension.lower()
+
         if extension in self.ignored_extensions:
             monitor_logger.info(f"Ignoring file with extension '{extension}': {filepath}")
             return
@@ -158,6 +170,17 @@ class DownloadCompleteHandler(FileSystemEventHandler):
     def _process_file(self, filepath):
         try:
             monitor_logger.info(f"Processing file: {filepath}")
+            
+            # Check if the file is a zip file
+            if filepath.lower().endswith('.zip'):
+                if self.auto_unpack:
+                    monitor_logger.info(f"Zip file detected and auto_unpack is enabled. Unzipping: {filepath}")
+                    self.unzip_file(filepath)
+                    return  # Exit after unzipping
+                else:
+                    monitor_logger.info(f"Zip file detected, but auto_unpack is disabled. Processing as normal file: {filepath}")
+            
+            # Continue with the normal processing for non-zip files (or zip files when auto_unpack is disabled)
             renamed_filepath = self._rename_file(filepath)
             if not renamed_filepath or renamed_filepath == filepath:
                 monitor_logger.info(f"No rename needed for: {filepath}")
@@ -165,6 +188,7 @@ class DownloadCompleteHandler(FileSystemEventHandler):
             else:
                 monitor_logger.info(f"Renamed file: {renamed_filepath}")
                 self._move_file(renamed_filepath)
+                    
         except Exception as e:
             monitor_logger.info(f"Error processing {filepath}: {e}")
 
@@ -207,7 +231,7 @@ class DownloadCompleteHandler(FileSystemEventHandler):
             os.makedirs(os.path.dirname(target_path), exist_ok=True)
             shutil.move(filepath, target_path)
             monitor_logger.info(f"Moved file to: {target_path}")
-            
+
             # Allow filesystem update
             time.sleep(1)
 
@@ -229,19 +253,30 @@ class DownloadCompleteHandler(FileSystemEventHandler):
 
         except Exception as e:
             monitor_logger.error(f"Error moving file: {e}")
-            
             # Allow filesystem update
             time.sleep(1)
-        
-        # Remove the source directory if it's now empty (and it's not the main watch folder).
+
+        # Remove empty directories along the processed file's source path,
+        # but only those in the chain up to the main watch folder.
         source_folder = os.path.dirname(filepath)
-        if os.path.abspath(source_folder) != os.path.abspath(self.directory):
+        watch_dir = os.path.abspath(self.directory)
+        current_dir = os.path.abspath(source_folder)
+
+        while current_dir != watch_dir:
             try:
-                if not os.listdir(source_folder):
-                    os.rmdir(source_folder)
-                    monitor_logger.info(f"Deleted empty sub-directory: {source_folder}")
+                # Only remove the directory if it's empty.
+                if not os.listdir(current_dir):
+                    os.rmdir(current_dir)
+                    monitor_logger.info(f"Deleted empty sub-directory: {current_dir}")
+                else:
+                    # Stop if the directory contains any files or non-empty folders.
+                    break
             except Exception as e:
-                monitor_logger.error(f"Error removing directory {source_folder}: {e}")
+                monitor_logger.error(f"Error removing directory {current_dir}: {e}")
+                break
+            # Move one level up in the directory hierarchy.
+            current_dir = os.path.dirname(current_dir)
+
 
     def _is_download_complete(self, filepath):
         try:
