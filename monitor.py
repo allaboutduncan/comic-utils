@@ -2,6 +2,7 @@ import time
 import logging
 import shutil
 import os
+import zipfile
 from watchdog.observers.polling import PollingObserver
 from watchdog.events import FileSystemEventHandler
 from rename import rename_file, clean_directory_name
@@ -40,6 +41,24 @@ monitor_logger.info(f"4. Auto-Conversion Enabled: {autoconvert}")
 monitor_logger.info(f"5. Monitor Sub-Directories Enabled: {subdirectories}")
 monitor_logger.info(f"6. Move Sub-Directories Enabled: {move_directories}")
 
+
+def unzip_file(zip_filename):
+    """
+    Unzips the specified .zip file located in the current directory.
+    Extracts all contents into the current directory.
+    """
+    # Check if the file exists in the current directory
+    if not os.path.isfile(zip_filename):
+        print(f"Error: {zip_filename} not found in the current directory.")
+        return
+
+    # Open and extract the zip file
+    with zipfile.ZipFile(zip_filename, 'r') as zip_ref:
+        zip_ref.extractall()  # Defaults to current directory
+
+    print(f"Successfully extracted {zip_filename} into {os.getcwd()}")
+
+
 class DownloadCompleteHandler(FileSystemEventHandler):
     def __init__(self, directory, target_directory, ignored_extensions):
         """
@@ -50,6 +69,7 @@ class DownloadCompleteHandler(FileSystemEventHandler):
         self.target_directory = target_directory
         self.ignored_extensions = set(ext.lower() for ext in ignored_extensions)
         self.autoconvert = autoconvert  # We store this as well
+
 
     def reload_settings(self):
         """
@@ -70,6 +90,7 @@ class DownloadCompleteHandler(FileSystemEventHandler):
             f"subdirectories: {subdirectories}, move_directories: {move_directories}"
         )
 
+
     def on_created(self, event):
         # Refresh settings on every event
         self.reload_settings()
@@ -81,12 +102,14 @@ class DownloadCompleteHandler(FileSystemEventHandler):
             monitor_logger.info(f"Directory created: {event.src_path}")
             self._scan_directory(event.src_path)
 
+
     def on_modified(self, event):
         self.reload_settings()
 
         if not event.is_directory:
             self._handle_file_if_complete(event.src_path)
             monitor_logger.info(f"File Modified: {event.src_path}")
+
 
     def on_moved(self, event):
         self.reload_settings()
@@ -98,12 +121,14 @@ class DownloadCompleteHandler(FileSystemEventHandler):
             monitor_logger.info(f"Directory Moved: {event.dest_path}")
             self._scan_directory(event.dest_path)
 
+
     def _scan_directory(self, directory):
         for root, dirs, files in os.walk(directory):
             for file in files:
                 file_path = os.path.join(root, file)
                 self._handle_file_if_complete(file_path)
                 monitor_logger.info(f"Scanning directory - found file: {file_path}")
+
 
     def _handle_file_if_complete(self, filepath):
         _, extension = os.path.splitext(filepath)
