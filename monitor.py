@@ -11,13 +11,13 @@ from config import config, load_config
 load_config()
 
 # These initial reads remain for startup.
-directory_to_watch = config.get("SETTINGS", "WATCH", fallback="/temp")
+directory = config.get("SETTINGS", "WATCH", fallback="/temp")
 target_directory = config.get("SETTINGS", "TARGET", fallback="/processed")
 ignored_exts_config = config.get("SETTINGS", "IGNORED_EXTENSIONS", fallback=".crdownload")
 ignored_extensions = [ext.strip() for ext in ignored_exts_config.split(",") if ext.strip()]
 autoconvert = config.getboolean("SETTINGS", "AUTOCONVERT", fallback=False)
 subdirectories = config.getboolean("SETTINGS", "SUBDIRECTORIES", fallback=False)
-move_directories = config.getboolean("Settings", "MOVE_DIRECTORY", fallback=False)
+move_directories = config.getboolean("SETTINGS", "MOVE_DIRECTORY", fallback=False)
 
 # Logging setup
 MONITOR_LOG = "logs/monitor.log"
@@ -33,7 +33,7 @@ monitor_handler.setFormatter(logging.Formatter("%(asctime)s - %(levelname)s - %(
 monitor_logger.addHandler(monitor_handler)
 
 monitor_logger.info("Monitor script started!")
-monitor_logger.info(f"1. Monitoring: {directory_to_watch}")
+monitor_logger.info(f"1. Monitoring: {directory}")
 monitor_logger.info(f"2. Target: {target_directory}")
 monitor_logger.info(f"3. Ignored Extensions: {ignored_extensions}")
 monitor_logger.info(f"4. Auto-Conversion Enabled: {autoconvert}")
@@ -65,14 +65,14 @@ class DownloadCompleteHandler(FileSystemEventHandler):
         self.autoconvert = config.getboolean("SETTINGS", "AUTOCONVERT", fallback=False)
 
         monitor_logger.info(
-            f"Config reloaded. Now watching: {self.directory}, target: {self.target_directory}, "
-            f"ignored: {self.ignored_extensions}, autoconvert: {self.autoconvert}"
+            f"Config reloaded: {self.directory}, target: {self.target_directory}, "
+            f"ignored: {self.ignored_extensions}, autoconvert: {self.autoconvert}, "
+            f"subdirectories: {subdirectories}, move_directories: {move_directories}"
         )
 
     def on_created(self, event):
         # Refresh settings on every event
         self.reload_settings()
-        monitor_logger.info(f"** on_created triggered ** => Path: {event.src_path}, Is directory? {event.is_directory}")
 
         if not event.is_directory:
             self._handle_file_if_complete(event.src_path)
@@ -162,32 +162,24 @@ class DownloadCompleteHandler(FileSystemEventHandler):
             return  # Exit early; do not move an incomplete file
 
         if move_directories:
-            # Assume self.source_directory is the root downloads/temp directory.
-            # Calculate the relative path from the source_directory.
-            rel_path = os.path.relpath(filepath, self.source_directory)
-            path_parts = rel_path.split(os.sep)
-            
-            # If the file is in a sub-directory, prefix the filename with the sub-directory names.
-            if len(path_parts) > 1:
-                # Remove directory separators by joining with an underscore.
-                new_filename = "_".join(path_parts[:-1]) + "_" + path_parts[-1]
-            else:
-                new_filename = path_parts[0]
-            
-            target_path = os.path.join(self.target_directory, new_filename)
+            # Calculate the relative path from the source directory.
+            rel_path = os.path.relpath(filepath, self.directory)
+            # Build the target path preserving the sub-directory structure.
+            target_path = os.path.join(self.target_directory, rel_path)
         else:
             # If not moving directories, keep the original filename.
             filename = os.path.basename(filepath)
             target_path = os.path.join(self.target_directory, filename)
 
         try:
-            os.makedirs(self.target_directory, exist_ok=True)
+            # Ensure that the target sub-directory exists.
+            os.makedirs(os.path.dirname(target_path), exist_ok=True)
             shutil.move(filepath, target_path)
             monitor_logger.info(f"Moved file to: {target_path}")
             
             # Allow filesystem update
             time.sleep(1)
-            
+
             if os.path.exists(target_path):
                 monitor_logger.info(f"Check if '{target_path}' is CBR and convert")
                 if self.autoconvert:
@@ -203,10 +195,13 @@ class DownloadCompleteHandler(FileSystemEventHandler):
                         monitor_logger.error(f"Conversion failed for '{target_path}': {e}")
             else:
                 monitor_logger.warning(f"File move verification failed: {target_path} not found.")
-        
-        except Exception as e:
-            monitor_logger.error(f"Error moving file {filepath} to {target_path}: {e}")
 
+        except Exception as e:
+            monitor_logger.error(f"Error moving file: {e}")
+            
+            # Allow filesystem update
+            time.sleep(1)
+        
         # Remove the source directory if it's now empty (and it's not the main watch folder).
         source_folder = os.path.dirname(filepath)
         if os.path.abspath(source_folder) != os.path.abspath(self.directory):
@@ -253,23 +248,23 @@ def _wait_for_download_completion(filepath, wait_time=2.0, retries=20):
 
 
 if __name__ == "__main__":
-    os.makedirs(directory_to_watch, exist_ok=True)
+    os.makedirs(directory, exist_ok=True)
 
     event_handler = DownloadCompleteHandler(
-        directory=directory_to_watch,
+        directory=directory,
         target_directory=target_directory,
         ignored_extensions=ignored_extensions
     )
 
     # Initial scan
-    for root, _, files in os.walk(directory_to_watch):
+    for root, _, files in os.walk(directory):
         for file in files:
             filepath = os.path.join(root, file)
             monitor_logger.info(f"Initial startup scan for: {filepath}")
             event_handler._handle_file_if_complete(filepath)
 
     observer = PollingObserver(timeout=30)
-    observer.schedule(event_handler, directory_to_watch, recursive=subdirectories)
+    observer.schedule(event_handler, directory, recursive=subdirectories)
     observer.start()
 
     try:
