@@ -28,7 +28,9 @@ def load_config():
             "SUBDIRECTORIES": "False",
             "XML_YEAR": "False",
             "XML_MARKDOWN": "False",
-            "XML_LIST": "True"
+            "XML_LIST": "True",
+            "MOVE_DIRECTORY": "False",
+            "AUTO_UNPACK": "False"
         }
         write_config()
     else:
