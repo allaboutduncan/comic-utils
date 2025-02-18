@@ -36,6 +36,26 @@ FALLBACK_PATTERN = re.compile(
     re.IGNORECASE
 )
 
+
+def parentheses_replacer(match):
+    """
+    If the parentheses group contains a 4-digit year, keep it
+    (while removing any '-NN' month after the year).
+    Otherwise, remove the entire parentheses group.
+    """
+    text_with_parens = match.group(0)  # e.g. "(2018)" or "(Scan Final)"
+    inner_text = text_with_parens[1:-1]  # strip outer parentheses
+
+    # Check for a 4-digit year.
+    year_match = re.search(r'\d{4}', inner_text)
+    if not year_match:
+        return ''  # remove the parentheses altogether
+
+    # Remove the dash-month if present (e.g. "2023-07" -> "2023")
+    new_inner = re.sub(r'(\d{4})-\d{2}\b', r'\1', inner_text)
+    return f"({new_inner})"
+
+
 def clean_filename_pre(filename):
     """
     Pre-process the filename to:
@@ -48,32 +68,7 @@ def clean_filename_pre(filename):
     # 1) Remove bracketed text [ ... ]
     filename = re.sub(r'\[.*?\]', '', filename)
 
-    # 2 & 3) Process parentheses:
-    #    - Keep only parentheses that contain a 4-digit year.
-    #    - Within those parentheses, remove "-XX" if it follows the year.
-    def parentheses_replacer(match):
-        """
-        If the parentheses group contains a 4-digit year, keep it
-        (while removing any '-NN' month after the year).
-        Otherwise, remove the entire parentheses group.
-        """
-        text_with_parens = match.group(0)  # e.g. "(2018)" or "(Scan Final)"
-        inner_text = text_with_parens[1:-1]  # strip outer parentheses
-
-        # Check for a 4-digit year
-        # We'll do a quick search for something like "2023" and optional "-05".
-        # If no 4-digit year is found, remove the entire parentheses block.
-        # If found, remove the dash + two digits if they exist.
-        year_match = re.search(r'\d{4}', inner_text)
-        if not year_match:
-            return ''  # remove the parentheses altogether
-
-        # We found a 4-digit year. Now also remove the dash-month if present.
-        # e.g. "2023-07" -> "2023"
-        new_inner = re.sub(r'(\d{4})-\d{2}\b', r'\1', inner_text)
-        return f"({new_inner})"
-
-    # Replace all (...) groups according to the logic above
+    # 2 & 3) Process parentheses using the external function
     filename = re.sub(r'\([^)]*\)', parentheses_replacer, filename)
 
     # 4) Remove " - Issue" from the filename
@@ -83,6 +78,7 @@ def clean_filename_pre(filename):
     filename = re.sub(r'\s+', ' ', filename).strip()
 
     return filename
+
 
 def get_renamed_filename(filename):
     """
