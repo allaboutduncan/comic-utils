@@ -4,7 +4,7 @@ import shutil
 import os
 from watchdog.observers.polling import PollingObserver
 from watchdog.events import FileSystemEventHandler
-from rename import rename_file
+from rename import rename_file, clean_directory_name
 from single_file import convert_to_cbz
 from config import config, load_config
 
@@ -170,6 +170,12 @@ class DownloadCompleteHandler(FileSystemEventHandler):
             # If not moving directories, keep the original filename.
             filename = os.path.basename(filepath)
             target_path = os.path.join(self.target_directory, filename)
+
+        # Apply cleaning to the directory portion of target_path
+        # This cleans the folder names (as per our directory cleaning rules)
+        target_dir = os.path.dirname(target_path)
+        cleaned_target_dir = clean_directory_name(target_dir)
+        target_path = os.path.join(cleaned_target_dir, os.path.basename(target_path))
 
         try:
             # Ensure that the target sub-directory exists.
