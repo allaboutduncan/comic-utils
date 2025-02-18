@@ -200,13 +200,17 @@ def get_renamed_filename(filename):
 def rename_files(directory):
     """
     Walk through the given directory (including subdirectories) and rename
-    all files that match the patterns above.
+    all files that match the patterns above, skipping hidden files.
     """
 
     app_logger.info(f"********************// Rename Directory Files //********************")
 
     for subdir, _, files in os.walk(directory):
         for filename in files:
+            # Skip hidden files
+            if filename.startswith('.'):
+                continue
+
             old_path = os.path.join(subdir, filename)
             new_name = get_renamed_filename(filename)
 
@@ -223,6 +227,12 @@ def rename_file(file_path):
     app_logger.info(f"********************// Rename Single File //********************")
 
     directory, filename = os.path.split(file_path)
+
+    # Skip hidden files
+    if filename.startswith('.'):
+        app_logger.info(f"Skipping hidden file: {filename}")
+        return None
+
     new_name = get_renamed_filename(filename)
 
     if new_name and new_name != filename:

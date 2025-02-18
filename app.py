@@ -139,6 +139,8 @@ def config_page():
         config["SETTINGS"]["XML_YEAR"] = str(request.form.get("xmlYear") == "on")
         config["SETTINGS"]["XML_MARKDOWN"] = str(request.form.get("xmlMarkdown") == "on")
         config["SETTINGS"]["XML_LIST"] = str(request.form.get("xmlList") == "on")
+        config["SETTINGS"]["MOVE_DIRECTORY"] = str(request.form.get("moveDirectory") == "on")
+        config["SETTINGS"]["AUTO_UNPACK"] = str(request.form.get("autoUnpack") == "on")
 
         write_config()  # Save changes to config.ini
         load_flask_config(app)  # Reload into Flask config
@@ -160,6 +162,8 @@ def config_page():
         xmlYear=settings.get("XML_YEAR", "False") == "True",
         xmlMarkdown=settings.get("XML_MARKDOWN", "False") == "True",
         xmlList=settings.get("XML_LIST", "False") == "True",
+        moveDirectory=settings.get("MOVE_DIRECTORY", "False") == "True",
+        autoUnpack=settings.get("AUTO_UNPACK", "False") == "True",
         config=settings,  # Pass full settings dictionary
     )
 

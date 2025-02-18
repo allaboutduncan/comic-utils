@@ -41,7 +41,7 @@ monitor_logger.info(f"3. Ignored Extensions: {ignored_extensions}")
 monitor_logger.info(f"4. Auto-Conversion Enabled: {autoconvert}")
 monitor_logger.info(f"5. Monitor Sub-Directories Enabled: {subdirectories}")
 monitor_logger.info(f"6. Move Sub-Directories Enabled: {move_directories}")
-
+monitor_logger.info(f"7. Auto Unpack Enabled: {auto_unpack}")
 
 class DownloadCompleteHandler(FileSystemEventHandler):
     def __init__(self, directory, target_directory, ignored_extensions):
@@ -52,8 +52,10 @@ class DownloadCompleteHandler(FileSystemEventHandler):
         self.directory = directory
         self.target_directory = target_directory
         self.ignored_extensions = set(ext.lower() for ext in ignored_extensions)
-        self.autoconvert = autoconvert  # We store this as well
-
+        self.autoconvert = autoconvert
+        self.subdirectories = subdirectories
+        self.move_directories = move_directories
+        self.auto_unpack = auto_unpack
 
     def reload_settings(self):
         """
@@ -67,11 +69,15 @@ class DownloadCompleteHandler(FileSystemEventHandler):
         self.ignored_extensions = set(ext.strip().lower() for ext in ignored_exts_config.split(",") if ext.strip())
 
         self.autoconvert = config.getboolean("SETTINGS", "AUTOCONVERT", fallback=False)
+        self.subdirectories = config.getboolean("SETTINGS", "SUBDIRECTORIES", fallback=False)
+        self.move_directories = config.getboolean("SETTINGS", "MOVE_DIRECTORY", fallback=False)
+        self.auto_unpack = config.getboolean("SETTINGS", "AUTO_UNPACK", fallback=False)
 
+        monitor_logger.info(f"********************// Config Reloaded //********************")
         monitor_logger.info(
-            f"Config reloaded: {self.directory}, target: {self.target_directory}, "
-            f"ignored: {self.ignored_extensions}, autoconvert: {self.autoconvert}, "
-            f"subdirectories: {subdirectories}, move_directories: {move_directories}"
+            f"Directory: {self.directory}, Target: {self.target_directory}, "
+            f"Ignored: {self.ignored_extensions}, autoconvert: {self.autoconvert}, "
+            f"subdirectories: {self.subdirectories}, move_directories: {self.move_directories}, auto_unpack: {self.auto_unpack}"
         )
 
 
@@ -136,18 +142,33 @@ class DownloadCompleteHandler(FileSystemEventHandler):
     def _scan_directory(self, directory):
         for root, dirs, files in os.walk(directory):
             for file in files:
+                if file.startswith('.'):  # Skip hidden files
+                    monitor_logger.info(f"Skipping hidden file: {file}")
+                    continue
+
                 file_path = os.path.join(root, file)
                 self._handle_file_if_complete(file_path)
                 monitor_logger.info(f"Scanning directory - found file: {file_path}")
 
 
     def _handle_file_if_complete(self, filepath):
+        filename = os.path.basename(filepath)
+
+        # **Skip hidden files**
+        if filename.startswith('.'):
+            monitor_logger.info(f"Skipping hidden file: {filename}")
+            return
+
         _, extension = os.path.splitext(filepath)
         extension = extension.lower()
 
+        # If the extension is in the ignored list, ignore it—unless it's a .zip file and auto_unpack is enabled.
         if extension in self.ignored_extensions:
-            monitor_logger.info(f"Ignoring file with extension '{extension}': {filepath}")
-            return
+            if extension == '.zip' and getattr(self, 'auto_unpack', False):
+                monitor_logger.info(f"Zip file detected with auto_unpack enabled: {filepath}")
+            else:
+                monitor_logger.info(f"Ignoring file with extension '{extension}': {filepath}")
+                return
 
         if self._is_download_complete(filepath):
             self._process_file(filepath)
@@ -200,6 +221,13 @@ class DownloadCompleteHandler(FileSystemEventHandler):
         If move_directories is True, the file is renamed based on its original
         sub-directory structure (flattening the hierarchy).
         """
+        filename = os.path.basename(filepath)
+
+        # **Skip hidden files**
+        if filename.startswith('.'):
+            monitor_logger.info(f"Skipping hidden file: {filename}")
+            return
+
         if not os.path.exists(filepath):
             monitor_logger.info(f"File not found for moving: {filepath}")
             return

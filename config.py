@@ -5,9 +5,11 @@ import time
 
 CONFIG_FILE = "config.ini"
 config = configparser.ConfigParser()
+config.optionxform = str  # Preserve case sensitivity
 
 def write_config():
     """Writes the current in-memory config object to config.ini."""
+    config.optionxform = str  # Preserve case sensitivity
     with open(CONFIG_FILE, "w") as configfile:
         config.write(configfile)
 
