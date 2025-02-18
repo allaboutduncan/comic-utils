@@ -264,20 +264,26 @@ class DownloadCompleteHandler(FileSystemEventHandler):
             time.sleep(1)
 
             if os.path.exists(target_path):
-                monitor_logger.info(f"Check if '{target_path}' is CBR and convert")
-                if self.autoconvert:
-                    monitor_logger.info(f"Sending Convert Request for '{target_path}'")
-                    retries = 3
-                    for _ in range(retries):
-                        if os.path.exists(target_path):
-                            break
-                        time.sleep(0.5)
-                    try:
-                        convert_to_cbz(target_path)
-                    except Exception as e:
-                        monitor_logger.error(f"Conversion failed for '{target_path}': {e}")
+                monitor_logger.info(f"Checking if '{target_path}' is a CBR file")
+                if target_path.lower().endswith('.cbr'):
+                    if self.autoconvert:
+                        monitor_logger.info(f"Sending Convert Request for '{target_path}'")
+                        retries = 3
+                        for _ in range(retries):
+                            if os.path.exists(target_path):
+                                break
+                            time.sleep(0.5)
+                        try:
+                            convert_to_cbz(target_path)
+                        except Exception as e:
+                            monitor_logger.error(f"Conversion failed for '{target_path}': {e}")
+                    else:
+                        monitor_logger.info("Auto-conversion is disabled.")
+                else:
+                    monitor_logger.info(f"File '{target_path}' is not a CBR file. No conversion needed.")
             else:
                 monitor_logger.warning(f"File move verification failed: {target_path} not found.")
+
 
         except Exception as e:
             monitor_logger.error(f"Error moving file: {e}")

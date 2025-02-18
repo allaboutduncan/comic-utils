@@ -28,6 +28,20 @@ ISSUE_PATTERN = re.compile(
 )
 
 # -------------------------------------------------------------------
+# New pattern for cases where the issue number comes after the year.
+# e.g. "Spider-Man 2099 (1992) #44 (digital) (Colecionadores.GO).cbz"
+#   Group(1) => Title (e.g. "Spider-Man 2099")
+#   Group(2) => Year (e.g. "1992")
+#   Group(3) => Issue number (e.g. "#44")
+#   Group(4) => Extra text (ignored)
+#   Group(5) => Extension (e.g. ".cbz")
+# -------------------------------------------------------------------
+ISSUE_AFTER_YEAR_PATTERN = re.compile(
+    r'^(.*?)\s*\((\d{4})\)\s*(#\d{1,3})(.*)(\.\w+)$',
+    re.IGNORECASE
+)
+
+# -------------------------------------------------------------------
 # Fallback for Title (YYYY) anything .ext
 # e.g. "Comic Name (2018) some extra.cbz" -> "Comic Name (2018).cbz"
 # -------------------------------------------------------------------
@@ -65,7 +79,6 @@ def clean_filename_pre(filename):
          - Remove any other dash-separated numbers (e.g. '01-05').
       4) Remove " - Issue" from the filename.
     """
-
     # 1) Remove bracketed text [ ... ]
     filename = re.sub(r'\[.*?\]', '', filename)
 
@@ -104,18 +117,19 @@ def get_renamed_filename(filename):
     """
     Given a single filename (no directory path):
       1) Pre-clean the filename by removing bracketed text,
-         removing parentheses without a 4-digit year,
-         and removing -XX from parentheses containing a 4-digit year.
+         processing parentheses (keeping only 4-digit years),
+         and removing dash-separated numbers.
       2) Try VOLUME_ISSUE_PATTERN first (e.g. "Title v3 051 (2018).ext").
       3) If it fails, try the single ISSUE_PATTERN.
-      4) If that fails, try FALLBACK_PATTERN for just (YYYY).
-      5) If none match, return None.
+      4) Next, try ISSUE_AFTER_YEAR_PATTERN for cases where the issue number follows the year.
+      5) If that fails, try FALLBACK_PATTERN for just (YYYY).
+      6) If none match, return None.
     """
     # Pre-processing step
     cleaned_filename = clean_filename_pre(filename)
 
     # ==========================================================
-    # 1) VOLUME + ISSUE pattern (e.g. "v3 051")
+    # 1) VOLUME + ISSUE pattern (e.g. "Comic Name v3 051 (2018).ext")
     # ==========================================================
     vol_issue_match = VOLUME_ISSUE_PATTERN.match(cleaned_filename)
     if vol_issue_match:
@@ -183,7 +197,19 @@ def get_renamed_filename(filename):
         return new_filename
 
     # ==========================================================
-    # 3) Fallback: Title (YYYY) anything .ext
+    # 3) ISSUE number AFTER YEAR pattern
+    #    e.g. "Spider-Man 2099 (1992) #44 (digital) (Colecionadores.GO).cbz"
+    # ==========================================================
+    issue_after_year_match = ISSUE_AFTER_YEAR_PATTERN.match(cleaned_filename)
+    if issue_after_year_match:
+        raw_title, year, issue, extra, extension = issue_after_year_match.groups()
+        clean_title = raw_title.replace('_', ' ').strip()
+        new_filename = f"{clean_title} {issue} ({year}){extension}"
+        return new_filename
+
+    # ==========================================================
+    # 4) Fallback: Title (YYYY) anything .ext
+    #    e.g. "Comic Name (2018) some extra.cbz" -> "Comic Name (2018).cbz"
     # ==========================================================
     fallback_match = FALLBACK_PATTERN.match(cleaned_filename)
     if fallback_match:
@@ -193,9 +219,10 @@ def get_renamed_filename(filename):
         return new_filename
 
     # ==========================================================
-    # 4) No match => return None
+    # 5) No match => return None
     # ==========================================================
     return None
+
 
 def rename_files(directory):
     """
@@ -218,6 +245,7 @@ def rename_files(directory):
                 new_path = os.path.join(subdir, new_name)
                 app_logger.info(f"Renaming:\n  {old_path}\n  --> {new_path}\n")
                 os.rename(old_path, new_path)
+
 
 def rename_file(file_path):
     """
