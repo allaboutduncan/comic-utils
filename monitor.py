@@ -17,6 +17,7 @@ ignored_exts_config = config.get("SETTINGS", "IGNORED_EXTENSIONS", fallback=".cr
 ignored_extensions = [ext.strip() for ext in ignored_exts_config.split(",") if ext.strip()]
 autoconvert = config.getboolean("SETTINGS", "AUTOCONVERT", fallback=False)
 subdirectories = config.getboolean("SETTINGS", "SUBDIRECTORIES", fallback=False)
+move_directories = config.getboolean("Settings", "MOVE_DIRECTORY", fallback=True)
 
 # Logging setup
 MONITOR_LOG = "logs/monitor.log"
@@ -37,7 +38,7 @@ monitor_logger.info(f"2. Target: {target_directory}")
 monitor_logger.info(f"3. Ignored Extensions: {ignored_extensions}")
 monitor_logger.info(f"4. Auto-Conversion Enabled: {autoconvert}")
 monitor_logger.info(f"5. Monitor Sub-Directories Enabled: {subdirectories}")
-
+monitor_logger.info(f"6. Move Sub-Directories Enabled: {move_directories}")
 
 class DownloadCompleteHandler(FileSystemEventHandler):
     def __init__(self, directory, target_directory, ignored_extensions):
@@ -147,11 +148,9 @@ class DownloadCompleteHandler(FileSystemEventHandler):
         """
         Moves the file from its source location to the target directory,
         ensuring the move is completed before proceeding with conversion.
+        If MOVE_DIRECTORY is True, moves the entire containing directory.
         Then checks if the source sub-directory is empty and removes it if so.
         """
-        filename = os.path.basename(filepath)
-        target_path = os.path.join(self.target_directory, filename)
-
         if not os.path.exists(filepath):
             monitor_logger.info(f"File not found for moving: {filepath}")
             return
@@ -161,22 +160,37 @@ class DownloadCompleteHandler(FileSystemEventHandler):
         if not _wait_for_download_completion(filepath):
             monitor_logger.warning(f"File not yet complete: {filepath}")
             return  # Exit early; do not move an incomplete file
+        
+        if MOVE_DIRECTORY:
+            source_dir = os.path.dirname(filepath)
+            target_dir = os.path.join(self.target_directory, os.path.basename(source_dir))
+        else:
+            source_dir = None  # No need to track source directory
+            target_dir = self.target_directory
+
+        filename = os.path.basename(filepath)
+        target_path = os.path.join(target_dir, filename)
 
         if os.path.exists(target_path):
             monitor_logger.info(f"File already exists in target directory: {target_path}")
         else:
             try:
-                os.makedirs(self.target_directory, exist_ok=True)
-                shutil.move(filepath, target_path)
-                monitor_logger.info(f"Moved file to: {target_path}")
+                os.makedirs(target_dir, exist_ok=True)
+                
+                if MOVE_DIRECTORY:
+                    shutil.move(source_dir, target_dir)
+                    monitor_logger.info(f"Moved directory '{source_dir}' to '{target_dir}'")
+                else:
+                    shutil.move(filepath, target_path)
+                    monitor_logger.info(f"Moved file to: {target_path}")
 
-                # Ensure the file is fully moved before proceeding
+                # Ensure the move is complete before proceeding
                 time.sleep(1)  # Allow filesystem update
 
                 if os.path.exists(target_path):
                     monitor_logger.info(f"Check if '{target_path}' is CBR and convert")
 
-                    # Re-check autoconvert setting each time (using self.autoconvert)
+                    # Re-check autoconvert setting each time
                     if self.autoconvert:
                         monitor_logger.info(f"Sending Convert Request for '{target_path}'")
 
