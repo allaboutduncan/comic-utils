@@ -80,6 +80,18 @@ def clean_filename_pre(filename):
     return filename
 
 
+def clean_directory_name(directory_name):
+    """
+    Pre-process the directory name using the same rules as the filename:
+      1) Remove anything in [brackets].
+      2) Remove parentheses that don't contain a 4-digit year.
+      3) If a parentheses contains a 4-digit year followed by -XX (month),
+         remove that -XX piece (e.g. "2023-04" -> "2023").
+      4) Remove " - Issue" from the directory name.
+    """
+    return clean_filename_pre(directory_name)
+
+
 def get_renamed_filename(filename):
     """
     Given a single filename (no directory path):
