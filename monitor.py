@@ -17,7 +17,7 @@ ignored_exts_config = config.get("SETTINGS", "IGNORED_EXTENSIONS", fallback=".cr
 ignored_extensions = [ext.strip() for ext in ignored_exts_config.split(",") if ext.strip()]
 autoconvert = config.getboolean("SETTINGS", "AUTOCONVERT", fallback=False)
 subdirectories = config.getboolean("SETTINGS", "SUBDIRECTORIES", fallback=False)
-move_directories = config.getboolean("Settings", "MOVE_DIRECTORY", fallback=True)
+move_directories = config.getboolean("Settings", "MOVE_DIRECTORY", fallback=False)
 
 # Logging setup
 MONITOR_LOG = "logs/monitor.log"
