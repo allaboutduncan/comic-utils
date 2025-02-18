@@ -146,6 +146,29 @@
                     </div>
                 </div>
             </div>
+
+            <div class="row">
+                <div class="col-md-6">
+                    <div class="form-check form-switch">
+                        <input class="form-check-input" type="checkbox" role="switch" id="autoUnpack" name="autoUnpack" {% if autoUnpack %}checked{% endif %}>
+                        <label class="form-check-label" for="autoUnpack">{% if autoUnpack %}Disable{% else %}Enable{% endif %} Auto ZIP Extraction</label>
+                        <small class="form-text text-muted">
+                            <br />When enabled, ZIP files placed in the Watch folder will automatically be unzipped.
+                        </small>
+                    </div>
+                </div>
+
+                <div class="col-md-6">
+                    <div class="form-check form-switch">
+                        <input class="form-check-input" type="checkbox" role="switch" id="moveDirectory" name="moveDirectory" {% if moveDirectory %}checked{% endif %}>
+                        <label class="form-check-label" for="moveDirectory">{% if moveDirectory %}Disable{% else %}Enable{% endif %} Move Sub-Directories</label>
+                        <small class="form-text text-muted">
+                            <br />If enabled, when processing files in your <code>{{ watch }}</code> folder, the sub-dirctories will be moved as well.
+                        </small>
+                    </div>
+                </div>
+            </div>
+
         </div>
 
         <!-- Ignored Extensions Configuration -->
