@@ -148,68 +148,64 @@ class DownloadCompleteHandler(FileSystemEventHandler):
         """
         Moves the file from its source location to the target directory,
         ensuring the move is completed before proceeding with conversion.
-        If MOVE_DIRECTORY is True, moves the entire containing directory.
-        Then checks if the source sub-directory is empty and removes it if so.
+        If move_directories is True, the file is renamed based on its original
+        sub-directory structure (flattening the hierarchy).
         """
         if not os.path.exists(filepath):
             monitor_logger.info(f"File not found for moving: {filepath}")
             return
 
-        # **Wait for file download completion**
+        # Wait for file download completion
         monitor_logger.info(f"Waiting for '{filepath}' to finish downloading before moving...")
         if not _wait_for_download_completion(filepath):
             monitor_logger.warning(f"File not yet complete: {filepath}")
             return  # Exit early; do not move an incomplete file
+
+        if move_directories:
+            # Assume self.source_directory is the root downloads/temp directory.
+            # Calculate the relative path from the source_directory.
+            rel_path = os.path.relpath(filepath, self.source_directory)
+            path_parts = rel_path.split(os.sep)
+            
+            # If the file is in a sub-directory, prefix the filename with the sub-directory names.
+            if len(path_parts) > 1:
+                # Remove directory separators by joining with an underscore.
+                new_filename = "_".join(path_parts[:-1]) + "_" + path_parts[-1]
+            else:
+                new_filename = path_parts[0]
+            
+            target_path = os.path.join(self.target_directory, new_filename)
+        else:
+            # If not moving directories, keep the original filename.
+            filename = os.path.basename(filepath)
+            target_path = os.path.join(self.target_directory, filename)
+
+        try:
+            os.makedirs(self.target_directory, exist_ok=True)
+            shutil.move(filepath, target_path)
+            monitor_logger.info(f"Moved file to: {target_path}")
+            
+            # Allow filesystem update
+            time.sleep(1)
+            
+            if os.path.exists(target_path):
+                monitor_logger.info(f"Check if '{target_path}' is CBR and convert")
+                if self.autoconvert:
+                    monitor_logger.info(f"Sending Convert Request for '{target_path}'")
+                    retries = 3
+                    for _ in range(retries):
+                        if os.path.exists(target_path):
+                            break
+                        time.sleep(0.5)
+                    try:
+                        convert_to_cbz(target_path)
+                    except Exception as e:
+                        monitor_logger.error(f"Conversion failed for '{target_path}': {e}")
+            else:
+                monitor_logger.warning(f"File move verification failed: {target_path} not found.")
         
-        if MOVE_DIRECTORY:
-            source_dir = os.path.dirname(filepath)
-            target_dir = os.path.join(self.target_directory, os.path.basename(source_dir))
-        else:
-            source_dir = None  # No need to track source directory
-            target_dir = self.target_directory
-
-        filename = os.path.basename(filepath)
-        target_path = os.path.join(target_dir, filename)
-
-        if os.path.exists(target_path):
-            monitor_logger.info(f"File already exists in target directory: {target_path}")
-        else:
-            try:
-                os.makedirs(target_dir, exist_ok=True)
-                
-                if MOVE_DIRECTORY:
-                    shutil.move(source_dir, target_dir)
-                    monitor_logger.info(f"Moved directory '{source_dir}' to '{target_dir}'")
-                else:
-                    shutil.move(filepath, target_path)
-                    monitor_logger.info(f"Moved file to: {target_path}")
-
-                # Ensure the move is complete before proceeding
-                time.sleep(1)  # Allow filesystem update
-
-                if os.path.exists(target_path):
-                    monitor_logger.info(f"Check if '{target_path}' is CBR and convert")
-
-                    # Re-check autoconvert setting each time
-                    if self.autoconvert:
-                        monitor_logger.info(f"Sending Convert Request for '{target_path}'")
-
-                        # Extra safety check - ensure the file is still accessible before conversion
-                        retries = 3
-                        for _ in range(retries):
-                            if os.path.exists(target_path):
-                                break
-                            time.sleep(0.5)
-
-                        try:
-                            convert_to_cbz(target_path)
-                        except Exception as e:
-                            monitor_logger.error(f"Conversion failed for '{target_path}': {e}")
-                else:
-                    monitor_logger.warning(f"File move verification failed: {target_path} not found.")
-
-            except Exception as e:
-                monitor_logger.error(f"Error moving file {filepath} to {target_path}: {e}")
+        except Exception as e:
+            monitor_logger.error(f"Error moving file {filepath} to {target_path}: {e}")
 
         # Remove the source directory if it's now empty (and it's not the main watch folder).
         source_folder = os.path.dirname(filepath)
