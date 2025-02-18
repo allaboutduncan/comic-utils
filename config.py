@@ -40,8 +40,6 @@ def load_config():
     if "SETTINGS" not in config:
         config["SETTINGS"] = {}
 
-    print("Config reloaded.")
-
 def load_flask_config(app, logger=None):
     """
     Helper function to populate a Flask app's config with
@@ -62,13 +60,13 @@ def load_flask_config(app, logger=None):
     app.config["IGNORED_TERMS"] = settings.get("IGNORED_TERMS", "")
     app.config["IGNORED_FILES"] = settings.get("IGNORED_FILES", "")
     app.config["IGNORED_EXTENSIONS"] = settings.get("IGNORED_EXTENSIONS", "")
-    app.config["AUTOCONVERT"] = settings.get("AUTOCONVERT", "False") == "True"
-    app.config["SUBDIRECTORIES"] = settings.get("SUBDIRECTORIES", "False") == "True"
-    app.config["XML_YEAR"] = settings.get("XML_YEAR", "False") == "False"
-    app.config["XML_MARKDOWN"] = settings.get("XML_MARKDOWN", "False") == "True"
-    app.config["XML_LIST"] = settings.get("XML_LIST", "False") == "True"
-    app.config["MOVE_DIRECTORY"] = settings.get("MOVE_DIRECTORY", "False") == "True"
-    app.config["AUTO_UNPACK"] = settings.get("AUTO_UNPACK", "False") == "True"
+    app.config["AUTOCONVERT"] = config.getboolean("SETTINGS", "AUTOCONVERT", fallback=False)
+    app.config["SUBDIRECTORIES"] = config.getboolean("SETTINGS", "SUBDIRECTORIES", fallback=False)
+    app.config["XML_YEAR"] = config.getboolean("SETTINGS", "XML_YEAR", fallback=False)
+    app.config["XML_MARKDOWN"] = config.getboolean("SETTINGS", "XML_MARKDOWN", fallback=False)
+    app.config["XML_LIST"] = config.getboolean("SETTINGS", "XML_LIST", fallback=False)
+    app.config["MOVE_DIRECTORY"] = config.getboolean("SETTINGS", "MOVE_DIRECTORY", fallback=False)
+    app.config["AUTO_UNPACK"] = config.getboolean("SETTINGS", "AUTO_UNPACK", fallback=False)
 
     if logger:
         logger.info(f"Watching: {app.config['WATCH']}")
