@@ -195,6 +195,7 @@ Copy the following and edit the environment variables
                 - '5577:5577'
             volumes:
                 - '/var/run/docker.sock:/tmp/docker.sock:ro' # do not change this line
+                - '/path/to/local/config:/config' # Maps local folder to container
                 ## update the line below to map to your library.
                 ## Your library MUST be mapped to '/data' for the app to work
                 - 'D:/Comics:/data'

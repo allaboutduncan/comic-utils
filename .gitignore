@@ -3,5 +3,7 @@
 /bak
 /files
 /processed
+/images
 temp-*
 .dockerignore
+image.py
