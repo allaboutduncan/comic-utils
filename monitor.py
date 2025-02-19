@@ -8,6 +8,7 @@ from watchdog.events import FileSystemEventHandler
 from rename import rename_file, clean_directory_name
 from single_file import convert_to_cbz
 from config import config, load_config
+from helpers import is_hidden
 
 load_config()
 
@@ -141,22 +142,21 @@ class DownloadCompleteHandler(FileSystemEventHandler):
 
     def _scan_directory(self, directory):
         for root, dirs, files in os.walk(directory):
+            # Skip hidden directories from being traversed.
+            dirs[:] = [d for d in dirs if not is_hidden(os.path.join(root, d))]
             for file in files:
-                if file.startswith('.'):  # Skip hidden files
-                    monitor_logger.info(f"Skipping hidden file: {file}")
-                    continue
-
                 file_path = os.path.join(root, file)
+                # Skip hidden files.
+                if is_hidden(file_path):
+                    continue
                 self._handle_file_if_complete(file_path)
                 monitor_logger.info(f"Scanning directory - found file: {file_path}")
 
 
     def _handle_file_if_complete(self, filepath):
-        filename = os.path.basename(filepath)
-
-        # **Skip hidden files**
-        if filename.startswith('.'):
-            monitor_logger.info(f"Skipping hidden file: {filename}")
+        # Skip hidden files.
+        if is_hidden(filepath):
+            monitor_logger.info(f"Skipping hidden file: {filepath}")
             return
 
         _, extension = os.path.splitext(filepath)
@@ -178,6 +178,11 @@ class DownloadCompleteHandler(FileSystemEventHandler):
 
 
     def _rename_file(self, filepath):
+        # Skip renaming if the file is hidden.
+        if is_hidden(filepath):
+            monitor_logger.info(f"Skipping renaming for hidden file: {filepath}")
+            return None
+
         try:
             new_filepath = rename_file(filepath)
             if new_filepath:
@@ -221,18 +226,17 @@ class DownloadCompleteHandler(FileSystemEventHandler):
         If move_directories is True, the file is renamed based on its original
         sub-directory structure (flattening the hierarchy).
         """
-        filename = os.path.basename(filepath)
-
-        # **Skip hidden files**
-        if filename.startswith('.'):
-            monitor_logger.info(f"Skipping hidden file: {filename}")
-            return
 
         if not os.path.exists(filepath):
             monitor_logger.info(f"File not found for moving: {filepath}")
             return
 
-        # Wait for file download completion
+        # Skip moving hidden files.
+        if is_hidden(filepath):
+            monitor_logger.info(f"Skipping moving hidden file: {filepath}")
+            return
+
+        # Wait for file download completion.
         monitor_logger.info(f"Waiting for '{filepath}' to finish downloading before moving...")
         if not _wait_for_download_completion(filepath):
             monitor_logger.warning(f"File not yet complete: {filepath}")
@@ -284,7 +288,6 @@ class DownloadCompleteHandler(FileSystemEventHandler):
             else:
                 monitor_logger.warning(f"File move verification failed: {target_path} not found.")
 
-
         except Exception as e:
             monitor_logger.error(f"Error moving file: {e}")
             # Allow filesystem update
@@ -297,6 +300,9 @@ class DownloadCompleteHandler(FileSystemEventHandler):
         current_dir = os.path.abspath(source_folder)
 
         while current_dir != watch_dir:
+            # Do not attempt to remove hidden directories.
+            if is_hidden(current_dir):
+                break
             try:
                 # Only remove the directory if it's empty.
                 if not os.listdir(current_dir):

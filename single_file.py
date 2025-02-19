@@ -129,6 +129,7 @@ def convert_to_cbz(file_path):
     else:
         app_logger.info("File is not a recognized .rar, .cbr, or .cbz file.")
 
+
 if __name__ == "__main__":
     if len(sys.argv) < 2:
         app_logger.error("No file provided!")

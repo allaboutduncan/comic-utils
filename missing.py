@@ -3,6 +3,7 @@ import os
 import re
 from app_logging import app_logger
 from config import config, load_config
+from helpers import is_hidden
 
 load_config()
 
@@ -34,16 +35,28 @@ def check_missing_issues(root_directory):
     there are missing issues for that series.
     """
 
-    app_logger.info(f"********************// Missing File Check //********************")
+    app_logger.info("********************// Missing File Check //********************")
 
     pattern = re.compile(r'^(.+?)\s+#?(\d+)(?:\s*\((\d+)\))?\.(?:cbz|cbr)$', re.IGNORECASE)
     data_dict = {}
     not_matched = []
 
     for dirpath, dirnames, filenames in os.walk(root_directory):
+        # Skip hidden directories.
+        dirnames[:] = [d for d in dirnames if not is_hidden(os.path.join(dirpath, d))]
         for fname in filenames:
+            full_path = os.path.join(dirpath, fname)
+            # Skip hidden files.
+            if is_hidden(full_path):
+                continue
+
             fname_stripped = fname.strip()
-            normalized_fname = fname_stripped.replace("‘", "'").replace("’", "'").replace("“", '"').replace("”", '"')
+            normalized_fname = (
+                fname_stripped.replace("‘", "'")
+                            .replace("’", "'")
+                            .replace("“", '"')
+                            .replace("”", '"')
+            )
 
             if any(ignore_word and ignore_word.lower() in normalized_fname.lower() for ignore_word in terms):
                 continue
@@ -57,7 +70,7 @@ def check_missing_issues(root_directory):
                 try:
                     issue_num = int(issue_str)
                 except ValueError:
-                    not_matched.append(os.path.join(dirpath, fname))
+                    not_matched.append(full_path)
                     continue
 
                 key = (dirpath, series_name.lower())
@@ -68,7 +81,7 @@ def check_missing_issues(root_directory):
                     data_dict[key]["years"].add(year_str)
                 data_dict[key]["issues"].add(issue_num)
             else:
-                not_matched.append(os.path.join(dirpath, fname))
+                not_matched.append(full_path)
 
     missing_file_path = os.path.join(root_directory, "missing.txt")
     num_missing_total = 0
@@ -108,11 +121,19 @@ def check_missing_issues(root_directory):
                 num_missing_total += run_length
 
                 if run_length >= 50:
-                    missing_str = f"{series_name_original} {start_miss:03d}-{end_miss:03d} ({adopted_year}) [Total missing: {run_length}]" if adopted_year else f"{series_name_original} {start_miss:03d}-{end_miss:03d} [Total missing: {run_length}]"
+                    missing_str = (
+                        f"{series_name_original} {start_miss:03d}-{end_miss:03d} ({adopted_year}) [Total missing: {run_length}]"
+                        if adopted_year
+                        else f"{series_name_original} {start_miss:03d}-{end_miss:03d} [Total missing: {run_length}]"
+                    )
                     f_out.write(missing_str + "\n")
                 else:
                     for m in range(start_miss, end_miss + 1):
-                        missing_str = f"{series_name_original} {m:03d} ({adopted_year}).cbz" if adopted_year else f"{series_name_original} {m:03d}.cbz"
+                        missing_str = (
+                            f"{series_name_original} {m:03d} ({adopted_year}).cbz"
+                            if adopted_year
+                            else f"{series_name_original} {m:03d}.cbz"
+                        )
                         f_out.write(missing_str + "\n")
 
             if missing_runs:
@@ -124,6 +145,7 @@ def check_missing_issues(root_directory):
         app_logger.info("No missing issues found.")
     else:
         app_logger.info(f"Found <code>{num_missing_total}</code> missing issues in <code>{root_directory}</code>.")
+
     
 if __name__ == "__main__":
     if len(sys.argv) < 2:
