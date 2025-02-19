@@ -80,6 +80,8 @@ def clean_filename_pre(filename):
          - Remove any other dash-separated numbers (e.g. '01-05').
       4) Remove " - Issue" from the filename.
     """
+    filename = filename.replace('_', ' ')
+
     # 1) Remove bracketed text [ ... ]
     filename = re.sub(r'\[.*?\]', '', filename)
 
