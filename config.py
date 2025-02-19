@@ -3,7 +3,7 @@ import threading
 import os
 import time
 
-CONFIG_FILE = "config.ini"
+CONFIG_FILE = "/config/config.ini"
 config = configparser.ConfigParser()
 config.optionxform = str  # Preserve case sensitivity
 
