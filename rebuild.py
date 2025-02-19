@@ -4,6 +4,8 @@ import subprocess
 import zipfile
 import shutil
 from app_logging import app_logger
+from helpers import is_hidden
+
 
 def extract_rar_with_unar(rar_path, output_dir):
     """
@@ -23,21 +25,27 @@ def extract_rar_with_unar(rar_path, output_dir):
     except subprocess.CalledProcessError as e:
         raise RuntimeError(f"Failed to extract {rar_path}: {e.stderr.decode().strip()}")
 
+
 def convert_rar_to_zip_in_directory(directory):
     """
-    Convert all RAR files in a directory to ZIP files using unar for extraction.
-
-    :param directory: Path to the directory containing RAR files.
+    Convert all RAR/CBR files in a directory to CBZ files using unar for extraction,
+    skipping hidden system files and directories.
+    
+    :param directory: Path to the directory containing RAR/CBR files.
     :return: List of successfully converted files (without extensions).
     """
-    app_logger.info(f"********************// Rebuild ALL Files in Directory //********************")
-
+    app_logger.info("********************// Rebuild ALL Files in Directory //********************")
     os.makedirs(directory, exist_ok=True)
     converted_files = []
 
     for file_name in os.listdir(directory):
+        file_path = os.path.join(directory, file_name)
+        # Skip hidden files in the source directory.
+        if is_hidden(file_path):
+            continue
+
         if file_name.lower().endswith(('.rar', '.cbr')):
-            rar_path = os.path.join(directory, file_name)
+            rar_path = file_path
             temp_extraction_dir = os.path.join(directory, f"temp_{file_name[:-4]}")
             zip_path = os.path.join(directory, file_name[:-4] + '.cbz')
 
@@ -47,16 +55,21 @@ def convert_rar_to_zip_in_directory(directory):
                 extract_rar_with_unar(rar_path, temp_extraction_dir)
 
                 with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zf:
-                    for root, _, files in os.walk(temp_extraction_dir):
+                    for root, dirs, files in os.walk(temp_extraction_dir):
+                        # Filter out hidden directories.
+                        dirs[:] = [d for d in dirs if not is_hidden(os.path.join(root, d))]
                         for file in files:
-                            file_path = os.path.join(root, file)
-                            arcname = os.path.relpath(file_path, temp_extraction_dir)
-                            zf.write(file_path, arcname)
+                            file_path_inner = os.path.join(root, file)
+                            # Skip hidden files during zipping.
+                            if is_hidden(file_path_inner):
+                                continue
+                            arcname = os.path.relpath(file_path_inner, temp_extraction_dir)
+                            zf.write(file_path_inner, arcname)
 
                 app_logger.info(f"Successfully converted: {file_name}")
-                converted_files.append(file_name[:-4])  # Track the file without extension
+                converted_files.append(file_name[:-4])  # Store the filename without extension.
 
-                # Delete the original RAR/CBR file
+                # Delete the original RAR/CBR file.
                 os.remove(rar_path)
             except Exception as e:
                 app_logger.error(f"Failed to convert {file_name}: {e}")
@@ -65,6 +78,7 @@ def convert_rar_to_zip_in_directory(directory):
                     shutil.rmtree(temp_extraction_dir)
 
     return converted_files
+
 
 def rebuild_task(directory):
     if not os.path.isdir(directory):
@@ -90,6 +104,11 @@ def rebuild_task(directory):
             continue
 
         file_path = os.path.join(directory, filename)
+        # Double-check if the file is hidden.
+        if is_hidden(file_path):
+            app_logger.info(f"Skipping hidden file: {file_path}")
+            continue
+
         new_zip_file = os.path.join(directory, base_name + ".zip")
 
         app_logger.info(f"Processing file: {filename} ({total_files} remaining)")
@@ -127,6 +146,7 @@ def rebuild_task(directory):
             os.remove(os.path.join(directory, filename))
 
     app_logger.info(f"Rebuild completed in {directory}!")
+
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:

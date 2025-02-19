@@ -2,6 +2,7 @@ import sys
 import os
 import re
 from app_logging import app_logger
+from helpers import is_hidden
 
 # -------------------------------------------------------------------
 # New pattern for Volume + Issue, e.g.:
@@ -230,17 +231,19 @@ def rename_files(directory):
     all files that match the patterns above, skipping hidden files.
     """
 
-    app_logger.info(f"********************// Rename Directory Files //********************")
+    app_logger.info("********************// Rename Directory Files //********************")
 
-    for subdir, _, files in os.walk(directory):
+    for subdir, dirs, files in os.walk(directory):
+        # Skip hidden directories.
+        dirs[:] = [d for d in dirs if not is_hidden(os.path.join(subdir, d))]
         for filename in files:
-            # Skip hidden files
-            if filename.startswith('.'):
+            old_path = os.path.join(subdir, filename)
+            # Skip hidden files.
+            if is_hidden(old_path):
+                app_logger.info(f"Skipping hidden file: {old_path}")
                 continue
 
-            old_path = os.path.join(subdir, filename)
             new_name = get_renamed_filename(filename)
-
             if new_name and new_name != filename:
                 new_path = os.path.join(subdir, new_name)
                 app_logger.info(f"Renaming:\n  {old_path}\n  --> {new_path}\n")
@@ -250,17 +253,16 @@ def rename_files(directory):
 def rename_file(file_path):
     """
     Renames a single file if it matches either pattern using the logic
-    in get_renamed_filename().
+    in get_renamed_filename(), skipping hidden files.
     """
-    app_logger.info(f"********************// Rename Single File //********************")
+    app_logger.info("********************// Rename Single File //********************")
 
-    directory, filename = os.path.split(file_path)
-
-    # Skip hidden files
-    if filename.startswith('.'):
-        app_logger.info(f"Skipping hidden file: {filename}")
+    # Skip hidden files using the is_hidden helper.
+    if is_hidden(file_path):
+        app_logger.info(f"Skipping hidden file: {file_path}")
         return None
 
+    directory, filename = os.path.split(file_path)
     new_name = get_renamed_filename(filename)
 
     if new_name and new_name != filename:
@@ -271,6 +273,7 @@ def rename_file(file_path):
     else:
         app_logger.info("No renaming pattern matched or no change needed.")
         return None
+    
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
