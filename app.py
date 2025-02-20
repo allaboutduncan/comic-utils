@@ -62,10 +62,10 @@ app_logger.info("App started successfully!")
 #########################
 #   List Directories    #
 #########################
-
 @app.route('/list-directories', methods=['GET'])
 def list_directories():
-    """List directories and files in the given path, excluding images."""
+    """List directories and files in the given path, excluding images,
+    and excluding any directories or files that start with '.' or '_'."""
     current_path = request.args.get('path', DATA_DIR)  # Default to /data
 
     if not os.path.exists(current_path):
@@ -73,13 +73,19 @@ def list_directories():
 
     try:
         entries = os.listdir(current_path)
-        directories = [d for d in entries if os.path.isdir(os.path.join(current_path, d))]
+        # Only include directories that do not start with '.' or '_'
+        directories = [
+            d for d in entries
+            if os.path.isdir(os.path.join(current_path, d)) and not d.startswith(('.', '_'))
+        ]
 
-        # Exclude file types from browsing
+        # Exclude file types from browsing and skip files that start with '.' or '_'
         excluded_extensions = {".png", ".jpg", ".jpeg", ".gif", ".txt", ".html", ".css", ".ds_store", "cvinfo"}
         files = [
             f for f in entries
-            if os.path.isfile(os.path.join(current_path, f)) and not any(f.lower().endswith(ext) for ext in excluded_extensions)
+            if os.path.isfile(os.path.join(current_path, f)) and
+               not f.startswith(('.', '_')) and
+               not any(f.lower().endswith(ext) for ext in excluded_extensions)
         ]
 
         parent_dir = os.path.dirname(current_path) if current_path != DATA_DIR else None
@@ -92,7 +98,6 @@ def list_directories():
         })
     except Exception as e:
         return jsonify({"error": str(e)}), 500
-    
     
 #####################################
 #  Move Files/Folders (Drag & Drop) #
