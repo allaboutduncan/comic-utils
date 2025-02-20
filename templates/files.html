@@ -11,15 +11,27 @@
       <!-- Source Panel -->
       <div class="col-md-6">
         <h3>Source</h3>
-        <p id="source-path-display">Path: /data</p>
+        <nav aria-label="breadcrumb">
+          <ol id="source-path-display" class="breadcrumb">
+            <li class="breadcrumb-item">
+              <a href="#" onclick="loadDirectories('/data', 'source'); return false;">/data</a>
+            </li>
+          </ol>
+        </nav>
         <ul id="source-list" class="list-group drop-target"></ul>
-      </div>
+      </div>      
       <!-- Destination Panel -->
       <div class="col-md-6">
         <h3>Destination</h3>
-        <p id="destination-path-display">Path: /data</p>
+        <nav aria-label="breadcrumb">
+          <ol id="destination-path-display" class="breadcrumb">
+            <li class="breadcrumb-item">
+              <a href="#" onclick="loadDirectories('/data', 'destination'); return false;">/data</a>
+            </li>
+          </ol>
+        </nav>
         <ul id="destination-list" class="list-group drop-target"></ul>
-      </div>
+      </div>      
     </div>
   </div>
 
@@ -55,6 +67,8 @@
     // Global variables for deletion.
     let deleteTarget = "";
     let deletePanel = ""; // 'source' or 'destination'
+    // Global variable to hold selected file paths.
+    let selectedFiles = new Set();
 
     // Function to send a rename request.
     function renameItem(oldPath, newName, panel) {
@@ -111,17 +125,33 @@
     // Function to create a list item with edit and delete functionality.
     function createListItem(itemName, fullPath, type, panel, isDraggable) {
       let li = document.createElement("li");
-      li.className = "list-group-item";
+      li.className = "list-group-item d-flex align-items-center justify-content-between";
 
-      // Create a span for the item name.
+      // Left container: holds the icon (if applicable) and the item name.
+      let leftContainer = document.createElement("div");
+      leftContainer.className = "d-flex align-items-center";
+
+      // Only add an icon if the item is not "Parent"
+      if (itemName.toLowerCase() !== "parent") {
+        let icon = document.createElement("i");
+        if (type === "directory") {
+          icon.className = "bi bi-folder me-2";
+        } else {
+          icon.className = "bi bi-file-earmark-zip me-2";
+        }
+        leftContainer.appendChild(icon);
+      }
+
+      // Create span for item name.
       let nameSpan = document.createElement("span");
       nameSpan.textContent = itemName;
+      leftContainer.appendChild(nameSpan);
 
-      // Create a container for the icons.
+      // Right container: holds the edit and delete icons.
       let iconContainer = document.createElement("div");
       iconContainer.className = "icon-container";
 
-      // Create pencil icon for editing.
+      // Pencil icon for editing.
       let pencil = document.createElement("i");
       pencil.className = "bi bi-pencil";
       pencil.style.cursor = "pointer";
@@ -139,14 +169,15 @@
             renameItem(fullPath, input.value, panel);
           }
         });
-        li.replaceChild(input, li.firstElementChild);
+        // Replace left container (icon + name) with input for editing.
+        li.replaceChild(input, leftContainer);
         input.focus();
         input.addEventListener("blur", function() {
-          li.replaceChild(nameSpan, input);
+          li.replaceChild(leftContainer, input);
         });
       };
 
-      // Create trash icon for deletion.
+      // Trash icon for deletion.
       let trash = document.createElement("i");
       trash.className = "bi bi-trash";
       trash.style.cursor = "pointer";
@@ -155,70 +186,147 @@
         deleteTarget = fullPath;
         deletePanel = panel;
         document.getElementById("deleteItemName").textContent = itemName;
-        // Show modal using Bootstrap 5 API.
         let deleteModal = new bootstrap.Modal(document.getElementById("deleteModal"));
         deleteModal.show();
       };
 
-      // Append name and icons to li.
-      li.appendChild(nameSpan);
       iconContainer.appendChild(pencil);
       iconContainer.appendChild(trash);
+
+      // Append left container and right icon container to list item.
+      li.appendChild(leftContainer);
       li.appendChild(iconContainer);
 
-      // Set click handler for navigation (for directories).
+      // For file items, add shift-click selection support.
+      if (type === "file") {
+        li.addEventListener("click", function(e) {
+          // If shift key is pressed, toggle selection.
+          if (e.shiftKey) {
+            if (selectedFiles.has(fullPath)) {
+              selectedFiles.delete(fullPath);
+              li.classList.remove("selected");
+            } else {
+              selectedFiles.add(fullPath);
+              li.classList.add("selected");
+            }
+          } else {
+            // Clear other selections and select this file.
+            selectedFiles.clear();
+            document.querySelectorAll("li.list-group-item.selected").forEach(item => {
+              item.classList.remove("selected");
+            });
+            selectedFiles.add(fullPath);
+            li.classList.add("selected");
+          }
+          e.stopPropagation();
+        });
+      }
+
+      // Drag handling.
+      if (isDraggable) {
+        li.classList.add("draggable");
+        li.setAttribute("draggable", "true");
+        li.addEventListener("dragstart", function(e) {
+          if (type === "file") {
+            // If this file is selected, drag all selected files.
+            if (selectedFiles.has(fullPath)) {
+              e.dataTransfer.setData("text/plain", JSON.stringify(Array.from(selectedFiles)));
+            } else {
+              // Clear selection and select this file.
+              selectedFiles.clear();
+              document.querySelectorAll("li.list-group-item.selected").forEach(item => {
+                item.classList.remove("selected");
+              });
+              selectedFiles.add(fullPath);
+              li.classList.add("selected");
+              e.dataTransfer.setData("text/plain", JSON.stringify([fullPath]));
+            }
+          } else {
+            // For directories, drag as usual.
+            e.dataTransfer.setData("text/plain", fullPath);
+          }
+        });
+      }
+
+      // Set click handler for navigation (only for directories).
       if (type === "directory") {
         li.onclick = function() {
           loadDirectories(fullPath, panel);
         };
       } else {
-        li.onclick = function(e) { e.stopPropagation(); };
-      }
-
-      if(isDraggable) {
-        li.classList.add("draggable");
-        li.setAttribute("draggable", "true");
-        li.addEventListener("dragstart", function(e) {
-          e.dataTransfer.setData("text/plain", fullPath);
-        });
+        li.onclick = function(e) {
+          e.stopPropagation();
+        };
       }
 
       return li;
     }
 
-    // Function to load directories and files into a given panel.
+    // Updated loadDirectories function to support both source and destination panels.
     function loadDirectories(path, panel) {
+      console.log("loadDirectories called with path:", path, "panel:", panel);
+      
+      // Scroll to the top of the page while awaiting list update.
+      window.scrollTo({ top: 0, behavior: "smooth" });
+
+      // Get the correct container for the panel.
+      let container = panel === 'source' ? document.getElementById("source-list")
+                                        : document.getElementById("destination-list");
+
+      if (!container) {
+        console.error("Container not found for panel:", panel);
+        return;
+      }
+      
+      // Set spinner while loading.
+      container.innerHTML = `<div class="d-flex justify-content-center my-3">
+                              <button class="btn btn-primary" type="button" disabled>
+                                <span class="spinner-grow spinner-grow-sm" role="status" aria-hidden="true"></span>
+                                Loading...
+                              </button>
+                            </div>`;
+      
       fetch(`/list-directories?path=${encodeURIComponent(path)}`)
         .then(response => response.json())
         .then(data => {
-          let container = panel === 'source' ? document.getElementById("source-list")
-                                             : document.getElementById("destination-list");
-          container.innerHTML = "";
+          console.log("Received data:", data);
+          container.innerHTML = ""; // Clear spinner and any previous content
+
           if (panel === 'source') {
             currentSourcePath = data.current_path;
-            document.getElementById("source-path-display").textContent = "Path: " + data.current_path;
+            updateBreadcrumb('source', data.current_path);
           } else {
             currentDestinationPath = data.current_path;
-            document.getElementById("destination-path-display").textContent = "Path: " + data.current_path;
+            updateBreadcrumb('destination', data.current_path);
           }
+
+          // Append "Parent" navigation if available.
           if (data.parent) {
             let parentItem = createListItem("Parent", data.parent, "directory", panel, false);
             parentItem.querySelector("span").innerHTML = `<i class="bi bi-arrow-left-square me-2"></i> Parent`;
             container.appendChild(parentItem);
           }
+
+          // Append directory items.
           data.directories.forEach(dir => {
             let fullPath = data.current_path + "/" + dir;
-            let item = createListItem(dir, fullPath, "directory", panel, false);
+            let item = createListItem(dir, fullPath, "directory", panel, true);
             container.appendChild(item);
           });
+
+          // Append file items.
           data.files.forEach(file => {
             let fullPath = data.current_path + "/" + file;
             let fileItem = createListItem(file, fullPath, "file", panel, true);
             container.appendChild(fileItem);
           });
+
         })
         .catch(error => {
           console.error("Error loading directories:", error);
+          container.innerHTML = `<div class="alert alert-danger" role="alert">
+                                    Error loading directory.
+                                  </div>`;
         });
     }
 
@@ -259,11 +367,72 @@
       element.addEventListener("drop", function(e) {
         e.preventDefault();
         element.classList.remove("hover");
-        let sourceFilePath = e.dataTransfer.getData("text/plain");
-        let fileName = sourceFilePath.split('/').pop();
+        let dataStr = e.dataTransfer.getData("text/plain");
+        let filePaths;
+        try {
+          filePaths = JSON.parse(dataStr);
+          if (!Array.isArray(filePaths)) {
+            filePaths = [filePaths];
+          }
+        } catch (err) {
+          filePaths = [dataStr];
+        }
+        let fileName = filePaths.length === 1 ? filePaths[0].split('/').pop() : "";
         let targetPath = panel === 'source' ? currentSourcePath : currentDestinationPath;
-        let destinationPath = targetPath + "/" + fileName;
-        moveItem(sourceFilePath, destinationPath);
+        // For multiple files, move each.
+        filePaths.forEach(fp => {
+          moveItem(fp, targetPath + "/" + fp.split('/').pop());
+        });
+        // Clear selection after drop.
+        selectedFiles.clear();
+      });
+    }
+
+    // Update the breadcrumb display for source or destination panel.
+    function updateBreadcrumb(panel, fullPath) {
+      let breadcrumbEl;
+
+      if (panel === 'source') {
+        breadcrumbEl = document.getElementById("source-path-display");
+      } else if (panel === 'destination') {
+        breadcrumbEl = document.getElementById("destination-path-display");
+      } else {
+        console.error("Invalid panel:", panel);
+        return;
+      }
+
+      breadcrumbEl.innerHTML = ""; // Clear previous breadcrumb items
+
+      // Split the fullPath into segments (e.g., [ "data", "Marvel", "Avengers", ... ])
+      let parts = fullPath.split('/').filter(Boolean);
+      let pathSoFar = "";
+      
+      parts.forEach((part, index) => {
+        pathSoFar += "/" + part;
+        let currentPartPath = pathSoFar; // Capture correct path for this breadcrumb item.
+
+        const li = document.createElement("li");
+        li.className = "breadcrumb-item";
+
+        if (index === parts.length - 1) {
+          // Last segment: mark as active.
+          li.classList.add("active");
+          li.setAttribute("aria-current", "page");
+          li.textContent = part;
+        } else {
+          // For other segments: create a clickable link.
+          const a = document.createElement("a");
+          a.href = "#";
+          a.textContent = part;
+          a.onclick = function(e) {
+            e.preventDefault();
+            console.log("Breadcrumb clicked:", currentPartPath, "Panel:", panel);
+            loadDirectories(currentPartPath, panel);
+          };
+          li.appendChild(a);
+        }
+
+        breadcrumbEl.appendChild(li);
       });
     }
 
