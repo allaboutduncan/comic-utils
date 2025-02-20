@@ -1,0 +1,283 @@
+<!-- templates/index.html -->
+{% extends 'base.html' %}
+
+{% block title %}CLU (Comic Library Utilities){% endblock %}
+
+{% block content %}
+
+  <div class="container-lg">
+    <h2 class="text-primary-emphasis">File Manager</h2>
+    <div class="row">
+      <!-- Source Panel -->
+      <div class="col-md-6">
+        <h3>Source</h3>
+        <p id="source-path-display">Path: /data</p>
+        <ul id="source-list" class="list-group drop-target"></ul>
+      </div>
+      <!-- Destination Panel -->
+      <div class="col-md-6">
+        <h3>Destination</h3>
+        <p id="destination-path-display">Path: /data</p>
+        <ul id="destination-list" class="list-group drop-target"></ul>
+      </div>
+    </div>
+  </div>
+
+  <!-- Delete Confirmation Modal (Bootstrap 5.3) -->
+  <div class="modal fade" id="deleteModal" tabindex="-1" aria-labelledby="deleteModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title" id="deleteModalLabel">Confirm Delete</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body">
+          Are you sure you want to delete <strong id="deleteItemName"></strong>?
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+          <button type="button" class="btn btn-danger" id="confirmDeleteBtn">Delete</button>
+        </div>
+      </div>
+    </div>
+  </div>
+  {% endblock %}
+
+  {% block scripts %}
+
+  <!-- (Optional) jQuery can still be used if desired -->
+  <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+  
+  <script>
+    // Global variables to track current navigation paths.
+    let currentSourcePath = '/data';
+    let currentDestinationPath = '/data';
+    // Global variables for deletion.
+    let deleteTarget = "";
+    let deletePanel = ""; // 'source' or 'destination'
+
+    // Function to send a rename request.
+    function renameItem(oldPath, newName, panel) {
+      let pathParts = oldPath.split('/');
+      pathParts[pathParts.length - 1] = newName;
+      let newPath = pathParts.join('/');
+
+      fetch('/rename', {
+        method: 'POST',
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({ old: oldPath, new: newPath })
+      })
+      .then(response => response.json())
+      .then(result => {
+        if(result.success) {
+          if(panel === 'source') {
+            loadDirectories(currentSourcePath, 'source');
+          } else {
+            loadDirectories(currentDestinationPath, 'destination');
+          }
+        } else {
+          alert("Error renaming item: " + result.error);
+        }
+      })
+      .catch(error => {
+        console.error("Error in rename request:", error);
+      });
+    }
+
+    // Function to send a delete request.
+    function deleteItem(target, panel) {
+      fetch('/delete', {
+        method: 'POST',
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({ target: target })
+      })
+      .then(response => response.json())
+      .then(result => {
+        if(result.success) {
+          if(panel === 'source') {
+            loadDirectories(currentSourcePath, 'source');
+          } else {
+            loadDirectories(currentDestinationPath, 'destination');
+          }
+        } else {
+          alert("Error deleting item: " + result.error);
+        }
+      })
+      .catch(error => {
+        console.error("Error in delete request:", error);
+      });
+    }
+
+    // Function to create a list item with edit and delete functionality.
+    function createListItem(itemName, fullPath, type, panel, isDraggable) {
+      let li = document.createElement("li");
+      li.className = "list-group-item";
+
+      // Create a span for the item name.
+      let nameSpan = document.createElement("span");
+      nameSpan.textContent = itemName;
+
+      // Create a container for the icons.
+      let iconContainer = document.createElement("div");
+      iconContainer.className = "icon-container";
+
+      // Create pencil icon for editing.
+      let pencil = document.createElement("i");
+      pencil.className = "bi bi-pencil";
+      pencil.style.cursor = "pointer";
+      pencil.onclick = function(e) {
+        e.stopPropagation();
+        let input = document.createElement("input");
+        input.type = "text";
+        input.className = "edit-input";
+        input.value = itemName;
+        input.addEventListener("click", function(ev) {
+          ev.stopPropagation();
+        });
+        input.addEventListener("keypress", function(ev) {
+          if(ev.key === "Enter") {
+            renameItem(fullPath, input.value, panel);
+          }
+        });
+        li.replaceChild(input, li.firstElementChild);
+        input.focus();
+        input.addEventListener("blur", function() {
+          li.replaceChild(nameSpan, input);
+        });
+      };
+
+      // Create trash icon for deletion.
+      let trash = document.createElement("i");
+      trash.className = "bi bi-trash";
+      trash.style.cursor = "pointer";
+      trash.onclick = function(e) {
+        e.stopPropagation();
+        deleteTarget = fullPath;
+        deletePanel = panel;
+        document.getElementById("deleteItemName").textContent = itemName;
+        // Show modal using Bootstrap 5 API.
+        let deleteModal = new bootstrap.Modal(document.getElementById("deleteModal"));
+        deleteModal.show();
+      };
+
+      // Append name and icons to li.
+      li.appendChild(nameSpan);
+      iconContainer.appendChild(pencil);
+      iconContainer.appendChild(trash);
+      li.appendChild(iconContainer);
+
+      // Set click handler for navigation (for directories).
+      if (type === "directory") {
+        li.onclick = function() {
+          loadDirectories(fullPath, panel);
+        };
+      } else {
+        li.onclick = function(e) { e.stopPropagation(); };
+      }
+
+      if(isDraggable) {
+        li.classList.add("draggable");
+        li.setAttribute("draggable", "true");
+        li.addEventListener("dragstart", function(e) {
+          e.dataTransfer.setData("text/plain", fullPath);
+        });
+      }
+
+      return li;
+    }
+
+    // Function to load directories and files into a given panel.
+    function loadDirectories(path, panel) {
+      fetch(`/list-directories?path=${encodeURIComponent(path)}`)
+        .then(response => response.json())
+        .then(data => {
+          let container = panel === 'source' ? document.getElementById("source-list")
+                                             : document.getElementById("destination-list");
+          container.innerHTML = "";
+          if (panel === 'source') {
+            currentSourcePath = data.current_path;
+            document.getElementById("source-path-display").textContent = "Path: " + data.current_path;
+          } else {
+            currentDestinationPath = data.current_path;
+            document.getElementById("destination-path-display").textContent = "Path: " + data.current_path;
+          }
+          if (data.parent) {
+            let parentItem = createListItem("Parent", data.parent, "directory", panel, false);
+            parentItem.querySelector("span").innerHTML = `<i class="bi bi-arrow-left-square me-2"></i> Parent`;
+            container.appendChild(parentItem);
+          }
+          data.directories.forEach(dir => {
+            let fullPath = data.current_path + "/" + dir;
+            let item = createListItem(dir, fullPath, "directory", panel, false);
+            container.appendChild(item);
+          });
+          data.files.forEach(file => {
+            let fullPath = data.current_path + "/" + file;
+            let fileItem = createListItem(file, fullPath, "file", panel, true);
+            container.appendChild(fileItem);
+          });
+        })
+        .catch(error => {
+          console.error("Error loading directories:", error);
+        });
+    }
+
+    // Initial load for both panels.
+    loadDirectories(currentSourcePath, 'source');
+    loadDirectories(currentDestinationPath, 'destination');
+
+    // Function to move an item.
+    function moveItem(source, destination) {
+      fetch('/move', {
+        method: 'POST',
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({ source: source, destination: destination })
+      })
+      .then(response => response.json())
+      .then(result => {
+        if(result.success) {
+          loadDirectories(currentSourcePath, 'source');
+          loadDirectories(currentDestinationPath, 'destination');
+        } else {
+          alert("Error moving file: " + result.error);
+        }
+      })
+      .catch(error => {
+        console.error("Error in move request:", error);
+      });
+    }
+
+    // Set up drop events for a given panel element.
+    function setupDropEvents(element, panel) {
+      element.addEventListener("dragover", function(e) {
+        e.preventDefault();
+        element.classList.add("hover");
+      });
+      element.addEventListener("dragleave", function(e) {
+        element.classList.remove("hover");
+      });
+      element.addEventListener("drop", function(e) {
+        e.preventDefault();
+        element.classList.remove("hover");
+        let sourceFilePath = e.dataTransfer.getData("text/plain");
+        let fileName = sourceFilePath.split('/').pop();
+        let targetPath = panel === 'source' ? currentSourcePath : currentDestinationPath;
+        let destinationPath = targetPath + "/" + fileName;
+        moveItem(sourceFilePath, destinationPath);
+      });
+    }
+
+    // Attach drop events.
+    setupDropEvents(document.getElementById("source-list"), 'source');
+    setupDropEvents(document.getElementById("destination-list"), 'destination');
+
+    // Delete confirmation handler.
+    document.getElementById("confirmDeleteBtn").addEventListener("click", function() {
+      // Hide the modal using Bootstrap 5 API.
+      let deleteModalEl = document.getElementById("deleteModal");
+      let deleteModal = bootstrap.Modal.getInstance(deleteModalEl);
+      deleteModal.hide();
+      deleteItem(deleteTarget, deletePanel);
+    });
+  </script>
+{% endblock %}

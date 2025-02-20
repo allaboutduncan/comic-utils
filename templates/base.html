@@ -7,6 +7,29 @@
     <title>{% block title %}Comic Library Utilities{% endblock %}</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+    <style>
+        .list-group-item {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          cursor: pointer;
+        }
+        .edit-input {
+          width: 100%;
+          border: none;
+          border-bottom: 1px solid #ccc;
+        }
+        .icon-container {
+          display: flex;
+          gap: 0.5rem;
+        }
+        .draggable {
+          cursor: move;
+        }
+        .drop-target.hover {
+          background-color: #f0f0f0;
+        }
+      </style>
 </head>
 <body>
     {% include 'header.html' %}
@@ -17,7 +40,7 @@
 
 
     <!-- Bootstrap JS (Required for Modal functionality) -->
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 
     {% block scripts %}{% endblock %}
 

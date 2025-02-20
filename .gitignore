@@ -6,4 +6,3 @@
 /images
 temp-*
 .dockerignore
-image.py

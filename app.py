@@ -92,6 +92,87 @@ def list_directories():
         })
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+    
+    
+#####################################
+#  Move Files/Folders (Drag & Drop) #
+#####################################
+@app.route('/move', methods=['POST'])
+def move():
+    """
+    Move a file or folder from the source path to the destination.
+    Expects a JSON payload with "source" and "destination" keys.
+    """
+    data = request.get_json()
+    source = data.get('source')
+    destination = data.get('destination')
+    
+    if not source or not destination:
+        return jsonify({"error": "Missing source or destination"}), 400
+    if not os.path.exists(source):
+        return jsonify({"error": "Source does not exist"}), 404
+
+    try:
+        shutil.move(source, destination)
+        return jsonify({"success": True})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    
+#####################################
+#     Move Files/Folders UI Page    #
+#####################################
+@app.route('/files')
+def files_page():
+    watch = config.get("SETTINGS", "WATCH", fallback="/temp")
+    return render_template('files.html', watch=watch)
+
+#####################################
+#       Rename Files/Folders        #
+#####################################
+@app.route('/rename', methods=['POST'])
+def rename():
+    data = request.get_json()
+    old_path = data.get('old')
+    new_path = data.get('new')
+    
+    # Validate input
+    if not old_path or not new_path:
+        return jsonify({"error": "Missing old or new path"}), 400
+    
+    # Check if the old path exists
+    if not os.path.exists(old_path):
+        return jsonify({"error": "Source file or directory does not exist"}), 404
+
+    # Optionally, check if the new path already exists to avoid overwriting
+    if os.path.exists(new_path):
+        return jsonify({"error": "Destination already exists"}), 400
+
+    try:
+        os.rename(old_path, new_path)
+        return jsonify({"success": True})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    
+#####################################
+#       Delete Files/Folders        #
+#####################################
+@app.route('/delete', methods=['POST'])
+def delete():
+    data = request.get_json()
+    target = data.get('target')
+    if not target:
+        return jsonify({"error": "Missing target path"}), 400
+    if not os.path.exists(target):
+        return jsonify({"error": "Target does not exist"}), 404
+
+    try:
+        if os.path.isdir(target):
+            shutil.rmtree(target)
+        else:
+            os.remove(target)
+        return jsonify({"success": True})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
         
 #########################
 #  Serve Static Files   #
@@ -176,7 +257,7 @@ def stream_logs(script_type):
     directory = request.args.get('directory')  # Get directory for rebuild/rename script
 
     # Define supported script types for single file actions
-    single_file_scripts = ['single_file', 'crop', 'remove', 'delete', 'add']
+    single_file_scripts = ['single_file', 'crop', 'remove', 'delete','enhance_single', 'add']
 
     # Check if the correct parameter is passed for single_file scripts
     if script_type in single_file_scripts:
@@ -208,7 +289,7 @@ def stream_logs(script_type):
         return Response(generate_logs(), content_type='text/event-stream')
 
     # Handle scripts that operate on directories
-    elif script_type in ['rebuild', 'rename', 'convert', 'pdf', 'missing']:
+    elif script_type in ['rebuild', 'rename', 'convert', 'pdf', 'missing', 'enhance_dir','comicinfo']:
         if not directory or not os.path.isdir(directory):
             return Response("Invalid or missing directory path.", status=400)
 
@@ -261,7 +342,7 @@ def index():
     # These environment variables are set/updated by load_config_into_env()
     watch = config.get("SETTINGS", "WATCH", fallback="/temp")
     return render_template('index.html', watch=watch, config=app.config)
-
+    
 #########################
 #        App Logs       #
 #########################

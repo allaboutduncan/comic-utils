@@ -70,6 +70,18 @@
                     </div>
                 </div>
             </div>
+            <!-- Enhance Images in Directory -->
+            <div class="col-lg-4 col-md-6 col-sm-12 mb-4">
+                <div class="card h-100 shadow-sm">
+                    <div class="card-body d-flex flex-column">
+                        <h5 class="card-title">Enhance Images</h5>
+                        <p class="card-text">Unzips and runs image enhancement logic on all CBZ files in a direcotry.</p>
+                        <button type="button" id="btn-enhance_dir" class="btn btn-primary mt-auto run-script-btn" onclick="runScript('enhance_dir')">Enhance Images</button>
+                    </div>
+                </div>
+            </div>
+            <!-- row 3 of directory options -->
+            <!-- Clean ComicInfo.xml -->
             <div class="col-lg-4 col-md-6 col-sm-12 mb-4">
                 <div class="card h-100 shadow-sm">
                     <div class="card-body d-flex flex-column">
@@ -79,12 +91,13 @@
                         <button type="button" id="btn-comicinfo" class="btn btn-primary mt-auto run-script-btn" onclick="runScript('comicinfo')">Update ComicInfo.xml</button>
                     </div>
                 </div>
-            </div>
-        </div>
+            </div>            
+        </div>        
+        <!-- row for single file operations -->
         <div class="row p-3 collapse" id="single">
             <h2 class="text-primary-emphasis">Single File Options</h2>
             <!-- Single File Rebuild -->
-            <div class="col">
+            <div class="col-lg-4 col-md-6 col-sm-12 mb-4">
                 <div class="card h-100 shadow-sm">
                     <div class="card-body d-flex flex-column">
                         <h5 class="card-title">Single File Rebuild</h5>
@@ -94,7 +107,7 @@
                 </div>
             </div>
             <!-- Crop Cover -->
-            <div class="col">
+            <div class="col-lg-4 col-md-6 col-sm-12 mb-4">
                 <div class="card h-100 shadow-sm">
                     <div class="card-body d-flex flex-column">
                         <h5 class="card-title">Crop Cover</h5>
@@ -104,7 +117,7 @@
                 </div>
             </div>
             <!-- Remove 1st Image -->
-            <div class="col">
+            <div class="col-lg-4 col-md-6 col-sm-12 mb-4">
                 <div class="card h-100 shadow-sm">
                     <div class="card-body d-flex flex-column">
                         <h5 class="card-title">Remove 1st Image</h5>
@@ -114,7 +127,7 @@
                 </div>
             </div>
             <!-- Add Blank Image at End -->
-            <div class="col">
+            <div class="col-lg-4 col-md-6 col-sm-12 mb-4">
                 <div class="card h-100 shadow-sm">
                     <div class="card-body d-flex flex-column">
                         <h5 class="card-title">Add Blank Image at End</h5>
@@ -123,8 +136,18 @@
                     </div>
                 </div>
             </div>
+            <!-- Enhance Images in Directory -->
+            <div class="col-lg-4 col-md-6 col-sm-12 mb-4">
+                <div class="card h-100 shadow-sm">
+                    <div class="card-body d-flex flex-column">
+                        <h5 class="card-title">Enhance Images</h5>
+                        <p class="card-text">Unzips and runs image enhancement logic on a SINGLE CBZ file.</p>
+                        <button type="button" id="btn-enhance_single" class="btn btn-primary mt-auto run-script-btn" onclick="runScript('enhance_single')">Enhance Images</button>
+                    </div>
+                </div>
+            </div>          
             <!-- Delete File -->
-            <div class="col">
+            <div class="col-lg-4 col-md-6 col-sm-12 mb-4">
                 <div class="card h-100 shadow-sm">
                     <div class="card-body d-flex flex-column">
                         <h5 class="card-title">Delete File</h5>
@@ -340,7 +363,28 @@ let currentPath = "/data"; // Root directory
         }
 
         function openDirectoryModal() {
-            loadDirectories(); // Load root directory when modal opens
+            // Get the path from #selected-directory
+            let selectedDirInput = document.getElementById("selected-directory");
+            let path = selectedDirInput ? selectedDirInput.value.trim() : "/data";
+            
+            // Fallback to /data if empty
+            if (!path) {
+                path = "/data";
+            }
+            
+            // Optionally, if it’s a file, extract just the directory part:
+            const lastSlashIndex = path.lastIndexOf("/");
+            if (lastSlashIndex > 0) {
+                path = path.substring(0, lastSlashIndex);
+            }
+            // If empty or root, default to /data
+            if (!path.trim() || path === "/") {
+                path = "/data";
+            }
+
+            console.log("Opening directory modal in:", path);
+            loadDirectories(path);
+
             let modal = new bootstrap.Modal(document.getElementById("directoryModal"));
             modal.show();
         }
@@ -434,7 +478,7 @@ let currentPath = "/data"; // Root directory
                 logsContainer.scrollTop = logsContainer.scrollHeight; // Auto-scroll to the bottom
             };
 
-            // ✅ Handle script completion
+            // Handle script completion
             eventSource.addEventListener("completed", () => {
                 const successLine = document.createElement('div');
                 successLine.textContent = "Process completed successfully!";
@@ -448,7 +492,7 @@ let currentPath = "/data"; // Root directory
                 enableButtons();
             });
 
-            // ✅ Handle errors and enable buttons again
+            // Handle errors and enable buttons again
             eventSource.onerror = () => {
                 const errorLine = document.createElement('div');
                 errorLine.textContent = "Network or connection error occurred.";
@@ -486,9 +530,9 @@ let currentPath = "/data"; // Root directory
             const scriptAvailability = {
                 'rename': !isForbidden, 'convert': !isForbidden,
                 'rebuild': !isForbidden, 'pdf': !isForbidden,
-                'missing': !isForbidden, 'comicinfo': !isForbidden,
+                'missing': !isForbidden, 'enhance_dir':!isForbidden,'comicinfo': !isForbidden,
                 'single_file': isRequired, 'crop': isRequired,
-                'remove': isRequired, 'add': isRequired, 'delete': isRequired
+                'remove': isRequired, 'add': isRequired, 'enhance_single':isRequired, 'delete': isRequired
             };
 
             Object.keys(scriptAvailability).forEach(scriptType => {
@@ -500,37 +544,37 @@ let currentPath = "/data"; // Root directory
         }
 
         document.addEventListener('DOMContentLoaded', () => {
-            let browseButton = document.getElementById('browse-btn');
+            // let browseButton = document.getElementById('browse-btn');
             let directoryInput = document.getElementById('selected-directory');
             let directoryModal = document.getElementById("directoryModal");
             let scriptButtons = document.querySelectorAll(".run-script-btn");
 
-            if (!browseButton) {
-                    console.error("Browse button not found in the DOM.");
-                    return;
-                }
+            //if (!browseButton) {
+                //    console.error("Browse button not found in the DOM.");
+                //    return;
+                // }
 
-                browseButton.addEventListener("click", function () {
-                    if (!directoryInput) return;
+                // browseButton.addEventListener("click", function () {
+                //    if (!directoryInput) return;
 
-                    let fullPath = directoryInput.value.trim();
-                    if (!fullPath) {
-                        loadDirectories("/data"); // Default to root if empty
-                        return;
-                    }
+                //    let fullPath = directoryInput.value.trim();
+                //    if (!fullPath) {
+                //        loadDirectories("/data"); // Default to root if empty
+                //        return;
+                //    }
 
                     // Extract directory path only (remove file if present)
-                    let lastSlashIndex = fullPath.lastIndexOf("/");
-                    let directoryPath = lastSlashIndex > 0 ? fullPath.substring(0, lastSlashIndex) : "/data";
+                //    let lastSlashIndex = fullPath.lastIndexOf("/");
+                //    let directoryPath = lastSlashIndex > 0 ? fullPath.substring(0, lastSlashIndex) : "/data";
 
                     // Ensure directoryPath is not empty; fallback to "/data"
-                    if (!directoryPath.trim() || directoryPath === "/") {
-                        directoryPath = "/data";
-                    }
+                //   if (!directoryPath.trim() || directoryPath === "/") {
+                //        directoryPath = "/data";
+                //    }
 
-                    console.log("Opening directory modal in:", directoryPath);
-                    loadDirectories(directoryPath);
-                });
+                //    console.log("Opening directory modal in:", directoryPath);
+                //    loadDirectories(directoryPath);
+                // });
 
             if (directoryInput) {
                 // Allow manual path entry and trigger updates
