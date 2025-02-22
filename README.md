@@ -206,6 +206,11 @@ Copy the following and edit the environment variables
                 ## Set to 'yes' if you want to use folder monitoring.
                 - MONITOR=yes/no 
 
+__Update your Docker Compose:__ Mapping the `/config` directory is required now to ensure that config settings are persisted on updates.
+__First Install:__ On the first install with new config settings, visit the config page, ensure everything is configured as desired.
+* Save your Config settings
+* Click the Restart App button
+
 ### More About Volumes Mapping for Your Library
 For the utility to work, you need to map your Library to `/data`
 
