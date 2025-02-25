@@ -20,15 +20,15 @@ With the v1.1 Update, you can now browse your dictories and files directly from 
 Below are examples and explanations of each feature available
 
 ### 1. Rename - All Files in Diretory
-Currently this functiuon does 5 things to all files in a directory and any sub-directories.
+Currently this function does 5 things to all files in a directory and any sub-directories.
 
-1. Removes everything in parentheses with the exepction of the 4-digit year (if available)
+1. Removes everything in parentheses with the exception of the 4-digit year (if available)
 2. Removes `c2c`
 3. Removes anything in brackets [any text removed] - along with the brackets
 4. Removes any text / characters after "filename issue (year)"
-5. Removes any extra spaces before the file entenstion
+5. Removes any extra spaces before the file extension
 
-Mylar and ComicRack should be your first choice for performing these actions, but I wanted something I could easliy run on my manual downloads directory. Oftentimes series archives or torrent files will have numerous naming patterns with information in parentesis, brackets, before the year, after and all over the place. I continuously update these to handle as many as I encounter.
+Mylar and ComicRack should be your first choice for performing these actions, but I wanted something I could easliy run on my manual downloads directory. Oftentimes series archives or torrent files will have numerous naming patterns with information in parenthesis, brackets, before the year, after and all over the place. I continuously update these to handle as many as I encounter.
 
 ### 2. Convert Directory (CBR / RAR Only)
 Converts all CBR / RAR files in a directory to ZIP. This will skip any existing CBZ files.
