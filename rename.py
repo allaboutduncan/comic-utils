@@ -5,7 +5,7 @@ from app_logging import app_logger
 from helpers import is_hidden
 
 # -------------------------------------------------------------------
-# New pattern for Volume + Issue, e.g.:
+#  Pattern for Volume + Issue, e.g.:
 #   "Comic Name v3 051 (2018) (DCP-Scan Final).cbz"
 #   Group(1) => "Comic Name"
 #   Group(2) => "v3"
