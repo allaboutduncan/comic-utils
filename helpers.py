@@ -95,8 +95,5 @@ def enhance_image(image_path):
     image = Image.open(image_path)
 
     enhanced = apply_modified_s_curve(image)
-
-    #enhanced.show()  # Display the image
-    #enhanced.save("F:/Comics/Valiant/Psi-Lords/v1994/Psi-Lords 03/Psi-Lords 03-09-enhanced.jpg")  # Save the enhanced image
     
     return enhanced
