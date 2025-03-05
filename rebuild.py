@@ -4,26 +4,7 @@ import subprocess
 import zipfile
 import shutil
 from app_logging import app_logger
-from helpers import is_hidden
-
-
-def extract_rar_with_unar(rar_path, output_dir):
-    """
-    Extract a RAR file using the unar command-line tool.
-
-    :param rar_path: Path to the RAR file.
-    :param output_dir: Directory to extract the contents into.
-    :return: None
-    """
-    try:
-        subprocess.run(
-            ["unar", "-o", output_dir, "-f", rar_path],
-            check=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE
-        )
-    except subprocess.CalledProcessError as e:
-        raise RuntimeError(f"Failed to extract {rar_path}: {e.stderr.decode().strip()}")
+from helpers import is_hidden, extract_rar_with_unar
 
 
 def convert_rar_to_zip_in_directory(directory):

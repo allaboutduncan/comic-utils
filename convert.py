@@ -12,7 +12,7 @@ load_config()
 convertSubdirectories = config.getboolean("SETTINGS", "CONVERT_SUBDIRECTORIES", fallback=False)
 
 
-def convert_rar_to_zip_in_directory(directory):
+def convert_rar_directory(directory):
     """
     Convert all RAR and CBR files in a directory (and optionally its subdirectories)
     to CBZ files using unar for extraction, skipping hidden system files and directories.
@@ -110,7 +110,7 @@ def main(directory):
         return
 
     app_logger.info(f"Starting conversion in directory: {directory}")
-    converted_files = convert_rar_to_zip_in_directory(directory)
+    converted_files = convert_rar_directory(directory)
     app_logger.info(f"Conversion completed. Total files converted: {len(converted_files)}")
 
 if __name__ == "__main__":
