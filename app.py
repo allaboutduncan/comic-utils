@@ -227,7 +227,8 @@ def config_page():
         config["SETTINGS"]["IGNORED_FILES"] = request.form.get("ignored_files", "")
         config["SETTINGS"]["IGNORED_EXTENSIONS"] = request.form.get("ignored_extensions", "")
         config["SETTINGS"]["AUTOCONVERT"] = str(request.form.get("autoConvert") == "on")
-        config["SETTINGS"]["SUBDIRECTORIES"] = str(request.form.get("readSubdirectories") == "on")
+        config["SETTINGS"]["READ_SUBDIRECTORIES"] = str(request.form.get("readSubdirectories") == "on")
+        config["SETTINGS"]["CONVERT_SUBDIRECTORIES"] = str(request.form.get("convertSubdirectories") == "on")        
         config["SETTINGS"]["XML_YEAR"] = str(request.form.get("xmlYear") == "on")
         config["SETTINGS"]["XML_MARKDOWN"] = str(request.form.get("xmlMarkdown") == "on")
         config["SETTINGS"]["XML_LIST"] = str(request.form.get("xmlList") == "on")
@@ -250,7 +251,8 @@ def config_page():
         ignored_files=settings.get("IGNORED_FILES", ""),
         ignored_extensions=settings.get("IGNORED_EXTENSIONS", ""),
         autoConvert=settings.get("AUTOCONVERT", "False") == "True",
-        readSubdirectories=settings.get("SUBDIRECTORIES", "False") == "True",
+        readSubdirectories=settings.get("READ_SUBDIRECTORIES", "False") == "True",
+        convertSubdirectories=settings.get("CONVERT_SUBDIRECTORIES", "False") == "True",        
         xmlYear=settings.get("XML_YEAR", "False") == "True",
         xmlMarkdown=settings.get("XML_MARKDOWN", "False") == "True",
         xmlList=settings.get("XML_LIST", "False") == "True",

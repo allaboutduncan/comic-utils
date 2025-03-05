@@ -27,7 +27,8 @@ def load_config():
             "IGNORED_FILES": "cover.jpg,cvinfo,.DS_Store",
             "IGNORED_EXTENSIONS": ".crdownload,.torrent,.tmp,.mega,.rar,.bak,.zip",
             "AUTOCONVERT": "False",
-            "SUBDIRECTORIES": "False",
+            "READ_SUBDIRECTORIES": "False",
+            "CONVERT_SUBDIRECTORIES": "False",
             "XML_YEAR": "False",
             "XML_MARKDOWN": "False",
             "XML_LIST": "True",
@@ -63,7 +64,8 @@ def load_flask_config(app, logger=None):
     app.config["IGNORED_FILES"] = settings.get("IGNORED_FILES", "")
     app.config["IGNORED_EXTENSIONS"] = settings.get("IGNORED_EXTENSIONS", "")
     app.config["AUTOCONVERT"] = config.getboolean("SETTINGS", "AUTOCONVERT", fallback=False)
-    app.config["SUBDIRECTORIES"] = config.getboolean("SETTINGS", "SUBDIRECTORIES", fallback=False)
+    app.config["READ_SUBDIRECTORIES"] = config.getboolean("SETTINGS", "READ_SUBDIRECTORIES", fallback=False)
+    app.config["CONVERT_SUBDIRECTORIES"] = config.getboolean("SETTINGS", "CONVERT_SUBDIRECTORIES", fallback=False)
     app.config["XML_YEAR"] = config.getboolean("SETTINGS", "XML_YEAR", fallback=False)
     app.config["XML_MARKDOWN"] = config.getboolean("SETTINGS", "XML_MARKDOWN", fallback=False)
     app.config["XML_LIST"] = config.getboolean("SETTINGS", "XML_LIST", fallback=False)
