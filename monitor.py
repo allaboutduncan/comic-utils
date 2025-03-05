@@ -18,7 +18,7 @@ target_directory = config.get("SETTINGS", "TARGET", fallback="/processed")
 ignored_exts_config = config.get("SETTINGS", "IGNORED_EXTENSIONS", fallback=".crdownload")
 ignored_extensions = [ext.strip() for ext in ignored_exts_config.split(",") if ext.strip()]
 autoconvert = config.getboolean("SETTINGS", "AUTOCONVERT", fallback=False)
-subdirectories = config.getboolean("SETTINGS", "SUBDIRECTORIES", fallback=False)
+subdirectories = config.getboolean("SETTINGS", "READ_SUBDIRECTORIES", fallback=False)
 move_directories = config.getboolean("SETTINGS", "MOVE_DIRECTORY", fallback=False)
 auto_unpack = config.getboolean("SETTINGS", "AUTO_UNPACK", fallback=False)
 
@@ -70,7 +70,7 @@ class DownloadCompleteHandler(FileSystemEventHandler):
         self.ignored_extensions = set(ext.strip().lower() for ext in ignored_exts_config.split(",") if ext.strip())
 
         self.autoconvert = config.getboolean("SETTINGS", "AUTOCONVERT", fallback=False)
-        self.subdirectories = config.getboolean("SETTINGS", "SUBDIRECTORIES", fallback=False)
+        self.subdirectories = config.getboolean("SETTINGS", "READ_SUBDIRECTORIES", fallback=False)
         self.move_directories = config.getboolean("SETTINGS", "MOVE_DIRECTORY", fallback=False)
         self.auto_unpack = config.getboolean("SETTINGS", "AUTO_UNPACK", fallback=False)
 

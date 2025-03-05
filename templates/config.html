@@ -59,44 +59,35 @@
             </div>
         </div>
 
-        <!-- ComicInfo XML editing Configuration -->
+        <!-- Directory Processing Configuration -->
         <div class="container p-4 border rounded shadow-sm mb-4">
-            <h4>ComicInfo.XML Update Settings</h4>
-            <p class="text-muted">Enable/Disable features for updating or cleaning <code>ComicInfo.xml</code> files. This proecess runs on a single directory, extracts the <code>ComicInfo.xml</code> file, reads and makes updates and then recompresses the file.</p>
+            <h4>Directory Processing Settings</h4>
+            <p class="text-muted">Settings related to Directory processing features.</p>
 
-            <!-- Checkboxes for ComicInfo.xml options -->
-            <div class="row">
-                <div class="col-md-4">
+             <!-- Checkboxes for Traverse Subdirectories -->
+             <div class="row">
+                <div class="col-md-6">
                     <div class="form-check form-switch">
-                        <input class="form-check-input" type="checkbox" role="switch" id="xmlYear" name="xmlYear" {% if xmlYear %}checked{% endif %}>
-                        <label class="form-check-label" for="xmlYear">{% if xmlYear %}Disable{% else %}Enable{% endif %} Update Volume to First Issue Year</label>
+                        <input class="form-check-input" type="checkbox" role="switch" id="convertSubdirectories" name="convertSubdirectories" {% if convertSubdirectories %}checked{% endif %}>
+                        <label class="form-check-label" for="convertSubdirectories">{% if convertSubdirectories %}Disable{% else %}Enable{% endif %} Subdirectories for Conversion</label>
                         <small class="form-text text-muted">
-                            <br />Reads the alpha-numeric first file in the directory and attempts to extract the 4-digit year from the filename.
+                            <br />If enabled, when performing CBR --> CBZ conversion on a directory, CLU will convert all files in subdirectories as well.
                         </small>
                     </div>
                 </div>
 
-                <div class="col-md-4">
+                <!-- Placeholder 
+                <div class="col-md-6">
                     <div class="form-check form-switch">
-                        <input class="form-check-input xml-checkbox" type="checkbox" role="switch" id="xmlMarkdown" name="xmlMarkdown" {% if xmlMarkdown %}checked{% endif %}>
-                        <label class="form-check-label" for="xmlMarkdown">{% if xmlMarkdown %}Disable{% else %}Enable{% endif %} Removing ALL Markdown Content from Comments</label>
+                        <input class="form-check-input" type="checkbox" role="switch" id="readSubdirectories" name="readSubdirectories" {% if readSubdirectories %}checked{% endif %}>
+                        <label class="form-check-label" for="readSubdirectories">{% if readSubdirectories %}Disable{% else %}Enable{% endif %} Processing Sub-Directories</label>
                         <small class="form-text text-muted">
-                            <br />If enabled, when the ComicInfo.xml update function is run, the <code>Comments</code> will have all headers, bold text and tables removed.
+                            <br />If enabled, the app will process files in sub-directories of your <code>{{ watch }}</code> folder.
                         </small>
                     </div>
-                </div>
+                </div> -->
+            </div>           
 
-                <div class="col-md-4">
-                    <div class="form-check form-switch">
-                        <input class="form-check-input xml-checkbox" type="checkbox" role="switch" id="xmlList" name="xmlList" {% if xmlList %}checked{% endif %}>
-                        <label class="form-check-label" for="xmlList">{% if xmlList %}Disable{% else %}Enable{% endif %} Removing 'Covers & Creators' table from Comments</label>
-                        <small class="form-text text-muted">
-                            <br />If enabled, when the ComicInfo.xml update function is run, 'Covers & Creators' tables will be removed from the <code>Comments</code>.
-                        </small>
-                    </div>
-                </div>
-
-            </div>
         </div>
 
         <!-- Folder Monitoring Configuration -->
@@ -169,13 +160,6 @@
                 </div>
             </div>
 
-        </div>
-
-        <!-- Ignored Extensions Configuration -->
-        <div class="container p-4 border rounded shadow-sm mb-4">
-            <h4>Ignored Extensions</h4>
-            <p class="text-muted">Specify file extensions that should be ignored during folder monitoring.</p>
-
             <div class="row">
                 <div class="col-md-12">
                     <label for="ignored_extensions" class="form-label">IGNORED EXTENSIONS:</label>
@@ -184,6 +168,47 @@
                         Enter extensions to ignore when monitoring files (e.g., .tmp, .crdownload).
                     </small>
                 </div>
+            </div>            
+
+        </div>
+
+        <!-- ComicInfo XML editing Configuration -->
+        <div class="container p-4 border rounded shadow-sm mb-4">
+            <h4>ComicInfo.XML Update Settings</h4>
+            <p class="text-muted">Enable/Disable features for updating or cleaning <code>ComicInfo.xml</code> files. This proecess runs on a single directory, extracts the <code>ComicInfo.xml</code> file, reads and makes updates and then recompresses the file.</p>
+
+            <!-- Checkboxes for ComicInfo.xml options -->
+            <div class="row">
+                <div class="col-md-4">
+                    <div class="form-check form-switch">
+                        <input class="form-check-input" type="checkbox" role="switch" id="xmlYear" name="xmlYear" {% if xmlYear %}checked{% endif %}>
+                        <label class="form-check-label" for="xmlYear">{% if xmlYear %}Disable{% else %}Enable{% endif %} Update Volume to First Issue Year</label>
+                        <small class="form-text text-muted">
+                            <br />Reads the alpha-numeric first file in the directory and attempts to extract the 4-digit year from the filename.
+                        </small>
+                    </div>
+                </div>
+
+                <div class="col-md-4">
+                    <div class="form-check form-switch">
+                        <input class="form-check-input xml-checkbox" type="checkbox" role="switch" id="xmlMarkdown" name="xmlMarkdown" {% if xmlMarkdown %}checked{% endif %}>
+                        <label class="form-check-label" for="xmlMarkdown">{% if xmlMarkdown %}Disable{% else %}Enable{% endif %} Removing ALL Markdown Content from Comments</label>
+                        <small class="form-text text-muted">
+                            <br />If enabled, when the ComicInfo.xml update function is run, the <code>Comments</code> will have all headers, bold text and tables removed.
+                        </small>
+                    </div>
+                </div>
+
+                <div class="col-md-4">
+                    <div class="form-check form-switch">
+                        <input class="form-check-input xml-checkbox" type="checkbox" role="switch" id="xmlList" name="xmlList" {% if xmlList %}checked{% endif %}>
+                        <label class="form-check-label" for="xmlList">{% if xmlList %}Disable{% else %}Enable{% endif %} Removing 'Covers & Creators' table from Comments</label>
+                        <small class="form-text text-muted">
+                            <br />If enabled, when the ComicInfo.xml update function is run, 'Covers & Creators' tables will be removed from the <code>Comments</code>.
+                        </small>
+                    </div>
+                </div>
+
             </div>
         </div>
 
