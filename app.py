@@ -59,6 +59,7 @@ app_logger.addHandler(app_handler)
 # Example usage
 app_logger.info("App started successfully!")
 
+
 #########################
 #   List Directories    #
 #########################
@@ -78,6 +79,8 @@ def list_directories():
             d for d in entries
             if os.path.isdir(os.path.join(current_path, d)) and not d.startswith(('.', '_'))
         ]
+        # Sort directories in alpha-numeric order (case-insensitive)
+        directories.sort(key=lambda s: s.lower())
 
         # Exclude file types from browsing and skip files that start with '.' or '_'
         excluded_extensions = {".png", ".jpg", ".jpeg", ".gif", ".txt", ".html", ".css", ".ds_store", "cvinfo"}
@@ -87,6 +90,8 @@ def list_directories():
                not f.startswith(('.', '_')) and
                not any(f.lower().endswith(ext) for ext in excluded_extensions)
         ]
+        # Sort files in alpha-numeric order (case-insensitive)
+        files.sort(key=lambda s: s.lower())
 
         parent_dir = os.path.dirname(current_path) if current_path != DATA_DIR else None
 
@@ -98,6 +103,7 @@ def list_directories():
         })
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
     
 #####################################
 #  Move Files/Folders (Drag & Drop) #
