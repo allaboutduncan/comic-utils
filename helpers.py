@@ -4,7 +4,12 @@ import zipfile
 from PIL import Image, ImageEnhance, ImageFilter
 import math
 import shutil
+from app_logging import app_logger
+import subprocess
 
+#########################
+# Hidden File Handling  #
+#########################
 
 def is_hidden(filepath):
     """
@@ -25,6 +30,9 @@ def is_hidden(filepath):
             pass
     return False
 
+#########################
+#   File Extraction     #
+#########################
 
 def unzip_file(file_path):
     """
@@ -51,6 +59,29 @@ def unzip_file(file_path):
     
     return base_dir
 
+
+def extract_rar_with_unar(rar_path, output_dir):
+    """
+    Extract a RAR file using the unar command-line tool.
+
+    :param rar_path: Path to the RAR file.
+    :param output_dir: Directory to extract the contents into.
+    :return: None
+    """
+    try:
+        subprocess.run(
+            ["unar", "-o", output_dir, "-f", rar_path],
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE
+        )
+    except subprocess.CalledProcessError as e:
+        app_logger.error(f"Failed to extract {rar_path}: {e.stderr.decode().strip()}")
+        raise RuntimeError(f"Failed to extract {rar_path}: {e.stderr.decode().strip()}")
+
+#########################
+#   Image Enhancement   #
+#########################
 
 def modified_s_curve_lut():
     lut = []
