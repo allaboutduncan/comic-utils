@@ -58,11 +58,12 @@ class DownloadCompleteHandler(FileSystemEventHandler):
         self.move_directories = move_directories
         self.auto_unpack = auto_unpack
 
+
     def reload_settings(self):
-        """
-        Re-reads config values so that if config.ini changes,
-        this handler will use the latest settings.
-        """
+        ###
+        # Re-reads config values so that if config.ini changes,
+        # this handler will use the latest settings.
+        ###
         self.directory = config.get("SETTINGS", "WATCH", fallback="/temp")
         self.target_directory = config.get("SETTINGS", "TARGET", fallback="/processed")
 

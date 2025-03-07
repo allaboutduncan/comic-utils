@@ -2,6 +2,7 @@ import configparser
 import threading
 import os
 import time
+from app_logging import app_logger
 
 CONFIG_FILE = "/config/config.ini"
 config = configparser.ConfigParser()
@@ -39,9 +40,10 @@ def load_config():
     else:
         config.read(CONFIG_FILE)
 
-    # **🚀 Ensure the SETTINGS section is a dictionary**
+    # Ensure the SETTINGS section is a dictionary
     if "SETTINGS" not in config:
         config["SETTINGS"] = {}
+
 
 def load_flask_config(app, logger=None):
     """
@@ -89,8 +91,9 @@ def monitor_config(interval=5):
             if last_mtime is None or current_mtime != last_mtime:  # File is new or changed
                 load_config()
                 last_mtime = current_mtime
+                app_logger.info("Config file reloaded at: ".format(time.ctime(last_mtime)))
         except FileNotFoundError:
-            print(f"Warning: {CONFIG_FILE} not found.")
+            app_logger.info(f"Warning: {CONFIG_FILE} not found.")
             last_mtime = None  # Reset because file may appear later
 
 # Start monitoring config.ini in the background
