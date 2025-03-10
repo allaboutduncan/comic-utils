@@ -228,11 +228,13 @@ let currentPath = "/data"; // Root directory
         let currentEventSource = null;
         let isScriptRunning = false;
 
+        // disable inputs & buttons - call before running a script
         function disableButtons() {
             document.querySelectorAll('button').forEach(button => button.disabled = true);
             document.getElementById('selected-directory').disabled = true;
         }
 
+        // enable inputs & buttons - call after script completion
         function enableButtons() {
             document.querySelectorAll('button').forEach(button => button.disabled = false);
             document.getElementById('selected-directory').disabled = false;
