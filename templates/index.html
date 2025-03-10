@@ -327,10 +327,47 @@ let currentPath = "/data"; // Root directory
 
                     // Add directories
                     data.directories.forEach(dir => {
+                        // Create the list item with flexbox utilities for layout
                         let item = document.createElement("li");
-                        item.className = "list-group-item list-group-item-action d-flex align-items-center";
-                        item.innerHTML = `<i class="bi bi-folder me-2"></i> ${dir}`;
-                        item.onclick = () => loadDirectories(data.current_path + "/" + dir);
+                        item.className = "list-group-item list-group-item-action d-flex align-items-center justify-content-between";
+                        
+                        // Left section: clickable to navigate deeper
+                        let leftDiv = document.createElement("div");
+                        leftDiv.className = "d-flex align-items-center";
+                        leftDiv.style.cursor = "pointer";
+                        leftDiv.innerHTML = `<i class="bi bi-folder me-2"></i> ${dir}`;
+                        leftDiv.onclick = () => loadDirectories(data.current_path + "/" + dir);
+                        
+                        // Right section: icon to select/choose the directory
+                        let selectIcon = document.createElement("i");
+                        selectIcon.className = "bi bi-folder-plus";
+                        selectIcon.style.color = "blue";
+                        selectIcon.style.cursor = "pointer";
+                        // When clicked, stop event propagation, set the directory, update UI, and close the modal
+                        selectIcon.onclick = function(e) {
+                            e.stopPropagation(); // Prevent the leftDiv click event from firing
+                            let selectedDirectoryInput = document.getElementById("selected-directory");
+                            if (selectedDirectoryInput) {
+                                selectedDirectoryInput.value = data.current_path + "/" + dir;
+                            }
+                            updateScriptOptions();
+                            
+                            // Close the modal
+                            let modalElement = document.getElementById("directoryModal");
+                            let modalInstance = bootstrap.Modal.getInstance(modalElement);
+                            if (modalInstance) {
+                                modalInstance.hide();
+                            }
+                            // Remove modal backdrop after a short delay to prevent focus issues
+                            setTimeout(() => {
+                                document.querySelectorAll('.modal-backdrop').forEach(el => el.remove());
+                                document.body.classList.remove('modal-open');
+                            }, 300);
+                        };
+
+                        // Append both parts into the list item
+                        item.appendChild(leftDiv);
+                        item.appendChild(selectIcon);
                         directoryList.appendChild(item);
                     });
 
