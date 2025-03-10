@@ -307,13 +307,23 @@ let currentPath = "/data"; // Root directory
         }
 
         function loadDirectories(path = "/data") {
+            let directoryList = document.getElementById("directory-list");
+            if (directoryList) {
+                // Set spinner while loading.
+                directoryList.innerHTML = `<div class="d-flex justify-content-center my-3">
+                                            <button class="btn btn-primary" type="button" disabled>
+                                                <span class="spinner-grow spinner-grow-sm" role="status" aria-hidden="true"></span>
+                                                Loading...
+                                            </button>
+                                            </div>`;
+            }
+
             fetch(`/list-directories?path=${encodeURIComponent(path)}`)
                 .then(response => response.json())
                 .then(data => {
-                    let directoryList = document.getElementById("directory-list");
                     if (!directoryList) return;
-
-                    directoryList.innerHTML = ""; // Clear previous list
+                    // Clear previous list (removes spinner)
+                    directoryList.innerHTML = "";
                     currentPath = data.current_path;
 
                     // Add "Go Back" at the top if applicable
@@ -327,31 +337,29 @@ let currentPath = "/data"; // Root directory
 
                     // Add directories
                     data.directories.forEach(dir => {
-                        // Create the list item with flexbox utilities for layout
                         let item = document.createElement("li");
                         item.className = "list-group-item list-group-item-action d-flex align-items-center justify-content-between";
-                        
+
                         // Left section: clickable to navigate deeper
                         let leftDiv = document.createElement("div");
                         leftDiv.className = "d-flex align-items-center";
                         leftDiv.style.cursor = "pointer";
                         leftDiv.innerHTML = `<i class="bi bi-folder me-2"></i> ${dir}`;
                         leftDiv.onclick = () => loadDirectories(data.current_path + "/" + dir);
-                        
+
                         // Right section: icon to select/choose the directory
                         let selectIcon = document.createElement("i");
                         selectIcon.className = "bi bi-folder-plus";
                         selectIcon.style.color = "blue";
                         selectIcon.style.cursor = "pointer";
-                        // When clicked, stop event propagation, set the directory, update UI, and close the modal
                         selectIcon.onclick = function(e) {
-                            e.stopPropagation(); // Prevent the leftDiv click event from firing
+                            e.stopPropagation(); // Prevent navigation event
                             let selectedDirectoryInput = document.getElementById("selected-directory");
                             if (selectedDirectoryInput) {
                                 selectedDirectoryInput.value = data.current_path + "/" + dir;
                             }
                             updateScriptOptions();
-                            
+
                             // Close the modal
                             let modalElement = document.getElementById("directoryModal");
                             let modalInstance = bootstrap.Modal.getInstance(modalElement);
@@ -365,18 +373,17 @@ let currentPath = "/data"; // Root directory
                             }, 300);
                         };
 
-                        // Append both parts into the list item
                         item.appendChild(leftDiv);
                         item.appendChild(selectIcon);
                         directoryList.appendChild(item);
                     });
 
-                    // Add files
+                    // Add files (if any)
                     if (data.files && data.files.length > 0) {
                         data.files.forEach(file => {
                             let fileItem = document.createElement("li");
                             fileItem.className = "list-group-item list-group-item-action";
-                            
+
                             // Choose icon based on file extension
                             let iconClass = "bi bi-file-earmark-zip";
                             let iconStyle = "";
@@ -384,12 +391,11 @@ let currentPath = "/data"; // Root directory
                                 iconClass = "bi bi-file-earmark-pdf";
                                 iconStyle = ' style="color: red;"';
                             }
-                            
-                           fileItem.innerHTML = `<i class="${iconClass}"${iconStyle}></i> ${file}`
+
+                            fileItem.innerHTML = `<i class="${iconClass}"${iconStyle}></i> ${file}`;
                             fileItem.onclick = function() {
                                 selectFile(data.current_path + "/" + file);
-                            }; // Auto-close modal
-                            
+                            };
                             directoryList.appendChild(fileItem);
                         });
                     }
@@ -399,12 +405,6 @@ let currentPath = "/data"; // Root directory
                     if (selectedDirectoryInput) {
                         selectedDirectoryInput.value = currentPath;
                     }
-
-                    let directoryInput = document.getElementById("selected-directory");
-                    if (directoryInput) {
-                        directoryInput.value = currentPath;
-                    }
-
                     let currentPathDisplay = document.getElementById("current-path-display");
                     if (currentPathDisplay) {
                         currentPathDisplay.textContent = currentPath;
