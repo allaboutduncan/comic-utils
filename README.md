@@ -291,3 +291,6 @@ Info and error logging is now visible in the app, via the *App Logs* and *Monito
 ### Example Monitor Log
 
 ![Monitor Log Screen](/images/mon-log.png)
+
+## Say Thanks
+If you enjoyed this, want to say thanks or want to encourage updates and enhancements, feel free to [!["Buy Me A Coffee"](https://www.buymeacoffee.com/assets/img/custom_images/orange_img.png)](https://www.buymeacoffee.com/allaboutduncan)
