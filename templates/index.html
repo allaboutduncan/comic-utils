@@ -339,8 +339,20 @@ let currentPath = "/data"; // Root directory
                         data.files.forEach(file => {
                             let fileItem = document.createElement("li");
                             fileItem.className = "list-group-item list-group-item-action";
-                            fileItem.innerHTML = `<i class="bi bi-file-earmark-zip"></i> ${file}`;
-                            fileItem.onclick = function() { selectFile(data.current_path + "/" + file); }; // Auto-close modal
+                            
+                            // Choose icon based on file extension
+                            let iconClass = "bi bi-file-earmark-zip";
+                            let iconStyle = "";
+                            if (file.toLowerCase().endsWith(".pdf")) {
+                                iconClass = "bi bi-file-earmark-pdf";
+                                iconStyle = ' style="color: red;"';
+                            }
+                            
+                           fileItem.innerHTML = `<i class="${iconClass}"${iconStyle}></i> ${file}`
+                            fileItem.onclick = function() {
+                                selectFile(data.current_path + "/" + file);
+                            }; // Auto-close modal
+                            
                             directoryList.appendChild(fileItem);
                         });
                     }
