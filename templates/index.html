@@ -344,12 +344,12 @@ let currentPath = "/data"; // Root directory
                         let leftDiv = document.createElement("div");
                         leftDiv.className = "d-flex align-items-center";
                         leftDiv.style.cursor = "pointer";
-                        leftDiv.innerHTML = `<i class="bi bi-folder me-2"></i> ${dir}`;
+                        leftDiv.innerHTML = `<i class="bi bi-folder me-2" style="color: #bf9300"></i> ${dir}`;
                         leftDiv.onclick = () => loadDirectories(data.current_path + "/" + dir);
 
                         // Right section: icon to select/choose the directory
                         let selectIcon = document.createElement("i");
-                        selectIcon.className = "bi bi-folder-plus";
+                        selectIcon.className = "bi bi-folder-check";
                         selectIcon.style.color = "blue";
                         selectIcon.style.cursor = "pointer";
                         selectIcon.onclick = function(e) {
@@ -392,7 +392,7 @@ let currentPath = "/data"; // Root directory
                                 iconStyle = ' style="color: red;"';
                             }
 
-                            fileItem.innerHTML = `<i class="${iconClass}"${iconStyle}></i> ${file}`;
+                            fileItem.innerHTML = `<i class="${iconClass} me-2"${iconStyle}></i> ${file}`;
                             fileItem.onclick = function() {
                                 selectFile(data.current_path + "/" + file);
                             };
