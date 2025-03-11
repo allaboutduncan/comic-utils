@@ -3,5 +3,6 @@
 /bak
 /files
 /processed
+/extension
 temp-*
 .dockerignore
