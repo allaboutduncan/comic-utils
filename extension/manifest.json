@@ -1,0 +1,14 @@
+{
+  "manifest_version": 3,
+  "name": "Send Link to CLU",
+  "version": "1.0",
+  "description": "Right-click a link to send it to a user-defined URL.",
+  "permissions": [
+    "contextMenus",
+    "storage"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "options_page": "options.html"
+}
