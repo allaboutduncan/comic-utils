@@ -11,6 +11,7 @@ import logging
 import signal
 import psutil
 import select
+from api import app 
 
 from config import config, load_flask_config, write_config, load_config
 
