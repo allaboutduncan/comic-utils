@@ -6,6 +6,7 @@ import uuid
 import re
 import json
 from flask_cors import CORS
+from mega import Mega
 from app_logging import app_logger
 from config import config, load_config
 
@@ -14,24 +15,19 @@ app = Flask(__name__)
 load_config()
 
 watch = config.get("SETTINGS", "WATCH", fallback="/temp")
-# Load custom headers from settings (expected as a JSON string).
 custom_headers_str = config.get("SETTINGS", "HEADERS", fallback="")
 
-# Enable CORS for all routes.
 CORS(app, resources={r"/*": {"origins": "*"}})
 
 DOWNLOAD_DIR = watch
 
-# Ensure the download directory exists.
 if not os.path.exists(DOWNLOAD_DIR):
     os.makedirs(DOWNLOAD_DIR)
 
-# 1. This dictionary holds the custom headers you send to the target URL:
 default_headers = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/112.0.0.0 Safari/537.36"
 }
 
-# If custom headers exist in the settings, try to load them and update the default headers.
 if custom_headers_str:
     try:
         custom_headers = json.loads(custom_headers_str)
@@ -43,54 +39,33 @@ if custom_headers_str:
     except Exception as e:
         app_logger.warning(f"Failed to parse custom headers: {e}. Ignoring.")
 
-# Use the updated headers for requests.
 headers = default_headers
 
 @app.after_request
 def add_cors_headers(response):
-    # 2. Ensure the browser allows these custom headers (needed for preflight):
-    response.headers.add("Access-Control-Allow-Origin", "*")
-    response.headers.add(
-        "Access-Control-Allow-Headers",
-        "Content-Type,Authorization,CF-Access-Client-Id,CF-Access-Client-Secret"
-    )
-    response.headers.add("Access-Control-Allow-Methods", "GET,PUT,POST,DELETE,OPTIONS")
+    # Echo back the origin if provided, otherwise default to '*'
+    origin = request.headers.get("Origin", "*")
+    response.headers["Access-Control-Allow-Origin"] = origin
+    response.headers["Access-Control-Allow-Credentials"] = "true"
+    response.headers["Access-Control-Allow-Methods"] = "GET,PUT,POST,DELETE,OPTIONS"
+    response.headers["Access-Control-Allow-Headers"] = "Content-Type,Authorization,CF-Access-Client-Id,CF-Access-Client-Secret"
     return response
 
-@app.route('/download', methods=['GET', 'POST'])
-def download():
-    if request.method == 'GET':
-        return jsonify({
-            'message': 'This endpoint accepts POST requests with a JSON payload containing the "link" key.'
-        })
-    
-    # POST method handling.
-    data = request.get_json()
-    app_logger.info("Received Download Request")
-    if not data or 'link' not in data:
-        return jsonify({'error': 'Missing "link" in request data'}), 400
-    
-    url = data['link']
-    app_logger.info(f"Link to download: {url}")
-    
+def download_getcomics(url):
+    """
+    Downloads files from getcomics.org using the existing logic.
+    """
     try:
-        # Outgoing request to the target URL with our custom headers.
         response = requests.get(url, stream=True, headers=headers)
         response.raise_for_status()
-        app_logger.info(f"Download response: {response}")
-        
-        # Use the final URL (after any redirection) for filename extraction.
         final_url = response.url
         parsed_url = urlparse(final_url)
-
         filename = os.path.basename(parsed_url.path)
-        filename = unquote(filename)  # Decode %20, etc.
-
+        filename = unquote(filename)
         if not filename:
             filename = str(uuid.uuid4())
             app_logger.info(f"Filename generated from final URL: {filename}")
-        
-        # Check Content-Disposition for a more accurate filename.
+        # Check for Content-Disposition header for a better filename.
         content_disposition = response.headers.get("Content-Disposition")
         if content_disposition:
             fname_match = re.search('filename="?([^";]+)"?', content_disposition)
@@ -99,31 +74,79 @@ def download():
                 cd_filename = unquote(cd_filename)
                 filename = cd_filename
                 app_logger.info(f"Filename from Content-Disposition: {filename}")
-        
-        # Ensure a unique final file path.
+        # Ensure a unique file path.
         file_path = os.path.join(DOWNLOAD_DIR, filename)
-        app_logger.info(f"Final File Path: {file_path}")
-
         counter = 1
         base, ext = os.path.splitext(filename)
         while os.path.exists(file_path):
             filename = f"{base}_{counter}{ext}"
             file_path = os.path.join(DOWNLOAD_DIR, filename)
             counter += 1
-        
-        # Write to a .crdownload first, then rename upon completion.
         temp_file_path = file_path + ".crdownload"
-        app_logger.info(f"Temporary File Path: {temp_file_path}")
-        
         with open(temp_file_path, 'wb') as f:
             for chunk in response.iter_content(chunk_size=8192):
                 if chunk:
                     f.write(chunk)
-        
         os.rename(temp_file_path, file_path)
         app_logger.info("Download Success")
-        return jsonify({'message': 'Download successful', 'file_path': file_path}), 200
-    
+        return file_path
     except requests.RequestException as e:
         app_logger.info("Download Failed")
+        raise Exception(f"Error downloading file: {str(e)}")
+
+
+def download_mega(url, dest_filename=None):
+    """
+    Downloads files from mega.nz using the mega.py library and saves them in DOWNLOAD_DIR.
+    """
+    try:
+        mega = Mega()
+        m = mega.login()  # anonymous login
+        
+        if dest_filename:
+            # Build the destination file path using DOWNLOAD_DIR.
+            dest_path = os.path.join(DOWNLOAD_DIR, dest_filename)
+            file_path = m.download_url(url, dest_filename=dest_path)
+        else:
+            # Download without specifying a filename; then move the file to DOWNLOAD_DIR.
+            file_path = m.download_url(url)
+            filename = os.path.basename(file_path)
+            target_path = os.path.join(DOWNLOAD_DIR, filename)
+            # Move file if it's not already in DOWNLOAD_DIR.
+            if os.path.abspath(file_path) != os.path.abspath(target_path):
+                os.rename(file_path, target_path)
+                file_path = target_path
+        
+        app_logger.info(f"Downloaded file saved as: {file_path}")
+        return file_path
+    except Exception as e:
+        app_logger.error(f"Error downloading from Mega: {e}")
+        raise Exception(f"Error downloading from Mega: {e}")
+    
+
+@app.route('/download', methods=['GET', 'POST', 'OPTIONS'])
+def download():
+    if request.method == 'OPTIONS':
+        # Respond quickly to preflight requests.
+        return jsonify({}), 200
+
+    # Your existing download logic...
+    data = request.get_json()
+    if not data or 'link' not in data:
+        return jsonify({'error': 'Missing "link" in request data'}), 400
+    
+    url = data['link']
+    try:
+        if "mega.nz" in url:
+            file_path = download_mega(url, data.get("dest_filename"))
+        elif "getcomics.org" in url:
+            file_path = download_getcomics(url)
+        else:
+            file_path = download_getcomics(url)
+        return jsonify({'message': 'Download successful', 'file_path': file_path}), 200
+    except Exception as e:
         return jsonify({'error': f'Error downloading file: {str(e)}'}), 500
+    
+
+if __name__ == '__main__':
+    app.run(debug=True)
