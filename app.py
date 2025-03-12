@@ -17,7 +17,7 @@ from config import config, load_flask_config, write_config, load_config
 
 load_config()
 
-app = Flask(__name__)
+# app = Flask(__name__)
 
 DATA_DIR = "/data"  # Directory to browse
 

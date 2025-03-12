@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Send Link to CLU",
   "version": "1.0",
-  "description": "Right-click a link to send it to a user-defined URL.",
+  "description": "Right-click a link to send it to your CLU downloads.",
   "permissions": [
     "contextMenus",
     "storage"
