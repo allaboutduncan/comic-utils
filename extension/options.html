@@ -2,13 +2,65 @@
 <html>
   <head>
     <meta charset="utf-8">
-    <title>CLU Link Sender Options</title>
+    <title>CLU Extension Settings</title>
+    <style>
+      body {
+        padding: 0 20px 20px 20px;
+        min-width: 400px;
+        font-size: 15px;
+      }
+      input, button, textarea {
+        margin: 5px 0;
+        font-size: 14px;
+      }
+      input {
+        width: 90%;
+      }
+      textarea {
+        resize: vertical;
+        box-sizing: border-box;
+        width: 100%;
+        height: 100px;
+      }
+      .hidden {
+        display: none;
+      }
+      #saved {
+        color: green;
+      }
+      code {
+        display: block;               /* Make the code snippet appear as a block */
+        background-color: #f5f5f5;    /* Light gray background */
+        border: 1px solid #ccc;       /* Subtle gray border */
+        border-radius: 4px;           /* Slightly rounded corners */
+        padding: 8px;                 /* Spacing around the text */
+        margin: 4px 0;                /* Spacing above/below the code block */
+        font-size: 0.9em;             /* Slightly smaller text */
+        font-family: Menlo, monospace;/* Monospace font for code */
+        white-space: pre-wrap;        /* Preserve line breaks and wrap long lines */
+        color: #333;                  /* Dark text for contrast */
+        width: 90%;
+      }
+      </style>
   </head>
   <body>
-    <h1>Options</h1>
+    <h3>Settings</h3>
+
     <label for="apiUrl">API URL:</label>
-    <input type="text" id="apiUrl" placeholder="You CLU download URL here" />
+    <input type="text" id="apiUrl" name="apiUrl" placeholder="https://your-server.com/download">
+    <br>
+
+    <h3>Custom Headers</h3>
+    <p>If you are using Cloudflare Tunnels, you may need to add custom headers to bypass the auth. Add them in the box below in JSON format. Here's how Cloudflare would look:</p>
+    <p>
+      <code>{"CF-Access-Client-Id": "your-client-id-here.access",<br/>"CF-Access-Client-Secret": "your-secret-here"}</code>
+    </p>
+    <p><textarea id="headers" placeholder='custom headers here'></textarea></p>
+
     <button id="save">Save</button>
+    <div id="status"></div>
+    <p id="saved" class="hidden">Settings saved!</p>
+
     <script src="options.js"></script>
   </body>
 </html>
