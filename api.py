@@ -4,6 +4,7 @@ import requests
 from urllib.parse import urlparse, unquote
 import uuid
 import re
+import json
 from flask_cors import CORS
 from app_logging import app_logger
 from config import config, load_config
@@ -13,6 +14,8 @@ app = Flask(__name__)
 load_config()
 
 watch = config.get("SETTINGS", "WATCH", fallback="/temp")
+# Load custom headers from settings (expected as a JSON string).
+custom_headers_str = config.get("SETTINGS", "HEADERS", fallback="")
 
 # Enable CORS for all routes.
 CORS(app, resources={r"/*": {"origins": "*"}})
@@ -24,11 +27,24 @@ if not os.path.exists(DOWNLOAD_DIR):
     os.makedirs(DOWNLOAD_DIR)
 
 # 1. This dictionary holds the custom headers you send to the target URL:
-headers = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/112.0.0.0 Safari/537.36",
-    "CF-Access-Client-Id": "ACCESS",
-    "CF-Access-Client-Secret": "SECRET"
+default_headers = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/112.0.0.0 Safari/537.36"
 }
+
+# If custom headers exist in the settings, try to load them and update the default headers.
+if custom_headers_str:
+    try:
+        custom_headers = json.loads(custom_headers_str)
+        if isinstance(custom_headers, dict):
+            default_headers.update(custom_headers)
+            app_logger.info("Custom headers from settings applied.")
+        else:
+            app_logger.warning("Custom headers from settings are not a valid dictionary. Ignoring.")
+    except Exception as e:
+        app_logger.warning(f"Failed to parse custom headers: {e}. Ignoring.")
+
+# Use the updated headers for requests.
+headers = default_headers
 
 @app.after_request
 def add_cors_headers(response):
