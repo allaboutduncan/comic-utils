@@ -6,13 +6,18 @@ import uuid
 import re
 from flask_cors import CORS
 from app_logging import app_logger
+from config import config, load_config
 
 app = Flask(__name__)
+
+load_config()
+
+watch = config.get("SETTINGS", "WATCH", fallback="/temp")
 
 # Enable CORS for all routes.
 CORS(app, resources={r"/*": {"origins": "*"}})
 
-DOWNLOAD_DIR = '/downloads/temp'
+DOWNLOAD_DIR = watch
 
 # Ensure the download directory exists.
 if not os.path.exists(DOWNLOAD_DIR):
@@ -21,8 +26,8 @@ if not os.path.exists(DOWNLOAD_DIR):
 # 1. This dictionary holds the custom headers you send to the target URL:
 headers = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/112.0.0.0 Safari/537.36",
-    "CF-Access-Client-Id": "21de6f7aafb266c38f2705cae74fe38e.access",
-    "CF-Access-Client-Secret": "6a35d4b3eee8f9b3f34f049bb4e9c9a06692157463c86946f18930d473958f1a"
+    "CF-Access-Client-Id": "ACCESS",
+    "CF-Access-Client-Secret": "SECRET"
 }
 
 @app.after_request
