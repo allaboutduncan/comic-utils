@@ -50,12 +50,14 @@ if not os.path.exists(APP_LOG):
 app_logger = logging.getLogger("app_logger")
 app_logger.setLevel(logging.INFO)
 
-# Create file handler
-app_handler = logging.FileHandler(APP_LOG)
-app_handler.setFormatter(logging.Formatter("%(asctime)s - %(levelname)s - %(message)s"))
+# Prevent duplicate handlers
+if not app_logger.handlers:
+    app_handler = logging.FileHandler(APP_LOG)
+    app_handler.setFormatter(logging.Formatter("%(asctime)s - %(levelname)s - %(message)s"))
+    app_logger.addHandler(app_handler)
 
-# Add the handler
-app_logger.addHandler(app_handler)
+# Optionally disable propagation to avoid duplicate logs from the root logger
+app_logger.propagate = False
 
 # Example usage
 app_logger.info("App started successfully!")
@@ -447,4 +449,4 @@ if __name__ == '__main__':
         app_logger.info("MONITOR=yes detected. Starting monitor.py...")
         threading.Thread(target=run_monitor, daemon=True).start()
     
-    app.run(debug=True, threaded=True, host='0.0.0.0', port=5577)
+    app.run(debug=True, use_reloader=False, threaded=True, host='0.0.0.0', port=5577)

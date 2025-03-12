@@ -9,6 +9,7 @@ from flask_cors import CORS
 from mega import Mega
 from app_logging import app_logger
 from config import config, load_config
+import shutil  # Import shutil for cross-device file moves
 
 app = Flask(__name__)
 
@@ -20,7 +21,6 @@ custom_headers_str = config.get("SETTINGS", "HEADERS", fallback="")
 CORS(app, resources={r"/*": {"origins": "*"}})
 
 DOWNLOAD_DIR = watch
-
 if not os.path.exists(DOWNLOAD_DIR):
     os.makedirs(DOWNLOAD_DIR)
 
@@ -43,7 +43,6 @@ headers = default_headers
 
 @app.after_request
 def add_cors_headers(response):
-    # Echo back the origin if provided, otherwise default to '*'
     origin = request.headers.get("Origin", "*")
     response.headers["Access-Control-Allow-Origin"] = origin
     response.headers["Access-Control-Allow-Credentials"] = "true"
@@ -53,7 +52,7 @@ def add_cors_headers(response):
 
 def download_getcomics(url):
     """
-    Downloads files from getcomics.org using the existing logic.
+    Downloads files using the existing getcomics.org logic.
     """
     try:
         response = requests.get(url, stream=True, headers=headers)
@@ -70,8 +69,7 @@ def download_getcomics(url):
         if content_disposition:
             fname_match = re.search('filename="?([^";]+)"?', content_disposition)
             if fname_match:
-                cd_filename = fname_match.group(1)
-                cd_filename = unquote(cd_filename)
+                cd_filename = unquote(fname_match.group(1))
                 filename = cd_filename
                 app_logger.info(f"Filename from Content-Disposition: {filename}")
         # Ensure a unique file path.
@@ -91,62 +89,73 @@ def download_getcomics(url):
         app_logger.info("Download Success")
         return file_path
     except requests.RequestException as e:
-        app_logger.info("Download Failed")
+        app_logger.error(f"Download Failed: {e}")
         raise Exception(f"Error downloading file: {str(e)}")
 
-
-def download_mega(url, dest_filename=None):
+def download_file_from_mega(url, dest_filename=None):
     """
     Downloads files from mega.nz using the mega.py library and saves them in DOWNLOAD_DIR.
     """
     try:
         mega = Mega()
         m = mega.login()  # anonymous login
-        
         if dest_filename:
-            # Build the destination file path using DOWNLOAD_DIR.
             dest_path = os.path.join(DOWNLOAD_DIR, dest_filename)
             file_path = m.download_url(url, dest_filename=dest_path)
         else:
-            # Download without specifying a filename; then move the file to DOWNLOAD_DIR.
             file_path = m.download_url(url)
             filename = os.path.basename(file_path)
             target_path = os.path.join(DOWNLOAD_DIR, filename)
-            # Move file if it's not already in DOWNLOAD_DIR.
             if os.path.abspath(file_path) != os.path.abspath(target_path):
-                os.rename(file_path, target_path)
+                # Use shutil.move to support cross-device moves.
+                shutil.move(file_path, target_path)
                 file_path = target_path
-        
         app_logger.info(f"Downloaded file saved as: {file_path}")
         return file_path
     except Exception as e:
         app_logger.error(f"Error downloading from Mega: {e}")
         raise Exception(f"Error downloading from Mega: {e}")
-    
 
 @app.route('/download', methods=['GET', 'POST', 'OPTIONS'])
 def download():
     if request.method == 'OPTIONS':
-        # Respond quickly to preflight requests.
         return jsonify({}), 200
 
-    # Your existing download logic...
+    if request.method == 'GET':
+        return jsonify({
+            'message': 'This endpoint accepts POST requests with a JSON payload containing the "link" key.'
+        })
+    
     data = request.get_json()
+    app_logger.info("Received Download Request")
     if not data or 'link' not in data:
         return jsonify({'error': 'Missing "link" in request data'}), 400
-    
+
     url = data['link']
+    app_logger.info(f"Original link to download: {url}")
+
     try:
-        if "mega.nz" in url:
-            file_path = download_mega(url, data.get("dest_filename"))
-        elif "getcomics.org" in url:
-            file_path = download_getcomics(url)
+        # Use GET with stream to capture the final URL after redirection.
+        try:
+            r = requests.get(url, stream=True, headers=headers, allow_redirects=True)
+            final_url = r.url
+            r.close()  # Close the connection immediately.
+            app_logger.info(f"Final URL after redirection: {final_url}")
+        except Exception as e:
+            app_logger.error(f"GET request for redirection failed: {e}")
+            final_url = url  # Fallback
+
+        # If the final URL is from Mega.nz, use the Mega download function.
+        if "mega.nz" in final_url:
+            file_path = download_file_from_mega(final_url, data.get("dest_filename"))
         else:
             file_path = download_getcomics(url)
+        
         return jsonify({'message': 'Download successful', 'file_path': file_path}), 200
+    
     except Exception as e:
         return jsonify({'error': f'Error downloading file: {str(e)}'}), 500
-    
 
 if __name__ == '__main__':
-    app.run(debug=True)
+    # Disable the reloader to avoid duplicate execution.
+    app.run(debug=True, use_reloader=False)
