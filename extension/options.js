@@ -1,14 +1,12 @@
 document.addEventListener('DOMContentLoaded', function() {
-  // Load the saved target URL.
-  chrome.storage.sync.get({ targetUrl: "" }, function(data) {
-    document.getElementById('targetUrl').value = data.targetUrl;
+  chrome.storage.sync.get({ apiUrl: "" }, function(data) {
+    document.getElementById('apiUrl').value = data.apiUrl;
   });
   
-  // Save the target URL when the button is clicked.
   document.getElementById('save').addEventListener('click', function() {
-    const targetUrl = document.getElementById('targetUrl').value;
-    chrome.storage.sync.set({ targetUrl: targetUrl }, function() {
-      alert('Target URL saved.');
+    const apiUrl = document.getElementById('apiUrl').value;
+    chrome.storage.sync.set({ apiUrl: apiUrl }, function() {
+      alert('CLU URL saved.');
     });
   });
 });
