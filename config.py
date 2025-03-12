@@ -34,7 +34,8 @@ def load_config():
             "XML_MARKDOWN": "False",
             "XML_LIST": "True",
             "MOVE_DIRECTORY": "False",
-            "AUTO_UNPACK": "False"
+            "AUTO_UNPACK": "False",
+            "HEADERS": ""
         }
         write_config()
     else:
@@ -73,6 +74,7 @@ def load_flask_config(app, logger=None):
     app.config["XML_LIST"] = config.getboolean("SETTINGS", "XML_LIST", fallback=False)
     app.config["MOVE_DIRECTORY"] = config.getboolean("SETTINGS", "MOVE_DIRECTORY", fallback=False)
     app.config["AUTO_UNPACK"] = config.getboolean("SETTINGS", "AUTO_UNPACK", fallback=False)
+    app.config["HEADERS"] = settings.get("HEADERS", "")
 
     if logger:
         logger.info(f"Watching: {app.config['WATCH']}")

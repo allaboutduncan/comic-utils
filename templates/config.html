@@ -172,6 +172,22 @@
 
         </div>
 
+        <!-- Download API -->
+        <div class="container p-4 border rounded shadow-sm mb-4">
+            <h4>API Download Configuration</h4>
+            <p class="text-muted">These options, along with the Chrome extension, will let you `right-click` links and send them to CLU to be downloaded to your <code>/watch</code> folder.</p>
+
+            <div class="row">
+                <div class="col-md-12">
+                    <label for="customHeaders" class="form-label">Custom Headers (JSON)</label>
+                    <textarea class="form-control" id="customHeaders" name="customHeaders" rows="4" placeholder="JSON Custom Headers">{{ customHeaders }}</textarea>
+                    <small class="form-text text-muted">
+                        Enter words or terms to ignore while performing a Missing Issue search. Terms must be comma-separated.
+                    </small>
+                </div>
+            </div>
+        </div>
+
         <!-- ComicInfo XML editing Configuration -->
         <div class="container p-4 border rounded shadow-sm mb-4">
             <h4>ComicInfo.XML Update Settings</h4>
