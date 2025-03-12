@@ -18,14 +18,21 @@ DOWNLOAD_DIR = '/downloads/temp'
 if not os.path.exists(DOWNLOAD_DIR):
     os.makedirs(DOWNLOAD_DIR)
 
+# 1. This dictionary holds the custom headers you send to the target URL:
 headers = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/112.0.0.0 Safari/537.36"
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/112.0.0.0 Safari/537.36",
+    "CF-Access-Client-Id": "21de6f7aafb266c38f2705cae74fe38e.access",
+    "CF-Access-Client-Secret": "6a35d4b3eee8f9b3f34f049bb4e9c9a06692157463c86946f18930d473958f1a"
 }
 
 @app.after_request
 def add_cors_headers(response):
+    # 2. Ensure the browser allows these custom headers (needed for preflight):
     response.headers.add("Access-Control-Allow-Origin", "*")
-    response.headers.add("Access-Control-Allow-Headers", "Content-Type,Authorization")
+    response.headers.add(
+        "Access-Control-Allow-Headers",
+        "Content-Type,Authorization,CF-Access-Client-Id,CF-Access-Client-Secret"
+    )
     response.headers.add("Access-Control-Allow-Methods", "GET,PUT,POST,DELETE,OPTIONS")
     return response
 
@@ -46,24 +53,23 @@ def download():
     app_logger.info(f"Link to download: {url}")
     
     try:
-        # Stream the content to avoid memory issues for large files.
+        # Outgoing request to the target URL with our custom headers.
         response = requests.get(url, stream=True, headers=headers)
         response.raise_for_status()
         app_logger.info(f"Download response: {response}")
         
-        # Use the final URL (after redirection) for filename extraction.
+        # Use the final URL (after any redirection) for filename extraction.
         final_url = response.url
         parsed_url = urlparse(final_url)
 
-        # Extract filename from the final URL's path and decode URL-encoded characters.
         filename = os.path.basename(parsed_url.path)
-        filename = unquote(filename)
+        filename = unquote(filename)  # Decode %20, etc.
 
         if not filename:
             filename = str(uuid.uuid4())
             app_logger.info(f"Filename generated from final URL: {filename}")
         
-        # Check for a filename from the Content-Disposition header.
+        # Check Content-Disposition for a more accurate filename.
         content_disposition = response.headers.get("Content-Disposition")
         if content_disposition:
             fname_match = re.search('filename="?([^";]+)"?', content_disposition)
@@ -73,11 +79,10 @@ def download():
                 filename = cd_filename
                 app_logger.info(f"Filename from Content-Disposition: {filename}")
         
-        # Build the final file path.
+        # Ensure a unique final file path.
         file_path = os.path.join(DOWNLOAD_DIR, filename)
         app_logger.info(f"Final File Path: {file_path}")
 
-        # Ensure a unique filename if the file already exists.
         counter = 1
         base, ext = os.path.splitext(filename)
         while os.path.exists(file_path):
@@ -85,17 +90,15 @@ def download():
             file_path = os.path.join(DOWNLOAD_DIR, filename)
             counter += 1
         
-        # Use a temporary file with .crdownload extension.
+        # Write to a .crdownload first, then rename upon completion.
         temp_file_path = file_path + ".crdownload"
         app_logger.info(f"Temporary File Path: {temp_file_path}")
         
-        # Write the downloaded content to the temporary file.
         with open(temp_file_path, 'wb') as f:
             for chunk in response.iter_content(chunk_size=8192):
                 if chunk:
                     f.write(chunk)
         
-        # Rename the temporary file to the final file once the download is complete.
         os.rename(temp_file_path, file_path)
         app_logger.info("Download Success")
         return jsonify({'message': 'Download successful', 'file_path': file_path}), 200
