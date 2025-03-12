@@ -92,7 +92,7 @@ def download_getcomics(url):
         app_logger.error(f"Download Failed: {e}")
         raise Exception(f"Error downloading file: {str(e)}")
 
-def download_file_from_mega(url, dest_filename=None):
+def download_mega(url, dest_filename=None):
     """
     Downloads files from mega.nz using the mega.py library and saves them in DOWNLOAD_DIR.
     """
@@ -100,8 +100,10 @@ def download_file_from_mega(url, dest_filename=None):
         mega = Mega()
         m = mega.login()  # anonymous login
         if dest_filename:
+            app_logger.info(f"Start dest_filename")
             dest_path = os.path.join(DOWNLOAD_DIR, dest_filename)
             file_path = m.download_url(url, dest_filename=dest_path)
+            app_logger.info(f"MEGA File Path: {file_path}")
         else:
             file_path = m.download_url(url)
             filename = os.path.basename(file_path)
@@ -147,7 +149,7 @@ def download():
 
         # If the final URL is from Mega.nz, use the Mega download function.
         if "mega.nz" in final_url:
-            file_path = download_file_from_mega(final_url, data.get("dest_filename"))
+            file_path = download_mega(final_url, data.get("dest_filename"))
         else:
             file_path = download_getcomics(url)
         

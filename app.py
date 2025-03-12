@@ -20,6 +20,7 @@ load_config()
 # app = Flask(__name__)
 
 DATA_DIR = "/data"  # Directory to browse
+TARGET_DIR = config.get("SETTINGS", "TARGET", fallback="/processed")
 
 #########################
 #     Global Values     #
@@ -107,7 +108,52 @@ def list_directories():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-    
+
+#########################
+#    List Downloads     #
+#########################
+@app.route('/list-downloads', methods=['GET'])
+def list_downloads():
+    """List directories and files in the given path, excluding images,
+    and excluding any directories or files that start with '.' or '_'."""
+    current_path = request.args.get('path', TARGET_DIR)
+
+    if not os.path.exists(current_path):
+        return jsonify({"error": "Directory not found"}), 404
+
+    try:
+        entries = os.listdir(current_path)
+        # Only include directories that do not start with '.' or '_'
+        directories = [
+            d for d in entries
+            if os.path.isdir(os.path.join(current_path, d)) and not d.startswith(('.', '_'))
+        ]
+        # Sort directories in alpha-numeric order (case-insensitive)
+        directories.sort(key=lambda s: s.lower())
+
+        # Exclude file types from browsing and skip files that start with '.' or '_'
+        excluded_extensions = {".png", ".jpg", ".jpeg", ".gif", ".txt", ".html", ".css", ".ds_store", "cvinfo"}
+        files = [
+            f for f in entries
+            if os.path.isfile(os.path.join(current_path, f)) and
+               not f.startswith(('.', '_')) and
+               not any(f.lower().endswith(ext) for ext in excluded_extensions)
+        ]
+        # Sort files in alpha-numeric order (case-insensitive)
+        files.sort(key=lambda s: s.lower())
+
+        parent_dir = os.path.dirname(current_path) if current_path != TARGET_DIR else None
+
+        return jsonify({
+            "current_path": current_path,
+            "directories": directories,
+            "files": files,
+            "parent": parent_dir
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 #####################################
 #  Move Files/Folders (Drag & Drop) #
 #####################################
@@ -138,7 +184,8 @@ def move():
 @app.route('/files')
 def files_page():
     watch = config.get("SETTINGS", "WATCH", fallback="/temp")
-    return render_template('files.html', watch=watch)
+    target_dir = config.get("SETTINGS", "TARGET", fallback="/processed")
+    return render_template('files.html', watch=watch, target_dir=target_dir)
 
 #####################################
 #       Rename Files/Folders        #

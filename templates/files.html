@@ -11,6 +11,11 @@
       <!-- Source Panel -->
       <div class="col-md-6">
         <h3>Source</h3>
+        <!-- New button group for switching between Directories and Downloads -->
+        <div class="btn-group mb-2" role="group" aria-label="View Options">
+          <button type="button" id="btnDirectories" class="btn btn-outline-primary active" onclick="loadDirectories('/data', 'source');" data-bs-toggle="button" aria-pressed="true">Directories</button>
+          <button type="button" id="btnDownloads" class="btn btn-outline-primary" onclick="loadDownloads('{{ target_dir }}', 'source');"data-bs-toggle="button">Downloads</button>
+        </div>
         <nav aria-label="breadcrumb">
           <ol id="source-path-display" class="breadcrumb">
             <li class="breadcrumb-item">
@@ -266,7 +271,9 @@
     // Updated loadDirectories function to support both source and destination panels.
     function loadDirectories(path, panel) {
       console.log("loadDirectories called with path:", path, "panel:", panel);
-      
+      document.getElementById('btnDirectories').classList.add('active')
+      document.getElementById('btnDownloads').classList.remove('active')
+
       // Scroll to the top of the page while awaiting list update.
       window.scrollTo({ top: 0, behavior: "smooth" });
 
@@ -327,6 +334,76 @@
           console.error("Error loading directories:", error);
           container.innerHTML = `<div class="alert alert-danger" role="alert">
                                     Error loading directory.
+                                  </div>`;
+        });
+    }
+
+    // New loadDownloads function to fetch downloads data.
+    function loadDownloads(path, panel) {
+      console.log("loadDownloads called with path:", path, "panel:", panel);
+      document.getElementById('btnDownloads').classList.add('active')
+      document.getElementById('btnDirectories').classList.remove('active')
+
+      // Scroll to the top of the page while awaiting list update.
+      window.scrollTo({ top: 0, behavior: "smooth" });
+
+      // Get the correct container for the panel.
+      let container = panel === 'source' ? document.getElementById("source-list")
+                                        : document.getElementById("destination-list");
+
+      if (!container) {
+        console.error("Container not found for panel:", panel);
+        return;
+      }
+      
+      // Set spinner while loading.
+      container.innerHTML = `<div class="d-flex justify-content-center my-3">
+                              <button class="btn btn-primary" type="button" disabled>
+                                <span class="spinner-grow spinner-grow-sm" role="status" aria-hidden="true"></span>
+                                Loading...
+                              </button>
+                            </div>`;
+      
+      fetch(`/list-downloads?path=${encodeURIComponent(path)}`)
+        .then(response => response.json())
+        .then(data => {
+          console.log("Received data:", data);
+          container.innerHTML = ""; // Clear spinner and any previous content
+
+          if (panel === 'source') {
+            currentSourcePath = data.current_path;
+            updateBreadcrumb('source', data.current_path);
+          } else {
+            currentDestinationPath = data.current_path;
+            updateBreadcrumb('destination', data.current_path);
+          }
+
+          // Append "Parent" navigation if available.
+          if (data.parent) {
+            let parentItem = createListItem("Parent", data.parent, "directory", panel, false);
+            parentItem.querySelector("span").innerHTML = `<i class="bi bi-arrow-left-square me-2"></i> Parent`;
+            container.appendChild(parentItem);
+          }
+
+          // Append directory items.
+          data.directories.forEach(dir => {
+            let fullPath = data.current_path + "/" + dir;
+            let item = createListItem(dir, fullPath, "directory", panel, true);
+            container.appendChild(item);
+          });
+
+          // Append file items.
+          data.files.forEach(file => {
+            let fullPath = data.current_path + "/" + file;
+            let fileItem = createListItem(file, fullPath, "file", panel, true);
+            container.appendChild(fileItem);
+          });
+
+        })
+        .catch(error => {
+          console.error("Error loading downloads:", error);
+          container.innerHTML = `<div class="alert alert-danger" role="alert">
+                                    Error loading downloads.
                                   </div>`;
         });
     }
