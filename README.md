@@ -4,6 +4,9 @@
 ![GitHub Release](https://img.shields.io/github/v/release/allaboutduncan/comic-utils)
 ![GitHub commits since latest release](https://img.shields.io/github/commits-since/allaboutduncan/comic-utils/latest)
 
+[![Join our Discord](https://img.shields.io/discord/678794935368941569?label=CLU%20Discord&logo=discord&style=for-the-badge)](https://discord.com/channels/678794935368941569/1349564970609938553)
+
+
 ![Comic Library Utilities (CLU)](images/clu-logo-360.png "Comic Library Utilities")
 
 ## What is CLU & Why Does it Exist
