@@ -129,7 +129,7 @@ def download():
         })
     
     data = request.get_json()
-    app_logger.info("Received Download Request")
+    app_logger.info("********************// Received Download Request //********************")
     if not data or 'link' not in data:
         return jsonify({'error': 'Missing "link" in request data'}), 400
 

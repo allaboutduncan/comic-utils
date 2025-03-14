@@ -87,7 +87,7 @@ def list_directories():
         directories.sort(key=lambda s: s.lower())
 
         # Exclude file types from browsing and skip files that start with '.' or '_'
-        excluded_extensions = {".png", ".jpg", ".jpeg", ".gif", ".txt", ".html", ".css", ".ds_store", "cvinfo"}
+        excluded_extensions = {".png", ".jpg", ".jpeg", ".gif", ".txt", ".html", ".css", ".ds_store", "cvinfo", ".json", ".db"}
         files = [
             f for f in entries
             if os.path.isfile(os.path.join(current_path, f)) and
@@ -132,7 +132,7 @@ def list_downloads():
         directories.sort(key=lambda s: s.lower())
 
         # Exclude file types from browsing and skip files that start with '.' or '_'
-        excluded_extensions = {".png", ".jpg", ".jpeg", ".gif", ".txt", ".html", ".css", ".ds_store", "cvinfo"}
+        excluded_extensions = {".png", ".jpg", ".jpeg", ".gif", ".txt", ".html", ".css", ".ds_store", "cvinfo", ".json", ".db"}
         files = [
             f for f in entries
             if os.path.isfile(os.path.join(current_path, f)) and
