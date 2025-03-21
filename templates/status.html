@@ -1,0 +1,95 @@
+{% extends 'base.html' %}
+
+{% block title %}Download Status{% endblock %}
+
+{% block content %}
+<div class="container my-5">
+    <h1>Download Status</h1>
+    <table class="table table-striped" id="downloads-table">
+      <thead>
+        <tr>
+          <th>Filename</th>
+          <th>Progress</th>
+          <th>Status</th>
+          <th>Cancel</th>
+        </tr>
+      </thead>
+      <tbody>
+      </tbody>
+    </table>
+  </div>
+{% endblock %}
+
+{% block scripts %}
+    <script>
+    // Function to fetch all download statuses and update the table.
+    function fetchStatus() {
+      fetch('/download_status_all')
+        .then(response => response.json())
+        .then(data => {
+          const tbody = document.querySelector('#downloads-table tbody');
+          tbody.innerHTML = ''; // Clear previous rows.
+          for (const [downloadId, details] of Object.entries(data)) {
+            const tr = document.createElement('tr');
+
+            // Filename - display only the base file name.
+            const tdFilename = document.createElement('td');
+            if (details.filename) {
+              tdFilename.textContent = details.filename.split('/').pop();
+            } else {
+              tdFilename.textContent = 'N/A';
+            }
+            tr.appendChild(tdFilename);
+
+            // Progress with a Bootstrap progress bar.
+            const tdProgress = document.createElement('td');
+            const progressBar = document.createElement('div');
+            progressBar.className = 'progress';
+            const progressInner = document.createElement('div');
+            progressInner.className = 'progress-bar';
+            progressInner.style.width = details.progress + '%';
+            progressInner.setAttribute('aria-valuenow', details.progress);
+            progressInner.setAttribute('aria-valuemin', '0');
+            progressInner.setAttribute('aria-valuemax', '100');
+            progressInner.textContent = details.progress + '%';
+            progressBar.appendChild(progressInner);
+            tdProgress.appendChild(progressBar);
+            tr.appendChild(tdProgress);
+
+            // Status
+            const tdStatus = document.createElement('td');
+            tdStatus.textContent = details.status;
+            tr.appendChild(tdStatus);
+
+            // Cancel Button cell
+            const tdCancel = document.createElement('td');
+            if (details.status === 'in_progress') {
+              const cancelIcon = document.createElement('i');
+              cancelIcon.className = "bi bi-x-circle";
+              cancelIcon.style.cursor = "pointer";
+              cancelIcon.addEventListener('click', () => {
+                if (confirm('Are you sure you want to cancel this download?')) {
+                  fetch(`/cancel_download/${downloadId}`, { method: 'POST' })
+                    .then(response => response.json())
+                    .then(data => {
+                      console.log(data.message);
+                      // Optionally, update the UI immediately.
+                    });
+                }
+              });
+              tdCancel.appendChild(cancelIcon);
+            } else {
+              tdCancel.textContent = ''; // No cancel button if not in progress.
+            }
+            tr.appendChild(tdCancel);
+
+            tbody.appendChild(tr);
+          }
+        });
+    }
+
+    // Poll the status endpoint every second.
+    setInterval(fetchStatus, 1000);
+    fetchStatus();
+    </script>
+{% endblock %}
