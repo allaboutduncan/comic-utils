@@ -179,7 +179,6 @@ def my_download_file(self,
 # Apply the monkey patch:
 Mega._download_file = my_download_file
 
-
 # -------------------------------
 # Other Download Functions & Endpoints
 # -------------------------------
@@ -372,6 +371,15 @@ def cancel_download(download_id):
 @app.route('/download_status_all', methods=['GET'])
 def download_status_all():
     return jsonify(download_progress)
+
+# Updated clear_downloads endpoint to clear complete, cancelled, or error statuses.
+@app.route('/clear_downloads', methods=['POST'])
+def clear_downloads():
+    keys_to_delete = [download_id for download_id, details in download_progress.items() 
+                      if details.get('status') in ['complete', 'cancelled', 'error']]
+    for download_id in keys_to_delete:
+        del download_progress[download_id]
+    return jsonify({'message': f'Cleared {len(keys_to_delete)} downloads'}), 200
 
 @app.route('/status', methods=['GET'])
 def status():

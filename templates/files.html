@@ -235,47 +235,50 @@
       // Right container: holds the edit and delete icons.
       let iconContainer = document.createElement("div");
       iconContainer.className = "icon-container";
-  
-      // Pencil icon for editing.
-      let pencil = document.createElement("i");
-      pencil.className = "bi bi-pencil";
-      pencil.style.cursor = "pointer";
-      pencil.onclick = function(e) {
-        e.stopPropagation();
-        let input = document.createElement("input");
-        input.type = "text";
-        input.className = "edit-input";
-        input.value = itemName;
-        input.addEventListener("click", function(ev) {
-          ev.stopPropagation();
-        });
-        input.addEventListener("keypress", function(ev) {
-          if(ev.key === "Enter") {
-            renameItem(fullPath, input.value, panel);
-          }
-        });
-        li.replaceChild(input, leftContainer);
-        input.focus();
-        input.addEventListener("blur", function() {
-          li.replaceChild(leftContainer, input);
-        });
-      };
-  
-      // Trash icon for deletion.
-      let trash = document.createElement("i");
-      trash.className = "bi bi-trash";
-      trash.style.cursor = "pointer";
-      trash.onclick = function(e) {
-        e.stopPropagation();
-        deleteTarget = fullPath;
-        deletePanel = panel;
-        document.getElementById("deleteItemName").textContent = itemName;
-        let deleteModal = new bootstrap.Modal(document.getElementById("deleteModal"));
-        deleteModal.show();
-      };
-  
-      iconContainer.appendChild(pencil);
-      iconContainer.appendChild(trash);
+
+      // Only add icons if the item is not "Parent"
+      if (itemName !== "Parent") {
+        // Pencil icon for editing.
+        let pencil = document.createElement("i");
+        pencil.className = "bi bi-pencil";
+        pencil.style.cursor = "pointer";
+        pencil.onclick = function(e) {
+          e.stopPropagation();
+          let input = document.createElement("input");
+          input.type = "text";
+          input.className = "edit-input";
+          input.value = itemName;
+          input.addEventListener("click", function(ev) {
+            ev.stopPropagation();
+          });
+          input.addEventListener("keypress", function(ev) {
+            if (ev.key === "Enter") {
+              renameItem(fullPath, input.value, panel);
+            }
+          });
+          li.replaceChild(input, leftContainer);
+          input.focus();
+          input.addEventListener("blur", function() {
+            li.replaceChild(leftContainer, input);
+          });
+        };
+
+        // Trash icon for deletion.
+        let trash = document.createElement("i");
+        trash.className = "bi bi-trash";
+        trash.style.cursor = "pointer";
+        trash.onclick = function(e) {
+          e.stopPropagation();
+          deleteTarget = fullPath;
+          deletePanel = panel;
+          document.getElementById("deleteItemName").textContent = itemName;
+          let deleteModal = new bootstrap.Modal(document.getElementById("deleteModal"));
+          deleteModal.show();
+        };
+
+        iconContainer.appendChild(pencil);
+        iconContainer.appendChild(trash);
+      }
   
       // Append left container and right icon container to list item.
       li.appendChild(leftContainer);
