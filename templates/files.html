@@ -435,16 +435,66 @@
 
     // Set up drop events for a given panel element.
     function setupDropEvents(element, panel) {
+      // Store an interval ID for auto-scrolling.
+      let autoScrollInterval = null;
+
+      // Helper to start auto-scroll in a given direction.
+      function startAutoScroll(direction) {
+        // Avoid multiple intervals.
+        if (autoScrollInterval !== null) return;
+        autoScrollInterval = setInterval(() => {
+          if (direction === "up") {
+            element.scrollTop -= 5; // Adjust scroll speed (pixels per interval) as needed.
+          } else if (direction === "down") {
+            element.scrollTop += 5;
+          }
+        }, 50); // Adjust interval time (ms) as needed.
+      }
+
+      // Helper to stop auto-scrolling.
+      function stopAutoScroll() {
+        if (autoScrollInterval !== null) {
+          clearInterval(autoScrollInterval);
+          autoScrollInterval = null;
+        }
+      }
+
       element.addEventListener("dragover", function(e) {
         e.preventDefault();
         element.classList.add("hover");
+
+        // Get the element’s bounding rectangle.
+        let rect = element.getBoundingClientRect();
+        let threshold = 50; // Distance (in pixels) from top/bottom to trigger auto-scroll.
+        let scrollDirection = null;
+
+        // Check if the cursor is near the top.
+        if (e.clientY - rect.top < threshold) {
+          scrollDirection = "up";
+        } 
+        // Check if the cursor is near the bottom.
+        else if (rect.bottom - e.clientY < threshold) {
+          scrollDirection = "down";
+        }
+
+        // Start or stop scrolling based on cursor position.
+        if (scrollDirection) {
+          startAutoScroll(scrollDirection);
+        } else {
+          stopAutoScroll();
+        }
       });
+
       element.addEventListener("dragleave", function(e) {
         element.classList.remove("hover");
+        stopAutoScroll();
       });
+
       element.addEventListener("drop", function(e) {
         e.preventDefault();
         element.classList.remove("hover");
+        stopAutoScroll();
+
         let dataStr = e.dataTransfer.getData("text/plain");
         let filePaths;
         try {
@@ -455,9 +505,7 @@
         } catch (err) {
           filePaths = [dataStr];
         }
-        let fileName = filePaths.length === 1 ? filePaths[0].split('/').pop() : "";
         let targetPath = panel === 'source' ? currentSourcePath : currentDestinationPath;
-        // For multiple files, move each.
         filePaths.forEach(fp => {
           moveItem(fp, targetPath + "/" + fp.split('/').pop());
         });
