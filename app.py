@@ -400,6 +400,23 @@ def stream_logs(script_type):
     return Response("Invalid script type.", status=400)
 
 #########################
+#    Create Diretory    #
+#########################
+
+@app.route('/create-folder', methods=['POST'])
+def create_folder():
+    data = request.json
+    path = data.get('path')
+    if not path:
+        return jsonify({"success": False, "error": "No path specified"}), 400
+    
+    try:
+        os.mkdir(path)
+        return jsonify({"success": True}), 200
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+#########################
 #       Home Page       #
 #########################
 @app.route('/')

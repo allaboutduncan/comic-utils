@@ -8,7 +8,7 @@
   <div class="container-lg">
     <h2 class="text-primary-emphasis">File Manager</h2>
     <div class="row">
-      <!-- Source Panel -->
+      <!-- Source Panel -->  
       <div class="col-md-6">
         <h3>Source</h3>
         <!-- New button group for switching between Directories and Downloads -->
@@ -16,6 +16,12 @@
           <button type="button" id="btnDirectories" class="btn btn-outline-primary active" onclick="loadDirectories('/data', 'source');" data-bs-toggle="button" aria-pressed="true">Directories</button>
           <button type="button" id="btnDownloads" class="btn btn-outline-primary" onclick="loadDownloads('{{ target_dir }}', 'source');"data-bs-toggle="button">Downloads</button>
         </div>
+        <!-- Filter buttons for source panel -->
+        <div id="source-directory-filter" class="mb-2">
+          <div class="btn-group d-grid" role="group" aria-label="Directory Filter" style="grid-template-columns: repeat(auto-fill, minmax(50px, 1fr));">
+            <!-- Dynamically inserted buttons go here -->
+          </div>
+        </div>             
         <nav aria-label="breadcrumb">
           <ol id="source-path-display" class="breadcrumb">
             <li class="breadcrumb-item">
@@ -28,6 +34,16 @@
       <!-- Destination Panel -->
       <div class="col-md-6">
         <h3>Destination</h3>
+        <!-- Button Group to Create a Folder -->
+        <div class="btn-group mb-2" role="group" aria-label="Folder Options">
+          <button type="button" class="btn btn-outline-success" onclick="openCreateFolderModal()">Create Folder</button>
+        </div>
+        <!-- Filter buttons for destination panel -->
+        <div id="destination-directory-filter" class="mb-2">
+          <div class="btn-group d-grid" role="group" aria-label="Directory Filter" style="grid-template-columns: repeat(auto-fill, minmax(50px, 1fr));">
+            <!-- Dynamically inserted buttons go here -->
+          </div>
+        </div>   
         <nav aria-label="breadcrumb">
           <ol id="destination-path-display" class="breadcrumb">
             <li class="breadcrumb-item">
@@ -58,6 +74,60 @@
       </div>
     </div>
   </div>
+  <!-- End of Delete Confirmation Modal -->
+
+  <!-- Create Folder Modal -->
+  <div class="modal fade" id="createFolderModal" tabindex="-1" aria-labelledby="createFolderModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title" id="createFolderModalLabel">Create New Folder</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body">
+          <!-- Folder Name Input -->
+          <div class="mb-3">
+            <label for="createFolderName" class="form-label">Folder Name</label>
+            <input type="text" class="form-control" id="createFolderName" placeholder="Enter folder name" />
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+          <button type="button" class="btn btn-primary" id="confirmCreateFolderBtn">Create</button>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- End of Create Folder Modal -->
+
+  <!-- Moving Status Modal -->
+<div class="modal fade" id="movingModal" tabindex="-1" aria-labelledby="movingModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="movingModalLabel">Moving Items</h5>
+        <!-- You can optionally allow closing if desired -->
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close" style="display: none;"></button>
+      </div>
+      <div class="modal-body">
+        <p id="movingStatusText">Preparing to move items...</p>
+        <div class="progress">
+          <div
+            id="movingProgressBar"
+            class="progress-bar progress-bar-striped progress-bar-animated"
+            role="progressbar"
+            style="width: 0%;"
+            aria-valuenow="0"
+            aria-valuemin="0"
+            aria-valuemax="100"
+          ></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+<!-- End of Moving Status Modal -->
+
   {% endblock %}
 
   {% block scripts %}
@@ -74,13 +144,22 @@
     let deletePanel = ""; // 'source' or 'destination'
     // Global variable to hold selected file paths.
     let selectedFiles = new Set();
-
+    // Global variable to track the last clicked file element (for SHIFT selection).
+    let lastClickedFile = null;
+  
+    // Store raw data for each panel.
+    let sourceDirectoriesData = null;
+    let destinationDirectoriesData = null;
+  
+    // Track current filter (default is 'all') per panel.
+    let currentFilter = { source: 'all', destination: 'all' };
+  
     // Function to send a rename request.
     function renameItem(oldPath, newName, panel) {
       let pathParts = oldPath.split('/');
       pathParts[pathParts.length - 1] = newName;
       let newPath = pathParts.join('/');
-
+  
       fetch('/rename', {
         method: 'POST',
         headers: {"Content-Type": "application/json"},
@@ -102,7 +181,7 @@
         console.error("Error in rename request:", error);
       });
     }
-
+  
     // Function to send a delete request.
     function deleteItem(target, panel) {
       fetch('/delete', {
@@ -126,16 +205,16 @@
         console.error("Error in delete request:", error);
       });
     }
-
+  
     // Function to create a list item with edit and delete functionality.
     function createListItem(itemName, fullPath, type, panel, isDraggable) {
       let li = document.createElement("li");
       li.className = "list-group-item d-flex align-items-center justify-content-between";
-
+  
       // Left container: holds the icon (if applicable) and the item name.
       let leftContainer = document.createElement("div");
       leftContainer.className = "d-flex align-items-center";
-
+  
       // Only add an icon if the item is not "Parent"
       if (itemName.toLowerCase() !== "parent") {
         let icon = document.createElement("i");
@@ -147,16 +226,16 @@
         }
         leftContainer.appendChild(icon);
       }
-
+  
       // Create span for item name.
       let nameSpan = document.createElement("span");
       nameSpan.textContent = itemName;
       leftContainer.appendChild(nameSpan);
-
+  
       // Right container: holds the edit and delete icons.
       let iconContainer = document.createElement("div");
       iconContainer.className = "icon-container";
-
+  
       // Pencil icon for editing.
       let pencil = document.createElement("i");
       pencil.className = "bi bi-pencil";
@@ -175,14 +254,13 @@
             renameItem(fullPath, input.value, panel);
           }
         });
-        // Replace left container (icon + name) with input for editing.
         li.replaceChild(input, leftContainer);
         input.focus();
         input.addEventListener("blur", function() {
           li.replaceChild(leftContainer, input);
         });
       };
-
+  
       // Trash icon for deletion.
       let trash = document.createElement("i");
       trash.className = "bi bi-trash";
@@ -195,19 +273,21 @@
         let deleteModal = new bootstrap.Modal(document.getElementById("deleteModal"));
         deleteModal.show();
       };
-
+  
       iconContainer.appendChild(pencil);
       iconContainer.appendChild(trash);
-
+  
       // Append left container and right icon container to list item.
       li.appendChild(leftContainer);
       li.appendChild(iconContainer);
-
-      // For file items, add shift-click selection support.
+  
+      // For file items, set a data attribute and add updated click selection logic.
       if (type === "file") {
+        li.setAttribute("data-fullpath", fullPath);
         li.addEventListener("click", function(e) {
-          // If shift key is pressed, toggle selection.
-          if (e.shiftKey) {
+          // If CTRL or Command is pressed, toggle selection without clearing others.
+          if (e.ctrlKey || e.metaKey) {
+            e.preventDefault();
             if (selectedFiles.has(fullPath)) {
               selectedFiles.delete(fullPath);
               li.classList.remove("selected");
@@ -215,120 +295,188 @@
               selectedFiles.add(fullPath);
               li.classList.add("selected");
             }
+            lastClickedFile = li;
+          } else if (e.shiftKey) {
+            // SHIFT-click selects all files between last clicked and this one.
+            let container = li.parentNode;
+            let fileItems = Array.from(container.querySelectorAll("li.list-group-item"))
+              .filter(item => item.getAttribute("data-fullpath"));
+            if (!lastClickedFile) {
+              lastClickedFile = li;
+            }
+            let startIndex = fileItems.indexOf(lastClickedFile);
+            let endIndex = fileItems.indexOf(li);
+            if (startIndex === -1) startIndex = 0;
+            if (endIndex === -1) endIndex = 0;
+            let [minIndex, maxIndex] = startIndex < endIndex ? [startIndex, endIndex] : [endIndex, startIndex];
+            for (let i = minIndex; i <= maxIndex; i++) {
+              let item = fileItems[i];
+              let itemFullPath = item.getAttribute("data-fullpath");
+              selectedFiles.add(itemFullPath);
+              item.classList.add("selected");
+            }
           } else {
-            // Clear other selections and select this file.
+            // No modifier: clear other selections and select this file.
             selectedFiles.clear();
             document.querySelectorAll("li.list-group-item.selected").forEach(item => {
               item.classList.remove("selected");
             });
             selectedFiles.add(fullPath);
             li.classList.add("selected");
+            lastClickedFile = li;
           }
           e.stopPropagation();
         });
+        
+        // Also prevent the context menu from appearing on file items.
+        li.addEventListener("contextmenu", function(e) {
+          e.preventDefault();
+        });
       }
-
+  
+      // For directories, add a click handler for navigation.
+      if (type === "directory") {
+        li.onclick = function() {
+          currentFilter[panel] = 'all';
+          loadDirectories(fullPath, panel);
+        };
+  
+        // Allow dropping items onto this folder.
+        li.addEventListener("dragover", function(e) {
+          e.preventDefault();
+          e.stopPropagation();
+          li.classList.add("folder-hover");
+        });
+        li.addEventListener("dragleave", function(e) {
+          e.stopPropagation();
+          li.classList.remove("folder-hover");
+        });
+        li.addEventListener("drop", function(e) {
+          e.preventDefault();
+          e.stopPropagation();
+          li.classList.remove("folder-hover");
+          let dataStr = e.dataTransfer.getData("text/plain");
+          let items;
+          try {
+            items = JSON.parse(dataStr);
+            if (!Array.isArray(items)) {
+              items = [items];
+            }
+          } catch (err) {
+            items = [{ path: dataStr, type: "unknown" }];
+          }
+          let paths = items.map(item => item.path);
+          moveMultipleItems(paths, fullPath, panel);
+          selectedFiles.clear();
+        });
+      } else {
+        // For files, prevent folder navigation click.
+        li.onclick = function(e) {
+          e.stopPropagation();
+        };
+      }
+  
       // Drag handling.
       if (isDraggable) {
         li.classList.add("draggable");
         li.setAttribute("draggable", "true");
         li.addEventListener("dragstart", function(e) {
           if (type === "file") {
-            // If this file is selected, drag all selected files.
             if (selectedFiles.has(fullPath)) {
-              e.dataTransfer.setData("text/plain", JSON.stringify(Array.from(selectedFiles)));
+              const payload = Array.from(selectedFiles).map(filePath => {
+                return { path: filePath, type: "file" };
+              });
+              e.dataTransfer.setData("text/plain", JSON.stringify(payload));
             } else {
-              // Clear selection and select this file.
               selectedFiles.clear();
               document.querySelectorAll("li.list-group-item.selected").forEach(item => {
                 item.classList.remove("selected");
               });
               selectedFiles.add(fullPath);
               li.classList.add("selected");
-              e.dataTransfer.setData("text/plain", JSON.stringify([fullPath]));
+              const payload = [{ path: fullPath, type: "file" }];
+              e.dataTransfer.setData("text/plain", JSON.stringify(payload));
             }
           } else {
-            // For directories, drag as usual.
-            e.dataTransfer.setData("text/plain", fullPath);
+            const payload = [{ path: fullPath, type: "directory" }];
+            e.dataTransfer.setData("text/plain", JSON.stringify(payload));
           }
         });
       }
-
-      // Set click handler for navigation (only for directories).
-      if (type === "directory") {
-        li.onclick = function() {
-          loadDirectories(fullPath, panel);
-        };
-      } else {
-        li.onclick = function(e) {
-          e.stopPropagation();
-        };
-      }
-
+  
       return li;
     }
-
-    // Updated loadDirectories function to support both source and destination panels.
+  
+    // Function to dynamically build the filter bar.
+    function updateFilterBar(panel, directories) {
+      const outerContainer = document.getElementById(`${panel}-directory-filter`);
+      if (!outerContainer) return;
+      const btnGroup = outerContainer.querySelector('.btn-group');
+      if (!btnGroup) return;
+  
+      let availableLetters = new Set();
+      let hasNonAlpha = false;
+  
+      directories.forEach(dir => {
+        const firstChar = dir.charAt(0).toUpperCase();
+        if (firstChar >= 'A' && firstChar <= 'Z') {
+          availableLetters.add(firstChar);
+        } else {
+          hasNonAlpha = true;
+        }
+      });
+  
+      let buttonsHtml = '';
+      buttonsHtml += `<button type="button" class="btn btn-outline-secondary ${currentFilter[panel] === 'all' ? 'active' : ''}" onclick="filterDirectories('all', '${panel}')">All</button>`;
+      
+      if (hasNonAlpha) {
+        buttonsHtml += `<button type="button" class="btn btn-outline-secondary ${currentFilter[panel] === '#' ? 'active' : ''}" onclick="filterDirectories('#', '${panel}')">#</button>`;
+      }
+      
+      for (let i = 65; i <= 90; i++) {
+        const letter = String.fromCharCode(i);
+        if (availableLetters.has(letter)) {
+          buttonsHtml += `<button type="button" class="btn btn-outline-secondary ${currentFilter[panel] === letter ? 'active' : ''}" onclick="filterDirectories('${letter}', '${panel}')">${letter}</button>`;
+        }
+      }
+      btnGroup.innerHTML = buttonsHtml;
+    }
+    
+    // Updated loadDirectories function.
     function loadDirectories(path, panel) {
       console.log("loadDirectories called with path:", path, "panel:", panel);
-      document.getElementById('btnDirectories').classList.add('active')
-      document.getElementById('btnDownloads').classList.remove('active')
-
-      // Scroll to the top of the page while awaiting list update.
+      document.getElementById('btnDirectories').classList.add('active');
+      document.getElementById('btnDownloads').classList.remove('active');
       window.scrollTo({ top: 0, behavior: "smooth" });
-
-      // Get the correct container for the panel.
       let container = panel === 'source' ? document.getElementById("source-list")
-                                        : document.getElementById("destination-list");
-
+                                         : document.getElementById("destination-list");
       if (!container) {
         console.error("Container not found for panel:", panel);
         return;
       }
-      
-      // Set spinner while loading.
       container.innerHTML = `<div class="d-flex justify-content-center my-3">
-                              <button class="btn btn-primary" type="button" disabled>
-                                <span class="spinner-grow spinner-grow-sm" role="status" aria-hidden="true"></span>
-                                Loading...
-                              </button>
-                            </div>`;
-      
+                                <button class="btn btn-primary" type="button" disabled>
+                                  <span class="spinner-grow spinner-grow-sm" role="status" aria-hidden="true"></span>
+                                  Loading...
+                                </button>
+                              </div>`;
       fetch(`/list-directories?path=${encodeURIComponent(path)}`)
         .then(response => response.json())
         .then(data => {
           console.log("Received data:", data);
-          container.innerHTML = ""; // Clear spinner and any previous content
-
           if (panel === 'source') {
             currentSourcePath = data.current_path;
             updateBreadcrumb('source', data.current_path);
+            sourceDirectoriesData = data;
+            updateFilterBar('source', data.directories);
+            renderDirectoryListing(data, 'source');
           } else {
             currentDestinationPath = data.current_path;
             updateBreadcrumb('destination', data.current_path);
+            destinationDirectoriesData = data;
+            updateFilterBar('destination', data.directories);
+            renderDirectoryListing(data, 'destination');
           }
-
-          // Append "Parent" navigation if available.
-          if (data.parent) {
-            let parentItem = createListItem("Parent", data.parent, "directory", panel, false);
-            parentItem.querySelector("span").innerHTML = `<i class="bi bi-arrow-left-square me-2"></i> Parent`;
-            container.appendChild(parentItem);
-          }
-
-          // Append directory items.
-          data.directories.forEach(dir => {
-            let fullPath = data.current_path + "/" + dir;
-            let item = createListItem(dir, fullPath, "directory", panel, true);
-            container.appendChild(item);
-          });
-
-          // Append file items.
-          data.files.forEach(file => {
-            let fullPath = data.current_path + "/" + file;
-            let fileItem = createListItem(file, fullPath, "file", panel, true);
-            container.appendChild(fileItem);
-          });
-
         })
         .catch(error => {
           console.error("Error loading directories:", error);
@@ -337,39 +485,89 @@
                                   </div>`;
         });
     }
-
+  
+    // Function to render the directory listing.
+    function renderDirectoryListing(data, panel) {
+      let container = panel === 'source' ? document.getElementById("source-list")
+                                         : document.getElementById("destination-list");
+      container.innerHTML = "";
+      if (data.parent) {
+        let parentItem = createListItem("Parent", data.parent, "directory", panel, false);
+        parentItem.querySelector("span").innerHTML = `<i class="bi bi-arrow-left-square me-2"></i> Parent`;
+        container.appendChild(parentItem);
+      }
+      let filter = currentFilter[panel];
+      let directoriesToShow = data.directories.filter(dir => {
+        if (filter === 'all') return true;
+        if (filter === '#') return !/^[A-Za-z]/.test(dir.charAt(0));
+        return dir.charAt(0).toUpperCase() === filter;
+      });
+      directoriesToShow.forEach(dir => {
+        let fullPath = data.current_path + "/" + dir;
+        let item = createListItem(dir, fullPath, "directory", panel, true);
+        container.appendChild(item);
+      });
+      if (filter === 'all') {
+        data.files.forEach(file => {
+          let fullPath = data.current_path + "/" + file;
+          let fileItem = createListItem(file, fullPath, "file", panel, true);
+          container.appendChild(fileItem);
+        });
+      }
+    }
+  
+    // Function to filter directories based on the selected letter.
+    function filterDirectories(letter, panel) {
+      if (currentFilter[panel] === letter) {
+        currentFilter[panel] = 'all';
+      } else {
+        currentFilter[panel] = letter;
+      }
+      let filterContainer = document.getElementById(panel + "-directory-filter");
+      if (filterContainer) {
+        let btnGroup = filterContainer.querySelector('.btn-group');
+        if (btnGroup) {
+          let buttons = btnGroup.querySelectorAll("button");
+          buttons.forEach(btn => {
+            let btnText = btn.textContent.trim();
+            if ((currentFilter[panel] === 'all' && btnText === 'All') || btnText === currentFilter[panel]) {
+              btn.classList.add("active");
+            } else {
+              btn.classList.remove("active");
+            }
+          });
+        }
+      }
+      if (panel === 'source' && sourceDirectoriesData) {
+        renderDirectoryListing(sourceDirectoriesData, panel);
+      } else if (panel === 'destination' && destinationDirectoriesData) {
+        renderDirectoryListing(destinationDirectoriesData, panel);
+      }
+    }
+  
     // New loadDownloads function to fetch downloads data.
     function loadDownloads(path, panel) {
       console.log("loadDownloads called with path:", path, "panel:", panel);
-      document.getElementById('btnDownloads').classList.add('active')
-      document.getElementById('btnDirectories').classList.remove('active')
-
-      // Scroll to the top of the page while awaiting list update.
+      document.getElementById('btnDownloads').classList.add('active');
+      document.getElementById('btnDirectories').classList.remove('active');
       window.scrollTo({ top: 0, behavior: "smooth" });
-
-      // Get the correct container for the panel.
       let container = panel === 'source' ? document.getElementById("source-list")
-                                        : document.getElementById("destination-list");
-
+                                         : document.getElementById("destination-list");
       if (!container) {
         console.error("Container not found for panel:", panel);
         return;
       }
-      
-      // Set spinner while loading.
       container.innerHTML = `<div class="d-flex justify-content-center my-3">
-                              <button class="btn btn-primary" type="button" disabled>
-                                <span class="spinner-grow spinner-grow-sm" role="status" aria-hidden="true"></span>
-                                Loading...
-                              </button>
-                            </div>`;
-      
+                                <button class="btn btn-primary" type="button" disabled>
+                                  <span class="spinner-grow spinner-grow-sm" role="status" aria-hidden="true"></span>
+                                  Loading...
+                                </button>
+                              </div>`;
       fetch(`/list-downloads?path=${encodeURIComponent(path)}`)
         .then(response => response.json())
         .then(data => {
           console.log("Received data:", data);
-          container.innerHTML = ""; // Clear spinner and any previous content
-
+          container.innerHTML = "";
           if (panel === 'source') {
             currentSourcePath = data.current_path;
             updateBreadcrumb('source', data.current_path);
@@ -377,28 +575,21 @@
             currentDestinationPath = data.current_path;
             updateBreadcrumb('destination', data.current_path);
           }
-
-          // Append "Parent" navigation if available.
           if (data.parent) {
             let parentItem = createListItem("Parent", data.parent, "directory", panel, false);
             parentItem.querySelector("span").innerHTML = `<i class="bi bi-arrow-left-square me-2"></i> Parent`;
             container.appendChild(parentItem);
           }
-
-          // Append directory items.
           data.directories.forEach(dir => {
             let fullPath = data.current_path + "/" + dir;
             let item = createListItem(dir, fullPath, "directory", panel, true);
             container.appendChild(item);
           });
-
-          // Append file items.
           data.files.forEach(file => {
             let fullPath = data.current_path + "/" + file;
             let fileItem = createListItem(file, fullPath, "file", panel, true);
             container.appendChild(fileItem);
           });
-
         })
         .catch(error => {
           console.error("Error loading downloads:", error);
@@ -407,11 +598,11 @@
                                   </div>`;
         });
     }
-
+  
     // Initial load for both panels.
     loadDirectories(currentSourcePath, 'source');
     loadDirectories(currentDestinationPath, 'destination');
-
+  
     // Function to move an item.
     function moveItem(source, destination) {
       fetch('/move', {
@@ -432,92 +623,77 @@
         console.error("Error in move request:", error);
       });
     }
-
+  
     // Set up drop events for a given panel element.
     function setupDropEvents(element, panel) {
-      // Store an interval ID for auto-scrolling.
       let autoScrollInterval = null;
-
-      // Helper to start auto-scroll in a given direction.
       function startAutoScroll(direction) {
-        // Avoid multiple intervals.
         if (autoScrollInterval !== null) return;
         autoScrollInterval = setInterval(() => {
           if (direction === "up") {
-            element.scrollTop -= 5; // Adjust scroll speed (pixels per interval) as needed.
+            element.scrollTop -= 5;
           } else if (direction === "down") {
             element.scrollTop += 5;
           }
-        }, 50); // Adjust interval time (ms) as needed.
+        }, 50);
       }
-
-      // Helper to stop auto-scrolling.
       function stopAutoScroll() {
         if (autoScrollInterval !== null) {
           clearInterval(autoScrollInterval);
           autoScrollInterval = null;
         }
       }
-
       element.addEventListener("dragover", function(e) {
         e.preventDefault();
         element.classList.add("hover");
-
-        // Get the element’s bounding rectangle.
         let rect = element.getBoundingClientRect();
-        let threshold = 50; // Distance (in pixels) from top/bottom to trigger auto-scroll.
+        let threshold = 50;
         let scrollDirection = null;
-
-        // Check if the cursor is near the top.
         if (e.clientY - rect.top < threshold) {
           scrollDirection = "up";
-        } 
-        // Check if the cursor is near the bottom.
-        else if (rect.bottom - e.clientY < threshold) {
+        } else if (rect.bottom - e.clientY < threshold) {
           scrollDirection = "down";
         }
-
-        // Start or stop scrolling based on cursor position.
         if (scrollDirection) {
           startAutoScroll(scrollDirection);
         } else {
           stopAutoScroll();
         }
       });
-
       element.addEventListener("dragleave", function(e) {
         element.classList.remove("hover");
         stopAutoScroll();
       });
-
       element.addEventListener("drop", function(e) {
         e.preventDefault();
         element.classList.remove("hover");
         stopAutoScroll();
-
         let dataStr = e.dataTransfer.getData("text/plain");
-        let filePaths;
+        let items;
         try {
-          filePaths = JSON.parse(dataStr);
-          if (!Array.isArray(filePaths)) {
-            filePaths = [filePaths];
+          items = JSON.parse(dataStr);
+          if (!Array.isArray(items)) {
+            items = [items];
           }
         } catch (err) {
-          filePaths = [dataStr];
+          items = [{ path: dataStr, type: "unknown" }];
         }
         let targetPath = panel === 'source' ? currentSourcePath : currentDestinationPath;
-        filePaths.forEach(fp => {
-          moveItem(fp, targetPath + "/" + fp.split('/').pop());
-        });
-        // Clear selection after drop.
+        if (items.length === 1 && items[0].type === "file") {
+          let sourcePath = items[0].path;
+          let fileName = sourcePath.split("/").pop();
+          moveItem(sourcePath, targetPath + "/" + fileName);
+        } else {
+          let paths = items.map(item => item.path);
+          moveMultipleItems(paths, targetPath, panel);
+        }
         selectedFiles.clear();
       });
     }
-
+  
     // Update the breadcrumb display for source or destination panel.
     function updateBreadcrumb(panel, fullPath) {
       let breadcrumbEl;
-
       if (panel === 'source') {
         breadcrumbEl = document.getElementById("source-path-display");
       } else if (panel === 'destination') {
@@ -526,27 +702,19 @@
         console.error("Invalid panel:", panel);
         return;
       }
-
-      breadcrumbEl.innerHTML = ""; // Clear previous breadcrumb items
-
-      // Split the fullPath into segments (e.g., [ "data", "Marvel", "Avengers", ... ])
+      breadcrumbEl.innerHTML = "";
       let parts = fullPath.split('/').filter(Boolean);
       let pathSoFar = "";
-      
       parts.forEach((part, index) => {
         pathSoFar += "/" + part;
-        let currentPartPath = pathSoFar; // Capture correct path for this breadcrumb item.
-
+        let currentPartPath = pathSoFar;
         const li = document.createElement("li");
         li.className = "breadcrumb-item";
-
         if (index === parts.length - 1) {
-          // Last segment: mark as active.
           li.classList.add("active");
           li.setAttribute("aria-current", "page");
           li.textContent = part;
         } else {
-          // For other segments: create a clickable link.
           const a = document.createElement("a");
           a.href = "#";
           a.textContent = part;
@@ -557,22 +725,132 @@
           };
           li.appendChild(a);
         }
-
         breadcrumbEl.appendChild(li);
       });
     }
-
+  
     // Attach drop events.
     setupDropEvents(document.getElementById("source-list"), 'source');
     setupDropEvents(document.getElementById("destination-list"), 'destination');
-
+  
+    // Create Folder Modal functionality.
+    let createFolderModalEl = document.getElementById('createFolderModal');
+    let createFolderNameInput = document.getElementById('createFolderName');
+    createFolderModalEl.addEventListener('shown.bs.modal', function () {
+      createFolderNameInput.focus();
+    });
+    function openCreateFolderModal() {
+      document.getElementById('createFolderName').value = '';
+      let createFolderModal = new bootstrap.Modal(document.getElementById('createFolderModal'));
+      createFolderModal.show();
+    }
+    document.getElementById('confirmCreateFolderBtn').addEventListener('click', function() {
+      let folderNameInput = document.getElementById('createFolderName');
+      let folderName = folderNameInput.value.trim();
+      if (!folderName) {
+        alert('Folder name cannot be empty.');
+        folderNameInput.focus();
+        return;
+      }
+      let fullPath = currentDestinationPath + '/' + folderName;
+      fetch('/create-folder', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path: fullPath })
+      })
+      .then(response => response.json())
+      .then(data => {
+        if (data.success) {
+          let createFolderModalEl = document.getElementById('createFolderModal');
+          let createFolderModal = bootstrap.Modal.getInstance(createFolderModalEl);
+          createFolderModal.hide();
+          currentFilter['destination'] = 'all';
+          loadDirectories(currentDestinationPath, 'destination');
+        } else {
+          alert(data.error || 'Error creating folder.');
+        }
+      })
+      .catch(err => {
+        console.error('Error creating folder:', err);
+        alert('An unexpected error occurred.');
+      });
+    });
+  
+    // Moving Status Modal Functions.
+    let movingModalEl = document.getElementById('movingModal');
+    let movingStatusText = document.getElementById('movingStatusText');
+    let movingProgressBar = document.getElementById('movingProgressBar');
+    let movingModal = new bootstrap.Modal(movingModalEl, {
+      backdrop: 'static',
+      keyboard: false
+    });
+    function showMovingModal() {
+      movingStatusText.textContent = "Preparing to move items...";
+      movingProgressBar.style.width = "0%";
+      movingProgressBar.setAttribute('aria-valuenow', 0);
+      movingModal.show();
+    }
+    function hideMovingModal() {
+      movingModal.hide();
+    }
+    function setMovingStatus(message) {
+      movingStatusText.textContent = message;
+    }
+    function updateMovingProgress(percentage) {
+      movingProgressBar.style.width = percentage + "%";
+      movingProgressBar.setAttribute('aria-valuenow', percentage);
+    }
+    // Function to move multiple items with progress.
+    function moveMultipleItems(filePaths, targetFolder, panel) {
+      showMovingModal();
+      let totalCount = filePaths.length;
+      let currentIndex = 0;
+      function moveNext() {
+        if (currentIndex >= totalCount) {
+          hideMovingModal();
+          loadDirectories(currentSourcePath, 'source');
+          loadDirectories(currentDestinationPath, 'destination');
+          return;
+        }
+        let sourcePath = filePaths[currentIndex];
+        let fileName = sourcePath.split('/').pop();
+        let message = `Moving ${fileName} (${currentIndex + 1} of ${totalCount})`;
+        setMovingStatus(message);
+        let percentage = Math.floor((currentIndex / totalCount) * 100);
+        updateMovingProgress(percentage);
+        fetch('/move', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            source: sourcePath,
+            destination: targetFolder + '/' + fileName
+          })
+        })
+        .then(res => res.json())
+        .then(data => {
+          if (!data.success) {
+            alert("Error moving file: " + (data.error || 'Unknown error'));
+          }
+          currentIndex++;
+          moveNext();
+        })
+        .catch(err => {
+          console.error("Error in move request:", err);
+          alert("An unexpected error occurred while moving files.");
+          currentIndex++;
+          moveNext();
+        });
+      }
+      moveNext();
+    }
+  
     // Delete confirmation handler.
     document.getElementById("confirmDeleteBtn").addEventListener("click", function() {
-      // Hide the modal using Bootstrap 5 API.
       let deleteModalEl = document.getElementById("deleteModal");
       let deleteModal = bootstrap.Modal.getInstance(deleteModalEl);
       deleteModal.hide();
       deleteItem(deleteTarget, deletePanel);
     });
-  </script>
-{% endblock %}
+  </script>  
+  
+  {% endblock %}
