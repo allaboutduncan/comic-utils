@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, Response, send_from_directory, redirect, jsonify, url_for
+from flask import Flask, render_template, request, Response, send_from_directory, redirect, jsonify, url_for, stream_with_context
 import subprocess
 import os
 import shutil
@@ -161,7 +161,8 @@ def list_downloads():
 def move():
     """
     Move a file or folder from the source path to the destination.
-    Expects a JSON payload with "source" and "destination" keys.
+    If the "X-Stream" header is true and the source is a file,
+    streams progress updates as SSE.
     """
     data = request.get_json()
     source = data.get('source')
@@ -172,11 +173,42 @@ def move():
     if not os.path.exists(source):
         return jsonify({"error": "Source does not exist"}), 404
 
-    try:
-        shutil.move(source, destination)
-        return jsonify({"success": True})
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+    stream = request.headers.get('X-Stream', 'false').lower() == 'true'
+
+    if os.path.isfile(source) and stream:
+        file_size = os.path.getsize(source)
+        def generate():
+            bytes_copied = 0
+            chunk_size = 1024 * 1024  # 1 MB chunks
+            try:
+                with open(source, 'rb') as fsrc, open(destination, 'wb') as fdst:
+                    while True:
+                        chunk = fsrc.read(chunk_size)
+                        if not chunk:
+                            break
+                        fdst.write(chunk)
+                        bytes_copied += len(chunk)
+                        progress = int((bytes_copied / file_size) * 100)
+                        yield f"data: {progress}\n\n"
+                os.remove(source)
+                yield "data: 100\n\n"
+            except Exception as e:
+                yield f"data: error: {str(e)}\n\n"
+            # Signal that the stream is complete.
+            yield "data: done\n\n"
+        headers = {
+            "Content-Type": "text/event-stream",
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+            "Connection": "close"
+        }
+        return Response(stream_with_context(generate()), headers=headers)
+    else:
+        try:
+            shutil.move(source, destination)
+            return jsonify({"success": True})
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
     
 #####################################
 #     Move Files/Folders UI Page    #

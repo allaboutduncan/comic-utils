@@ -626,7 +626,101 @@
         console.error("Error in move request:", error);
       });
     }
-  
+
+    // Function to move a single item with progress.
+    function moveSingleItem(sourcePath, targetFolder) {
+      showMovingModal();
+      let fileName = sourcePath.split('/').pop();
+      setMovingStatus(`Moving ${fileName}`);
+      
+      const xhr = new XMLHttpRequest();
+      xhr.open("POST", "/move", true);
+      xhr.setRequestHeader("Content-Type", "application/json");
+      xhr.setRequestHeader("X-Stream", "true");
+
+      // Guard flag to ensure we complete only once.
+      let finished = false;
+      function completeMove() {
+        if (!finished) {
+          finished = true;
+          // Detach XHR event handlers to avoid later interference.
+          console.log("completeMove called, finished =", finished);
+          xhr.onprogress = xhr.onreadystatechange = xhr.onerror = null;
+          updateMovingProgress(100);
+          console.log("Move request completed. About to hide modal.");
+          setTimeout(() => {
+            movingModal.hide();
+            // Forcing removal of the "show" class.
+            // Remove "show" and hide the modal element
+            const movingModalEl = document.getElementById("movingModal");
+            movingModalEl.classList.remove("show");
+            movingModalEl.style.display = "none";
+
+            // Remove the modal-backdrop elements
+            document.querySelectorAll('.modal-backdrop').forEach(el => el.remove());
+
+            // Remove the "modal-open" class from the body
+            document.body.classList.remove("modal-open");
+
+            // Restore pointer events and scrolling on the body
+            document.body.style.pointerEvents = "auto";
+            document.body.style.overflow = "auto";
+
+            console.log("Forced removal of modal 'show' class after hide.");
+            setTimeout(() => {
+              loadDirectories(currentSourcePath, 'source');
+              loadDirectories(currentDestinationPath, 'destination');
+            }, 300);
+          }, 200);
+        }
+      }
+
+
+      xhr.onprogress = function(e) {
+        // Split the response text by double newlines to get SSE events.
+        let events = xhr.responseText.trim().split("\n\n");
+        let lastEvent = events[events.length - 1];
+        if (lastEvent.startsWith("data: ")) {
+          let progressData = lastEvent.slice(6).trim();
+          if (progressData === "done") {
+            console.log("Move request completed (xhr.onprogress).");
+            completeMove();
+          } else if (progressData.startsWith("error:")) {
+            console.error("Error:", progressData);
+          } else {
+            let percentComplete = parseInt(progressData);
+            updateMovingProgress(percentComplete);
+          }
+        }
+      };
+
+      xhr.onreadystatechange = function() {
+        if (xhr.readyState === XMLHttpRequest.DONE && !finished) {
+          console.log("Move request completed (xhr.onreadystatechange).");
+          completeMove();
+        }
+      };
+
+      xhr.onerror = function() {
+        alert("Error moving file: " + xhr.statusText);
+        // Force-close the modal on error.
+        const modalEl = document.getElementById("movingModal");
+        const modalInstance = bootstrap.Modal.getInstance(modalEl);
+        if (modalInstance) {
+          modalInstance.hide();
+        } else {
+          hideMovingModal();
+        }
+      };
+
+      const payload = {
+        source: sourcePath,
+        destination: targetFolder + "/" + fileName
+      };
+
+      xhr.send(JSON.stringify(payload));
+    }
+
     // Set up drop events for a given panel element.
     function setupDropEvents(element, panel) {
       let autoScrollInterval = null;
@@ -682,10 +776,10 @@
           items = [{ path: dataStr, type: "unknown" }];
         }
         let targetPath = panel === 'source' ? currentSourcePath : currentDestinationPath;
+        // If only one file is being moved, call moveSingleItem to use file size progress.
         if (items.length === 1 && items[0].type === "file") {
           let sourcePath = items[0].path;
-          let fileName = sourcePath.split("/").pop();
-          moveItem(sourcePath, targetPath + "/" + fileName);
+          moveSingleItem(sourcePath, targetPath);
         } else {
           let paths = items.map(item => item.path);
           moveMultipleItems(paths, targetPath, panel);
