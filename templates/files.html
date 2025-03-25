@@ -768,12 +768,24 @@
           items = [{ path: dataStr, type: "unknown" }];
         }
         let targetPath = panel === 'source' ? currentSourcePath : currentDestinationPath;
-        // If only one file is being moved, call moveSingleItem to use file size progress.
-        if (items.length === 1 && items[0].type === "file") {
-          let sourcePath = items[0].path;
+        
+        // Filter out items whose source folder is the same as the target folder.
+        let validItems = items.filter(item => {
+          let sourcePath = item.path;
+          let sourceDir = sourcePath.substring(0, sourcePath.lastIndexOf('/'));
+          return sourceDir !== targetPath;
+        });
+        if (validItems.length === 0) {
+          console.log("All items dropped are in the same directory. Move cancelled.");
+          return;
+        }
+        
+        // If only one valid file item is being moved, call moveSingleItem for progress.
+        if (validItems.length === 1 && validItems[0].type === "file") {
+          let sourcePath = validItems[0].path;
           moveSingleItem(sourcePath, targetPath);
         } else {
-          let paths = items.map(item => item.path);
+          let paths = validItems.map(item => item.path);
           moveMultipleItems(paths, targetPath, panel);
         }
         selectedFiles.clear();
