@@ -71,10 +71,20 @@ def process_image(directory: str) -> None:
         app_logger.info(f"Directory {directory} does not exist.")
         return
 
-    # Recursively search for files in the directory and subdirectories
+    # Recursively search for files in the directory and subdirectories,
+    # ignoring and removing files with a .sfv extension.
     def find_images(dir_path):
         for root, _, files in os.walk(dir_path):
             for file in files:
+                # Remove files with a .sfv extension
+                if file.lower().endswith('.sfv'):
+                    file_path = os.path.join(root, file)
+                    try:
+                        os.remove(file_path)
+                        app_logger.info(f"Removed .sfv file: {file_path}")
+                    except Exception as e:
+                        app_logger.error(f"Error removing .sfv file {file_path}: {e}")
+                    continue
                 if file != "ComicInfo.xml":
                     yield os.path.join(root, file)
 
