@@ -153,3 +153,4 @@ if __name__ == "__main__":
     else:
         directory = sys.argv[1]
         check_missing_issues(directory)
+        app_logger.info("********************// Missing Issue Check //********************")

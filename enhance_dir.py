@@ -27,4 +27,5 @@ if __name__ == "__main__":
     else:
         directory = sys.argv[1]
         enhance_directory(directory)
+        app_logger.info("********************// Enhance Directory //********************")
         app_logger.info(f"Enhance Images starting for directory: {directory}")

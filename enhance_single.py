@@ -22,17 +22,17 @@ def enhance_comic(file_path):
         if os.path.exists(file_path):
             # Rename the original .cbz file to .bak before extraction.
             os.rename(file_path, bak_file_path)
-            print(f"Renamed '{file_path}' to '{bak_file_path}'")
+            app_logger.info(f"Renamed '{file_path}' to '{bak_file_path}'")
         elif os.path.exists(bak_file_path):
             # The file may have already been renamed.
-            print(f"File '{file_path}' not found; using backup '{bak_file_path}'")
+            app_logger.info(f"File '{file_path}' not found; using backup '{bak_file_path}'")
         else:
             # Neither file exists – raise an error.
             raise FileNotFoundError(f"Neither {file_path} nor {bak_file_path} exists.")
 
         # Extract the ZIP archive from the backup file.
         extracted_dir = unzip_file(bak_file_path)
-        print(f"Extracted to: {extracted_dir}")
+        app_logger.info(f"Extracted to: {extracted_dir}")
 
         # Find all image files in the extracted directory.
         image_files = []
@@ -50,6 +50,7 @@ def enhance_comic(file_path):
             enhanced_image.save(tmp_path)
             # Atomically replace the original image with the enhanced one.
             os.replace(tmp_path, image_file)
+            app_logger.info(f"Enhanced: {image_file}")
         
         # Compress the enhanced files back into a ZIP archive with a .cbz extension.
         enhanced_cbz_path = os.path.splitext(file_path)[0] + '.cbz'
@@ -59,13 +60,14 @@ def enhance_comic(file_path):
                     full_path = os.path.join(root, file)
                     relative_path = os.path.relpath(full_path, extracted_dir)
                     cbz_file.write(full_path, relative_path)
+        app_logger.info(f"Compressed to: {enhanced_cbz_path}")
         
         # Clean up the extracted directory.
         shutil.rmtree(extracted_dir)
         
         # Once processing is complete, delete the backup (.bak) file.
         os.remove(bak_file_path)
-        print(f"Deleted backup file '{bak_file_path}'")
+        app_logger.info(f"Deleted backup file '{bak_file_path}'")
     else:
         # Enhance a single image file.
         enhance_image(file_path)
@@ -77,4 +79,5 @@ if __name__ == "__main__":
     else:
         file_path = sys.argv[1]
         enhance_comic(file_path)
+        app_logger.info("********************// Enhance Single //********************")
         app_logger.info(f"Starting Image Enhancement for: {file_path}")
