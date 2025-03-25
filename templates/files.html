@@ -640,33 +640,26 @@
 
       // Guard flag to ensure we complete only once.
       let finished = false;
+      // Track the last processed response length for incremental progress updates.
+      let lastResponseLength = 0;
+
       function completeMove() {
         if (!finished) {
           finished = true;
-          // Detach XHR event handlers to avoid later interference.
-          console.log("completeMove called, finished =", finished);
+          // Detach XHR event handlers.
           xhr.onprogress = xhr.onreadystatechange = xhr.onerror = null;
           updateMovingProgress(100);
-          console.log("Move request completed. About to hide modal.");
           setTimeout(() => {
             movingModal.hide();
-            // Forcing removal of the "show" class.
-            // Remove "show" and hide the modal element
+            // Remove the "show" class and hide the modal element.
             const movingModalEl = document.getElementById("movingModal");
             movingModalEl.classList.remove("show");
             movingModalEl.style.display = "none";
-
-            // Remove the modal-backdrop elements
+            // Remove modal-backdrop elements and restore body styles.
             document.querySelectorAll('.modal-backdrop').forEach(el => el.remove());
-
-            // Remove the "modal-open" class from the body
             document.body.classList.remove("modal-open");
-
-            // Restore pointer events and scrolling on the body
             document.body.style.pointerEvents = "auto";
             document.body.style.overflow = "auto";
-
-            console.log("Forced removal of modal 'show' class after hide.");
             setTimeout(() => {
               loadDirectories(currentSourcePath, 'source');
               loadDirectories(currentDestinationPath, 'destination');
@@ -675,35 +668,34 @@
         }
       }
 
-
       xhr.onprogress = function(e) {
-        // Split the response text by double newlines to get SSE events.
-        let events = xhr.responseText.trim().split("\n\n");
-        let lastEvent = events[events.length - 1];
-        if (lastEvent.startsWith("data: ")) {
-          let progressData = lastEvent.slice(6).trim();
-          if (progressData === "done") {
-            console.log("Move request completed (xhr.onprogress).");
-            completeMove();
-          } else if (progressData.startsWith("error:")) {
-            console.error("Error:", progressData);
-          } else {
-            let percentComplete = parseInt(progressData);
-            updateMovingProgress(percentComplete);
+        // Only process the new portion of the response text.
+        let newData = xhr.responseText.substring(lastResponseLength);
+        lastResponseLength = xhr.responseText.length;
+        let events = newData.split("\n\n");
+        events.forEach(event => {
+          if (event.startsWith("data: ")) {
+            let progressData = event.slice(6).trim();
+            if (progressData === "done") {
+              completeMove();
+            } else if (progressData.startsWith("error:")) {
+              console.error("Error:", progressData);
+            } else {
+              let percentComplete = parseInt(progressData);
+              updateMovingProgress(percentComplete);
+            }
           }
-        }
+        });
       };
 
       xhr.onreadystatechange = function() {
         if (xhr.readyState === XMLHttpRequest.DONE && !finished) {
-          console.log("Move request completed (xhr.onreadystatechange).");
           completeMove();
         }
       };
 
       xhr.onerror = function() {
         alert("Error moving file: " + xhr.statusText);
-        // Force-close the modal on error.
         const modalEl = document.getElementById("movingModal");
         const modalInstance = bootstrap.Modal.getInstance(modalEl);
         if (modalInstance) {

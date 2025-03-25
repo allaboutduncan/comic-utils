@@ -167,10 +167,13 @@ def move():
     data = request.get_json()
     source = data.get('source')
     destination = data.get('destination')
+    app_logger.info(f"Moving {source} to {destination}")
     
     if not source or not destination:
+        app_logger.error(f"Missing source or destination")
         return jsonify({"error": "Missing source or destination"}), 400
     if not os.path.exists(source):
+        app_logger.error(f"Source does not exist")
         return jsonify({"error": "Source does not exist"}), 404
 
     stream = request.headers.get('X-Stream', 'false').lower() == 'true'
@@ -191,6 +194,7 @@ def move():
                         progress = int((bytes_copied / file_size) * 100)
                         yield f"data: {progress}\n\n"
                 os.remove(source)
+                app_logger.info(f"Move complete: Removed {source}")
                 yield "data: 100\n\n"
             except Exception as e:
                 yield f"data: error: {str(e)}\n\n"
