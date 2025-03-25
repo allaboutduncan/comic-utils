@@ -167,6 +167,7 @@ def move():
     data = request.get_json()
     source = data.get('source')
     destination = data.get('destination')
+    app_logger.info(f"********************// Move File //********************")
     app_logger.info(f"Moving {source} to {destination}")
     
     if not source or not destination:

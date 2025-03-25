@@ -344,41 +344,43 @@
           loadDirectories(fullPath, panel);
         };
 
-        // Allow dropping items onto this folder.
-        li.addEventListener("dragover", function(e) {
-          e.preventDefault();
-          e.stopPropagation();
-          li.classList.add("folder-hover");
-        });
-        li.addEventListener("dragleave", function(e) {
-          e.stopPropagation();
-          li.classList.remove("folder-hover");
-        });
-        li.addEventListener("drop", function(e) {
-          e.preventDefault();
-          e.stopPropagation();
-          li.classList.remove("folder-hover");
-          let dataStr = e.dataTransfer.getData("text/plain");
-          let items;
-          try {
-            items = JSON.parse(dataStr);
-            if (!Array.isArray(items)) {
-              items = [items];
+        // Only attach drop events if this is NOT the Parent item.
+        if (itemName.toLowerCase() !== "parent") {
+          li.addEventListener("dragover", function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            li.classList.add("folder-hover");
+          });
+          li.addEventListener("dragleave", function(e) {
+            e.stopPropagation();
+            li.classList.remove("folder-hover");
+          });
+          li.addEventListener("drop", function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            li.classList.remove("folder-hover");
+            let dataStr = e.dataTransfer.getData("text/plain");
+            let items;
+            try {
+              items = JSON.parse(dataStr);
+              if (!Array.isArray(items)) {
+                items = [items];
+              }
+            } catch (err) {
+              items = [{ path: dataStr, type: "unknown" }];
             }
-          } catch (err) {
-            items = [{ path: dataStr, type: "unknown" }];
-          }
-          // If exactly one file is dropped, use moveSingleItem for progress and proper modal closing.
-          if (items.length === 1 && items[0].type === "file") {
-            moveSingleItem(items[0].path, fullPath);
-          } else {
-            let paths = items.map(item => item.path);
-            moveMultipleItems(paths, fullPath, panel);
-          }
-          selectedFiles.clear();
-        });
+            // For a single file drop, use moveSingleItem for progress; otherwise, move multiple.
+            if (items.length === 1 && items[0].type === "file") {
+              moveSingleItem(items[0].path, fullPath);
+            } else {
+              let paths = items.map(item => item.path);
+              moveMultipleItems(paths, fullPath, panel);
+            }
+            selectedFiles.clear();
+          });
+        }
       } else {
-        // For files, prevent folder navigation click.
+        // For file items, prevent navigation.
         li.onclick = function(e) {
           e.stopPropagation();
         };
@@ -497,30 +499,71 @@
     // Function to render the directory listing.
     function renderDirectoryListing(data, panel) {
       let container = panel === 'source' ? document.getElementById("source-list")
-                                         : document.getElementById("destination-list");
+                                        : document.getElementById("destination-list");
       container.innerHTML = "";
+      
       if (data.parent) {
         let parentItem = createListItem("Parent", data.parent, "directory", panel, false);
         parentItem.querySelector("span").innerHTML = `<i class="bi bi-arrow-left-square me-2"></i> Parent`;
         container.appendChild(parentItem);
       }
+      
       let filter = currentFilter[panel];
       let directoriesToShow = data.directories.filter(dir => {
         if (filter === 'all') return true;
         if (filter === '#') return !/^[A-Za-z]/.test(dir.charAt(0));
         return dir.charAt(0).toUpperCase() === filter;
       });
+      
       directoriesToShow.forEach(dir => {
         let fullPath = data.current_path + "/" + dir;
         let item = createListItem(dir, fullPath, "directory", panel, true);
         container.appendChild(item);
       });
+      
       if (filter === 'all') {
         data.files.forEach(file => {
           let fullPath = data.current_path + "/" + file;
           let fileItem = createListItem(file, fullPath, "file", panel, true);
           container.appendChild(fileItem);
         });
+      }
+      
+      // For the destination panel, only add the drop target if the directory is truly empty.
+      if (panel === 'destination' && data.directories.length === 0 && data.files.length === 0) {
+        let dropTargetItem = document.createElement("li");
+        dropTargetItem.className = "list-group-item text-center drop-target-item";
+        dropTargetItem.textContent = "... Drop Files Here";
+        
+        dropTargetItem.addEventListener("dragover", function(e) {
+          e.preventDefault();
+          e.stopPropagation();
+          dropTargetItem.classList.add("folder-hover");
+        });
+        dropTargetItem.addEventListener("dragleave", function(e) {
+          e.stopPropagation();
+          dropTargetItem.classList.remove("folder-hover");
+        });
+        dropTargetItem.addEventListener("drop", function(e) {
+          e.preventDefault();
+          e.stopPropagation();
+          dropTargetItem.classList.remove("folder-hover");
+          let dataStr = e.dataTransfer.getData("text/plain");
+          let items;
+          try {
+            items = JSON.parse(dataStr);
+            if (!Array.isArray(items)) {
+              items = [items];
+            }
+          } catch (err) {
+            items = [{ path: dataStr, type: "unknown" }];
+          }
+          let paths = items.map(item => item.path);
+          moveMultipleItems(paths, data.current_path, panel);
+          selectedFiles.clear();
+        });
+        
+        container.appendChild(dropTargetItem);
       }
     }
   
