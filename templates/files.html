@@ -337,13 +337,13 @@
         });
       }
   
-      // For directories, add a click handler for navigation.
+      // In the "if (type === 'directory')" block of createListItem:
       if (type === "directory") {
         li.onclick = function() {
           currentFilter[panel] = 'all';
           loadDirectories(fullPath, panel);
         };
-  
+
         // Allow dropping items onto this folder.
         li.addEventListener("dragover", function(e) {
           e.preventDefault();
@@ -368,8 +368,13 @@
           } catch (err) {
             items = [{ path: dataStr, type: "unknown" }];
           }
-          let paths = items.map(item => item.path);
-          moveMultipleItems(paths, fullPath, panel);
+          // If exactly one file is dropped, use moveSingleItem for progress and proper modal closing.
+          if (items.length === 1 && items[0].type === "file") {
+            moveSingleItem(items[0].path, fullPath);
+          } else {
+            let paths = items.map(item => item.path);
+            moveMultipleItems(paths, fullPath, panel);
+          }
           selectedFiles.clear();
         });
       } else {
