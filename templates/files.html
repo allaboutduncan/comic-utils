@@ -85,7 +85,6 @@
           <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
         </div>
         <div class="modal-body">
-          <!-- Folder Name Input -->
           <div class="mb-3">
             <label for="createFolderName" class="form-label">Folder Name</label>
             <input type="text" class="form-control" id="createFolderName" placeholder="Enter folder name" />
@@ -686,37 +685,28 @@
 
     // Function to move a single item with progress.
     function moveSingleItem(sourcePath, targetFolder) {
-      showMovingModal();
+      showMovingModal(); // Ensure modal is visible before starting progress
       let fileName = sourcePath.split('/').pop();
       setMovingStatus(`Moving ${fileName}`);
       
+      // Reset progress bar before starting the move
+      updateMovingProgress(0);
+
       const xhr = new XMLHttpRequest();
       xhr.open("POST", "/move", true);
       xhr.setRequestHeader("Content-Type", "application/json");
       xhr.setRequestHeader("X-Stream", "true");
 
-      // Guard flag to ensure we complete only once.
       let finished = false;
-      // Track the last processed response length for incremental progress updates.
       let lastResponseLength = 0;
 
       function completeMove() {
         if (!finished) {
           finished = true;
-          // Detach XHR event handlers.
           xhr.onprogress = xhr.onreadystatechange = xhr.onerror = null;
           updateMovingProgress(100);
           setTimeout(() => {
-            movingModal.hide();
-            // Remove the "show" class and hide the modal element.
-            const movingModalEl = document.getElementById("movingModal");
-            movingModalEl.classList.remove("show");
-            movingModalEl.style.display = "none";
-            // Remove modal-backdrop elements and restore body styles.
-            document.querySelectorAll('.modal-backdrop').forEach(el => el.remove());
-            document.body.classList.remove("modal-open");
-            document.body.style.pointerEvents = "auto";
-            document.body.style.overflow = "auto";
+            hideMovingModal();
             setTimeout(() => {
               loadDirectories(currentSourcePath, 'source');
               loadDirectories(currentDestinationPath, 'destination');
@@ -726,7 +716,6 @@
       }
 
       xhr.onprogress = function(e) {
-        // Only process the new portion of the response text.
         let newData = xhr.responseText.substring(lastResponseLength);
         lastResponseLength = xhr.responseText.length;
         let events = newData.split("\n\n");
@@ -753,15 +742,10 @@
 
       xhr.onerror = function() {
         alert("Error moving file: " + xhr.statusText);
-        const modalEl = document.getElementById("movingModal");
-        const modalInstance = bootstrap.Modal.getInstance(modalEl);
-        if (modalInstance) {
-          modalInstance.hide();
-        } else {
-          hideMovingModal();
-        }
+        hideMovingModal();
       };
 
+      // Send request
       const payload = {
         source: sourcePath,
         destination: targetFolder + "/" + fileName
@@ -894,23 +878,31 @@
     // Create Folder Modal functionality.
     let createFolderModalEl = document.getElementById('createFolderModal');
     let createFolderNameInput = document.getElementById('createFolderName');
+    let confirmCreateFolderBtn = document.getElementById('confirmCreateFolderBtn');
+
+    // Focus input when modal opens
     createFolderModalEl.addEventListener('shown.bs.modal', function () {
       createFolderNameInput.focus();
     });
+
+    // Open modal function
     function openCreateFolderModal() {
       document.getElementById('createFolderName').value = '';
-      let createFolderModal = new bootstrap.Modal(document.getElementById('createFolderModal'));
+      let createFolderModal = new bootstrap.Modal(createFolderModalEl);
       createFolderModal.show();
     }
-    document.getElementById('confirmCreateFolderBtn').addEventListener('click', function() {
-      let folderNameInput = document.getElementById('createFolderName');
-      let folderName = folderNameInput.value.trim();
+
+    // Function to create folder
+    function createFolder() {
+      let folderName = createFolderNameInput.value.trim();
       if (!folderName) {
         alert('Folder name cannot be empty.');
-        folderNameInput.focus();
+        createFolderNameInput.focus();
         return;
       }
+      
       let fullPath = currentDestinationPath + '/' + folderName;
+      
       fetch('/create-folder', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -919,7 +911,6 @@
       .then(response => response.json())
       .then(data => {
         if (data.success) {
-          let createFolderModalEl = document.getElementById('createFolderModal');
           let createFolderModal = bootstrap.Modal.getInstance(createFolderModalEl);
           createFolderModal.hide();
           currentFilter['destination'] = 'all';
@@ -932,6 +923,17 @@
         console.error('Error creating folder:', err);
         alert('An unexpected error occurred.');
       });
+    }
+
+    // Click event for "Create" button
+    confirmCreateFolderBtn.addEventListener('click', createFolder);
+
+    // Listen for "Enter" keypress inside input field
+    createFolderNameInput.addEventListener('keypress', function(event) {
+      if (event.key === 'Enter') {
+        event.preventDefault(); // Prevent form submission if inside a form
+        createFolder();
+      }
     });
   
     // Moving Status Modal Functions.
