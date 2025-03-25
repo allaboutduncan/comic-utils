@@ -337,7 +337,7 @@
         });
       }
   
-      // In the "if (type === 'directory')" block of createListItem:
+      // Inside createListItem, in the "if (type === 'directory')" block:
       if (type === "directory") {
         li.onclick = function() {
           currentFilter[panel] = 'all';
@@ -369,11 +369,20 @@
             } catch (err) {
               items = [{ path: dataStr, type: "unknown" }];
             }
-            // For a single file drop, use moveSingleItem for progress; otherwise, move multiple.
-            if (items.length === 1 && items[0].type === "file") {
-              moveSingleItem(items[0].path, fullPath);
+            // Prevent moves when dropping into the same directory.
+            let targetPath = fullPath;
+            let validItems = items.filter(item => {
+              let sourceDir = item.path.substring(0, item.path.lastIndexOf('/'));
+              return sourceDir !== targetPath;
+            });
+            if (validItems.length === 0) {
+              console.log("All items dropped are in the same directory. Move cancelled.");
+              return;
+            }
+            if (validItems.length === 1 && validItems[0].type === "file") {
+              moveSingleItem(validItems[0].path, fullPath);
             } else {
-              let paths = items.map(item => item.path);
+              let paths = validItems.map(item => item.path);
               moveMultipleItems(paths, fullPath, panel);
             }
             selectedFiles.clear();

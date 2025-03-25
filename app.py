@@ -12,7 +12,6 @@ import signal
 import psutil
 import select
 from api import app 
-
 from config import config, load_flask_config, write_config, load_config
 
 load_config()
@@ -152,7 +151,6 @@ def list_downloads():
         })
     except Exception as e:
         return jsonify({"error": str(e)}), 500
-
 
 #####################################
 #  Move Files/Folders (Drag & Drop) #

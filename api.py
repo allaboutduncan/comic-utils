@@ -1,29 +1,73 @@
 import threading
 from queue import Queue
-from flask import Flask, request, jsonify, render_template
+from flask import Flask, request, jsonify, render_template, redirect, url_for
 import os
 import requests
-from urllib.parse import urlparse, unquote
+from urllib.parse import urlparse, unquote, urljoin
 import uuid
 import re
 import json
-from flask_cors import CORS
-from mega import Mega
-from mega.errors import RequestError
-from mega.crypto import base64_to_a32, base64_url_decode, decrypt_attr, a32_to_str, str_to_a32, get_chunks
-from app_logging import app_logger
-from config import config, load_config
 import shutil
 import tempfile
 from pathlib import Path
+from flask_cors import CORS
+
+# Mega download support
+from mega import Mega
+from mega.errors import RequestError
+from mega.crypto import base64_to_a32, base64_url_decode, decrypt_attr, a32_to_str, str_to_a32, get_chunks
 from Crypto.Cipher import AES
 from Crypto.Util import Counter
 
+# Application logging and configuration (adjust these as needed)
+from app_logging import app_logger
+from config import config, load_config
+
+# Load config and initialize Flask app.
 app = Flask(__name__)
 load_config()
 
 # -------------------------------
-# QUEUE AND WORKER THREAD SETUP
+# Global Variables & Configuration
+# -------------------------------
+# Global download progress dictionary
+download_progress = {}
+
+# Setup the download directory from config.
+watch = config.get("SETTINGS", "WATCH", fallback="watch")
+custom_headers_str = config.get("SETTINGS", "HEADERS", fallback="")
+
+DOWNLOAD_DIR = watch
+if not os.path.exists(DOWNLOAD_DIR):
+    os.makedirs(DOWNLOAD_DIR)
+
+# Default headers for HTTP requests.
+default_headers = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/112.0.0.0 Safari/537.36"
+    )
+}
+
+if custom_headers_str:
+    try:
+        custom_headers = json.loads(custom_headers_str)
+        if isinstance(custom_headers, dict):
+            default_headers.update(custom_headers)
+            app_logger.info("Custom headers from settings applied.")
+        else:
+            app_logger.warning("Custom headers from settings are not a valid dictionary. Ignoring.")
+    except Exception as e:
+        app_logger.warning(f"Failed to parse custom headers: {e}. Ignoring.")
+
+headers = default_headers
+
+# Allow cross-origin requests.
+CORS(app, resources={r"/*": {"origins": "*"}})
+
+# -------------------------------
+# QUEUE AND WORKER THREAD SETUP (for non-scrape downloads)
 # -------------------------------
 download_queue = Queue()
 
@@ -31,10 +75,10 @@ def process_download(task):
     download_id = task['download_id']
     url = task['url']
     dest_filename = task.get('dest_filename')
-    # Set status to in_progress when a worker picks up the task.
+    # Mark the download as in progress.
     download_progress[download_id]['status'] = 'in_progress'
     try:
-        # Follow redirection to get the final URL.
+        # Follow any redirection to get the final URL.
         r = requests.get(url, stream=True, headers=headers, allow_redirects=True)
         final_url = r.url
         r.close()
@@ -44,7 +88,6 @@ def process_download(task):
         elif "comicfiles.ru" in final_url:
             file_path = download_getcomics(final_url, download_id)
         else:
-            # Default to getcomics if final URL is not recognized.
             file_path = download_getcomics(final_url, download_id)
         
         download_progress[download_id]['filename'] = file_path
@@ -56,12 +99,12 @@ def process_download(task):
 def worker():
     while True:
         task = download_queue.get()
-        if task is None:  # Optionally allow a shutdown signal.
+        if task is None:  # Shutdown signal if needed.
             break
         process_download(task)
         download_queue.task_done()
 
-# Start 3 worker threads (active downloads)
+# Start a few worker threads for processing downloads.
 worker_threads = []
 for i in range(3):
     t = threading.Thread(target=worker, daemon=True)
@@ -69,7 +112,7 @@ for i in range(3):
     worker_threads.append(t)
 
 # -------------------------------
-# Monkey-Patch for Mega Download
+# Monkey-Patch for Mega Downloads
 # -------------------------------
 def my_download_file(self,
                      file_handle,
@@ -93,7 +136,6 @@ def my_download_file(self,
                 'g': 1,
                 'n': file_handle
             })
-
         k = (file_key[0] ^ file_key[4],
              file_key[1] ^ file_key[5],
              file_key[2] ^ file_key[6],
@@ -114,23 +156,13 @@ def my_download_file(self,
     attribs = base64_url_decode(file_data['at'])
     attribs = decrypt_attr(attribs, k)
     
-    if dest_filename is not None:
-        file_name = dest_filename
-    else:
-        file_name = attribs['n']
-
-    # Get the input file stream.
-    input_file = requests.get(file_url, stream=True).raw
-
-    if dest_path is None:
-        dest_path = ''
-    else:
+    file_name = dest_filename if dest_filename is not None else attribs['n']
+    dest_path = dest_path or ''
+    if dest_path:
         dest_path += '/'
-
-    # Retrieve the download_id from the Mega instance if available.
+    
+    # Update download progress if download_id is set.
     d_id = getattr(self, 'download_id', None)
-    # Immediately update the filename in the download progress record,
-    # so the status page shows the proper file name instead of "N/A".
     if d_id is not None:
         download_progress[d_id]['filename'] = dest_path + file_name
 
@@ -144,7 +176,7 @@ def my_download_file(self,
         iv_str = a32_to_str([iv[0], iv[1], iv[0], iv[1]])
 
         for chunk_start, chunk_size in get_chunks(file_size):
-            chunk = input_file.read(chunk_size)
+            chunk = requests.get(file_url, stream=True).raw.read(chunk_size)
             chunk = aes.decrypt(chunk)
             temp_output_file.write(chunk)
             encryptor = AES.new(k_str, AES.MODE_CBC, iv_str)
@@ -176,11 +208,11 @@ def my_download_file(self,
         print("\n")
         return output_path
 
-# Apply the monkey patch:
+# Apply the monkey patch.
 Mega._download_file = my_download_file
 
 # -------------------------------
-# Other Download Functions & Endpoints
+# Other Download Functions
 # -------------------------------
 def download_getcomics(url, download_id):
     try:
@@ -249,17 +281,15 @@ def download_mega(url, download_id, dest_filename=None):
     try:
         download_progress[download_id]['progress'] = 0
         mega = Mega()
-        m = mega.login()  # anonymous login
+        m = mega.login()  # Anonymous login.
         
-        # Inject the download_id so that our monkey‑patched _download_file
-        # can update the progress.
+        # Inject the download_id so that our monkey-patched _download_file updates progress.
         m.download_id = download_id
 
         if download_progress.get(download_id, {}).get('cancelled'):
             app_logger.info(f"Download {download_id} cancelled before starting.")
             raise Exception("Download cancelled")
 
-        # Do not set a premature progress value here.
         if dest_filename:
             app_logger.info("Starting download with dest_filename")
             dest_path = os.path.join(DOWNLOAD_DIR, dest_filename)
@@ -273,8 +303,6 @@ def download_mega(url, download_id, dest_filename=None):
                 file_path = target_path
 
         download_progress[download_id]['filename'] = file_path
-        # Do not override progress here—the monkey‑patched function should
-        # update it as the download streams.
         download_progress[download_id]['status'] = 'complete'
         app_logger.info(f"Downloaded file saved as: {file_path}")
         return file_path
@@ -285,47 +313,7 @@ def download_mega(url, download_id, dest_filename=None):
         raise Exception(f"Error downloading from Mega: {e}")
 
 # -------------------------------
-# Global Download Progress & Config
-# -------------------------------
-download_progress = {}
-
-watch = config.get("SETTINGS", "WATCH", fallback="/temp")
-custom_headers_str = config.get("SETTINGS", "HEADERS", fallback="")
-
-CORS(app, resources={r"/*": {"origins": "*"}})
-
-DOWNLOAD_DIR = watch
-if not os.path.exists(DOWNLOAD_DIR):
-    os.makedirs(DOWNLOAD_DIR)
-
-default_headers = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/112.0.0.0 Safari/537.36"
-}
-
-if custom_headers_str:
-    try:
-        custom_headers = json.loads(custom_headers_str)
-        if isinstance(custom_headers, dict):
-            default_headers.update(custom_headers)
-            app_logger.info("Custom headers from settings applied.")
-        else:
-            app_logger.warning("Custom headers from settings are not a valid dictionary. Ignoring.")
-    except Exception as e:
-        app_logger.warning(f"Failed to parse custom headers: {e}. Ignoring.")
-
-headers = default_headers
-
-@app.after_request
-def add_cors_headers(response):
-    origin = request.headers.get("Origin", "*")
-    response.headers["Access-Control-Allow-Origin"] = origin
-    response.headers["Access-Control-Allow-Credentials"] = "true"
-    response.headers["Access-Control-Allow-Methods"] = "GET,PUT,POST,DELETE,OPTIONS"
-    response.headers["Access-Control-Allow-Headers"] = "Content-Type,Authorization,CF-Access-Client-Id,CF-Access-Client-Secret"
-    return response
-
-# -------------------------------
-# Endpoints
+# API Endpoints
 # -------------------------------
 @app.route('/download', methods=['POST', 'OPTIONS'])
 def download():
@@ -339,7 +327,6 @@ def download():
 
     url = data['link']
     download_id = str(uuid.uuid4())
-    # Initialize the download record with status "queued".
     download_progress[download_id] = {
          'url': url,
          'progress': 0,
@@ -372,11 +359,12 @@ def cancel_download(download_id):
 def download_status_all():
     return jsonify(download_progress)
 
-# Updated clear_downloads endpoint to clear complete, cancelled, or error statuses.
 @app.route('/clear_downloads', methods=['POST'])
 def clear_downloads():
-    keys_to_delete = [download_id for download_id, details in download_progress.items() 
-                      if details.get('status') in ['complete', 'cancelled', 'error']]
+    keys_to_delete = [
+        download_id for download_id, details in download_progress.items() 
+        if details.get('status') in ['complete', 'cancelled', 'error']
+    ]
     for download_id in keys_to_delete:
         del download_progress[download_id]
     return jsonify({'message': f'Cleared {len(keys_to_delete)} downloads'}), 200
@@ -385,5 +373,8 @@ def clear_downloads():
 def status():
     return render_template('status.html')
 
+# -------------------------------
+# Run the App
+# -------------------------------
 if __name__ == '__main__':
     app.run(debug=True, use_reloader=False)
