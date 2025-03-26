@@ -232,6 +232,8 @@ def rename():
     old_path = data.get('old')
     new_path = data.get('new')
     
+    app_logger.info("Renaming:", old_path, "to", new_path)  
+
     # Validate input
     if not old_path or not new_path:
         return jsonify({"error": "Missing old or new path"}), 400

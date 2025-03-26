@@ -265,7 +265,6 @@
       </div>
     </div>
   </div>
-  
 
 {% endblock %}
 
@@ -742,6 +741,115 @@
             });
         }
     });
+
+    function enableFilenameEdit(element) {
+        console.log("enableFilenameEdit called");
+        const input = element.nextElementSibling;
+        if (!input) {
+            console.error("No adjacent input found for", element);
+            return;
+        }
+        // Hide the span and show the input
+        element.classList.add('d-none');
+        input.classList.remove('d-none');
+        input.focus();
+        input.select();
+
+        // Add blur event to trigger save
+        input.addEventListener('blur', () => {
+            console.log("Input blurred, triggering save...");
+            renameItem({ key: 'Enter' }, input);
+        }, { once: true });
+    }
+
+    function enableFilenameEdit(element) {
+        console.log("enableFilenameEdit called");
+        const input = element.nextElementSibling;
+        if (!input) {
+            console.error("No adjacent input found for", element);
+            return;
+        }
+        // Hide the span and show the input
+        element.classList.add('d-none');
+        input.classList.remove('d-none');
+        input.focus();
+        input.select();
+
+        // Flag to ensure rename is only processed once
+        let renameProcessed = false;
+
+        function processRename(event) {
+            if (renameProcessed) return;
+            renameProcessed = true;
+            performRename(input);
+        }
+
+        // Listen for Enter key press
+        input.addEventListener('keydown', function(event) {
+            if (event.key === 'Enter') {
+                event.preventDefault();
+                processRename(event);
+                input.blur(); // trigger blur, but processRename will ignore it if already called
+            }
+        });
+
+        // Also listen for blur
+        input.addEventListener('blur', function(event) {
+            processRename(event);
+        }, { once: true });
+    }
+
+    function performRename(input) {
+        const newFilename = input.value.trim();
+        // Get the full folder path returned by process_cbz_file in edit.py
+        const folderName = document.getElementById('editInlineFolderName').value;
+        // Use a data attribute for the original filename if available, or fallback to the span's text
+        const oldFilename = input.dataset.oldFilename || input.previousElementSibling.textContent.trim();
+        
+        // Construct full paths using the folder path
+        const oldPath = `${folderName}/${oldFilename}`;
+        const newPath = `${folderName}/${newFilename}`;
+
+        console.log("Renaming", oldPath, "to", newPath);
+
+        fetch('/rename', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ old: oldPath, new: newPath })
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                // Update the displayed filename
+                const span = input.previousElementSibling;
+                span.textContent = newFilename;
+                span.classList.remove('d-none');
+                input.classList.add('d-none');
+            } else {
+                alert('Error renaming file: ' + data.error);
+            }
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            alert('An error occurred while renaming the file.');
+        });
+    }
+
+
+// Ensure modal focus issues are resolved
+document.addEventListener('DOMContentLoaded', () => {
+    const directoryModal = document.getElementById("directoryModal");
+
+    if (directoryModal) {
+        directoryModal.addEventListener("hidden.bs.modal", () => {
+            // Remove aria-hidden and ensure focus is not trapped
+            directoryModal.removeAttribute('aria-hidden');
+            document.body.classList.remove('modal-open');
+            document.querySelectorAll('.modal-backdrop').forEach(el => el.remove());
+        });
+    }
+});
+
 </script>
 
 {% endblock %}

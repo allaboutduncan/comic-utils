@@ -159,6 +159,9 @@
       pathParts[pathParts.length - 1] = newName;
       let newPath = pathParts.join('/');
   
+      console.log('oldPath:', oldPath);
+      console.log('newPath:', newPath);
+
       fetch('/rename', {
         method: 'POST',
         headers: {"Content-Type": "application/json"},

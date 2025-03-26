@@ -24,7 +24,14 @@ modal_body_template = '''
           </div>
           <div class="col-md-8">
             <div class="card-body">
-              <p class="card-text"><small class="text-body-secondary">{{ card.filename }}</small></p>
+              <p class="card-text">
+                <small class="text-body-secondary">
+                    <span class="editable-filename" data-rel-path="{{ card.rel_path }}" onclick="enableFilenameEdit(this)">
+                        {{ card.filename }}
+                    </span>
+                    <input type="text" class="form-control d-none filename-input form-control-sm" value="{{ card.filename }}"  data-rel-path="{{ card.rel_path }}">
+                </small>
+              </p>
             </div>
           </div>
         </div>
@@ -40,6 +47,8 @@ def process_cbz_file(file_path):
       1. Rename the .cbz file to .zip.
       2. Create a folder based on the file name.
       3. Extract the ZIP contents into the folder.
+      4. If the ZIP contains a single folder, update folder_name to that inner folder.
+      5. Delete all .nfo and .sfv files.
     Returns a dictionary with 'folder_name' and 'zip_file_path'.
     """
     if not file_path.lower().endswith('.cbz'):
@@ -62,13 +71,23 @@ def process_cbz_file(file_path):
     with zipfile.ZipFile(zip_path, 'r') as zf:
         zf.extractall(folder_name)
     
-    # Step 4: Delete all .nfo and .sfv files
+    # Step 4: Check if the extracted content is a single folder; if so, update folder_name
+    contents = os.listdir(folder_name)
+    if len(contents) == 1:
+        inner_path = os.path.join(folder_name, contents[0])
+        if os.path.isdir(inner_path):
+            folder_name = inner_path
+            app_logger.info(f"ZIP contained a single folder, updating folder_name to: {folder_name}")
+    
+    # Step 5: Delete all .nfo and .sfv files
     for root, _, files in os.walk(folder_name):
         for file in files:
             if file.lower().endswith(('.nfo', '.sfv')):
                 os.remove(os.path.join(root, file))
     
+    app_logger.info(f"Extraction complete: {folder_name}")
     return {"folder_name": folder_name, "zip_file_path": zip_path}
+
 
 def get_edit_modal(file_path):
     """
@@ -87,6 +106,7 @@ def get_edit_modal(file_path):
         for f in files:
             # Create a relative path that includes subdirectories
             rel_path = os.path.relpath(os.path.join(root, f), folder_name)
+            filename_only = os.path.basename(rel_path)  # Extract only the file name
             img_data = None
             # Attempt thumbnail generation for common image types
             if f.lower().endswith(('.png', '.jpg', '.jpeg', '.gif', '.bmp')):
@@ -103,7 +123,7 @@ def get_edit_modal(file_path):
                             img_data = f"data:image/png;base64,{encoded}"
                 except Exception as e:
                     app_logger.info(f"Thumbnail generation failed for '{rel_path}': {e}")
-            file_cards.append({"filename": rel_path, "img_data": img_data})
+            file_cards.append({"filename": filename_only, "rel_path": rel_path, "img_data": img_data})
     
     modal_body_html = render_template_string(modal_body_template, file_cards=file_cards)
     
@@ -131,11 +151,11 @@ def save_cbz():
         return "Missing required data", 400
 
     try:
-        # Step 5: Rename the original .zip file to .bak.
+        # Step 6: Rename the original .zip file to .bak.
         bak_file_path = zip_file_path + '.bak'
         os.rename(zip_file_path, bak_file_path)
         
-        # Step 6: Re-compress the folder contents into a .cbz file (sorted).
+        # Step 7: Re-compress the folder contents into a .cbz file (sorted).
         file_list = []
         for root, _, files in os.walk(folder_name):
             for file in files:
@@ -149,7 +169,7 @@ def save_cbz():
         
         app_logger.info(f"Successfully re-compressed: {original_file_path}")
         
-        # Step 7: Delete the .bak file.
+        # Step 8: Delete the .bak file.
         os.remove(bak_file_path)
         
         # Clean up the temporary extraction folder.
