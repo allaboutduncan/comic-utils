@@ -80,10 +80,10 @@ def process_cbz_file(file_path):
             folder_name = inner_path
             app_logger.info(f"ZIP contained a single folder, updating folder_name to: {folder_name}")
     
-    # Step 5: Delete all .nfo and .sfv files
+    # Step 5: Delete all .db, .nfo and .sfv files
     for root, _, files in os.walk(folder_name):
         for file in files:
-            if file.lower().endswith(('.nfo', '.sfv')):
+            if file.lower().endswith(('.nfo', '.sfv' , '.db')):
                 os.remove(os.path.join(root, file))
     
     app_logger.info(f"Extraction complete: {folder_name}")
@@ -95,7 +95,7 @@ def get_edit_modal(file_path):
     Processes the provided CBZ file and returns a dictionary with keys:
       - modal_body: rendered HTML for the modal body (Bootstrap cards)
       - folder_name, zip_file_path, original_file_path: for the hidden form fields.
-    This function walks through subdirectories.
+    This function walks through subdirectories and ignores .xml files.
     """
     result = process_cbz_file(file_path)
     folder_name = result["folder_name"]
@@ -105,12 +105,16 @@ def get_edit_modal(file_path):
     # Walk the extraction folder recursively
     for root, _, files in os.walk(folder_name):
         for f in files:
+            # Ignore .xml files
+            if f.lower().endswith('.xml'):
+                continue
+
             # Create a relative path that includes subdirectories
             rel_path = os.path.relpath(os.path.join(root, f), folder_name)
             filename_only = os.path.basename(rel_path)  # Extract only the file name
             img_data = None
             # Attempt thumbnail generation for common image types
-            if f.lower().endswith(('.png', '.jpg', '.jpeg', '.gif', '.bmp')):
+            if f.lower().endswith(('.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp')):
                 try:
                     full_path = os.path.join(root, f)
                     with Image.open(full_path) as img:
@@ -175,10 +179,13 @@ def save_cbz():
         os.remove(bak_file_path)
         app_logger.info(f"Deleted the .bak file: {bak_file_path}")
 
-        # Clean up the temporary extraction folder.
-        if os.path.exists(folder_name):
-            shutil.rmtree(folder_name)
-            app_logger.info(f"Deleted the extraction folder: {folder_name}")
+        # Step 9: Clean up the temporary extraction folder.
+        # Instead of deleting folder_name (which might be the inner folder),
+        # compute the outer extraction folder using the original file path.
+        outer_folder = os.path.splitext(original_file_path)[0] + '_folder'
+        if os.path.exists(outer_folder):
+            shutil.rmtree(outer_folder)
+            app_logger.info(f"Deleted the extraction folder: {outer_folder}")
 
         return jsonify({
             "success": True,
