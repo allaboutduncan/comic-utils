@@ -169,12 +169,13 @@
         </div>
     </form>
 
-    <!-- Inline Edit of CBZ -->
+    <!-- Inline Edit v2 -->
     <div class="row p-3 collapse" id="edit">
         <h2 class="text-primary-emphasis">Editing CBZ File</h2>
-        <div id="editInlineContainer">
-            <!-- Inline editing content will be dynamically loaded here -->
+        <div id="editInlineContainer" class="row row-cols-1 row-cols-sm-2 row-cols-md-3 g-3 border border-primary-subtle rounded-2 bg-light text-dark">
+            <!-- Inline editing content (cards) will be dynamically loaded here -->
         </div>
+    
         <form action="/save" method="post" id="editInlineSaveForm">
             <input type="hidden" name="folder_name" id="editInlineFolderName">
             <input type="hidden" name="zip_file_path" id="editInlineZipFilePath">
@@ -242,29 +243,6 @@
         </div>
     </div>
 </div>
-
-<!-- Edit CBZ Modal -->
-<div class="modal fade" id="editCbzModal" tabindex="-1" aria-labelledby="editCbzModalLabel" aria-hidden="true">
-    <div class="modal-dialog modal-lg">
-      <div class="modal-content">
-        <div class="modal-header">
-          <h5 class="modal-title" id="editCbzModalLabel">Review Extracted Files</h5>
-          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-        </div>
-        <div class="modal-body" id="editCbzModalBody">
-          <!-- Modal content will be populated via AJAX -->
-        </div>
-        <div class="modal-footer">
-          <form action="/save" method="post" id="editCbzSaveForm">
-            <input type="hidden" name="folder_name" id="editCbzFolderName">
-            <input type="hidden" name="zip_file_path" id="editCbzZipFilePath">
-            <input type="hidden" name="original_file_path" id="editCbzOriginalFilePath">
-            <button type="submit" class="btn btn-primary">SAVE</button>
-          </form>
-        </div>
-      </div>
-    </div>
-  </div>
 
 {% endblock %}
 
@@ -350,7 +328,7 @@
             directoryList.innerHTML = `<div class="d-flex justify-content-center my-3">
                 <button class="btn btn-primary" type="button" disabled>
                     <span class="spinner-grow spinner-grow-sm" role="status" aria-hidden="true"></span>
-                    Loading...
+                    Unpacking CBZ File...
                 </button>
             </div>`;
         }
@@ -484,6 +462,17 @@
         }
 
         if (scriptType === 'edit') {
+            // Show the inline editing section
+            document.getElementById('edit').classList.remove('collapse');
+            document.getElementById('single').classList.add('collapse');
+            // Set a loading indicator in the inline edit container:
+            const container = document.getElementById('editInlineContainer');
+            container.innerHTML = `<div class="d-flex justify-content-center my-3">
+                                        <button class="btn btn-primary" type="button" disabled>
+                                            <span class="spinner-grow spinner-grow-sm" role="status" aria-hidden="true"></span>
+                                            Loading...
+                                        </button>
+                                    </div>`;
             fetch(`/edit?file_path=${encodeURIComponent(directoryInput)}`)
                 .then(response => {
                     if (!response.ok) {
@@ -498,9 +487,6 @@
                     document.getElementById('editInlineZipFilePath').value = data.zip_file_path;
                     document.getElementById('editInlineOriginalFilePath').value = data.original_file_path;
 
-                    // Show the inline editing section
-                    document.getElementById('edit').classList.remove('collapse');
-                    document.getElementById('single').classList.add('collapse');
                 })
                 .catch(error => {
                     logsContainer.innerHTML = `<div class="alert alert-danger" role="alert">
@@ -727,9 +713,12 @@
                 })
                 .then(data => {
                     if (data.success) {
-                        // Hide the inline editing section and reload the page
+                        // Hide the inline editing section
                         document.getElementById('edit').classList.add('collapse');
-                        window.location.href = '/';
+                        // Show the single file options section
+                        document.getElementById('single').classList.remove('collapse');
+                        // Optionally, you can leave the selected file in #selected-directory as is
+                        // so that the user can pick back up where they left off.
                     } else {
                         alert("Error: " + data.error);
                     }
@@ -835,6 +824,60 @@
         });
     }
 
+    // Delete Images in CBZ Editing
+    function deleteCardImage(buttonElement) {
+        // Find the column element that wraps this button.
+        const colElement = buttonElement.closest('.col');
+        if (!colElement) {
+            console.error("Unable to locate column container for deletion.");
+            return;
+        }
+        // Locate the filename span within the column.
+        const span = colElement.querySelector('.editable-filename');
+        if (!span) {
+            console.error("No file reference found in column:", colElement);
+            return;
+        }
+        // Get the full folder path from the hidden input (set by process_cbz_file in edit.py).
+        const folderName = document.getElementById('editInlineFolderName').value;
+        if (!folderName) {
+            console.error("Folder name not found in #editInlineFolderName.");
+            return;
+        }
+        // Get the original filename from a data attribute if available, otherwise from the span's text.
+        const oldFilename = span.dataset.oldFilename || span.textContent.trim();
+        // Construct the full file path.
+        const fullPath = `${folderName}/${oldFilename}`;
+
+        // Optional: prompt for confirmation
+        //if (!confirm("Are you sure you want to delete this image?")) {
+        //    return;
+        //}
+
+        // Send the deletion request to the server with the full path in the "target" property.
+        fetch('/delete', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ target: fullPath })
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                // Add a fade-out effect to the entire column.
+                colElement.classList.add("fade-out");
+                // After the fade-out animation, remove the column element.
+                setTimeout(() => {
+                    colElement.remove();
+                }, 300);
+            } else {
+                alert("Error deleting image: " + data.error);
+            }
+        })
+        .catch(error => {
+            console.error("Error:", error);
+            alert("An error occurred while deleting the image.");
+        });
+    }
 
 // Ensure modal focus issues are resolved
 document.addEventListener('DOMContentLoaded', () => {

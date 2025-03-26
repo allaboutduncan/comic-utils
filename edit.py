@@ -9,36 +9,36 @@ from app_logging import app_logger
 
 # Partial template for the modal body (the grid of Bootstrap Cards)
 modal_body_template = '''
-<div class="row row-cols-3">
-  {% for card in file_cards %}
-    <!-- The updated card markup goes here -->
-    <div class="col">
-      <div class="card mb-3" style="max-width: 540px;">
-        <div class="row g-0">
-          <div class="col-md-4">
-            {% if card.img_data %}
-            <img src="{{ card.img_data }}" class="img-fluid rounded-start object-fit-scale border rounded" alt="{{ card.filename }}">
-            {% else %}
-            <img src="https://via.placeholder.com/100" class="img-fluid rounded-start object-fit-scale border rounded" alt="No image">
-            {% endif %}
-          </div>
-          <div class="col-md-8">
-            <div class="card-body">
-              <p class="card-text">
-                <small class="text-body-secondary">
+    {% for card in file_cards %}
+      <div class="col">
+        <div class="card h-100 shadow-sm">
+          <div class="row g-0">
+            <div class="col-3">
+              {% if card.img_data %}
+                <img src="{{ card.img_data }}" class="img-fluid rounded-start object-fit-scale border rounded" alt="{{ card.filename }}">
+              {% else %}
+                <img src="https://via.placeholder.com/100" class="img-fluid rounded-start object-fit-scale border rounded" alt="No image">
+              {% endif %}
+            </div>
+            <div class="col-9">
+              <div class="card-body">
+                <p class="card-text small">
                     <span class="editable-filename" data-rel-path="{{ card.rel_path }}" onclick="enableFilenameEdit(this)">
-                        {{ card.filename }}
+                      {{ card.filename }}
                     </span>
-                    <input type="text" class="form-control d-none filename-input form-control-sm" value="{{ card.filename }}"  data-rel-path="{{ card.rel_path }}">
-                </small>
-              </p>
+                    <input type="text" class="form-control d-none filename-input form-control-sm" value="{{ card.filename }}" data-rel-path="{{ card.rel_path }}">
+                </p>
+                <div class="d-flex justify-content-end">
+                  <button type="button" class="btn btn-outline-danger btn-sm" onclick="deleteCardImage(this)">
+                    <i class="bi bi-trash"></i>
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
         </div>
       </div>
-    </div>
-  {% endfor %}
-</div>
+    {% endfor %}
 '''
 
 def process_cbz_file(file_path):
@@ -51,6 +51,7 @@ def process_cbz_file(file_path):
       5. Delete all .nfo and .sfv files.
     Returns a dictionary with 'folder_name' and 'zip_file_path'.
     """
+    app_logger.info(f"********************// Editing CBZ File //********************")
     if not file_path.lower().endswith('.cbz'):
         app_logger.info("Provided file is not a CBZ file.")
         raise ValueError("Provided file is not a CBZ file.")
@@ -143,6 +144,7 @@ def save_cbz():
       - Deleting the .bak file and cleaning up (Step 7)
     This function is meant to be used as a route handler and is imported in app.py.
     """
+    app_logger.info(f"Clean up and re-compressing the CBZ file.")
     folder_name = request.form.get('folder_name')
     zip_file_path = request.form.get('zip_file_path')
     original_file_path = request.form.get('original_file_path')
@@ -171,11 +173,13 @@ def save_cbz():
         
         # Step 8: Delete the .bak file.
         os.remove(bak_file_path)
-        
+        app_logger.info(f"Deleted the .bak file: {bak_file_path}")
+
         # Clean up the temporary extraction folder.
         if os.path.exists(folder_name):
             shutil.rmtree(folder_name)
-            
+            app_logger.info(f"Deleted the extraction folder: {folder_name}")
+
         return jsonify({
             "success": True,
             "message": f"File processed successfully: {original_file_path}"
