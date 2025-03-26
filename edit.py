@@ -62,6 +62,12 @@ def process_cbz_file(file_path):
     with zipfile.ZipFile(zip_path, 'r') as zf:
         zf.extractall(folder_name)
     
+    # Step 4: Delete all .nfo and .sfv files
+    for root, _, files in os.walk(folder_name):
+        for file in files:
+            if file.lower().endswith(('.nfo', '.sfv')):
+                os.remove(os.path.join(root, file))
+    
     return {"folder_name": folder_name, "zip_file_path": zip_path}
 
 def get_edit_modal(file_path):
