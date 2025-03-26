@@ -23,7 +23,7 @@ def handle_cbz_file(file_path):
     zip_path = base_name + '.zip'
     folder_name = base_name + '_folder'
     
-    app_logger.info(f"<strong>Processing CBZ:</strong> {file_path} --> {zip_path}")
+    app_logger.info(f"Processing CBZ: {file_path} --> {zip_path}")
 
     try:
         # Step 1: Rename .cbz to .zip
@@ -44,21 +44,28 @@ def handle_cbz_file(file_path):
         bak_file_path = zip_path + '.bak'
         os.rename(zip_path, bak_file_path)
 
-        # Step 6: Compress the folder contents back into a .cbz file
+        # Step 6: Compress the folder contents back into a .cbz file in alpha-numerical order
+        file_list = []
+        for root, _, files in os.walk(folder_name):
+            for file in files:
+                file_path_in_folder = os.path.join(root, file)
+                arcname = os.path.relpath(file_path_in_folder, folder_name)
+                file_list.append((arcname, file_path_in_folder))
+                
+        # Sort the file list by arcname (alphabetical order)
+        file_list.sort(key=lambda x: x[0])
+        
         with zipfile.ZipFile(file_path, 'w', zipfile.ZIP_DEFLATED) as zf:
-            for root, _, files in os.walk(folder_name):
-                for file in files:
-                    file_path_in_folder = os.path.join(root, file)
-                    arcname = os.path.relpath(file_path_in_folder, folder_name)
-                    zf.write(file_path_in_folder, arcname)
+            for arcname, file_path_in_folder in file_list:
+                zf.write(file_path_in_folder, arcname)
 
-        app_logger.info(f"<strong>Successfully re-compressed:</strong> {file_path}")
+        app_logger.info(f"Successfully re-compressed: {file_path}")
 
         # Step 7: Delete the .bak file
         os.remove(bak_file_path)
 
     except Exception as e:
-        app_logger.error(f"<strong>Failed to process {file_path}:</strong> {e}")
+        app_logger.error(f"Failed to process {file_path}: {e}")
     finally:
         # Clean up the temporary folder
         if os.path.exists(folder_name):
@@ -77,13 +84,13 @@ def process_image(directory: str) -> None:
         for root, _, files in os.walk(dir_path):
             for file in files:
                 # Remove files with a .sfv extension
-                if file.lower().endswith('.sfv'):
+                if file.lower().endswith('.sfv') or file.lower().endswith('.nfo'):
                     file_path = os.path.join(root, file)
                     try:
                         os.remove(file_path)
-                        app_logger.info(f"Removed .sfv file: {file_path}")
+                        app_logger.info(f"Removed {file.lower()} file: {file_path}")
                     except Exception as e:
-                        app_logger.error(f"Error removing .sfv file {file_path}: {e}")
+                        app_logger.error(f"Error removing {file.lower()} file {file_path}: {e}")
                     continue
                 if file != "ComicInfo.xml":
                     yield os.path.join(root, file)

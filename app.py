@@ -13,6 +13,7 @@ import psutil
 import select
 from api import app 
 from config import config, load_flask_config, write_config, load_config
+from edit import get_edit_modal, save_cbz
 
 load_config()
 
@@ -283,7 +284,6 @@ def serve_static(filename):
 #########################
 # Restart Flask App     #
 #########################
-
 def restart_app():
     """Gracefully restart the Flask application."""
     time.sleep(2)  # Delay to ensure the response is sent before restart
@@ -437,7 +437,6 @@ def stream_logs(script_type):
 #########################
 #    Create Diretory    #
 #########################
-
 @app.route('/create-folder', methods=['POST'])
 def create_folder():
     data = request.json
@@ -463,7 +462,6 @@ def index():
 #########################
 #        App Logs       #
 #########################
-
 # Route for app logs page
 @app.route('/app-logs')
 def app_logs_page():
@@ -495,6 +493,30 @@ MONITOR_LOG = "logs/monitor.log"
 @app.route('/stream/mon')
 def stream_mon_logs():
     return Response(stream_logs_file(MONITOR_LOG), content_type='text/event-stream')
+
+#########################
+#    Edit CBZ Route     #
+#########################
+@app.route('/edit', methods=['GET'])
+def edit_cbz():
+    """
+    Processes the provided CBZ file (via 'file_path' query parameter) and returns a JSON
+    object containing:
+      - modal_body: HTML snippet for the modal body,
+      - folder_name, zip_file_path, original_file_path for the hidden form fields.
+    """
+    file_path = request.args.get('file_path')
+    if not file_path:
+        return jsonify({"error": "Missing file path parameter"}), 400
+    try:
+        result = get_edit_modal(file_path)
+        return jsonify(result)
+    except Exception as e:
+        app_logger.error(f"Error in /edit route: {e}")
+        return jsonify({"error": str(e)}), 500
+
+# Register the save route using the imported save_cbz function.
+app.add_url_rule('/save', view_func=save_cbz, methods=['POST'])
 
 #########################
 #    Monitor Process    #
