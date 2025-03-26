@@ -502,14 +502,14 @@ def edit_cbz():
     """
     Processes the provided CBZ file (via 'file_path' query parameter) and returns a JSON
     object containing:
-      - modal_body: HTML snippet for the modal body,
+      - modal_body: HTML snippet for inline editing,
       - folder_name, zip_file_path, original_file_path for the hidden form fields.
     """
     file_path = request.args.get('file_path')
     if not file_path:
         return jsonify({"error": "Missing file path parameter"}), 400
     try:
-        result = get_edit_modal(file_path)
+        result = get_edit_modal(file_path)  # Reuse existing logic for generating modal content
         return jsonify(result)
     except Exception as e:
         app_logger.error(f"Error in /edit route: {e}")

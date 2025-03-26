@@ -169,6 +169,20 @@
         </div>
     </form>
 
+    <!-- Inline Edit of CBZ -->
+    <div class="row p-3 collapse" id="edit">
+        <h2 class="text-primary-emphasis">Editing CBZ File</h2>
+        <div id="editInlineContainer">
+            <!-- Inline editing content will be dynamically loaded here -->
+        </div>
+        <form action="/save" method="post" id="editInlineSaveForm">
+            <input type="hidden" name="folder_name" id="editInlineFolderName">
+            <input type="hidden" name="zip_file_path" id="editInlineZipFilePath">
+            <input type="hidden" name="original_file_path" id="editInlineOriginalFilePath">
+            <button type="submit" class="btn btn-primary mt-3">SAVE</button>
+        </form>
+    </div>
+
     <!-- Logs container with Bootstrap classes -->
     <div class="row p-3">
         <div id="liveAlertPlaceholder"></div>
@@ -474,20 +488,20 @@
             fetch(`/edit?file_path=${encodeURIComponent(directoryInput)}`)
                 .then(response => {
                     if (!response.ok) {
-                        throw new Error("Failed to load edit modal.");
+                        throw new Error("Failed to load edit content.");
                     }
                     return response.json();
                 })
                 .then(data => {
-                    // Populate modal body and hidden fields
-                    document.getElementById('editCbzModalBody').innerHTML = data.modal_body;
-                    document.getElementById('editCbzFolderName').value = data.folder_name;
-                    document.getElementById('editCbzZipFilePath').value = data.zip_file_path;
-                    document.getElementById('editCbzOriginalFilePath').value = data.original_file_path;
-                    // Show the modal using Bootstrap's API
-                    var modalEl = document.getElementById('editCbzModal');
-                    var modalInstance = new bootstrap.Modal(modalEl);
-                    modalInstance.show();
+                    // Populate inline editing container and hidden fields
+                    document.getElementById('editInlineContainer').innerHTML = data.modal_body;
+                    document.getElementById('editInlineFolderName').value = data.folder_name;
+                    document.getElementById('editInlineZipFilePath').value = data.zip_file_path;
+                    document.getElementById('editInlineOriginalFilePath').value = data.original_file_path;
+
+                    // Show the inline editing section
+                    document.getElementById('edit').classList.remove('collapse');
+                    document.getElementById('single').classList.add('collapse');
                 })
                 .catch(error => {
                     logsContainer.innerHTML = `<div class="alert alert-danger" role="alert">
@@ -684,6 +698,38 @@
                             modalInstance.hide();
                         }
                         // Redirect to index (or update UI) - here we reload the page
+                        window.location.href = '/';
+                    } else {
+                        alert("Error: " + data.error);
+                    }
+                })
+                .catch(error => {
+                    console.error(error);
+                    alert("An error occurred during processing.");
+                });
+            });
+        }
+
+        // Add event listener for the SAVE form in the inline editing section
+        const inlineSaveForm = document.getElementById('editInlineSaveForm');
+        if (inlineSaveForm) {
+            inlineSaveForm.addEventListener('submit', function(e) {
+                e.preventDefault();
+                const formData = new FormData(inlineSaveForm);
+                fetch('/save', {
+                    method: 'POST',
+                    body: formData
+                })
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error("Error in saving");
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    if (data.success) {
+                        // Hide the inline editing section and reload the page
+                        document.getElementById('edit').classList.add('collapse');
                         window.location.href = '/';
                     } else {
                         alert("Error: " + data.error);

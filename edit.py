@@ -9,7 +9,7 @@ from app_logging import app_logger
 
 # Partial template for the modal body (the grid of Bootstrap Cards)
 modal_body_template = '''
-<div class="row row-cols-2">
+<div class="row row-cols-3">
   {% for card in file_cards %}
     <!-- The updated card markup goes here -->
     <div class="col">
