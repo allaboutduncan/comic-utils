@@ -5,7 +5,7 @@
 {% block content %}
 <div class="container my-5">
     <h2>Download Status</h2>
-    <button id="clear-downloads-btn" class="btn btn-danger mb-3">
+    <button id="clear-downloads-btn" class="btn btn-secondary mb-3">
       Clear Completed/Cancelled Downloads
     </button>
     <table class="table table-striped" id="downloads-table">
@@ -93,15 +93,13 @@
 
     // Event listener for the Clear Completed/Cancelled Downloads button.
     document.getElementById('clear-downloads-btn').addEventListener('click', function() {
-      if (confirm('Are you sure you want to clear completed or cancelled downloads?')) {
-        fetch('/clear_downloads', { method: 'POST' })
-          .then(response => response.json())
-          .then(data => {
-            console.log(data.message);
-            // Refresh the table after clearing
-            fetchStatus();
-          });
-      }
+      fetch('/clear_downloads', { method: 'POST' })
+        .then(response => response.json())
+        .then(data => {
+          console.log(data.message);
+          // Refresh the table after clearing
+          fetchStatus();
+        });
     });
 
     // Poll the status endpoint every second.
