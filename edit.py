@@ -83,7 +83,7 @@ def process_cbz_file(file_path):
     # Step 5: Delete all .db, .nfo and .sfv files
     for root, _, files in os.walk(folder_name):
         for file in files:
-            if file.lower().endswith(('.nfo', '.sfv' , '.db')):
+            if file.lower().endswith(('.nfo', '.sfv' , '.db', '.DS_Store')):
                 os.remove(os.path.join(root, file))
     
     app_logger.info(f"Extraction complete: {folder_name}")
