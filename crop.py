@@ -84,7 +84,7 @@ def process_image(directory: str) -> None:
         for root, _, files in os.walk(dir_path):
             for file in files:
                 # Remove files with a .sfv extension
-                if file.lower().endswith('.sfv') or file.lower().endswith('.nfo'):
+                if file.lower().endswith(('.nfo', '.sfv' , '.db', '.DS_Store')):
                     file_path = os.path.join(root, file)
                     try:
                         os.remove(file_path)
