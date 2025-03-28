@@ -13,7 +13,7 @@ import psutil
 import select
 from api import app 
 from config import config, load_flask_config, write_config, load_config
-from edit import get_edit_modal, save_cbz
+from edit import get_edit_modal, save_cbz, cropCenter, cropLeft, cropRight, get_image_data_url
 
 load_config()
 
@@ -153,6 +153,7 @@ def list_downloads():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+
 #####################################
 #  Move Files/Folders (Drag & Drop) #
 #####################################
@@ -214,6 +215,7 @@ def move():
         except Exception as e:
             return jsonify({"error": str(e)}), 500
     
+
 #####################################
 #     Move Files/Folders UI Page    #
 #####################################
@@ -222,6 +224,7 @@ def files_page():
     watch = config.get("SETTINGS", "WATCH", fallback="/temp")
     target_dir = config.get("SETTINGS", "TARGET", fallback="/processed")
     return render_template('files.html', watch=watch, target_dir=target_dir)
+
 
 #####################################
 #       Rename Files/Folders        #
@@ -251,7 +254,49 @@ def rename():
         return jsonify({"success": True})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
-    
+
+
+#####################################
+#           Crop Images             #
+#####################################
+@app.route('/crop', methods=['POST'])
+def crop_image():
+    try:
+        data = request.json
+        file_path = data.get('target')
+        crop_type = data.get('cropType')
+
+        # Validate input
+        if not file_path or not crop_type:
+            return jsonify({'success': False, 'error': 'Missing file path or crop type'}), 400
+
+        # Call the appropriate crop function based on the crop type
+        new_image_path = None
+        if crop_type == 'left':
+            new_image_path = cropLeft(file_path)
+        elif crop_type == 'center':
+            new_image_path = cropCenter(file_path)
+        elif crop_type == 'right':
+            new_image_path = cropRight(file_path)
+        else:
+            return jsonify({'success': False, 'error': 'Invalid crop type'}), 400
+
+        app_logger.info(f"{crop_type.capitalize()} side cropped successfully. New image path: {new_image_path}")
+
+        # Generate a base64 encoded image from the new image file
+        new_image_data = get_image_data_url(new_image_path)
+
+        return jsonify({
+            'success': True,
+            'newImagePath': new_image_path,
+            'newImageData': new_image_data,
+            'message': f'{crop_type.capitalize()} side cropped successfully'
+        })
+
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 #####################################
 #       Delete Files/Folders        #
 #####################################

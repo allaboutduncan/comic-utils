@@ -29,9 +29,18 @@ modal_body_template = '''
                     <input type="text" class="form-control d-none filename-input form-control-sm" value="{{ card.filename }}" data-rel-path="{{ card.rel_path }}">
                 </p>
                 <div class="d-flex justify-content-end">
+                <div class="btn-group" role="group" aria-label="Basic example">
+                  <button type="button" class="btn btn btn-outline-secondary btn-sm" onclick="cropImageLeft(this)" title="Crop Image Left">
+                    <i class="bi bi-arrow-bar-left"></i> Left
+                  </button>
+                  <button type="button" class="btn btn btn-outline-secondary" onclick="cropImageCenter(this)" title="Crop Image Center">Middle</button>
+                  <button type="button" class="btn btn-outline-secondary btn-sm" onclick="cropImageRight(this)" title="Crom Image Right">
+                    Right <i class="bi bi-arrow-bar-right"></i>
+                  </button>
                   <button type="button" class="btn btn-outline-danger btn-sm" onclick="deleteCardImage(this)">
                     <i class="bi bi-trash"></i>
                   </button>
+                </div>
                 </div>
               </div>
             </div>
@@ -194,3 +203,127 @@ def save_cbz():
     except Exception as e:
         app_logger.error(f"Failed to complete processing: {e}")
         return jsonify({"success": False, "error": str(e)}), 500
+    
+
+def cropRight(image_path):
+    file_name, file_extension = os.path.splitext(image_path)
+
+    try:
+        # Open the image
+        with Image.open(image_path) as img:
+            width, height = img.size
+
+            # Split the image in half (right half)
+            right_half = (width // 2, 0, width, height)
+
+            # Save the original image by appending "b" to the file name
+            backup_path = f"{file_name}b{file_extension}"
+            img.save(backup_path)
+
+            # Save the right half by appending "a" to the file name
+            right_half_img = img.crop(right_half)
+            new_image_path = f"{file_name}a{file_extension}"
+            right_half_img.save(new_image_path)
+
+        # Delete the original image
+        os.remove(image_path)
+
+        app_logger.info(f"Processed: {os.path.basename(image_path)} original saved as {backup_path}, right half saved as {new_image_path}.")
+
+        return new_image_path
+    
+    except Exception as e:
+        app_logger.error(f"Error processing the image: {e}")
+
+
+def cropLeft(image_path):
+    file_name, file_extension = os.path.splitext(image_path)
+
+    try:
+        # Open the image
+        with Image.open(image_path) as img:
+            width, height = img.size
+
+            # Split the image in half (left half)
+            left_half = (0, 0, width // 2, height)
+
+            # Save the original image by appending "b" to the file name
+            backup_path = f"{file_name}b{file_extension}"
+            img.save(backup_path)
+
+            # Save the left half by appending "a" to the file name
+            left_half_img = img.crop(left_half)
+            new_image_path = f"{file_name}a{file_extension}"
+            left_half_img.save(new_image_path)
+
+        # Delete the original image
+        os.remove(image_path)
+
+        app_logger.info(f"Processed: {os.path.basename(image_path)} original saved as {backup_path}, left half saved as {new_image_path}.")
+
+        return new_image_path
+    
+    except Exception as e:
+        app_logger.error(f"Error processing the image: {e}")
+
+
+def cropCenter(image_path):
+    file_name, file_extension = os.path.splitext(image_path)
+
+    try:
+        # Open the image
+        with Image.open(image_path) as img:
+            width, height = img.size
+
+            # Calculate the coordinates for the left, center, and right thirds
+            third_width = width // 3
+            left_half = (0, 0, third_width, height)  # Left third
+            center_half = (third_width, 0, 2 * third_width, height)  # Center third
+            right_half = (2 * third_width, 0, width, height)  # Right third
+
+            # Save the original image by appending "b" to the file name
+            backup_path = f"{file_name}b{file_extension}"
+            img.save(backup_path)
+
+            # Save the left third part as 'filename_left'
+            left_img = img.crop(left_half)
+            left_image_path = f"{file_name}_left{file_extension}"
+            left_img.save(left_image_path)
+
+            # Save the right third part as 'filename_right'
+            right_img = img.crop(right_half)
+            right_image_path = f"{file_name}_right{file_extension}"
+            right_img.save(right_image_path)
+
+            # Save the center third as 'filename_center'
+            center_img = img.crop(center_half)
+            new_image_path = f"{file_name}_center{file_extension}"
+            center_img.save(new_image_path)
+
+        # Delete the original image
+        os.remove(image_path)
+
+        app_logger.info(f"Processed: {os.path.basename(image_path)} original saved as {backup_path}, center saved as {new_image_path}, left part saved as {left_image_path}, right part saved as {right_image_path}.")
+
+        return new_image_path
+    
+    except Exception as e:
+        app_logger.error(f"Error processing the image: {e}")
+
+
+def get_image_data_url(image_path):
+    """Open an image, resize it to a height of 100 (keeping aspect ratio),
+    encode it as a PNG in memory, and return a data URL."""
+    try:
+        with Image.open(image_path) as img:
+            if img.height > 0:
+                ratio = 100 / float(img.height)
+                new_width = int(img.width * ratio)
+                img = img.resize((new_width, 100), Image.LANCZOS)
+            buffered = io.BytesIO()
+            img.save(buffered, format="PNG")
+            encoded = base64.b64encode(buffered.getvalue()).decode('utf-8')
+            return f"data:image/png;base64,{encoded}"
+    except Exception as e:
+        app_logger.error(f"Error encoding image {image_path}: {e}")
+        raise

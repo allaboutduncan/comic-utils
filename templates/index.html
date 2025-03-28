@@ -832,6 +832,28 @@ function enableFilenameEdit(element) {
     }, { once: true });
 }
 
+// New function to sort the inline edit cards by the filename value
+function sortInlineEditCards() {
+    const container = document.getElementById('editInlineContainer');
+    if (!container) return;
+    // Get all card elements as an array
+    const cards = Array.from(container.children);
+    // Sort cards by the value of the input with class "filename-input"
+    cards.sort((a, b) => {
+        const inputA = a.querySelector('.filename-input');
+        const inputB = b.querySelector('.filename-input');
+        const filenameA = inputA ? inputA.value.toLowerCase() : "";
+        const filenameB = inputB ? inputB.value.toLowerCase() : "";
+        if (filenameA < filenameB) return -1;
+        if (filenameA > filenameB) return 1;
+        return 0;
+    });
+    // Rebuild the container with the sorted cards
+    container.innerHTML = '';
+    cards.forEach(card => container.appendChild(card));
+}
+
+// Updated performRename function: after a successful rename, sort the cards.
 function performRename(input) {
     const newFilename = input.value.trim();
     const folderName = document.getElementById('editInlineFolderName').value;
@@ -854,6 +876,8 @@ function performRename(input) {
             span.textContent = newFilename;
             span.classList.remove('d-none');
             input.classList.add('d-none');
+            // After updating the filename, re-sort the inline edit cards.
+            sortInlineEditCards();
         } else {
             alert('Error renaming file: ' + data.error);
         }
@@ -903,6 +927,114 @@ function deleteCardImage(buttonElement) {
         console.error("Error:", error);
         alert("An error occurred while deleting the image.");
     });
+}
+
+// handle crop functions
+function cropImageLeft(buttonElement) {
+    processCropImage(buttonElement, 'left');
+}
+
+function cropImageCenter(buttonElement) {
+    processCropImage(buttonElement, 'center');
+}
+
+function cropImageRight(buttonElement) {
+    processCropImage(buttonElement, 'right');
+}
+
+function processCropImage(buttonElement, cropType) {
+    const colElement = buttonElement.closest('.col');
+    if (!colElement) {
+        console.error("Unable to locate column container.");
+        return;
+    }
+    const span = colElement.querySelector('.editable-filename');
+    if (!span) {
+        console.error("No file reference found in column:", colElement);
+        return;
+    }
+
+    const folderElement = document.getElementById('editInlineFolderName');
+    if (!folderElement) {
+        console.error("Folder name input element not found.");
+        return;
+    }
+
+    const folderName = folderElement.value;
+    if (!folderName) {
+        console.error("Folder name is empty.");
+        return;
+    }
+
+    const oldFilename = span.dataset.oldFilename || span.textContent.trim();
+    const fullPath = `${folderName}/${oldFilename}`;
+
+    fetch('/crop', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ target: fullPath, cropType: cropType })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            // Retrieve both the new image's file path and its base64-encoded data
+            const newImagePath = data.newImagePath;
+            const newImageData = data.newImageData;
+            // Create a new card using the generateCardHTML function
+            const newCardHTML = generateCardHTML(newImagePath, newImageData);
+            sortInlineEditCards();
+            // Append the new card to the container without reloading existing cards
+            const container = document.getElementById('editInlineContainer');
+            container.insertAdjacentHTML('beforeend', newCardHTML);
+            alert(`Image cropped successfully: ${data.message}`);
+        } else {
+            alert("Error cropping image: " + data.error);
+        }
+    })
+    .catch(error => {
+        console.error("Error:", error);
+        alert("An error occurred while cropping the image.");
+    });
+}
+
+// Function to generate a new card's HTML using the new image's file path and base64 data
+function generateCardHTML(imagePath, imageData) {
+    // Extract filename_only from the full path for sorting and display purposes
+    const filenameOnly = imagePath.split('/').pop();
+    return `
+    <div class="col">
+        <div class="card h-100 shadow-sm">
+            <div class="row g-0">
+                <div class="col-3">
+                    <img src="${imageData}" class="img-fluid rounded-start object-fit-scale border rounded" alt="${filenameOnly}">
+                </div>
+                <div class="col-9">
+                    <div class="card-body">
+                        <p class="card-text small">
+                            <span class="editable-filename" data-rel-path="${imagePath}" onclick="enableFilenameEdit(this)">
+                                ${filenameOnly}
+                            </span>
+                            <input type="text" class="form-control d-none filename-input form-control-sm" value="${filenameOnly}" data-rel-path="${imagePath}">
+                        </p>
+                        <div class="d-flex justify-content-end">
+                            <div class="btn-group" role="group" aria-label="Basic example">
+                                <button type="button" class="btn btn-outline-secondary btn-sm" onclick="cropImageLeft(this)" title="Crop Image Left">
+                                    <i class="bi bi-arrow-bar-left"></i> Left
+                                </button>
+                                <button type="button" class="btn btn-outline-secondary" onclick="cropImageCenter(this)" title="Crop Image Center">Middle</button>
+                                <button type="button" class="btn btn-outline-secondary btn-sm" onclick="cropImageRight(this)" title="Crop Image Right">
+                                    Right <i class="bi bi-arrow-bar-right"></i>
+                                </button>
+                                <button type="button" class="btn btn-outline-danger btn-sm" onclick="deleteCardImage(this)">
+                                    <i class="bi bi-trash"></i>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>`;
 }
 
 document.addEventListener('DOMContentLoaded', () => {
