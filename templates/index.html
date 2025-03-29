@@ -565,6 +565,7 @@ function runScript(scriptType) {
                 document.getElementById('editInlineFolderName').value = data.folder_name;
                 document.getElementById('editInlineZipFilePath').value = data.zip_file_path;
                 document.getElementById('editInlineOriginalFilePath').value = data.original_file_path;
+                sortInlineEditCards()
             })
             .catch(error => {
                 logsContainer.innerHTML = `<div class="alert alert-danger" role="alert">
@@ -835,21 +836,38 @@ function enableFilenameEdit(element) {
 }
 
 // New function to sort the inline edit cards by the filename value
+// Mimics file system sorting: alpha-numeric order with files starting with special characters coming first
 function sortInlineEditCards() {
     const container = document.getElementById('editInlineContainer');
     if (!container) return;
+    
     // Get all card elements as an array
     const cards = Array.from(container.children);
-    // Sort cards by the value of the input with class "filename-input"
+    
+    // Regex to check if the filename starts with a letter or a digit
+    const alphanumRegex = /^[a-z0-9]/i;
+    
+    // Create an Intl.Collator instance for natural (alpha-numeric) sorting
+    const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
+    
     cards.sort((a, b) => {
         const inputA = a.querySelector('.filename-input');
         const inputB = b.querySelector('.filename-input');
-        const filenameA = inputA ? inputA.value.toLowerCase() : "";
-        const filenameB = inputB ? inputB.value.toLowerCase() : "";
-        if (filenameA < filenameB) return -1;
-        if (filenameA > filenameB) return 1;
-        return 0;
+        const filenameA = inputA ? inputA.value : "";
+        const filenameB = inputB ? inputB.value : "";
+        
+        // Determine if the filename starts with a letter or digit
+        const aIsAlphaNum = alphanumRegex.test(filenameA);
+        const bIsAlphaNum = alphanumRegex.test(filenameB);
+        
+        // Files starting with special characters should sort before those starting with letters or digits
+        if (!aIsAlphaNum && bIsAlphaNum) return -1;
+        if (aIsAlphaNum && !bIsAlphaNum) return 1;
+        
+        // Otherwise, use natural (alpha-numeric) sort order
+        return collator.compare(filenameA, filenameB);
     });
+    
     // Rebuild the container with the sorted cards
     container.innerHTML = '';
     cards.forEach(card => container.appendChild(card));
@@ -979,16 +997,33 @@ function processCropImage(buttonElement, cropType) {
     .then(response => response.json())
     .then(data => {
         if (data.success) {
-            // Retrieve both the new image's file path and its base64-encoded data
+            // Retrieve new image path and base64-encoded data from the response.
             const newImagePath = data.newImagePath;
             const newImageData = data.newImageData;
-            // Create a new card using the generateCardHTML function
+            // Create a new card using the generateCardHTML function.
             const newCardHTML = generateCardHTML(newImagePath, newImageData);
-            sortInlineEditCards();
-            // Append the new card to the container without reloading existing cards
+            // Append the new card to the container.
             const container = document.getElementById('editInlineContainer');
             container.insertAdjacentHTML('beforeend', newCardHTML);
-            alert(`Image cropped successfully: ${data.message}`);
+            
+            // Extract just the filename from the full backupImagePath.
+            const backupFilename = data.backupImagePath.split('/').pop();
+            
+            // Update the original card's displayed filename.
+            const span = colElement.querySelector('.editable-filename');
+            span.dataset.oldFilename = backupFilename;
+            span.textContent = backupFilename;
+            
+            // Also update the input value used for sorting.
+            const input = colElement.querySelector('.filename-input');
+            if (input) {
+                input.value = backupFilename;
+            }
+            
+            // Resort the cards so that the updated filename is reflected.
+            sortInlineEditCards();
+            
+            //alert(`Image cropped successfully: ${data.message}`);
         } else {
             alert("Error cropping image: " + data.error);
         }

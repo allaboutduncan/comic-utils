@@ -265,19 +265,21 @@ def crop_image():
         data = request.json
         file_path = data.get('target')
         crop_type = data.get('cropType')
+        app_logger.info("********************// Crop Image //********************")
+        app_logger.info(f"File Path: {file_path}")
+        app_logger.info(f"Crop Type: {crop_type}")
 
         # Validate input
         if not file_path or not crop_type:
             return jsonify({'success': False, 'error': 'Missing file path or crop type'}), 400
 
-        # Call the appropriate crop function based on the crop type
-        new_image_path = None
+        # Call the appropriate crop function based on the crop type and unpack the returned tuple
         if crop_type == 'left':
-            new_image_path = cropLeft(file_path)
+            new_image_path, backup_path = cropLeft(file_path)
         elif crop_type == 'center':
-            new_image_path = cropCenter(file_path)
+            new_image_path, backup_path = cropCenter(file_path)
         elif crop_type == 'right':
-            new_image_path = cropRight(file_path)
+            new_image_path, backup_path = cropRight(file_path)
         else:
             return jsonify({'success': False, 'error': 'Invalid crop type'}), 400
 
@@ -290,6 +292,7 @@ def crop_image():
             'success': True,
             'newImagePath': new_image_path,
             'newImageData': new_image_data,
+            'backupImagePath': backup_path,
             'message': f'{crop_type.capitalize()} side cropped successfully'
         })
 

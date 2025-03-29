@@ -56,11 +56,12 @@ def process_cbz_file(file_path):
       1. Rename the .cbz file to .zip.
       2. Create a folder based on the file name.
       3. Extract the ZIP contents into the folder.
-      4. If the ZIP contains a single folder, update folder_name to that inner folder.
-      5. Delete all .nfo and .sfv files.
+      4. If the ZIP contains a single directory (ignoring files), update folder_name to that inner directory.
+         (This is done recursively in case there are multiple nested directories.)
+      5. Delete all .nfo, .sfv, .db and .DS_Store files.
     Returns a dictionary with 'folder_name' and 'zip_file_path'.
     """
-    app_logger.info(f"********************// Editing CBZ File //********************")
+    app_logger.info("********************// Editing CBZ File //********************")
     if not file_path.lower().endswith('.cbz'):
         app_logger.info("Provided file is not a CBZ file.")
         raise ValueError("Provided file is not a CBZ file.")
@@ -77,22 +78,31 @@ def process_cbz_file(file_path):
     # Step 2: Create folder for extraction
     os.makedirs(folder_name, exist_ok=True)
     
-    # Step 3: Extract zip contents into folder
+    # Step 3: Extract ZIP contents into folder
     with zipfile.ZipFile(zip_path, 'r') as zf:
         zf.extractall(folder_name)
     
-    # Step 4: Check if the extracted content is a single folder; if so, update folder_name
-    contents = os.listdir(folder_name)
-    if len(contents) == 1:
-        inner_path = os.path.join(folder_name, contents[0])
-        if os.path.isdir(inner_path):
-            folder_name = inner_path
-            app_logger.info(f"ZIP contained a single folder, updating folder_name to: {folder_name}")
-    
-    # Step 5: Delete all .db, .nfo and .sfv files
+    # Optional: Remove unwanted system files (.DS_Store) before checking for single folder
     for root, _, files in os.walk(folder_name):
         for file in files:
-            if file.lower().endswith(('.nfo', '.sfv' , '.db', '.DS_Store')):
+            if file.lower() == '.ds_store':
+                os.remove(os.path.join(root, file))
+    
+    # Step 4: Check if the extracted content contains a single directory.
+    # Do this recursively in case the ZIP nests multiple single-directory levels.
+    while True:
+        # List only directories, ignoring any loose files.
+        inner_dirs = [d for d in os.listdir(folder_name) if os.path.isdir(os.path.join(folder_name, d))]
+        if len(inner_dirs) == 1:
+            folder_name = os.path.join(folder_name, inner_dirs[0])
+            app_logger.info(f"Found a single nested folder, updating folder_name to: {folder_name}")
+        else:
+            break
+    
+    # Step 5: Delete all .db, .nfo, .sfv and .DS_Store files in the (possibly nested) folder.
+    for root, _, files in os.walk(folder_name):
+        for file in files:
+            if file.lower().endswith(('.nfo', '.sfv', '.db', '.ds_store')):
                 os.remove(os.path.join(root, file))
     
     app_logger.info(f"Extraction complete: {folder_name}")
@@ -230,7 +240,7 @@ def cropRight(image_path):
 
         app_logger.info(f"Processed: {os.path.basename(image_path)} original saved as {backup_path}, right half saved as {new_image_path}.")
 
-        return new_image_path
+        return new_image_path, backup_path
     
     except Exception as e:
         app_logger.error(f"Error processing the image: {e}")
@@ -261,7 +271,7 @@ def cropLeft(image_path):
 
         app_logger.info(f"Processed: {os.path.basename(image_path)} original saved as {backup_path}, left half saved as {new_image_path}.")
 
-        return new_image_path
+        return new_image_path, backup_path
     
     except Exception as e:
         app_logger.error(f"Error processing the image: {e}")

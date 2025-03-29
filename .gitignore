@@ -5,3 +5,4 @@
 /processed
 temp-*
 .dockerignore
+.DS_Store
