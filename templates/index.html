@@ -36,6 +36,9 @@
                     <div class="card-body d-flex flex-column">
                         <h5 class="card-title">Convert Directory</h5>
                         <p class="card-text">Convert all RAR/CBR files in a directory to CBZ.</p>
+                        {% if convertSubdirectories %}
+                        <p class="card-text fw-light">Sub-Directory conversion is enabled, performing CBR --> CBZ conversion on a directory will convert all files in sub-directories as well</p>
+                        {% endif %}
                         <button type="button" id="btn-convert" class="btn btn-primary mt-auto run-script-btn" onclick="runScript('convert')">Run Convert</button>
                     </div>
                 </div>

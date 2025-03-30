@@ -11,6 +11,7 @@ import logging
 import signal
 import psutil
 import select
+import pwd
 from api import app 
 from config import config, load_flask_config, write_config, load_config
 from edit import get_edit_modal, save_cbz, cropCenter, cropLeft, cropRight, get_image_data_url
@@ -507,7 +508,8 @@ def create_folder():
 def index():
     # These environment variables are set/updated by load_config_into_env()
     watch = config.get("SETTINGS", "WATCH", fallback="/temp")
-    return render_template('index.html', watch=watch, config=app.config)
+    convert_subdirectories = config.getboolean('SETTINGS', 'CONVERT_SUBDIRECTORIES', fallback=False)
+    return render_template('index.html', watch=watch, config=app.config, convertSubdirectories=convert_subdirectories)
     
 #########################
 #        App Logs       #
@@ -619,5 +621,8 @@ if __name__ == '__main__':
     if os.environ.get("MONITOR", "").strip().lower() == "yes":
         app_logger.info("MONITOR=yes detected. Starting monitor.py...")
         threading.Thread(target=run_monitor, daemon=True).start()
-    
+
+    user_name = pwd.getpwuid(os.geteuid()).pw_name
+    app_logger.info(f"Running as user: {user_name}")
+        
     app.run(debug=True, use_reloader=False, threaded=True, host='0.0.0.0', port=5577)
