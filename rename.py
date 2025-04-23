@@ -19,6 +19,19 @@ VOLUME_ISSUE_PATTERN = re.compile(
 )
 
 # -------------------------------------------------------------------
+# Pattern for explicit hash‐issue notation, e.g.:
+#   "Title 2 #10 (2018).cbz"
+#   Group(1) ⇒ "Title 2"
+#   Group(2) ⇒ "10"
+#   Group(3) ⇒ " (2018)"
+#   Group(4) ⇒ ".cbz"
+# -------------------------------------------------------------------
+ISSUE_HASH_PATTERN = re.compile(
+    r'^(.*?)\s*#\s*(\d{1,3})\b(.*)(\.\w+)$',
+    re.IGNORECASE
+)
+
+# -------------------------------------------------------------------
 # Original ISSUE_PATTERN:
 #   Title + space + (v## or up to 3 digits) + (middle) + extension
 #   e.g. "Comic Name 051 (2018).cbz"  or  "Comic Name v3 (2022).cbr"
@@ -39,6 +52,20 @@ ISSUE_PATTERN = re.compile(
 # -------------------------------------------------------------------
 ISSUE_AFTER_YEAR_PATTERN = re.compile(
     r'^(.*?)\s*\((\d{4})\)\s*(#\d{1,3})(.*)(\.\w+)$',
+    re.IGNORECASE
+)
+
+# -------------------------------------------------------------------
+# Pattern for series-number + issue-number with no “v” or “#”
+# e.g. "Injustice 2 001 (2018).cbz"
+#   Group(1) ⇒ "Injustice"
+#   Group(2) ⇒ "2"
+#   Group(3) ⇒ "001"
+#   Group(4) ⇒ " (2018)"
+#   Group(5) ⇒ ".cbz"
+# -------------------------------------------------------------------
+SERIES_ISSUE_PATTERN = re.compile(
+    r'^(.*?)\s+(\d{1,3})\s+(\d{1,3})\b(.*)(\.\w+)$',
     re.IGNORECASE
 )
 
@@ -167,7 +194,55 @@ def get_renamed_filename(filename):
         return new_filename
 
     # ==========================================================
-    # 2) Single ISSUE pattern (no separate "volume" token)
+    # 2) Hash‐issue pattern (explicit "#NNN"): catch before bare digits
+    #    e.g. "Injustice 2 #1 (2018).cbz"
+    # ==========================================================
+    hash_match = ISSUE_HASH_PATTERN.match(cleaned_filename)
+    if hash_match:
+        raw_title, issue_num, middle, extension = hash_match.groups()
+
+        clean_title = raw_title.replace('_', ' ').strip()
+        final_issue = f"{int(issue_num):03d}"
+
+        # Try to pull a year out of any parentheses in `middle`
+        found_year = None
+        for group_text in re.findall(r'\(([^)]*)\)', middle):
+            if year := re.search(r'\b(\d{4})\b', group_text):
+                found_year = year.group(1)
+                break
+
+        if found_year:
+            new_filename = f"{clean_title} {final_issue} ({found_year}){extension}"
+        else:
+            new_filename = f"{clean_title} {final_issue}{extension}"
+
+        return new_filename
+
+    # ==========================================================
+    # 2) Series-number + issue-number (no “v”, no “#”)
+    #    e.g. "Injustice 2 001 (2018).cbz"
+    # ==========================================================
+    series_match = SERIES_ISSUE_PATTERN.match(cleaned_filename)
+    if series_match:
+        raw_title, series_num, issue_num, middle, extension = series_match.groups()
+
+        # Keep the series number in the title
+        clean_title = f"{raw_title.replace('_', ' ').strip()} {series_num}"
+        final_issue = f"{int(issue_num):03d}"
+
+        # Pull out a 4-digit year if present
+        found_year = None
+        for grp in re.findall(r'\(([^)]*)\)', middle):
+            if ym := re.search(r'\b(\d{4})\b', grp):
+                found_year = ym.group(1)
+                break
+
+        if found_year:
+            return f"{clean_title} {final_issue} ({found_year}){extension}"
+        return f"{clean_title} {final_issue}{extension}"
+
+    # ==========================================================
+    # 3) Single ISSUE pattern (no separate "volume" token)
     #    e.g. "Comic Name 051 (2018).cbz" or "Comic Name v3 (2018).cbz"
     # ==========================================================
     issue_match = ISSUE_PATTERN.match(cleaned_filename)
@@ -200,7 +275,7 @@ def get_renamed_filename(filename):
         return new_filename
 
     # ==========================================================
-    # 3) ISSUE number AFTER YEAR pattern
+    # 4) ISSUE number AFTER YEAR pattern
     #    e.g. "Spider-Man 2099 (1992) #44 (digital) (Colecionadores.GO).cbz"
     # ==========================================================
     issue_after_year_match = ISSUE_AFTER_YEAR_PATTERN.match(cleaned_filename)
@@ -211,7 +286,7 @@ def get_renamed_filename(filename):
         return new_filename
 
     # ==========================================================
-    # 4) Fallback: Title (YYYY) anything .ext
+    # 5) Fallback: Title (YYYY) anything .ext
     #    e.g. "Comic Name (2018) some extra.cbz" -> "Comic Name (2018).cbz"
     # ==========================================================
     fallback_match = FALLBACK_PATTERN.match(cleaned_filename)
@@ -222,7 +297,7 @@ def get_renamed_filename(filename):
         return new_filename
 
     # ==========================================================
-    # 5) No match => return None
+    # 6) No match => return None
     # ==========================================================
     return None
 
