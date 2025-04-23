@@ -61,7 +61,7 @@
 
         <!-- Directory Processing Configuration -->
         <div class="container p-4 border rounded shadow-sm mb-4">
-            <h4>Directory Processing Settings</h4>
+            <h4>Directory & File Processing Settings</h4>
             <p class="text-muted">Settings related to Directory processing features.</p>
 
              <!-- Checkboxes for Traverse Subdirectories -->
@@ -86,7 +86,25 @@
                         </small>
                     </div>
                 </div> -->
-            </div>           
+            </div>
+            <p class="text-muted">Settings related to Directory & File processing features.</p>
+            <div class="row">
+                <div class="col-md-6">
+                    <label for="skippedFiles" class="form-label">SKIPPED FILE TYPES:</label>
+                    <input type="text" name="skippedFiles" id="skippedFiles" value="{{ skippedFiles }}" class="form-control">
+                    <small class="form-text text-muted">
+                        When any operation unpacks a RAR/ZIP File, files with these extensions will be skipped. They will be re-added to the archive.
+                    </small>
+                </div>
+
+                <div class="col-md-6">
+                    <label for="deletedFiles" class="form-label">DELETED FILE TYPES:</label>
+                    <input type="text" name="deletedFiles" id="deletedFiles" value="{{ deletedFiles }}" class="form-control">
+                    <small class="form-text text-muted">
+                        When any operation unpacks a RAR/ZIP File, files with these extensions will deleted before the file is re-packed.
+                    </small>
+                </div>
+            </div>
 
         </div>
 

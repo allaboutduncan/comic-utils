@@ -35,6 +35,8 @@ def load_config():
             "XML_LIST": "True",
             "MOVE_DIRECTORY": "False",
             "AUTO_UNPACK": "False",
+            "SKIPPED_FILES": ".xml",
+            "DELETED_FILES": ".nfo,.sfv,.db,.DS_Store",
             "HEADERS": ""
         }
         write_config()
@@ -74,6 +76,8 @@ def load_flask_config(app, logger=None):
     app.config["XML_LIST"] = config.getboolean("SETTINGS", "XML_LIST", fallback=False)
     app.config["MOVE_DIRECTORY"] = config.getboolean("SETTINGS", "MOVE_DIRECTORY", fallback=False)
     app.config["AUTO_UNPACK"] = config.getboolean("SETTINGS", "AUTO_UNPACK", fallback=False)
+    app.config["SKIPPED_FILES"] = settings.get("SKIPPED_FILES", "")
+    app.config["DELETED_FILES"] = settings.get("DELETED_FILES", "")
     app.config["HEADERS"] = settings.get("HEADERS", "")
 
     if logger:

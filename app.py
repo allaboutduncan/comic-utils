@@ -371,6 +371,8 @@ def config_page():
         config["SETTINGS"]["MOVE_DIRECTORY"] = str(request.form.get("moveDirectory") == "on")
         config["SETTINGS"]["AUTO_UNPACK"] = str(request.form.get("autoUnpack") == "on")
         config["SETTINGS"]["HEADERS"] = request.form.get("customHeaders", "")
+        config["SETTINGS"]["SKIPPED_FILES"] = request.form.get("skippedFiles", "")
+        config["SETTINGS"]["DELETED_FILES"] = request.form.get("deletedFiles", "")
 
         write_config()  # Save changes to config.ini
         load_flask_config(app)  # Reload into Flask config
@@ -395,6 +397,8 @@ def config_page():
         xmlList=settings.get("XML_LIST", "False") == "True",
         moveDirectory=settings.get("MOVE_DIRECTORY", "False") == "True",
         autoUnpack=settings.get("AUTO_UNPACK", "False") == "True",
+        skippedFiles=settings.get("SKIPPED_FILES", ""),
+        deletedFiles=settings.get("DELETED_FILES", ""),
         customHeaders=settings.get("HEADERS", ""),
         config=settings,  # Pass full settings dictionary
     )
