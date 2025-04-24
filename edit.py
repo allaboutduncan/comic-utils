@@ -6,6 +6,14 @@ import base64
 from flask import render_template_string, request, jsonify
 from PIL import Image
 from app_logging import app_logger
+from config import config, load_config
+
+load_config()
+skipped_exts = config.get("SETTINGS", "SKIPPED_FILES", fallback="")
+deleted_exts = config.get("SETTINGS", "DELETED_FILES", fallback="")
+
+skippedFiles = [ext.strip().lower() for ext in skipped_exts.split(",") if ext.strip()]
+deletedFiles = [ext.strip().lower() for ext in deleted_exts.split(",") if ext.strip()]
 
 # Partial template for the modal body (the grid of Bootstrap Cards)
 modal_body_template = '''
@@ -99,12 +107,18 @@ def process_cbz_file(file_path):
         else:
             break
     
-    # Step 5: Delete all .db, .nfo, .sfv and .DS_Store files in the (possibly nested) folder.
+    # Step 5: Delete files that match deleted extensions (case-insensitive)
     for root, _, files in os.walk(folder_name):
         for file in files:
-            if file.lower().endswith(('.nfo', '.sfv', '.db', '.ds_store')):
-                os.remove(os.path.join(root, file))
-    
+            ext = os.path.splitext(file)[1].lower()
+            if ext in deletedFiles:
+                file_path = os.path.join(root, file)
+                try:
+                    os.remove(file_path)
+                    app_logger.info(f"Deleted unwanted file: {file_path}")
+                except Exception as e:
+                    app_logger.error(f"Error deleting file {file_path}: {e}")
+
     app_logger.info(f"Extraction complete: {folder_name}")
     return {"folder_name": folder_name, "zip_file_path": zip_path}
 
@@ -124,14 +138,17 @@ def get_edit_modal(file_path):
     # Walk the extraction folder recursively
     for root, _, files in os.walk(folder_name):
         for f in files:
-            # Ignore .xml files
-            if f.lower().endswith('.xml'):
+            ext = os.path.splitext(f)[1].lower()
+            # Skip files based on config
+            if ext in skippedFiles:
+                app_logger.info(f"Skipping file in edit modal: {f}")
                 continue
 
             # Create a relative path that includes subdirectories
             rel_path = os.path.relpath(os.path.join(root, f), folder_name)
             filename_only = os.path.basename(rel_path)  # Extract only the file name
             img_data = None
+
             # Attempt thumbnail generation for common image types
             if f.lower().endswith(('.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp')):
                 try:
@@ -147,8 +164,9 @@ def get_edit_modal(file_path):
                             img_data = f"data:image/png;base64,{encoded}"
                 except Exception as e:
                     app_logger.info(f"Thumbnail generation failed for '{rel_path}': {e}")
+
             file_cards.append({"filename": filename_only, "rel_path": rel_path, "img_data": img_data})
-    
+
     modal_body_html = render_template_string(modal_body_template, file_cards=file_cards)
     
     return {
@@ -157,7 +175,6 @@ def get_edit_modal(file_path):
         "zip_file_path": zip_file_path,
         "original_file_path": file_path
     }
-
 
 def save_cbz():
     """
@@ -287,36 +304,45 @@ def cropCenter(image_path):
 
             # Calculate the coordinates for the left, center, and right thirds
             third_width = width // 3
-            left_half = (0, 0, third_width, height)  # Left third
-            center_half = (third_width, 0, 2 * third_width, height)  # Center third
-            right_half = (2 * third_width, 0, width, height)  # Right third
+            left_half = (0, 0, third_width, height)
+            center_half = (third_width, 0, 2 * third_width, height)
+            right_half = (2 * third_width, 0, width, height)
 
-            # Save the original image by appending "b" to the file name
+            # Save the original image as backup
             backup_path = f"{file_name}b{file_extension}"
             img.save(backup_path)
 
-            # Save the left third part as 'filename_left'
+            # Crop and save each third
             left_img = img.crop(left_half)
             left_image_path = f"{file_name}_left{file_extension}"
             left_img.save(left_image_path)
 
-            # Save the right third part as 'filename_right'
+            center_img = img.crop(center_half)
+            center_image_path = f"{file_name}_center{file_extension}"
+            center_img.save(center_image_path)
+
             right_img = img.crop(right_half)
             right_image_path = f"{file_name}_right{file_extension}"
             right_img.save(right_image_path)
 
-            # Save the center third as 'filename_center'
-            center_img = img.crop(center_half)
-            new_image_path = f"{file_name}_center{file_extension}"
-            center_img.save(new_image_path)
-
         # Delete the original image
         os.remove(image_path)
 
-        app_logger.info(f"Processed: {os.path.basename(image_path)} original saved as {backup_path}, center saved as {new_image_path}, left part saved as {left_image_path}, right part saved as {right_image_path}.")
+        app_logger.info(
+            f"Processed: {os.path.basename(image_path)}\n"
+            f"  Original saved as: {backup_path}\n"
+            f"  Left third saved as: {left_image_path}\n"
+            f"  Center third saved as: {center_image_path}\n"
+            f"  Right third saved as: {right_image_path}"
+        )
 
-        return new_image_path
-    
+        return {
+            "backup": backup_path,
+            "left": left_image_path,
+            "center": center_image_path,
+            "right": right_image_path
+        }
+
     except Exception as e:
         app_logger.error(f"Error processing the image: {e}")
 

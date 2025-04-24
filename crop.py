@@ -4,6 +4,15 @@ import zipfile
 import shutil
 from PIL import Image, ImageFilter
 from app_logging import app_logger
+from config import config, load_config
+
+load_config()
+skipped_exts = config.get("SETTINGS", "SKIPPED_FILES", fallback="")
+deleted_exts = config.get("SETTINGS", "DELETED_FILES", fallback="")
+
+skippedFiles = [ext.strip().lower() for ext in skipped_exts.split(",") if ext.strip()]
+deletedFiles = [ext.strip().lower() for ext in deleted_exts.split(",") if ext.strip()]
+
 
 def handle_cbz_file(file_path):
     """
@@ -83,17 +92,25 @@ def process_image(directory: str) -> None:
     def find_images(dir_path):
         for root, _, files in os.walk(dir_path):
             for file in files:
-                # Remove files with a .sfv extension
-                if file.lower().endswith(('.nfo', '.sfv' , '.db', '.DS_Store')):
-                    file_path = os.path.join(root, file)
+                file_path = os.path.join(root, file)
+                ext = os.path.splitext(file)[1].lower()
+
+                # 1) Delete any file whose extension is in DELETED_FILES
+                if ext in deletedFiles:
                     try:
                         os.remove(file_path)
-                        app_logger.info(f"Removed {file.lower()} file: {file_path}")
+                        app_logger.info(f"Removed {file} file: {file_path}")
                     except Exception as e:
-                        app_logger.error(f"Error removing {file.lower()} file {file_path}: {e}")
+                        app_logger.error(f"Error removing {file} file {file_path}: {e}")
                     continue
-                if file != "ComicInfo.xml":
-                    yield os.path.join(root, file)
+
+                # 2) Skip (ignore) any file whose extension is in SKIPPED_FILES
+                if ext in skippedFiles or file == "ComicInfo.xml":
+                    app_logger.info(f"Skipping file: {file_path}")
+                    continue
+
+                # 3) Otherwise, yield it as a candidate image
+                yield file_path
 
     # Get the first image file found
     image_files = list(find_images(directory))

@@ -5,7 +5,14 @@ import zipfile
 import shutil
 from app_logging import app_logger
 import sys
+from config import config, load_config
 
+load_config()
+skipped_exts = config.get("SETTINGS", "SKIPPED_FILES", fallback="")
+deleted_exts = config.get("SETTINGS", "DELETED_FILES", fallback="")
+
+skippedFiles = [ext.strip().lower() for ext in skipped_exts.split(",") if ext.strip()]
+deletedFiles = [ext.strip().lower() for ext in deleted_exts.split(",") if ext.strip()]
 
 def enhance_comic(file_path):
     # If the file is hidden, skip it
@@ -34,12 +41,31 @@ def enhance_comic(file_path):
         extracted_dir = unzip_file(bak_file_path)
         app_logger.info(f"Extracted to: {extracted_dir}")
 
-        # Find all image files in the extracted directory.
+        # Find and filter files in the extracted directory.
         image_files = []
         for root, _, files in os.walk(extracted_dir):
             for file in files:
-                if file.lower().endswith(('.png', '.jpg', '.jpeg', '.gif')):
-                    image_files.append(os.path.join(root, file))
+                file_path = os.path.join(root, file)
+                ext = os.path.splitext(file)[1].lower()
+
+                # Delete files with deleted extensions
+                if ext in deletedFiles:
+                    try:
+                        os.remove(file_path)
+                        app_logger.info(f"Deleted unwanted file: {file_path}")
+                    except Exception as e:
+                        app_logger.error(f"Error deleting file {file_path}: {e}")
+                    continue
+
+                # Skip files with skipped extensions
+                if ext in skippedFiles:
+                    app_logger.info(f"Skipped file: {file_path}")
+                    continue
+
+                # Only include image files
+                if ext in ('.png', '.jpg', '.jpeg', '.gif'):
+                    image_files.append(file_path)
+
         
         # Enhance each image file.
         for image_file in image_files:

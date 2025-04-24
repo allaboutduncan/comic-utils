@@ -73,9 +73,6 @@ def handle_cbz_file(file_path):
         if os.path.exists(folder_name):
             shutil.rmtree(folder_name)
 
-# Define supported image extensions
-SUPPORTED_IMAGE_EXTENSIONS = {'.jpg', '.jpeg', '.png', '.gif', '.bmp', '.tiff'}
-
 def remove_first_image_file(dir_path):
     """
     Remove the first image file in alphanumerical order from the directory or its subdirectories.

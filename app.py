@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, Response, send_from_directory, redirect, jsonify, url_for, stream_with_context
+from flask import Flask, render_template, request, Response, send_from_directory, redirect, jsonify, url_for, stream_with_context, render_template_string
 import subprocess
 import os
 import shutil
@@ -14,7 +14,7 @@ import select
 import pwd
 from api import app 
 from config import config, load_flask_config, write_config, load_config
-from edit import get_edit_modal, save_cbz, cropCenter, cropLeft, cropRight, get_image_data_url
+from edit import get_edit_modal, save_cbz, cropCenter, cropLeft, cropRight, get_image_data_url, modal_body_template
 
 load_config()
 
@@ -274,30 +274,49 @@ def crop_image():
         if not file_path or not crop_type:
             return jsonify({'success': False, 'error': 'Missing file path or crop type'}), 400
 
-        # Call the appropriate crop function based on the crop type and unpack the returned tuple
+        file_cards = []
+
         if crop_type == 'left':
             new_image_path, backup_path = cropLeft(file_path)
-        elif crop_type == 'center':
-            new_image_path, backup_path = cropCenter(file_path)
+            for path in [new_image_path, backup_path]:
+                file_cards.append({
+                    "filename": os.path.basename(path),
+                    "rel_path": path,
+                    "img_data": get_image_data_url(path)
+                })
+
         elif crop_type == 'right':
             new_image_path, backup_path = cropRight(file_path)
+            for path in [new_image_path, backup_path]:
+                file_cards.append({
+                    "filename": os.path.basename(path),
+                    "rel_path": path,
+                    "img_data": get_image_data_url(path)
+                })
+
+        elif crop_type == 'center':
+            result = cropCenter(file_path)
+            for key, path in result.items():
+                file_cards.append({
+                    "filename": os.path.basename(path),
+                    "rel_path": path,
+                    "img_data": get_image_data_url(path)
+                })
         else:
             return jsonify({'success': False, 'error': 'Invalid crop type'}), 400
 
-        app_logger.info(f"{crop_type.capitalize()} side cropped successfully. New image path: {new_image_path}")
-
-        # Generate a base64 encoded image from the new image file
-        new_image_data = get_image_data_url(new_image_path)
+        # Render the cards as HTML
+        
+        modal_card_html = render_template_string(modal_body_template, file_cards=file_cards)
 
         return jsonify({
             'success': True,
-            'newImagePath': new_image_path,
-            'newImageData': new_image_data,
-            'backupImagePath': backup_path,
-            'message': f'{crop_type.capitalize()} side cropped successfully'
+            'html': modal_card_html,
+            'message': f'{crop_type.capitalize()} crop completed.',
         })
 
     except Exception as e:
+        app_logger.error(f"Crop error: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
