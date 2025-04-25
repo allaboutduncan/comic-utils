@@ -24,6 +24,8 @@ def enhance_comic(file_path):
     if file_path.lower().endswith('.cbz'):
         # Determine the backup file path (with .bak extension).
         bak_file_path = os.path.splitext(file_path)[0] + '.bak'
+
+        base_cbz_path = os.path.splitext(file_path)[0] + '.cbz'
         
         # Check if the original .cbz file exists.
         if os.path.exists(file_path):
@@ -79,7 +81,7 @@ def enhance_comic(file_path):
             app_logger.info(f"Enhanced: {image_file}")
         
         # Compress the enhanced files back into a ZIP archive with a .cbz extension.
-        enhanced_cbz_path = os.path.splitext(file_path)[0] + '.cbz'
+        enhanced_cbz_path = base_cbz_path
         with zipfile.ZipFile(enhanced_cbz_path, 'w') as cbz_file:
             for root, _, files in os.walk(extracted_dir):
                 for file in files:
@@ -87,6 +89,8 @@ def enhance_comic(file_path):
                     relative_path = os.path.relpath(full_path, extracted_dir)
                     cbz_file.write(full_path, relative_path)
         app_logger.info(f"Compressed to: {enhanced_cbz_path}")
+        if not os.path.exists(enhanced_cbz_path):
+            app_logger.error(f"Failed to create CBZ at: {enhanced_cbz_path}")
         
         # Clean up the extracted directory.
         shutil.rmtree(extracted_dir)

@@ -1,7 +1,7 @@
 import os
 import stat
 import zipfile
-from PIL import Image, ImageEnhance, ImageFilter
+from PIL import Image, ImageEnhance, ImageFilter, ImageOps
 import math
 import shutil
 from app_logging import app_logger
@@ -83,22 +83,26 @@ def extract_rar_with_unar(rar_path, output_dir):
 #   Image Enhancement   #
 #########################
 
-def modified_s_curve_lut():
+def apply_gamma(image, gamma=0.9):
+    inv = 1.0 / gamma
+    table = [int(((i/255)**inv)*255) for i in range(256)]
+    if image.mode == "RGB":
+        table = table*3
+    return image.point(table)
+
+def modified_s_curve_lut(shadow_lift=0.1):
     lut = []
     for i in range(256):
-        # Basic S-curve value using cosine.
-        s = 0.5 - 0.5 * math.cos(math.pi * (i / 255))
-        s_val = 255 * s
-        # For values below 128, use the full S-curve.
-        # For values 128 and above, blend the S-curve with the original value.
-        if i < 128:
-            blend = 0.0
-        else:
-            blend = (i - 128) / (255 - 128)  # goes from 0 at i=128 to 1 at i=255
-        new_val = (1 - blend) * s_val + blend * i
+        s = 0.5 - 0.5*math.cos(math.pi*(i/255))
+        s_val = 255*s
+        # lift the darkest 20% by a fixed offset
+        if i < 64:
+            s_val = s_val + shadow_lift*(64 - i)
+        # blend into original in highlights as before…
+        blend = max(0, (i-128)/(127))
+        new_val = (1-blend)*s_val + blend*i
         lut.append(int(round(new_val)))
     return lut
-
 
 def apply_modified_s_curve(image):
     single_lut = modified_s_curve_lut()
@@ -120,11 +124,11 @@ def apply_modified_s_curve(image):
     else:
         raise ValueError(f"Unsupported image mode: {image.mode}")
 
-
-def enhance_image(image_path):
-    # Open an image file
-    image = Image.open(image_path)
-
-    enhanced = apply_modified_s_curve(image)
-    
-    return enhanced
+def enhance_image(path):
+    img = Image.open(path)
+    img = apply_modified_s_curve(img)
+    img = apply_gamma(img, gamma=0.9)
+    img = ImageEnhance.Brightness(img).enhance(1.03)
+    img = ImageEnhance.Contrast(img).enhance(1.05)
+    img = ImageOps.autocontrast(img, cutoff=1)
+    return img

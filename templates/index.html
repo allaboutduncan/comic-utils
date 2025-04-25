@@ -882,6 +882,13 @@ function performRename(input) {
     const folderName = document.getElementById('editInlineFolderName').value;
     const oldFilename = input.dataset.oldFilename || input.previousElementSibling.textContent.trim();
     
+    // Cancel if the filename hasn't changed
+    if (newFilename === oldFilename) {
+        input.classList.add('d-none');
+        input.previousElementSibling.classList.remove('d-none');
+        return;
+    }
+
     const oldPath = `${folderName}/${oldFilename}`;
     const newPath = `${folderName}/${newFilename}`;
 
