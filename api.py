@@ -374,16 +374,21 @@ def download_pixeldrain(url: str, download_id: str, dest_name: Optional[str] = N
     wanted_name = dest_name or original_name
     filename_fs  = secure_filename(wanted_name)
 
-    # Decide which endpoint to hit
+    # ---------- 2. Set filename in progress dict (early!) ----------
+    download_progress[download_id] |= {
+        "filename": filename_fs,
+        "progress": 0,
+    }
+
+    # ---------- 3. Decide download URL ----------
     if is_folder:
         dl_url = f"https://pixeldrain.com/api/file/{file_id}/zip"
-        # PixelDrain does not expose total size for folders; skip %
         total_bytes = None
     else:
         dl_url = f"{pixeldrain.file(file_id)}?download"
-        total_bytes = info.get("size")               # may be None
+        total_bytes = info.get("size")
 
-    # ---------- 2. Reserve an output path ---------------------------
+    # ---------- 4. Reserve output path ----------
     out_path = os.path.join(DOWNLOAD_DIR, filename_fs)
     base, ext = os.path.splitext(out_path)
     i = 1
@@ -394,7 +399,7 @@ def download_pixeldrain(url: str, download_id: str, dest_name: Optional[str] = N
     tmp_path = out_path + ".part"
     download_progress[download_id] |= {"filename": out_path, "progress": 0}
 
-    # ---------- 3. Stream the bytes with progress -------------------
+    # ---------- 5. Download ----------
     with requests.get(dl_url, stream=True, timeout=60) as r, open(tmp_path, "wb") as f:
         r.raise_for_status()
         done = 0
