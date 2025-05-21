@@ -11,6 +11,8 @@ import shutil
 import tempfile
 from pathlib import Path
 from flask_cors import CORS
+from werkzeug.utils import secure_filename
+from typing import Optional
 
 # Mega download support
 from mega import Mega
@@ -18,6 +20,8 @@ from mega.errors import RequestError
 from mega.crypto import base64_to_a32, base64_url_decode, decrypt_attr, a32_to_str, str_to_a32, get_chunks
 from Crypto.Cipher import AES
 from Crypto.Util import Counter
+
+import pixeldrain
 
 # Application logging and configuration (adjust these as needed)
 from app_logging import app_logger
@@ -67,34 +71,68 @@ headers = default_headers
 CORS(app, resources={r"/*": {"origins": "*"}})
 
 # -------------------------------
+# URL Resolver
+# -------------------------------
+def resolve_final_url(url: str, *, hdrs=headers, max_hops: int = 6) -> str:
+    """
+    Follow every ordinary 3xx redirect **and** the HTML *meta-refresh* pages
+    that GetComics sometimes serves, stopping once we reach the real file
+    host (PixelDrain, Mega, etc.).  We never download the payload – only the
+    headers or a tiny bit of the HTML.
+    """
+    current = url
+    for _ in range(max_hops):
+        try:
+            r = requests.head(current, headers=hdrs,
+                              allow_redirects=False, timeout=15)
+        except requests.RequestException:
+            # some hosts block HEAD → fall back to a very small GET
+            r = requests.get(current, headers=hdrs, stream=True,
+                             allow_redirects=False, timeout=15)
+        # Ordinary HTTP 3xx
+        if 300 <= r.status_code < 400 and 'location' in r.headers:
+            current = urljoin(current, r.headers['location'])
+            continue
+        # Meta-refresh (GetComics’ /dlds pages)
+        if ('text/html' in r.headers.get('content-type', '') and
+                b'<meta' in r.content[:2048]):
+            m = re.search(br'url=([^">]+)', r.content[:2048], flags=re.I)
+            if m:
+                current = urljoin(current, m.group(1).decode().strip())
+                continue
+        return current
+    return current        # give up after max_hops
+
+# -------------------------------
 # QUEUE AND WORKER THREAD SETUP (for non-scrape downloads)
 # -------------------------------
 download_queue = Queue()
 
 def process_download(task):
     download_id = task['download_id']
-    url = task['url']
+    original_url  = task['url']
     dest_filename = task.get('dest_filename')
-    # Mark the download as in progress.
+
     download_progress[download_id]['status'] = 'in_progress'
+
     try:
-        # Follow any redirection to get the final URL.
-        r = requests.get(url, stream=True, headers=headers, allow_redirects=True)
-        final_url = r.url
-        r.close()
-        app_logger.info(f"Final URL: {final_url}")
+        final_url = resolve_final_url(original_url)
+        app_logger.info(f"Resolved → {final_url}")
+
         if "mega.nz" in final_url:
             file_path = download_mega(final_url, download_id, dest_filename)
-        elif "comicfiles.ru" in final_url:
+        elif "pixeldrain.com" in final_url:
+            file_path = download_pixeldrain(final_url, download_id, dest_filename)
+        elif "comicfiles.ru" in final_url:              # GetComics’ direct host
             file_path = download_getcomics(final_url, download_id)
-        else:
+        else:                                           # fall-back
             file_path = download_getcomics(final_url, download_id)
-        
+
         download_progress[download_id]['filename'] = file_path
-        download_progress[download_id]['status'] = 'complete'
+        download_progress[download_id]['status']   = 'complete'
     except Exception as e:
         app_logger.error(f"Error during background download: {e}")
-        download_progress[download_id]['status'] = 'error'
+        download_progress[download_id]['status']   = 'error'
 
 def worker():
     while True:
@@ -311,6 +349,67 @@ def download_mega(url, download_id, dest_filename=None):
         download_progress[download_id]['status'] = 'error'
         download_progress[download_id]['progress'] = -1
         raise Exception(f"Error downloading from Mega: {e}")
+
+# -------------------------------
+# Pixeldrain support
+# -------------------------------
+def _pd_id(url: str) -> str:
+    """Return the last path component regardless of URL shape."""
+    return urlparse(url).path.rstrip("/").split("/")[-1]
+
+
+def download_pixeldrain(url: str, download_id: str, dest_name: Optional[str] = None) -> str:
+    """
+    Download a single PixelDrain *file* **or** a *folder/album* (as ZIP).
+
+    • Progress is reported via `download_progress[download_id]`
+    • Returns the absolute path to the completed file on success
+    """
+    file_id = _pd_id(url)
+
+    # ---------- 1. Look up metadata via the library -----------------
+    info = pixeldrain.info(file_id)                  # dict from API
+    is_folder = info.get("content_type") == "folder"
+    original_name = info.get("name") or f"{file_id}.bin"
+    wanted_name = dest_name or original_name
+    filename_fs  = secure_filename(wanted_name)
+
+    # Decide which endpoint to hit
+    if is_folder:
+        dl_url = f"https://pixeldrain.com/api/file/{file_id}/zip"
+        # PixelDrain does not expose total size for folders; skip %
+        total_bytes = None
+    else:
+        dl_url = f"{pixeldrain.file(file_id)}?download"
+        total_bytes = info.get("size")               # may be None
+
+    # ---------- 2. Reserve an output path ---------------------------
+    out_path = os.path.join(DOWNLOAD_DIR, filename_fs)
+    base, ext = os.path.splitext(out_path)
+    i = 1
+    while os.path.exists(out_path):
+        out_path = f"{base}_{i}{ext}"
+        i += 1
+
+    tmp_path = out_path + ".part"
+    download_progress[download_id] |= {"filename": out_path, "progress": 0}
+
+    # ---------- 3. Stream the bytes with progress -------------------
+    with requests.get(dl_url, stream=True, timeout=60) as r, open(tmp_path, "wb") as f:
+        r.raise_for_status()
+        done = 0
+        for chunk in r.iter_content(chunk_size=1 << 20):   # 1 MiB
+            if chunk:
+                f.write(chunk)
+                done += len(chunk)
+                if total_bytes:
+                    pct = int(done / total_bytes * 100)
+                    download_progress[download_id]["progress"] = pct
+
+    os.rename(tmp_path, out_path)
+    download_progress[download_id]["progress"] = 100
+    app_logger.info(f"PixelDrain download complete → {out_path}")
+    return out_path
 
 # -------------------------------
 # API Endpoints
