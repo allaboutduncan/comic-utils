@@ -3,6 +3,7 @@ from queue import Queue
 from flask import Flask, request, jsonify, render_template, redirect, url_for
 import os
 import requests
+from requests.exceptions import ChunkedEncodingError, ConnectionError
 from urllib.parse import urlparse, unquote, urljoin
 import uuid
 import re
@@ -13,6 +14,7 @@ from pathlib import Path
 from flask_cors import CORS
 from werkzeug.utils import secure_filename
 from typing import Optional
+from http.client import IncompleteRead
 
 # Mega download support
 from mega import Mega
@@ -253,67 +255,85 @@ Mega._download_file = my_download_file
 # Other Download Functions
 # -------------------------------
 def download_getcomics(url, download_id):
-    try:
-        response = requests.get(url, stream=True, headers=headers)
-        response.raise_for_status()
-        final_url = response.url
-        parsed_url = urlparse(final_url)
-        filename = os.path.basename(parsed_url.path)
-        filename = unquote(filename)
-        if not filename:
-            filename = str(uuid.uuid4())
-            app_logger.info(f"Filename generated from final URL: {filename}")
-        content_disposition = response.headers.get("Content-Disposition")
-        if content_disposition:
-            fname_match = re.search('filename="?([^";]+)"?', content_disposition)
-            if fname_match:
-                cd_filename = unquote(fname_match.group(1))
-                filename = cd_filename
-                app_logger.info(f"Filename from Content-Disposition: {filename}")
-        file_path = os.path.join(DOWNLOAD_DIR, filename)
-        counter = 1
-        base, ext = os.path.splitext(filename)
-        while os.path.exists(file_path):
-            filename = f"{base}_{counter}{ext}"
+    retries = 3
+    delay = 2  # base delay in seconds
+    last_exception = None
+
+    for attempt in range(retries):
+        try:
+            app_logger.info(f"Attempt {attempt + 1} to download {url}")
+            response = requests.get(url, stream=True, headers=headers, timeout=30)
+            response.raise_for_status()
+
+            final_url = response.url
+            parsed_url = urlparse(final_url)
+            filename = os.path.basename(parsed_url.path)
+            filename = unquote(filename)
+
+            if not filename:
+                filename = str(uuid.uuid4())
+                app_logger.info(f"Filename generated from final URL: {filename}")
+
+            content_disposition = response.headers.get("Content-Disposition")
+            if content_disposition:
+                fname_match = re.search('filename="?([^";]+)"?', content_disposition)
+                if fname_match:
+                    filename = unquote(fname_match.group(1))
+                    app_logger.info(f"Filename from Content-Disposition: {filename}")
+
             file_path = os.path.join(DOWNLOAD_DIR, filename)
-            counter += 1
+            base, ext = os.path.splitext(filename)
+            counter = 1
+            while os.path.exists(file_path):
+                filename = f"{base}_{counter}{ext}"
+                file_path = os.path.join(DOWNLOAD_DIR, filename)
+                counter += 1
 
-        download_progress[download_id]['filename'] = file_path
+            download_progress[download_id]['filename'] = file_path
+            temp_file_path = file_path + ".crdownload"
 
-        temp_file_path = file_path + ".crdownload"
-        total_length = response.headers.get('content-length')
-        if total_length is None:
-            total_length = 0
-        else:
-            total_length = int(total_length)
+            total_length = int(response.headers.get('content-length', 0))
+            downloaded = 0
 
-        downloaded = 0
-        with open(temp_file_path, 'wb') as f:
-            for chunk in response.iter_content(chunk_size=8192):
-                if download_progress.get(download_id, {}).get('cancelled'):
-                    app_logger.info(f"Download {download_id} cancelled; deleting temp file.")
-                    f.close()
-                    if os.path.exists(temp_file_path):
-                        os.remove(temp_file_path)
-                    download_progress[download_id]['status'] = 'cancelled'
-                    return None
-                if chunk:
-                    f.write(chunk)
-                    downloaded += len(chunk)
-                    if total_length > 0:
-                        percent = int((downloaded / total_length) * 100)
-                    else:
-                        percent = 0
-                    download_progress[download_id]['progress'] = percent
-        os.rename(temp_file_path, file_path)
-        download_progress[download_id]['progress'] = 100
-        app_logger.info("Download Success")
-        return file_path
-    except requests.RequestException as e:
-        app_logger.error(f"Download Failed: {e}")
-        download_progress[download_id]['status'] = 'error'
-        download_progress[download_id]['progress'] = -1
-        raise Exception(f"Error downloading file: {str(e)}")
+            with open(temp_file_path, 'wb') as f:
+                for chunk in response.iter_content(chunk_size=8192):
+                    if download_progress.get(download_id, {}).get('cancelled'):
+                        app_logger.info(f"Download {download_id} cancelled; deleting temp file.")
+                        f.close()
+                        if os.path.exists(temp_file_path):
+                            os.remove(temp_file_path)
+                        download_progress[download_id]['status'] = 'cancelled'
+                        return None
+                    if chunk:
+                        f.write(chunk)
+                        downloaded += len(chunk)
+                        if total_length > 0:
+                            percent = int((downloaded / total_length) * 100)
+                            download_progress[download_id]['progress'] = percent
+
+            os.rename(temp_file_path, file_path)
+            download_progress[download_id]['progress'] = 100
+            app_logger.info(f"Download completed: {file_path}")
+            return file_path
+
+        except (ChunkedEncodingError, ConnectionError, IncompleteRead, RequestException) as e:
+            app_logger.warning(f"Attempt {attempt + 1} failed with error: {e}")
+            last_exception = e
+            time.sleep(delay * (2 ** attempt))  # Exponential backoff
+
+            # Clean up temp file between retries
+            temp_file_path = file_path + ".crdownload" if 'file_path' in locals() else None
+            if temp_file_path and os.path.exists(temp_file_path):
+                try:
+                    os.remove(temp_file_path)
+                except Exception as cleanup_err:
+                    app_logger.warning(f"Failed to remove temp file: {cleanup_err}")
+
+    # All retries failed
+    app_logger.error(f"Download failed after {retries} attempts: {last_exception}")
+    download_progress[download_id]['status'] = 'error'
+    download_progress[download_id]['progress'] = -1
+    raise Exception(f"Download failed: {last_exception}")
 
 def download_mega(url, download_id, dest_filename=None):
     try:
