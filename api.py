@@ -3,7 +3,7 @@ from queue import Queue
 from flask import Flask, request, jsonify, render_template, redirect, url_for
 import os
 import requests
-from requests.exceptions import ChunkedEncodingError, ConnectionError
+from requests.exceptions import ChunkedEncodingError, ConnectionError, RequestException
 from urllib.parse import urlparse, unquote, urljoin
 import uuid
 import re
@@ -15,6 +15,7 @@ from flask_cors import CORS
 from werkzeug.utils import secure_filename
 from typing import Optional
 from http.client import IncompleteRead
+import time
 
 # Mega download support
 from mega import Mega
