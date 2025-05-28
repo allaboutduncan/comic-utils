@@ -1,15 +1,18 @@
 ---
-description: Quick and easy way to paste a path to a file and delete it
-icon: file-slash
+description: Enhances all images in a single CBZ file
+icon: file-image
 ---
 
-# Delete File
+# Enhance Images
 
-<figure><img src="../../.gitbook/assets/delete.png" alt=""><figcaption><p>Delete File</p></figcaption></figure>
+<figure><img src="../../.gitbook/assets/enhance.png" alt=""><figcaption><p>Enhance Images in Single FIle</p></figcaption></figure>
 
-Utility to delete a single file and requires confirmation before performing the delete action.\
+Looking at scans from books that were published in decades past or by now defunct publishers, there quick and easy image enhancements that could be done to the images.
 
+This function will run an image enhancement algorithm (documented below) on all images in the specified CBZ file.
 
-<div><figure><img src="../../.gitbook/assets/delete (1).png" alt=""><figcaption><p>File Select for Deletion</p></figcaption></figure> <figure><img src="../../.gitbook/assets/confirm-delete.png" alt=""><figcaption><p>Confirming the File Delete</p></figcaption></figure></div>
+Below are a few _Before/After_ examples&#x20;
 
-File deletion can also be performed in the <mark style="color:blue;">**File Manager**</mark> [editor-2.md](../file-management/editor-2.md "mention")
+<table><thead><tr><th width="375" align="center">Before</th><th align="center">After</th></tr></thead><tbody><tr><td align="center"><img src="https://github.com/allaboutduncan/comic-utils/raw/main/images/enhance-before.webp" alt=""></td><td align="center"><img src="https://github.com/allaboutduncan/comic-utils/raw/main/images/enhance-after.webp" alt=""></td></tr><tr><td align="center"></td><td align="center"></td></tr></tbody></table>
+
+For details on the <mark style="color:blue;">**Image Enhancement Algorithm**</mark> used, please see the [markdown-4.md](../directory-features/markdown-4.md "mention") page under the Directory section

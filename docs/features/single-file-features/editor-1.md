@@ -1,17 +1,16 @@
 ---
-description: Remove half of a cover while saving the full cover
-icon: crop-simple
+description: Rebuild or convert a single file
+icon: file-zip
 ---
 
-# Crop Cover
+# Single File Rebuild
 
-<figure><img src="../../.gitbook/assets/crop.png" alt=""><figcaption><p>Crop Cover</p></figcaption></figure>
+<figure><img src="../../.gitbook/assets/single.png" alt=""><figcaption><p>Single File Rebuild</p></figcaption></figure>
 
-Use this tool to crop a cover that is front & back, to front only.
+Running this will rebuild a CBZ file in an attempt to fix issues/errors with it not displaying correctly. Additionally, this will also convert a single CBR/RAR file to a CBZ
 
-The wraparound cover is not deleted, but re-ordered in the CBZ to be the 2nd image.
+|                                      Before                                      |                                       After                                      |
+| :------------------------------------------------------------------------------: | :------------------------------------------------------------------------------: |
+| ![](https://github.com/allaboutduncan/comic-utils/raw/main/images/rebuild01.png) | ![](https://github.com/allaboutduncan/comic-utils/raw/main/images/rebuild02.png) |
 
-|                                     Before                                    |                                     After                                     |
-| :---------------------------------------------------------------------------: | :---------------------------------------------------------------------------: |
-| ![](https://github.com/allaboutduncan/comic-utils/raw/main/images/crop01.png) | ![](https://github.com/allaboutduncan/comic-utils/raw/main/images/crop02.png) |
-
+[Mylar3](https://mylarcomics.com/) and [ComicRackCE](https://github.com/maforget/ComicRackCE) should be your first choice for performing these actions, but I wanted something I could easily run on my manual downloads directory or repair in a one-off method.

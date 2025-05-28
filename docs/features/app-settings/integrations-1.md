@@ -7,19 +7,23 @@ icon: square-sliders
 
 With the exception on enabling [folder-monitoring](../folder-monitoring/ "mention"), all options can be updated in the Settings page.
 
-<figure><img src="../../.gitbook/assets/settings.png" alt=""><figcaption><p>Settings Menu</p></figcaption></figure>
+<figure><img src="../../.gitbook/assets/Screenshot 2025-05-28 120734.png" alt=""><figcaption><p>Settings Menu</p></figcaption></figure>
 
 ### Missing Issue Configuration
 
 The two options here will vary greatly on how much you use [markdown-3.md](../directory-features/markdown-3.md "mention") and how your library is structured.
 
-**IGNORED TERMS:** Add a comma-separated list of words/tems to ignore while checking for missing issues. Update these terms and re-run the missing issue check to better parse your library.
+**IGNORED TERMS:** Add a comma-separated list of words/terms to ignore while checking for missing issues. Update these terms and re-run the missing issue check to better parse your library.
 
 **IGNORED FILES:** Add a comma-separated list of files to ignore when checking for missing issues. Your collection may be a mix of CBZ/CBR/PDF or other files but if you have other files in your directories you want excluded, just add them here.
 
-### Directory Processing Settings
+### Directory & File Processing Settings
 
 **Enable Subdirectories for Conversion:** This specifically allows [markdown.md](../directory-features/markdown.md "mention")to traverse subdirectories and convert all CBR/RAR files to CBZ. This is not enabled by default - as running this on a high level folder AND a large collection could take quite a bit of time.
+
+**SKIPPED TYPES:** Add a comma-separated list of extensions to skip while performing actions on files. When any operation unpacks a RAR/ZIP File, files with these extensions will be skipped. They will be re-added to the archive. Examples are `.xml`
+
+**DELETED TYPES:** Add a comma-separated list of extensions to delete while performing actions on files. When any operation unpacks a RAR/ZIP File, files with these extensions will deleted before the file is re-packed. Examples are: `.nfo,.sfv,.db,.DS_Store`
 
 ### Folder Monitoring
 
@@ -44,6 +48,19 @@ For ZIP only, this specifically bypasses the IGNORED EXTENSIONS.
 {% hint style="info" %}
 To Do: Hide these in settings if folder monitoring is not enabled or inform user that folder monitoring is not enabled.
 {% endhint %}
+
+### API Download Configuration <a href="#api-configuration" id="api-configuration"></a>
+
+Depending on your authentication/VPN/etc to protect your site, this setting will allow you to pass custom auth variables or anything else in the header. Simply enter the content you need to pass as JSON.&#x20;
+
+The example provided shows you how to pass Client ID and Client Secret to authenticate to your site.
+
+```json
+{
+    "CF-Access-Client-Id":"you-client-id",
+    "CF-Access-Client-Secret":"your-secret"
+}
+```
 
 ### ComicInfo.XML Updates
 

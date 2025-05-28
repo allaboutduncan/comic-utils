@@ -1,13 +1,17 @@
 ---
-description: Adds a blank PNG at the end of a file
+description: Remove the first image in a CBZ
 icon: file-image
 ---
 
-# Add blank Image
+# Remove First Image
 
-<figure><img src="../../.gitbook/assets/blank.png" alt=""><figcaption><p>Insert Blank Image</p></figcaption></figure>
+<figure><img src="../../.gitbook/assets/remove.png" alt=""><figcaption><p>Remove First Image</p></figcaption></figure>
 
-Requested feature from Komga Discord. Corrects display issues with Manga files.
+Many older files will have a cover image that is not the cover of the comic.
 
-Adds a blank / empty PNG file (zzzz9999.png) to the end of archive.
+Use this utility to remove the first image in the file.
+
+|                                      Before                                     |                                      After                                      |
+| :-----------------------------------------------------------------------------: | :-----------------------------------------------------------------------------: |
+| ![](https://github.com/allaboutduncan/comic-utils/raw/main/images/remove01.png) | ![](https://github.com/allaboutduncan/comic-utils/raw/main/images/remove02.png) |
 

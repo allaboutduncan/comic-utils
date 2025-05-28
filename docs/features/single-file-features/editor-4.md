@@ -1,18 +1,13 @@
 ---
-description: Enhances all images in a single CBZ file
+description: Adds a blank PNG at the end of a file
 icon: file-image
 ---
 
-# Enhance Images
+# Add blank Image
 
-<figure><img src="../../.gitbook/assets/enhance.png" alt=""><figcaption><p>Enhance Images in Single FIle</p></figcaption></figure>
+<figure><img src="../../.gitbook/assets/blank.png" alt=""><figcaption><p>Insert Blank Image</p></figcaption></figure>
 
-Looking at scans from books that were published in decades past or by now defunct publishers, there quick and easy image enhancements that could be done to the images.
+Requested feature from Komga Discord. Corrects display issues with Manga files.
 
-This function will run an image enhancement algorithm (documented below) on all images in the specified CBZ file.
+Adds a blank / empty PNG file (zzzz9999.png) to the end of archive.
 
-Below are a few _Before/After_ examples&#x20;
-
-<table><thead><tr><th width="375" align="center">Before</th><th align="center">After</th></tr></thead><tbody><tr><td align="center"><img src="https://github.com/allaboutduncan/comic-utils/raw/main/images/enhance-before.webp" alt=""></td><td align="center"><img src="https://github.com/allaboutduncan/comic-utils/raw/main/images/enhance-after.webp" alt=""></td></tr><tr><td align="center"></td><td align="center"></td></tr></tbody></table>
-
-For details on the <mark style="color:blue;">**Image Enhancement Algorithm**</mark> used, please see the [markdown-4.md](../directory-features/markdown-4.md "mention") page under the Directory section
