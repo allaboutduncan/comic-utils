@@ -414,7 +414,20 @@ def download_pixeldrain(url: str, download_id: str, dest_name: Optional[str] = N
 
 # -------------------------------
 # API Endpoints
-# -------------------------------
+# -------------------------------+
+@app.route('/download', methods=['GET'])
+def download_get_friendly():
+    return """
+    <html>
+        <head><title>CLU Download Endpoint</title></head>
+        <body style="font-family: sans-serif;">
+            <h1>CLU API: /download</h1>
+            <p>This endpoint is used to queue remote comic downloads via POST request.</p>
+            <p>Install and configure the <a href="https://chromewebstore.google.com/detail/send-link-to-clu/cpickljbofjhmhkphgdmiagkdfijlkkg">Chrome Extension</a> to send downloads to your URL.</p>
+        </body>
+    </html>
+    """, 200
+
 @app.route('/download', methods=['POST', 'OPTIONS'])
 def download():
     if request.method == 'OPTIONS':
