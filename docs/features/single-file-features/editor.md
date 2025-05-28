@@ -31,6 +31,10 @@ Clicking the `Right |->` button will crop the image to the right half and save t
 
 Clicking the `Middle` button is used for Tri-fold covers where the main image is in the middle.
 
+{% hint style="info" %}
+All Crop actions backup/preserve the original file in the CBZ and it should be instantly viewable. If you mistakenly crop something - just delete the file and start over.
+{% endhint %}
+
 ### Delete Files
 
 Clicking the Trash Can icon will delete the file from the CBZ. This is useful for removing extra images not related to the comic.
@@ -40,6 +44,12 @@ Clicking the Trash Can icon will delete the file from the CBZ. This is useful fo
 {% hint style="danger" %}
 **Warning:** The file/image is deleted immediately and this is not reversible.
 {% endhint %}
+
+### Save Changes
+
+Once you have completed all actions on the file, click `Save` to re-pack the file and remove all temp files.
+
+There is no cancel button - as cancelling would still need to re-pack the files.
 
 ### Skipped & Deleted File Types
 
