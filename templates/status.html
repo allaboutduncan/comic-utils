@@ -13,6 +13,7 @@
         <tr>
           <th>Filename</th>
           <th>Progress</th>
+          <th>Downloaded</th>
           <th>Status</th>
           <th>Cancel</th>
         </tr>
@@ -58,6 +59,16 @@
             progressBar.appendChild(progressInner);
             tdProgress.appendChild(progressBar);
             tr.appendChild(tdProgress);
+
+            // Downloaded Bytes
+            const tdBytes = document.createElement('td');
+            if (details.bytes_total && details.bytes_downloaded) {
+              const mb = (bytes => (bytes / (1024 * 1024)).toFixed(2));
+              tdBytes.textContent = `${mb(details.bytes_downloaded)} MB / ${mb(details.bytes_total)} MB`;
+            } else {
+              tdBytes.textContent = '—';
+            }
+            tr.appendChild(tdBytes);
 
             // Status
             const tdStatus = document.createElement('td');

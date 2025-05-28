@@ -16,6 +16,7 @@ from werkzeug.utils import secure_filename
 from typing import Optional
 from http.client import IncompleteRead
 import time
+import signal
 
 # Mega download support
 from mega import Mega
@@ -136,6 +137,7 @@ def process_download(task):
     except Exception as e:
         app_logger.error(f"Error during background download: {e}")
         download_progress[download_id]['status']   = 'error'
+        download_progress[download_id]['error'] = str(e)
 
 def worker():
     while True:
@@ -153,106 +155,6 @@ for i in range(3):
     worker_threads.append(t)
 
 # -------------------------------
-# Monkey-Patch for Mega Downloads
-# -------------------------------
-def my_download_file(self,
-                     file_handle,
-                     file_key,
-                     dest_path=None,
-                     dest_filename=None,
-                     is_public=False,
-                     file=None):
-    global altfileinfo
-    if file is None:
-        if is_public:
-            file_key = base64_to_a32(file_key)
-            file_data = self._api_request({
-                'a': 'g',
-                'g': 1,
-                'p': file_handle
-            })
-        else:
-            file_data = self._api_request({
-                'a': 'g',
-                'g': 1,
-                'n': file_handle
-            })
-        k = (file_key[0] ^ file_key[4],
-             file_key[1] ^ file_key[5],
-             file_key[2] ^ file_key[6],
-             file_key[3] ^ file_key[7])
-        iv = file_key[4:6] + (0, 0)
-        meta_mac = file_key[6:8]
-    else:
-        file_data = self._api_request({'a': 'g', 'g': 1, 'n': file['h']})
-        k = file['k']
-        iv = file['iv']
-        meta_mac = file['meta_mac']
-
-    altfileinfo = 0
-    if 'g' not in file_data:
-        raise RequestError('File not accessible anymore')
-    file_url = file_data['g']
-    file_size = file_data['s']
-    attribs = base64_url_decode(file_data['at'])
-    attribs = decrypt_attr(attribs, k)
-    
-    file_name = dest_filename if dest_filename is not None else attribs['n']
-    dest_path = dest_path or ''
-    if dest_path:
-        dest_path += '/'
-    
-    # Update download progress if download_id is set.
-    d_id = getattr(self, 'download_id', None)
-    if d_id is not None:
-        download_progress[d_id]['filename'] = dest_path + file_name
-
-    with tempfile.NamedTemporaryFile(mode='w+b', prefix='megapy_', delete=False) as temp_output_file:
-        k_str = a32_to_str(k)
-        counter = Counter.new(128, initial_value=((iv[0] << 32) + iv[1]) << 64)
-        aes = AES.new(k_str, AES.MODE_CTR, counter=counter)
-
-        mac_str = '\0' * 16
-        mac_encryptor = AES.new(k_str, AES.MODE_CBC, mac_str.encode("utf8"))
-        iv_str = a32_to_str([iv[0], iv[1], iv[0], iv[1]])
-
-        for chunk_start, chunk_size in get_chunks(file_size):
-            chunk = requests.get(file_url, stream=True).raw.read(chunk_size)
-            chunk = aes.decrypt(chunk)
-            temp_output_file.write(chunk)
-            encryptor = AES.new(k_str, AES.MODE_CBC, iv_str)
-            for i in range(0, len(chunk) - 16, 16):
-                block = chunk[i:i + 16]
-                encryptor.encrypt(block)
-            if file_size > 16:
-                i += 16
-            else:
-                i = 0
-            block = chunk[i:i + 16]
-            if len(block) % 16:
-                block += b'\0' * (16 - (len(block) % 16))
-            mac_str = mac_encryptor.encrypt(encryptor.encrypt(block))
-            file_info = os.stat(temp_output_file.name)
-            progress_percent = float("{:.2f}".format(file_info.st_size / file_size * 100))
-            print('{:.2f}/{:.2f}mb downloaded - {}%'.format(
-                file_info.st_size / 1000000,
-                file_size / 1000000,
-                progress_percent,
-            ), end="\r")
-            if d_id is not None:
-                download_progress[d_id]['progress'] = progress_percent
-        file_mac = str_to_a32(mac_str)
-        if (file_mac[0] ^ file_mac[1], file_mac[2] ^ file_mac[3]) != meta_mac:
-            raise ValueError('Mismatched mac')
-        output_path = Path(dest_path + file_name)
-        shutil.move(temp_output_file.name, output_path)
-        print("\n")
-        return output_path
-
-# Apply the monkey patch.
-Mega._download_file = my_download_file
-
-# -------------------------------
 # Other Download Functions
 # -------------------------------
 def download_getcomics(url, download_id):
@@ -265,6 +167,10 @@ def download_getcomics(url, download_id):
             app_logger.info(f"Attempt {attempt + 1} to download {url}")
             response = requests.get(url, stream=True, headers=headers, timeout=30)
             response.raise_for_status()
+            if response.status_code in (403, 404):
+                app_logger.warning(f"Fatal HTTP error {response.status_code}; aborting retries.")
+                break
+
 
             final_url = response.url
             parsed_url = urlparse(final_url)
@@ -291,9 +197,13 @@ def download_getcomics(url, download_id):
                 counter += 1
 
             download_progress[download_id]['filename'] = file_path
-            temp_file_path = file_path + ".crdownload"
+            # Create a unique temp file per attempt
+            attempt_suffix = f".{attempt}.crdownload"
+            temp_file_path = file_path + attempt_suffix
+
 
             total_length = int(response.headers.get('content-length', 0))
+            download_progress[download_id]['bytes_total'] = total_length
             downloaded = 0
 
             with open(temp_file_path, 'wb') as f:
@@ -308,6 +218,7 @@ def download_getcomics(url, download_id):
                     if chunk:
                         f.write(chunk)
                         downloaded += len(chunk)
+                        download_progress[download_id]['bytes_downloaded'] = downloaded
                         if total_length > 0:
                             percent = int((downloaded / total_length) * 100)
                             download_progress[download_id]['progress'] = percent
@@ -334,37 +245,99 @@ def download_getcomics(url, download_id):
     app_logger.error(f"Download failed after {retries} attempts: {last_exception}")
     download_progress[download_id]['status'] = 'error'
     download_progress[download_id]['progress'] = -1
-    raise Exception(f"Download failed: {last_exception}")
+
+    # Remove leftover crdownload files from all attempts
+    for i in range(retries):
+        leftover = file_path + f".{i}.crdownload"
+        if os.path.exists(leftover):
+            try:
+                os.remove(leftover)
+            except Exception as e:
+                app_logger.warning(f"Failed to remove stale temp file: {leftover} — {e}")
+
+    raise Exception(f"Download failed after {retries} attempts for {url}: {last_exception}")
+
+def get_mega_file_info(url):
+    parsed = urlparse(url)
+    file_id = parsed.path.split("/")[-1]
+    file_key_b64 = url.split("#")[-1]
+
+    k = base64_to_a32(file_key_b64)
+    file_data = requests.get("https://g.api.mega.co.nz/cs?id=0", json=[{"a": "g", "g": 1, "p": file_id}]).json()[0]
+
+    if 'g' not in file_data:
+        raise Exception("File not accessible anymore")
+
+    iv = k[4:6] + (0, 0)
+    meta_mac = k[6:8]
+    key = [(k[0] ^ k[4]), (k[1] ^ k[5]), (k[2] ^ k[6]), (k[3] ^ k[7])]
+    k_str = a32_to_str(key)
+
+    attribs = decrypt_attr(base64_url_decode(file_data["at"]), key)
+
+    return {
+        "g": file_data["g"],
+        "size": file_data["s"],
+        "name": attribs["n"],
+        "k": key,
+        "iv": iv,
+        "meta_mac": meta_mac
+    }
 
 def download_mega(url, download_id, dest_filename=None):
     try:
         download_progress[download_id]['progress'] = 0
-        mega = Mega()
-        m = mega.login()  # Anonymous login.
-        
-        # Inject the download_id so that our monkey-patched _download_file updates progress.
-        m.download_id = download_id
+        download_progress[download_id]['bytes_downloaded'] = 0
+        download_progress[download_id]['bytes_total'] = 0
+        download_progress[download_id]['status'] = 'in_progress'
 
-        if download_progress.get(download_id, {}).get('cancelled'):
-            app_logger.info(f"Download {download_id} cancelled before starting.")
-            raise Exception("Download cancelled")
+        file_info = get_mega_file_info(url)
 
-        if dest_filename:
-            app_logger.info("Starting download with dest_filename")
-            dest_path = os.path.join(DOWNLOAD_DIR, dest_filename)
-            file_path = m.download_url(url, dest_filename=dest_path)
-        else:
-            file_path = m.download_url(url)
-            filename = os.path.basename(file_path)
-            target_path = os.path.join(DOWNLOAD_DIR, filename)
-            if os.path.abspath(file_path) != os.path.abspath(target_path):
-                shutil.move(file_path, target_path)
-                file_path = target_path
+        file_size = file_info['size']
+        file_name = secure_filename(dest_filename or file_info['name'])
+
+        base, ext = os.path.splitext(file_name)
+        file_path = os.path.join(DOWNLOAD_DIR, file_name)
+        counter = 1
+        while os.path.exists(file_path):
+            file_path = os.path.join(DOWNLOAD_DIR, f"{base}_{counter}{ext}")
+            counter += 1
+        tmp_path = file_path + ".part"
 
         download_progress[download_id]['filename'] = file_path
+        download_progress[download_id]['bytes_total'] = file_size
+
+        # Setup AES decryption
+        k_str = a32_to_str(file_info['k'])
+        counter_iv = Counter.new(128, initial_value=((file_info['iv'][0] << 32) + file_info['iv'][1]) << 64)
+        aes = AES.new(k_str, AES.MODE_CTR, counter=counter_iv)
+
+        with requests.get(file_info["g"], stream=True) as r, open(tmp_path, "wb") as f:
+            r.raise_for_status()
+            downloaded = 0
+            for chunk in r.iter_content(chunk_size=1 << 20):
+                if download_progress.get(download_id, {}).get('cancelled'):
+                    app_logger.info(f"Download {download_id} cancelled mid-transfer.")
+                    r.close()
+                    f.close()
+                    os.remove(tmp_path)
+                    download_progress[download_id]['status'] = 'cancelled'
+                    return None
+                if chunk:
+                    decrypted = aes.decrypt(chunk)
+                    f.write(decrypted)
+                    downloaded += len(chunk)
+                    download_progress[download_id]['bytes_downloaded'] = downloaded
+                    percent = int((downloaded / file_size) * 100)
+                    download_progress[download_id]['progress'] = percent
+                    print(f"{downloaded / 1e6:.2f}/{file_size / 1e6:.2f} MB - {percent}%", end="\r")
+
+        os.rename(tmp_path, file_path)
+        download_progress[download_id]['progress'] = 100
         download_progress[download_id]['status'] = 'complete'
-        app_logger.info(f"Downloaded file saved as: {file_path}")
+        app_logger.info(f"Download from Mega complete → {file_path}")
         return file_path
+
     except Exception as e:
         app_logger.error(f"Error downloading from Mega: {e}")
         download_progress[download_id]['status'] = 'error'
@@ -408,6 +381,7 @@ def download_pixeldrain(url: str, download_id: str, dest_name: Optional[str] = N
     else:
         dl_url = f"{pixeldrain.file(file_id)}?download"
         total_bytes = info.get("size")
+        download_progress[download_id]["bytes_total"] = total_bytes or 0
 
     # ---------- 4. Reserve output path ----------
     out_path = os.path.join(DOWNLOAD_DIR, filename_fs)
@@ -431,6 +405,7 @@ def download_pixeldrain(url: str, download_id: str, dest_name: Optional[str] = N
                 if total_bytes:
                     pct = int(done / total_bytes * 100)
                     download_progress[download_id]["progress"] = pct
+                    download_progress[download_id]["bytes_downloaded"] = done
 
     os.rename(tmp_path, out_path)
     download_progress[download_id]["progress"] = 100
@@ -455,8 +430,11 @@ def download():
     download_progress[download_id] = {
          'url': url,
          'progress': 0,
+         'bytes_total': 0,
+         'bytes_downloaded': 0,
          'status': 'queued',
          'filename': None,
+         'error': None,
     }
     task = {
          'download_id': download_id,
@@ -497,6 +475,23 @@ def clear_downloads():
 @app.route('/status', methods=['GET'])
 def status():
     return render_template('status.html')
+
+# -------------------------------
+# Graceful Shutdown
+# -------------------------------
+
+import signal
+def shutdown_handler(signum, frame):
+    app_logger.info("Shutting down download workers...")
+    for _ in worker_threads:
+        download_queue.put(None)
+    for t in worker_threads:
+        t.join()
+    app_logger.info("All workers stopped.")
+    os._exit(0)
+
+signal.signal(signal.SIGINT, shutdown_handler)
+signal.signal(signal.SIGTERM, shutdown_handler)
 
 # -------------------------------
 # Run the App

@@ -19,6 +19,15 @@ VOLUME_ISSUE_PATTERN = re.compile(
 )
 
 # -------------------------------------------------------------------
+# Pattern for just "Title YEAR anything.ext"
+# e.g. "Hulk vs. The Marvel Universe 2008 Digital4K.cbz" → "Hulk vs. The Marvel Universe (2008).cbz"
+# -------------------------------------------------------------------
+TITLE_YEAR_PATTERN = re.compile(
+    r'^(.*?)\b((?:19|20)\d{2})\b(.*)(\.\w+)$',
+    re.IGNORECASE
+)
+
+# -------------------------------------------------------------------
 # Pattern for explicit hash‐issue notation, e.g.:
 #   "Title 2 #10 (2018).cbz"
 #   Group(1) ⇒ "Title 2"
@@ -286,7 +295,17 @@ def get_renamed_filename(filename):
         return new_filename
 
     # ==========================================================
-    # 5) Fallback: Title (YYYY) anything .ext
+    # 5) Title with just YEAR (no volume or issue)
+    #     e.g. "Hulk vs. The Marvel Universe 2008 Digital.cbz"
+    # ==========================================================
+    title_year_match = TITLE_YEAR_PATTERN.match(cleaned_filename)
+    if title_year_match:
+        raw_title, found_year, _, extension = title_year_match.groups()
+        clean_title = raw_title.replace('_', ' ').strip()
+        return f"{clean_title} ({found_year}){extension}"
+
+    # ==========================================================
+    # 6) Fallback: Title (YYYY) anything .ext
     #    e.g. "Comic Name (2018) some extra.cbz" -> "Comic Name (2018).cbz"
     # ==========================================================
     fallback_match = FALLBACK_PATTERN.match(cleaned_filename)
