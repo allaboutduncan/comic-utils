@@ -489,17 +489,18 @@ function renderModalDirectoryListing(data, filter) {
     // When the filter is "all", also list files.
     if (filter === 'all' && data.files && data.files.length > 0) {
         data.files.forEach(file => {
+            const fileName = typeof file === "string" ? file : file.name;
             let fileItem = document.createElement("li");
             fileItem.className = "list-group-item list-group-item-action";
             let iconClass = "bi bi-file-earmark-zip";
             let iconStyle = "";
-            if (file.toLowerCase().endsWith(".pdf")) {
+            if (fileName.toLowerCase().endsWith(".pdf")) {
                 iconClass = "bi bi-file-earmark-pdf";
                 iconStyle = ' style="color: red;"';
             }
-            fileItem.innerHTML = `<i class="${iconClass} me-2"${iconStyle}></i> ${file}`;
+            fileItem.innerHTML = `<i class="${iconClass} me-2"${iconStyle}></i> ${fileName}`;
             fileItem.onclick = function() {
-                selectFile(data.current_path + "/" + file);
+                selectFile(data.current_path + "/" + fileName);
             };
             directoryList.appendChild(fileItem);
         });
