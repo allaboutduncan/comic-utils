@@ -43,7 +43,7 @@ Here's a quick list of features
 6. Enhance Images (__New in 2.0__)
 7. Delete File
 
-### Remote Downloads
+### Remote Downloads (New in 3.0)
 1. Send Downloads from GetComics.org Directly to your Server
 2. Support for GetComics, Pixeldrain and Mega
 3. Chrome Extension
