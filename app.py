@@ -90,13 +90,17 @@ def list_directories():
         # Exclude file types from browsing and skip files that start with '.' or '_'
         excluded_extensions = {".png", ".jpg", ".jpeg", ".gif", ".txt", ".html", ".css", ".ds_store", "cvinfo", ".json", ".db"}
         files = [
-            f for f in entries
+            {
+                "name": f,
+                "size": os.path.getsize(os.path.join(current_path, f))
+            }
+            for f in entries
             if os.path.isfile(os.path.join(current_path, f)) and
-               not f.startswith(('.', '_')) and
-               not any(f.lower().endswith(ext) for ext in excluded_extensions)
+            not f.startswith(('.', '_')) and
+            not any(f.lower().endswith(ext) for ext in excluded_extensions)
         ]
         # Sort files in alpha-numeric order (case-insensitive)
-        files.sort(key=lambda s: s.lower())
+        files.sort(key=lambda f: f["name"].lower())
 
         parent_dir = os.path.dirname(current_path) if current_path != DATA_DIR else None
 
@@ -135,13 +139,17 @@ def list_downloads():
         # Exclude file types from browsing and skip files that start with '.' or '_'
         excluded_extensions = {".png", ".jpg", ".jpeg", ".gif", ".txt", ".html", ".css", ".ds_store", "cvinfo", ".json", ".db"}
         files = [
-            f for f in entries
+            {
+                "name": f,
+                "size": os.path.getsize(os.path.join(current_path, f))
+            }
+            for f in entries
             if os.path.isfile(os.path.join(current_path, f)) and
-               not f.startswith(('.', '_')) and
-               not any(f.lower().endswith(ext) for ext in excluded_extensions)
+            not f.startswith(('.', '_')) and
+            not any(f.lower().endswith(ext) for ext in excluded_extensions)
         ]
         # Sort files in alpha-numeric order (case-insensitive)
-        files.sort(key=lambda s: s.lower())
+        files.sort(key=lambda f: f["name"].lower())
 
         parent_dir = os.path.dirname(current_path) if current_path != TARGET_DIR else None
 
@@ -216,6 +224,30 @@ def move():
         except Exception as e:
             return jsonify({"error": str(e)}), 500
     
+#####################################
+#       Calculate Folder Size       #
+#####################################
+@app.route('/folder-size', methods=['GET'])
+def folder_size():
+    path = request.args.get('path')
+    if not path or not os.path.exists(path):
+        return jsonify({"error": "Invalid path"}), 400
+
+    def get_directory_size(path):
+        total = 0
+        for root, _, files in os.walk(path):
+            for f in files:
+                try:
+                    fp = os.path.join(root, f)
+                    if os.path.exists(fp):
+                        total += os.path.getsize(fp)
+                except Exception:
+                    pass
+        return total
+
+    size = get_directory_size(path)
+    return jsonify({"size": size})
+
 
 #####################################
 #     Move Files/Folders UI Page    #

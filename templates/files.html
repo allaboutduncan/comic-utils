@@ -212,13 +212,22 @@
     function createListItem(itemName, fullPath, type, panel, isDraggable) {
       let li = document.createElement("li");
       li.className = "list-group-item d-flex align-items-center justify-content-between";
-  
+
+      function formatSize(bytes) {
+        const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+        if (bytes === 0) return '0 B';
+        const i = parseInt(Math.floor(Math.log(bytes) / Math.log(1024)));
+        return (bytes / Math.pow(1024, i)).toFixed(1) + ' ' + sizes[i];
+      }
+
+      // Normalize itemName input
+      let fileData = typeof itemName === "object" ? itemName : { name: itemName, size: null };
+
       // Left container: holds the icon (if applicable) and the item name.
       let leftContainer = document.createElement("div");
       leftContainer.className = "d-flex align-items-center";
-  
-      // Only add an icon if the item is not "Parent"
-      if (itemName.toLowerCase() !== "parent") {
+
+      if (fileData.name.toLowerCase() !== "parent") {
         let icon = document.createElement("i");
         if (type === "directory") {
           icon.className = "bi bi-folder me-2";
@@ -228,19 +237,58 @@
         }
         leftContainer.appendChild(icon);
       }
-  
-      // Create span for item name.
+
       let nameSpan = document.createElement("span");
-      nameSpan.textContent = itemName;
+      if (type === "file" && fileData.size != null) {
+        nameSpan.innerHTML = `${fileData.name} <span class="text-info-emphasis small ms-2">(${formatSize(fileData.size)})</span>`;
+      } else {
+        nameSpan.textContent = fileData.name;
+      }
       leftContainer.appendChild(nameSpan);
-  
-      // Right container: holds the edit and delete icons.
+
       let iconContainer = document.createElement("div");
       iconContainer.className = "icon-container";
 
-      // Only add icons if the item is not "Parent"
-      if (itemName !== "Parent") {
-        // Pencil icon for editing.
+      if (type === "directory") {
+        const infoWrapper = document.createElement("span");
+        infoWrapper.className = "me-2"; // margin-right for spacing
+
+        const infoIcon = document.createElement("i");
+        infoIcon.className = "bi bi-info-circle";
+        infoIcon.style.cursor = "pointer";
+
+        const sizeDisplay = document.createElement("span"); // <span> to hold the calculated size
+        sizeDisplay.className = "text-info-emphasis small ms-2";
+
+        infoIcon.onclick = function(e) {
+          e.stopPropagation();
+          infoIcon.className = "spinner-border spinner-border-sm"; // show spinner
+
+          fetch(`/folder-size?path=${encodeURIComponent(fullPath)}`)
+            .then(res => res.json())
+            .then(data => {
+              if (data.size != null) {
+                const sizeText = formatSize(data.size);
+                sizeDisplay.textContent = `(${sizeText})`;
+              } else {
+                sizeDisplay.textContent = "(error)";
+              }
+            })
+            .catch(err => {
+              console.error("Error calculating folder size:", err);
+              sizeDisplay.textContent = "(error)";
+            })
+            .finally(() => {
+              infoIcon.className = "bi bi-info-circle"; // restore icon
+            });
+        };
+
+        infoWrapper.appendChild(infoIcon);
+        infoWrapper.appendChild(sizeDisplay);
+        iconContainer.appendChild(infoWrapper);
+      }
+
+      if (fileData.name !== "Parent") {
         let pencil = document.createElement("i");
         pencil.className = "bi bi-pencil";
         pencil.style.cursor = "pointer";
@@ -249,23 +297,16 @@
           let input = document.createElement("input");
           input.type = "text";
           input.className = "edit-input";
-          input.value = itemName;
-          input.addEventListener("click", function(ev) {
-            ev.stopPropagation();
-          });
-          input.addEventListener("keypress", function(ev) {
-            if (ev.key === "Enter") {
-              renameItem(fullPath, input.value, panel);
-            }
+          input.value = fileData.name;
+          input.addEventListener("click", ev => ev.stopPropagation());
+          input.addEventListener("keypress", ev => {
+            if (ev.key === "Enter") renameItem(fullPath, input.value, panel);
           });
           li.replaceChild(input, leftContainer);
           input.focus();
-          input.addEventListener("blur", function() {
-            li.replaceChild(leftContainer, input);
-          });
+          input.addEventListener("blur", () => li.replaceChild(leftContainer, input));
         };
 
-        // Trash icon for deletion.
         let trash = document.createElement("i");
         trash.className = "bi bi-trash";
         trash.style.cursor = "pointer";
@@ -273,24 +314,20 @@
           e.stopPropagation();
           deleteTarget = fullPath;
           deletePanel = panel;
-          document.getElementById("deleteItemName").textContent = itemName;
-          let deleteModal = new bootstrap.Modal(document.getElementById("deleteModal"));
-          deleteModal.show();
+          document.getElementById("deleteItemName").textContent = fileData.name;
+          new bootstrap.Modal(document.getElementById("deleteModal")).show();
         };
 
         iconContainer.appendChild(pencil);
         iconContainer.appendChild(trash);
       }
-  
-      // Append left container and right icon container to list item.
+
       li.appendChild(leftContainer);
       li.appendChild(iconContainer);
-  
-      // For file items, set a data attribute and add updated click selection logic.
+
       if (type === "file") {
         li.setAttribute("data-fullpath", fullPath);
         li.addEventListener("click", function(e) {
-          // If CTRL or Command is pressed, toggle selection without clearing others.
           if (e.ctrlKey || e.metaKey) {
             e.preventDefault();
             if (selectedFiles.has(fullPath)) {
@@ -302,13 +339,10 @@
             }
             lastClickedFile = li;
           } else if (e.shiftKey) {
-            // SHIFT-click selects all files between last clicked and this one.
             let container = li.parentNode;
             let fileItems = Array.from(container.querySelectorAll("li.list-group-item"))
               .filter(item => item.getAttribute("data-fullpath"));
-            if (!lastClickedFile) {
-              lastClickedFile = li;
-            }
+            if (!lastClickedFile) lastClickedFile = li;
             let startIndex = fileItems.indexOf(lastClickedFile);
             let endIndex = fileItems.indexOf(li);
             if (startIndex === -1) startIndex = 0;
@@ -316,12 +350,10 @@
             let [minIndex, maxIndex] = startIndex < endIndex ? [startIndex, endIndex] : [endIndex, startIndex];
             for (let i = minIndex; i <= maxIndex; i++) {
               let item = fileItems[i];
-              let itemFullPath = item.getAttribute("data-fullpath");
-              selectedFiles.add(itemFullPath);
+              selectedFiles.add(item.getAttribute("data-fullpath"));
               item.classList.add("selected");
             }
           } else {
-            // No modifier: clear other selections and select this file.
             selectedFiles.clear();
             document.querySelectorAll("li.list-group-item.selected").forEach(item => {
               item.classList.remove("selected");
@@ -332,55 +364,37 @@
           }
           e.stopPropagation();
         });
-        
-        // Also prevent the context menu from appearing on file items.
-        li.addEventListener("contextmenu", function(e) {
-          e.preventDefault();
-        });
+
+        li.addEventListener("contextmenu", e => e.preventDefault());
       }
-  
-      // Inside createListItem, in the "if (type === 'directory')" block:
+
       if (type === "directory") {
         li.onclick = function() {
           currentFilter[panel] = 'all';
           loadDirectories(fullPath, panel);
         };
-
-        // Only attach drop events if this is NOT the Parent item.
-        if (itemName.toLowerCase() !== "parent") {
+        if (fileData.name.toLowerCase() !== "parent") {
           li.addEventListener("dragover", function(e) {
-            e.preventDefault();
-            e.stopPropagation();
-            li.classList.add("folder-hover");
+            e.preventDefault(); e.stopPropagation(); li.classList.add("folder-hover");
           });
           li.addEventListener("dragleave", function(e) {
-            e.stopPropagation();
-            li.classList.remove("folder-hover");
+            e.stopPropagation(); li.classList.remove("folder-hover");
           });
           li.addEventListener("drop", function(e) {
-            e.preventDefault();
-            e.stopPropagation();
-            li.classList.remove("folder-hover");
+            e.preventDefault(); e.stopPropagation(); li.classList.remove("folder-hover");
             let dataStr = e.dataTransfer.getData("text/plain");
             let items;
             try {
               items = JSON.parse(dataStr);
-              if (!Array.isArray(items)) {
-                items = [items];
-              }
-            } catch (err) {
+              if (!Array.isArray(items)) items = [items];
+            } catch {
               items = [{ path: dataStr, type: "unknown" }];
             }
-            // Prevent moves when dropping into the same directory.
-            let targetPath = fullPath;
             let validItems = items.filter(item => {
               let sourceDir = item.path.substring(0, item.path.lastIndexOf('/'));
-              return sourceDir !== targetPath;
+              return sourceDir !== fullPath;
             });
-            if (validItems.length === 0) {
-              console.log("All items dropped are in the same directory. Move cancelled.");
-              return;
-            }
+            if (validItems.length === 0) return;
             if (validItems.length === 1 && validItems[0].type === "file") {
               moveSingleItem(validItems[0].path, fullPath);
             } else {
@@ -391,40 +405,29 @@
           });
         }
       } else {
-        // For file items, prevent navigation.
-        li.onclick = function(e) {
-          e.stopPropagation();
-        };
+        li.onclick = e => e.stopPropagation();
       }
-  
-      // Drag handling.
+
       if (isDraggable) {
         li.classList.add("draggable");
         li.setAttribute("draggable", "true");
         li.addEventListener("dragstart", function(e) {
           if (type === "file") {
             if (selectedFiles.has(fullPath)) {
-              const payload = Array.from(selectedFiles).map(filePath => {
-                return { path: filePath, type: "file" };
-              });
-              e.dataTransfer.setData("text/plain", JSON.stringify(payload));
+              e.dataTransfer.setData("text/plain", JSON.stringify([...selectedFiles].map(path => ({ path, type: "file" }))));
             } else {
               selectedFiles.clear();
-              document.querySelectorAll("li.list-group-item.selected").forEach(item => {
-                item.classList.remove("selected");
-              });
+              document.querySelectorAll("li.list-group-item.selected").forEach(item => item.classList.remove("selected"));
               selectedFiles.add(fullPath);
               li.classList.add("selected");
-              const payload = [{ path: fullPath, type: "file" }];
-              e.dataTransfer.setData("text/plain", JSON.stringify(payload));
+              e.dataTransfer.setData("text/plain", JSON.stringify([{ path: fullPath, type: "file" }]));
             }
           } else {
-            const payload = [{ path: fullPath, type: "directory" }];
-            e.dataTransfer.setData("text/plain", JSON.stringify(payload));
+            e.dataTransfer.setData("text/plain", JSON.stringify([{ path: fullPath, type: "directory" }]));
           }
         });
       }
-  
+
       return li;
     }
   
