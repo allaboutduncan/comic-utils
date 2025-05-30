@@ -176,24 +176,27 @@ def move():
     data = request.get_json()
     source = data.get('source')
     destination = data.get('destination')
-    app_logger.info(f"********************// Move File //********************")
-    app_logger.info(f"Moving {source} to {destination}")
+    app_logger.info("********************// Move File //********************")
+    app_logger.info(f"Requested move from: {source} to: {destination}")
     
     if not source or not destination:
-        app_logger.error(f"Missing source or destination")
-        return jsonify({"error": "Missing source or destination"}), 400
+        app_logger.error("Missing source or destination in request")
+        return jsonify({"success": False, "error": "Missing source or destination"}), 400
+
     if not os.path.exists(source):
-        app_logger.error(f"Source does not exist")
-        return jsonify({"error": "Source does not exist"}), 404
+        app_logger.warning(f"Source path does not exist: {source}")
+        return jsonify({"success": False, "error": "Source path does not exist"}), 404
 
     stream = request.headers.get('X-Stream', 'false').lower() == 'true'
 
     if os.path.isfile(source) and stream:
         file_size = os.path.getsize(source)
+
         def generate():
             bytes_copied = 0
-            chunk_size = 1024 * 1024  # 1 MB chunks
+            chunk_size = 1024 * 1024  # 1 MB
             try:
+                app_logger.info(f"Streaming file move with progress: {source}")
                 with open(source, 'rb') as fsrc, open(destination, 'wb') as fdst:
                     while True:
                         chunk = fsrc.read(chunk_size)
@@ -204,12 +207,13 @@ def move():
                         progress = int((bytes_copied / file_size) * 100)
                         yield f"data: {progress}\n\n"
                 os.remove(source)
-                app_logger.info(f"Move complete: Removed {source}")
+                app_logger.info(f"Move complete (streamed): Removed {source}")
                 yield "data: 100\n\n"
             except Exception as e:
+                app_logger.exception(f"Error during streaming move from {source} to {destination}")
                 yield f"data: error: {str(e)}\n\n"
-            # Signal that the stream is complete.
             yield "data: done\n\n"
+
         headers = {
             "Content-Type": "text/event-stream",
             "Cache-Control": "no-cache",
@@ -217,12 +221,24 @@ def move():
             "Connection": "close"
         }
         return Response(stream_with_context(generate()), headers=headers)
+
     else:
         try:
+            app_logger.info(f"Performing shutil.move from {source} to {destination}")
             shutil.move(source, destination)
+
+            # Recheck for existence at destination if desired
+            if not os.path.exists(destination):
+                raise FileNotFoundError(f"Destination not found after move: {destination}")
+
+            app_logger.info(f"Move complete (shutil): {source} -> {destination}")
             return jsonify({"success": True})
+        except FileNotFoundError as fnf:
+            app_logger.warning(f"FileNotFoundError during move: {fnf}")
+            return jsonify({"success": False, "error": str(fnf)}), 404
         except Exception as e:
-            return jsonify({"error": str(e)}), 500
+            app_logger.exception(f"Unexpected error moving {source} to {destination}")
+            return jsonify({"success": False, "error": str(e)}), 500
     
 #####################################
 #       Calculate Folder Size       #
@@ -233,21 +249,31 @@ def folder_size():
     if not path or not os.path.exists(path):
         return jsonify({"error": "Invalid path"}), 400
 
-    def get_directory_size(path):
-        total = 0
+    def get_directory_stats(path):
+        total_size = 0
+        comic_count = 0
+        magazine_count = 0
         for root, _, files in os.walk(path):
             for f in files:
                 try:
                     fp = os.path.join(root, f)
                     if os.path.exists(fp):
-                        total += os.path.getsize(fp)
+                        total_size += os.path.getsize(fp)
+                        ext = f.lower()
+                        if ext.endswith(('.cbz', '.cbr')):
+                            comic_count += 1
+                        elif ext.endswith('.pdf'):
+                            magazine_count += 1
                 except Exception:
                     pass
-        return total
+        return total_size, comic_count, magazine_count
 
-    size = get_directory_size(path)
-    return jsonify({"size": size})
-
+    size, comic_count, magazine_count = get_directory_stats(path)
+    return jsonify({
+        "size": size,
+        "comic_count": comic_count,
+        "magazine_count": magazine_count
+    })
 
 #####################################
 #     Move Files/Folders UI Page    #

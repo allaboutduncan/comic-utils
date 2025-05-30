@@ -276,21 +276,41 @@
         const sizeDisplay = document.createElement("span");
         sizeDisplay.className = "text-info-emphasis small ms-2";
 
-        infoIcon.onclick = function(e) {
+        infoIcon.onclick = function (e) {
           e.stopPropagation();
           infoIcon.className = "spinner-border spinner-border-sm";
 
           fetch(`/folder-size?path=${encodeURIComponent(fullPath)}`)
             .then(res => res.json())
             .then(data => {
-              sizeDisplay.textContent = data.size != null ? `(${formatSize(data.size)})` : "(error)";
+              if (data.size != null) {
+                let displayText = formatSize(data.size);
+                const parts = [];
+
+                if (data.comic_count && data.comic_count > 0) {
+                  parts.push(`${data.comic_count} comic${data.comic_count !== 1 ? 's' : ''}`);
+                }
+
+                if (data.magazine_count && data.magazine_count > 0) {
+                  parts.push(`${data.magazine_count} magazine${data.magazine_count !== 1 ? 's' : ''}`);
+                }
+
+                if (parts.length > 0) {
+                  displayText += " – " + parts.join(" – ");
+                }
+
+                sizeDisplay.textContent = `(${displayText})`;
+              } else {
+                sizeDisplay.textContent = "(error)";
+              }
+
+              // Remove the icon after success
+              infoWrapper.removeChild(infoIcon);
             })
             .catch(err => {
               console.error("Error calculating folder size:", err);
               sizeDisplay.textContent = "(error)";
-            })
-            .finally(() => {
-              infoIcon.className = "bi bi-info-circle";
+              infoIcon.className = "bi bi-info-circle"; // restore fallback
             });
         };
 
@@ -668,8 +688,9 @@
             container.appendChild(parentItem);
           }
           data.directories.forEach(dir => {
-            let fullPath = data.current_path + "/" + dir;
-            let item = createListItem(dir, fullPath, "directory", panel, true);
+            const dirData = normalizeFile(dir);
+            const fullPath = data.current_path + "/" + dirData.name;
+            const item = createListItem(dirData, fullPath, "directory", panel, true);
             container.appendChild(item);
           });
           data.files.forEach(file => {
@@ -1017,7 +1038,8 @@
         .then(res => res.json())
         .then(data => {
           if (!data.success) {
-            alert("Error moving file: " + (data.error || 'Unknown error'));
+            console.warn("Move reported error, but continuing:", data.error);
+            // Optional: display a non-blocking log to user or modal footer
           }
           currentIndex++;
           moveNext();
