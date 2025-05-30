@@ -422,7 +422,10 @@
           li.addEventListener("dragover", e => { e.preventDefault(); li.classList.add("folder-hover"); });
           li.addEventListener("dragleave", e => { li.classList.remove("folder-hover"); });
           li.addEventListener("drop", function(e) {
-            e.preventDefault(); li.classList.remove("folder-hover");
+            e.preventDefault();
+            e.stopPropagation();
+            li.classList.remove("folder-hover");
+
             let dataStr = e.dataTransfer.getData("text/plain");
             let items;
             try {
@@ -431,17 +434,26 @@
             } catch {
               items = [{ path: dataStr, type: "unknown" }];
             }
-            let validItems = items.filter(item => {
-              let sourceDir = item.path.substring(0, item.path.lastIndexOf('/'));
-              return sourceDir !== fullPath;
+            
+            let targetDir = fullPath;
+            let dedupedPaths = new Set();
+
+            items.forEach(item => {
+              let sourcePath = item.path;
+              let sourceDir = sourcePath.substring(0, sourcePath.lastIndexOf('/'));
+              if (sourceDir !== targetDir && !dedupedPaths.has(sourcePath)) {
+                dedupedPaths.add(sourcePath);
+              }
             });
-            if (validItems.length === 0) return;
-            if (validItems.length === 1 && validItems[0].type === "file") {
-              moveSingleItem(validItems[0].path, fullPath);
+
+            const paths = [...dedupedPaths];
+            if (paths.length === 0) return;
+
+            if (paths.length === 1 && items[0].type === "file") {
+              moveSingleItem(paths[0], targetDir);
             } else {
-              let paths = validItems.map(item => item.path);
-              moveMultipleItems(paths, fullPath, panel);
-            }
+              moveMultipleItems(paths, targetDir, panel);
+            } 
             selectedFiles.clear();
           });
         }
@@ -870,11 +882,12 @@
         }
         
         // If only one valid file item is being moved, call moveSingleItem for progress.
-        if (validItems.length === 1 && validItems[0].type === "file") {
-          let sourcePath = validItems[0].path;
-          moveSingleItem(sourcePath, targetPath);
+        const paths = validItems.map(item => item.path);
+
+        // If *only one item is selected*, and no other selections exist, use moveSingleItem
+        if (paths.length === 1 && selectedFiles.size <= 1 && validItems[0].type === "file") {
+          moveSingleItem(paths[0], targetPath);
         } else {
-          let paths = validItems.map(item => item.path);
           moveMultipleItems(paths, targetPath, panel);
         }
         selectedFiles.clear();
@@ -1024,6 +1037,7 @@
         let sourcePath = typeof fileObj === 'string' ? fileObj : fileObj.path || fileObj.name;
         let fileName = sourcePath.split('/').pop();
         let message = `Moving ${fileName} (${currentIndex + 1} of ${totalCount})`;
+        console.log(message)
         setMovingStatus(message);
         let percentage = Math.floor((currentIndex / totalCount) * 100);
         updateMovingProgress(percentage);
