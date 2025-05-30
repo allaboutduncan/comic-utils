@@ -145,32 +145,52 @@
     let selectedFiles = new Set();
     // Global variable to track the last clicked file element (for SHIFT selection).
     let lastClickedFile = null;
-  
+
     // Store raw data for each panel.
     let sourceDirectoriesData = null;
     let destinationDirectoriesData = null;
-  
+
     // Track current filter (default is 'all') per panel.
     let currentFilter = { source: 'all', destination: 'all' };
+
+    // Normalize file object (handles both {name, size} or string)
+    function normalizeFile(file) {
+      if (typeof file === 'object' && file.name) return file;
+      return { name: file, size: null };
+    }
   
     // Function to send a rename request.
     function renameItem(oldPath, newName, panel) {
+      if (typeof oldPath !== "string" || typeof newName !== "string") {
+        console.error("Invalid oldPath or newName:", { oldPath, newName });
+        alert("Rename failed: Internal path error (non-string input)");
+        return;
+      }
+
+      const trimmedName = newName.trim();
+      if (!trimmedName) {
+        alert("Filename cannot be empty.");
+        return;
+      }
+
       let pathParts = oldPath.split('/');
-      pathParts[pathParts.length - 1] = newName;
-      let newPath = pathParts.join('/');
-  
-      console.log('oldPath:', oldPath);
-      console.log('newPath:', newPath);
+      pathParts[pathParts.length - 1] = trimmedName;
+      const newPath = pathParts.join('/');
+
+      console.log("renameItem called:");
+      console.log("  oldPath:", oldPath);
+      console.log("  newName:", newName);
+      console.log("  newPath:", newPath);
 
       fetch('/rename', {
         method: 'POST',
-        headers: {"Content-Type": "application/json"},
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ old: oldPath, new: newPath })
       })
       .then(response => response.json())
       .then(result => {
-        if(result.success) {
-          if(panel === 'source') {
+        if (result.success) {
+          if (panel === 'source') {
             loadDirectories(currentSourcePath, 'source');
           } else {
             loadDirectories(currentDestinationPath, 'destination');
@@ -181,6 +201,7 @@
       })
       .catch(error => {
         console.error("Error in rename request:", error);
+        alert("Rename failed due to a network or server error.");
       });
     }
   
@@ -212,6 +233,7 @@
     function createListItem(itemName, fullPath, type, panel, isDraggable) {
       let li = document.createElement("li");
       li.className = "list-group-item d-flex align-items-center justify-content-between";
+      li.dataset.fullpath = fullPath;
 
       function formatSize(bytes) {
         const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
@@ -220,21 +242,15 @@
         return (bytes / Math.pow(1024, i)).toFixed(1) + ' ' + sizes[i];
       }
 
-      // Normalize itemName input
       let fileData = typeof itemName === "object" ? itemName : { name: itemName, size: null };
 
-      // Left container: holds the icon (if applicable) and the item name.
       let leftContainer = document.createElement("div");
       leftContainer.className = "d-flex align-items-center";
 
       if (fileData.name.toLowerCase() !== "parent") {
         let icon = document.createElement("i");
-        if (type === "directory") {
-          icon.className = "bi bi-folder me-2";
-          icon.style.color = "#bf9300";
-        } else {
-          icon.className = "bi bi-file-earmark-zip me-2";
-        }
+        icon.className = (type === "directory") ? "bi bi-folder me-2" : "bi bi-file-earmark-zip me-2";
+        if (type === "directory") icon.style.color = "#bf9300";
         leftContainer.appendChild(icon);
       }
 
@@ -251,35 +267,30 @@
 
       if (type === "directory") {
         const infoWrapper = document.createElement("span");
-        infoWrapper.className = "me-2"; // margin-right for spacing
+        infoWrapper.className = "me-2";
 
         const infoIcon = document.createElement("i");
         infoIcon.className = "bi bi-info-circle";
         infoIcon.style.cursor = "pointer";
 
-        const sizeDisplay = document.createElement("span"); // <span> to hold the calculated size
+        const sizeDisplay = document.createElement("span");
         sizeDisplay.className = "text-info-emphasis small ms-2";
 
         infoIcon.onclick = function(e) {
           e.stopPropagation();
-          infoIcon.className = "spinner-border spinner-border-sm"; // show spinner
+          infoIcon.className = "spinner-border spinner-border-sm";
 
           fetch(`/folder-size?path=${encodeURIComponent(fullPath)}`)
             .then(res => res.json())
             .then(data => {
-              if (data.size != null) {
-                const sizeText = formatSize(data.size);
-                sizeDisplay.textContent = `(${sizeText})`;
-              } else {
-                sizeDisplay.textContent = "(error)";
-              }
+              sizeDisplay.textContent = data.size != null ? `(${formatSize(data.size)})` : "(error)";
             })
             .catch(err => {
               console.error("Error calculating folder size:", err);
               sizeDisplay.textContent = "(error)";
             })
             .finally(() => {
-              infoIcon.className = "bi bi-info-circle"; // restore icon
+              infoIcon.className = "bi bi-info-circle";
             });
         };
 
@@ -292,20 +303,34 @@
         let pencil = document.createElement("i");
         pencil.className = "bi bi-pencil";
         pencil.style.cursor = "pointer";
-        pencil.onclick = function(e) {
+
+        pencil.addEventListener("click", e => {
           e.stopPropagation();
-          let input = document.createElement("input");
+          const liElem = e.currentTarget.closest("li");
+          const oldPath = liElem.dataset.fullpath;
+          const nameSpanElem = liElem.querySelector("span");
+
+          const input = document.createElement("input");
           input.type = "text";
-          input.className = "edit-input";
-          input.value = fileData.name;
+          input.className = "form-control form-control-sm edit-input";
+          input.value = typeof fileData === "object" ? fileData.name : fileData;
           input.addEventListener("click", ev => ev.stopPropagation());
+
           input.addEventListener("keypress", ev => {
-            if (ev.key === "Enter") renameItem(fullPath, input.value, panel);
+            if (ev.key === "Enter") {
+              const newName = input.value.trim();
+              if (!newName) return alert("Filename cannot be empty.");
+              renameItem(oldPath, newName, panel);
+            }
           });
-          li.replaceChild(input, leftContainer);
+
+          input.addEventListener("blur", () => {
+            liElem.replaceChild(leftContainer, input);
+          });
+
+          liElem.replaceChild(input, leftContainer);
           input.focus();
-          input.addEventListener("blur", () => li.replaceChild(leftContainer, input));
-        };
+        });
 
         let trash = document.createElement("i");
         trash.className = "bi bi-trash";
@@ -374,14 +399,10 @@
           loadDirectories(fullPath, panel);
         };
         if (fileData.name.toLowerCase() !== "parent") {
-          li.addEventListener("dragover", function(e) {
-            e.preventDefault(); e.stopPropagation(); li.classList.add("folder-hover");
-          });
-          li.addEventListener("dragleave", function(e) {
-            e.stopPropagation(); li.classList.remove("folder-hover");
-          });
+          li.addEventListener("dragover", e => { e.preventDefault(); li.classList.add("folder-hover"); });
+          li.addEventListener("dragleave", e => { li.classList.remove("folder-hover"); });
           li.addEventListener("drop", function(e) {
-            e.preventDefault(); e.stopPropagation(); li.classList.remove("folder-hover");
+            e.preventDefault(); li.classList.remove("folder-hover");
             let dataStr = e.dataTransfer.getData("text/plain");
             let items;
             try {
@@ -537,8 +558,9 @@
       
       if (filter === 'all') {
         data.files.forEach(file => {
-          let fullPath = data.current_path + "/" + file;
-          let fileItem = createListItem(file, fullPath, "file", panel, true);
+          const fileData = normalizeFile(file);
+          const fullPath = data.current_path + "/" + fileData.name;
+          let fileItem = createListItem(fileData, fullPath, "file", panel, true);
           container.appendChild(fileItem);
         });
       }
@@ -651,8 +673,9 @@
             container.appendChild(item);
           });
           data.files.forEach(file => {
-            let fullPath = data.current_path + "/" + file;
-            let fileItem = createListItem(file, fullPath, "file", panel, true);
+            const fileData = normalizeFile(file);
+            const fullPath = data.current_path + "/" + fileData.name;
+            let fileItem = createListItem(fileData, fullPath, "file", panel, true);
             container.appendChild(fileItem);
           });
         })
@@ -689,13 +712,12 @@
       });
     }
 
-    // Function to move a single item with progress.
+    // Patch moveSingleItem to tolerate file objects
     function moveSingleItem(sourcePath, targetFolder) {
-      showMovingModal(); // Ensure modal is visible before starting progress
-      let fileName = sourcePath.split('/').pop();
+      let actualPath = typeof sourcePath === 'object' ? sourcePath.path || sourcePath.name : sourcePath;
+      showMovingModal();
+      let fileName = actualPath.split('/').pop();
       setMovingStatus(`Moving ${fileName}`);
-      
-      // Reset progress bar before starting the move
       updateMovingProgress(0);
 
       const xhr = new XMLHttpRequest();
@@ -751,9 +773,8 @@
         hideMovingModal();
       };
 
-      // Send request
       const payload = {
-        source: sourcePath,
+        source: actualPath,
         destination: targetFolder + "/" + fileName
       };
 
@@ -966,7 +987,7 @@
       movingProgressBar.style.width = percentage + "%";
       movingProgressBar.setAttribute('aria-valuenow', percentage);
     }
-    // Function to move multiple items with progress.
+    // Fix for moveMultipleItems call (wrap paths with { path, type })
     function moveMultipleItems(filePaths, targetFolder, panel) {
       showMovingModal();
       let totalCount = filePaths.length;
@@ -978,7 +999,8 @@
           loadDirectories(currentDestinationPath, 'destination');
           return;
         }
-        let sourcePath = filePaths[currentIndex];
+        let fileObj = normalizeFile(filePaths[currentIndex]);
+        let sourcePath = typeof fileObj === 'string' ? fileObj : fileObj.path || fileObj.name;
         let fileName = sourcePath.split('/').pop();
         let message = `Moving ${fileName} (${currentIndex + 1} of ${totalCount})`;
         setMovingStatus(message);
