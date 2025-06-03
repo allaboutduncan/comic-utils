@@ -54,6 +54,20 @@
         <ul id="destination-list" class="list-group drop-target"></ul>
       </div>      
     </div>
+
+    <!-- Toast Container -->
+    <div class="toast-container position-fixed bottom-0 end-0 p-3" style="z-index: 1100">
+      <div id="moveErrorToast" class="toast bg-danger text-white" role="alert" aria-live="assertive" aria-atomic="true">
+        <div class="toast-header bg-danger text-white">
+          <strong class="me-auto">Move Error</strong>
+          <button type="button" class="btn-close btn-close-white" data-bs-dismiss="toast" aria-label="Close"></button>
+        </div>
+        <div class="toast-body" id="moveErrorToastBody">
+          Move failed.
+        </div>
+      </div>
+    </div>
+
   </div>
 
   <!-- Delete Confirmation Modal (Bootstrap 5.3) -->
@@ -1059,8 +1073,26 @@
           moveNext();
         })
         .catch(err => {
-          console.error("Error in move request:", err);
-          alert("An unexpected error occurred while moving files.");
+          const fileName = filePaths[currentIndex].split('/').pop();
+          const detailMessage = `Failed to move "${fileName}" → "${targetFolder}": ${err.message || err}`;
+          
+          // Console logging
+          console.error("Move failed:", {
+            file: fileName,
+            source: filePaths[currentIndex],
+            destination: targetFolder + '/' + fileName,
+            error: err
+          });
+
+          // Optional: Toast fallback (if Bootstrap 5 or custom toast is available)
+          if (window.bootstrap && document.getElementById("moveErrorToast")) {
+            document.getElementById("moveErrorToastBody").textContent = detailMessage;
+            bootstrap.Toast.getOrCreateInstance(document.getElementById("moveErrorToast")).show();
+          } else {
+            // Fallback alert
+            alert(detailMessage);
+          }
+
           currentIndex++;
           moveNext();
         });
