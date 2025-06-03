@@ -1,52 +1,58 @@
 <!-- templates/header.html -->
 {% set current_page = request.path %}
 
-<div class="container">
-    <header class="d-flex flex-wrap justify-content-center py-3 mb-4 border-bottom">
-      <a href="/" class="d-flex align-items-center mb-3 mb-md-0 me-md-auto link-body-emphasis text-decoration-none">
-        <img src="{{ url_for('static', filename='images/clu.png') }}" alt="CLU (Comic Library Utilities) Logo" width="72"">
-      </a>
-      
-      <ul class="nav nav-pills">
+<nav class="navbar navbar-expand-lg bg-primary navbar-dark" data-bs-theme="dark">
+  <div class="container">
+    <a class="navbar-brand d-flex align-items-center" href="/">
+      <img src="{{ url_for('static', filename='images/clu.png') }}" alt="CLU Logo" width="40" class="me-2">
+      CLU
+    </a>
+
+    <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#cluNavbar" aria-controls="cluNavbar" aria-expanded="false" aria-label="Toggle navigation">
+      <span class="navbar-toggler-icon"></span>
+    </button>
+
+    <div class="collapse navbar-collapse" id="cluNavbar">
+      <ul class="navbar-nav ms-auto mb-2 mb-lg-0">
         <li class="nav-item">
-            <a href="{{ url_for('index') }}" class="nav-link {% if current_page == url_for('index') %}active{% endif %}" aria-current="page">
-                Home
-            </a>
+          <a href="{{ url_for('index') }}" class="nav-link {% if current_page == url_for('index') %}active{% endif %}">
+            Home
+          </a>
         </li>
-      <li class="nav-item">
-        <a href="{{ url_for('files_page') }}" class="nav-link position-relative {% if current_page == url_for('files_page') %}active{% endif %}">
-          File Manager
-          <span id="file-watch-badge" class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-info d-none">
-            0
-          </span>
-        </a>
-      </li>
-      <li class="nav-item">
-        <a href="{{ url_for('status') }}" class="nav-link position-relative {% if current_page == url_for('status') %}active{% endif %}">
-          Downloads
-          <span id="download-badge" class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger d-none">
-            0
-          </span>
-        </a>
-      </li>  
         <li class="nav-item">
-            <a href="{{ url_for('config_page') }}" class="nav-link {% if current_page == url_for('config_page') %}active{% endif %}">
-                Settings
-            </a>
+          <a href="{{ url_for('files_page') }}" class="nav-link position-relative {% if current_page == url_for('files_page') %}active{% endif %}">
+            File Manager
+            <span id="file-watch-badge" class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-warning d-none">
+              0
+            </span>
+          </a>
+        </li>
+        <li class="nav-item">
+          <a href="{{ url_for('status') }}" class="nav-link position-relative {% if current_page == url_for('status') %}active{% endif %}">
+            Downloads
+            <span id="download-badge" class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger d-none">
+              0
+            </span>
+          </a>
+        </li>
+        <li class="nav-item">
+          <a href="{{ url_for('config_page') }}" class="nav-link {% if current_page == url_for('config_page') %}active{% endif %}">
+            Settings
+          </a>
         </li>
         <li class="nav-item">
           <a href="{{ url_for('app_logs_page') }}" class="nav-link {% if current_page == url_for('app_logs_page') %}active{% endif %}">
-              App Logs
+            App Logs
           </a>
         </li>
         {% if monitor == "yes" %}
         <li class="nav-item">
           <a href="{{ url_for('mon_logs_page') }}" class="nav-link {% if current_page == url_for('mon_logs_page') %}active{% endif %}">
-              Monitor Logs
+            Monitor Logs
           </a>
         </li>
         {% endif %}
-    </ul>
-
-    </header>
+      </ul>
+    </div>
   </div>
+</nav>
