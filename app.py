@@ -162,7 +162,6 @@ def list_downloads():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-
 #####################################
 #  Move Files/Folders (Drag & Drop) #
 #####################################
@@ -691,6 +690,22 @@ def shutdown_server():
 # Handle termination signals
 signal.signal(signal.SIGTERM, lambda signum, frame: shutdown_server())
 signal.signal(signal.SIGINT, lambda signum, frame: shutdown_server())
+
+@app.route('/watch-count')
+def watch_count():
+    watch_dir = config.get("SETTINGS", "WATCH", fallback="/temp")
+    ignored_exts = config.get("SETTINGS", "IGNORED_EXTENSIONS", fallback=".crdownload")
+    ignored = set(ext.strip().lower() for ext in ignored_exts.split(",") if ext.strip())
+
+    total = 0
+    for root, _, files in os.walk(watch_dir):
+        for f in files:
+            if f.startswith('.') or f.startswith('_'):
+                continue
+            if any(f.lower().endswith(ext) for ext in ignored):
+                continue
+            total += 1
+    return jsonify({"total_files": total})
 
 #########################
 #   Application Start   #

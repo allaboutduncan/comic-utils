@@ -475,6 +475,11 @@ def cancel_download(download_id):
 def download_status_all():
     return jsonify(download_progress)
 
+@app.route('/download_summary')
+def download_summary():
+    active = sum(1 for d in download_progress.values() if d.get("status") in ["queued", "in_progress"])
+    return jsonify({"active": active})
+
 @app.route('/clear_downloads', methods=['POST'])
 def clear_downloads():
     keys_to_delete = [
