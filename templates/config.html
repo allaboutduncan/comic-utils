@@ -2,34 +2,6 @@
 
 {% block title %}CLU: Settings Page{% endblock %}
 
-{% block scripts %}
-{{ super() }}
-<script>
-    function restartApp() {
-        fetch('/restart', { method: 'POST' })
-        .then(response => response.json())
-        .then(data => alert(data.message))
-        .catch(error => console.error('Error:', error));
-    }
-    
-    document.addEventListener("DOMContentLoaded", function () {
-        const xmlCheckboxes = document.querySelectorAll(".xml-checkbox");
-
-       xmlCheckboxes.forEach(checkbox => {
-            checkbox.addEventListener("change", function () {
-                if (this.checked) {
-                    xmlCheckboxes.forEach(cb => {
-                        if (cb !== this) {
-                            cb.checked = false;
-                        }
-                    });
-                }
-            });
-        });
-    });
-</script>
-{% endblock %}
-
 {% block content %}
 
 <div class="container-lg">
@@ -262,4 +234,32 @@
     </div>
 </div>
 
+{% endblock %}
+
+{% block scripts %}
+{{ super() }}
+<script>
+    function restartApp() {
+        fetch('/restart', { method: 'POST' })
+        .then(response => response.json())
+        .then(data => alert(data.message))
+        .catch(error => console.error('Error:', error));
+    }
+    
+    document.addEventListener("DOMContentLoaded", function () {
+        const xmlCheckboxes = document.querySelectorAll(".xml-checkbox");
+
+       xmlCheckboxes.forEach(checkbox => {
+            checkbox.addEventListener("change", function () {
+                if (this.checked) {
+                    xmlCheckboxes.forEach(cb => {
+                        if (cb !== this) {
+                            cb.checked = false;
+                        }
+                    });
+                }
+            });
+        });
+    });
+</script>
 {% endblock %}
