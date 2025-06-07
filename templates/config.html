@@ -3,6 +3,7 @@
 {% block title %}CLU: Settings Page{% endblock %}
 
 {% block scripts %}
+{{ super() }}
 <script>
     function restartApp() {
         fetch('/restart', { method: 'POST' })
@@ -261,8 +262,4 @@
     </div>
 </div>
 
-{% endblock %}
-
-{% block scripts %}
-{{ super() }}
 {% endblock %}
