@@ -71,6 +71,11 @@ def convert_to_cbz(file_path):
     app_logger.info(f"********************// Single File Conversion //********************")
     app_logger.info(f"-- Path to file: {file_path}")
     
+    # Check if the file exists
+    if not os.path.exists(file_path):
+        app_logger.error(f"File does not exist: {file_path}")
+        return
+    
     # Check if it's a .rar or .cbr file
     if file_path.lower().endswith(('.rar', '.cbr')):
         app_logger.info("Converting RAR/CBR to CBZ format")
@@ -83,27 +88,39 @@ def convert_to_cbz(file_path):
         
         try:
             # Extract the RAR or CBR file into the temp directory
-            extract_rar_with_unar(file_path, temp_extraction_dir)
+            extraction_success = extract_rar_with_unar(file_path, temp_extraction_dir)
+            
+            if not extraction_success:
+                app_logger.error(f"Failed to extract any files from {file_path}")
+                return
 
             # Create the final CBZ file from extracted content
             cbz_file_path = base_name + '.cbz'
+            extracted_count = 0
+            
             with zipfile.ZipFile(cbz_file_path, 'w', zipfile.ZIP_DEFLATED) as zf:
                 for root, _, files in os.walk(temp_extraction_dir):
                     for file in files:
                         file_path_in_dir = os.path.join(root, file)
                         arcname = os.path.relpath(file_path_in_dir, temp_extraction_dir)
                         zf.write(file_path_in_dir, arcname)
+                        extracted_count += 1
 
-            app_logger.info(f"Successfully converted: {file_path} to {cbz_file_path}")
+            app_logger.info(f"Successfully converted: {file_path} to {cbz_file_path} ({extracted_count} files)")
 
             # Delete the original file (RAR or CBR)
             os.remove(file_path)
         except Exception as e:
             app_logger.error(f"Failed to convert {file_path}: {e}")
+            # Don't re-raise the exception here to allow cleanup to proceed
         finally:
             # Clean up temporary extraction directory
             if os.path.exists(temp_extraction_dir):
-                shutil.rmtree(temp_extraction_dir)
+                try:
+                    shutil.rmtree(temp_extraction_dir)
+                    app_logger.info(f"Cleaned up temporary directory: {temp_extraction_dir}")
+                except Exception as cleanup_error:
+                    app_logger.error(f"Failed to clean up temporary directory {temp_extraction_dir}: {cleanup_error}")
 
     # Check if it's a .cbz file
     elif file_path.lower().endswith('.cbz'):

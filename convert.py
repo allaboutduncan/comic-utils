@@ -43,7 +43,11 @@ def convert_rar_directory(directory):
                     app_logger.info(f"Converting: {rar_path} -> {zip_path}")
                     try:
                         os.makedirs(temp_extraction_dir, exist_ok=True)
-                        extract_rar_with_unar(rar_path, temp_extraction_dir)
+                        extraction_success = extract_rar_with_unar(rar_path, temp_extraction_dir)
+                        
+                        if not extraction_success:
+                            app_logger.error(f"Failed to extract any files from {file_name}")
+                            continue
 
                         with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zf:
                             for extract_root, extract_dirs, extract_files in os.walk(temp_extraction_dir):
@@ -80,7 +84,11 @@ def convert_rar_directory(directory):
                 app_logger.info(f"Converting: {rar_path} -> {zip_path}")
                 try:
                     os.makedirs(temp_extraction_dir, exist_ok=True)
-                    extract_rar_with_unar(rar_path, temp_extraction_dir)
+                    extraction_success = extract_rar_with_unar(rar_path, temp_extraction_dir)
+                    
+                    if not extraction_success:
+                        app_logger.error(f"Failed to extract any files from {file_name}")
+                        continue
 
                     with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zf:
                         for root2, dirs2, files2 in os.walk(temp_extraction_dir):
