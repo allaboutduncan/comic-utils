@@ -110,7 +110,7 @@ def parentheses_replacer(match):
     # Strip the outer parentheses
     inner_text = match.group(0)[1:-1]
     # Look for a 4-digit year
-    year_match = re.search(r'\d{4}', inner_text)
+    year_match = re.search(r'\b\d{4}\b', inner_text)
     if year_match:
         year = year_match.group(0)
         return f"({year})"
@@ -328,6 +328,8 @@ def get_renamed_filename(filename):
     if title_year_match:
         raw_title, found_year, _, extension = title_year_match.groups()
         clean_title = raw_title.replace('_', ' ').strip()
+        # Remove any trailing opening parenthesis that might have been captured
+        clean_title = clean_title.rstrip(' (')
         return f"{clean_title} ({found_year}){extension}"
 
     # ==========================================================
