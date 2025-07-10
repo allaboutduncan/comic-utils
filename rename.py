@@ -87,6 +87,19 @@ FALLBACK_PATTERN = re.compile(
     re.IGNORECASE
 )
 
+# -------------------------------------------------------------------
+# Pattern for issue number + year in parentheses, e.g.:
+#   "Leonard Nimoy's Primortals (00 1996).cbz"
+#   Group(1) => "Leonard Nimoy's Primortals"
+#   Group(2) => "00"
+#   Group(3) => "1996"
+#   Group(4) => ".cbz"
+# -------------------------------------------------------------------
+ISSUE_YEAR_PARENTHESES_PATTERN = re.compile(
+    r'^(.*?)\s*\((\d{1,3})\s+(\d{4})\)(.*)(\.\w+)$',
+    re.IGNORECASE
+)
+
 
 def parentheses_replacer(match):
     """
@@ -155,15 +168,28 @@ def clean_directory_name(directory_name):
 def get_renamed_filename(filename):
     """
     Given a single filename (no directory path):
-      1) Pre-clean the filename by removing bracketed text,
+      1) Check for special case: issue number + year in parentheses (e.g. "Title (00 1996).ext")
+      2) Pre-clean the filename by removing bracketed text,
          processing parentheses (keeping only 4-digit years),
          and removing dash-separated numbers.
-      2) Try VOLUME_ISSUE_PATTERN first (e.g. "Title v3 051 (2018).ext").
-      3) If it fails, try the single ISSUE_PATTERN.
-      4) Next, try ISSUE_AFTER_YEAR_PATTERN for cases where the issue number follows the year.
-      5) If that fails, try FALLBACK_PATTERN for just (YYYY).
-      6) If none match, return None.
+      3) Try VOLUME_ISSUE_PATTERN first (e.g. "Title v3 051 (2018).ext").
+      4) If it fails, try the single ISSUE_PATTERN.
+      5) Next, try ISSUE_AFTER_YEAR_PATTERN for cases where the issue number follows the year.
+      6) If that fails, try FALLBACK_PATTERN for just (YYYY).
+      7) If none match, return None.
     """
+    # ==========================================================
+    # 0) Special case: Issue number + year in parentheses (BEFORE pre-cleaning)
+    #    e.g. "Leonard Nimoy's Primortals (00 1996).cbz"
+    # ==========================================================
+    issue_year_paren_match = ISSUE_YEAR_PARENTHESES_PATTERN.match(filename)
+    if issue_year_paren_match:
+        raw_title, issue_num, year, extra, extension = issue_year_paren_match.groups()
+        clean_title = raw_title.replace('_', ' ').strip()
+        final_issue = f"{int(issue_num):03d}"
+        new_filename = f"{clean_title} {final_issue} ({year}){extension}"
+        return new_filename
+
     # Pre-processing step
     cleaned_filename = clean_filename_pre(filename)
 
@@ -316,7 +342,7 @@ def get_renamed_filename(filename):
         return new_filename
 
     # ==========================================================
-    # 6) No match => return None
+    # 7) No match => return None
     # ==========================================================
     return None
 
