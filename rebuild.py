@@ -7,12 +7,35 @@ from app_logging import app_logger
 from helpers import is_hidden, extract_rar_with_unar
 
 
-def convert_rar_to_zip_in_directory(directory):
+def count_rebuildable_files(directory):
+    """
+    Count the total number of files that will be rebuilt (RAR/CBR for conversion + CBZ for rebuild).
+    
+    :param directory: Path to the directory containing files.
+    :return: Total count of files to process
+    """
+    total_files = 0
+    
+    for file_name in os.listdir(directory):
+        file_path = os.path.join(directory, file_name)
+        # Skip hidden files in the source directory.
+        if is_hidden(file_path):
+            continue
+        # Count RAR/CBR files (for conversion) and CBZ files (for rebuild)
+        if file_name.lower().endswith(('.rar', '.cbr', '.cbz')):
+            total_files += 1
+    
+    return total_files
+
+
+def convert_rar_to_zip_in_directory(directory, total_files=None, processed_files=None):
     """
     Convert all RAR/CBR files in a directory to CBZ files using unar for extraction,
     skipping hidden system files and directories.
     
     :param directory: Path to the directory containing RAR/CBR files.
+    :param total_files: Total number of files to process (for progress tracking)
+    :param processed_files: Current processed count (for progress tracking)
     :return: List of successfully converted files (without extensions).
     """
     app_logger.info("********************// Rebuild ALL Files in Directory //********************")
@@ -26,6 +49,9 @@ def convert_rar_to_zip_in_directory(directory):
             continue
 
         if file_name.lower().endswith(('.rar', '.cbr')):
+            if total_files and processed_files is not None:
+                processed_files[0] += 1
+            
             rar_path = file_path
             temp_extraction_dir = os.path.join(directory, f"temp_{file_name[:-4]}")
             zip_path = os.path.join(directory, file_name[:-4] + '.cbz')
@@ -66,9 +92,12 @@ def rebuild_task(directory):
         app_logger.error(f"Directory {directory} not found.")
         return
 
+    # Count total files for progress tracking first
+    total_rebuildable = count_rebuildable_files(directory)
+    processed_files = 0
     app_logger.info(f"Checking for rar/cbr files in directory: {directory}...")
 
-    converted_files = convert_rar_to_zip_in_directory(directory)
+    converted_files = convert_rar_to_zip_in_directory(directory, total_rebuildable, [processed_files])
 
     app_logger.info(f"Rebuilding project in directory: {directory}...")
 
@@ -89,6 +118,8 @@ def rebuild_task(directory):
         if is_hidden(file_path):
             app_logger.info(f"Skipping hidden file: {file_path}")
             continue
+
+        processed_files += 1
 
         new_zip_file = os.path.join(directory, base_name + ".zip")
 

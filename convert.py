@@ -12,6 +12,39 @@ load_config()
 convertSubdirectories = config.getboolean("SETTINGS", "CONVERT_SUBDIRECTORIES", fallback=False)
 
 
+def count_convertable_files(directory):
+    """
+    Count the total number of RAR and CBR files that will be converted.
+    
+    :param directory: Path to the directory containing RAR and CBR files.
+    :return: Total count of files to convert
+    """
+    total_files = 0
+    
+    if convertSubdirectories:
+        # Recursively traverse the directory tree.
+        for root, dirs, files in os.walk(directory):
+            # Skip hidden directories.
+            dirs[:] = [d for d in dirs if not is_hidden(os.path.join(root, d))]
+            for file_name in files:
+                file_path = os.path.join(root, file_name)
+                if is_hidden(file_path):
+                    continue
+                # Count only .rar and .cbr files.
+                if file_name.lower().endswith(('.rar', '.cbr')):
+                    total_files += 1
+    else:
+        # Non-recursive count: only count files in the given directory.
+        for file_name in os.listdir(directory):
+            file_path = os.path.join(directory, file_name)
+            if is_hidden(file_path):
+                continue
+            if file_name.lower().endswith(('.rar', '.cbr')):
+                total_files += 1
+    
+    return total_files
+
+
 def convert_rar_directory(directory):
     """
     Convert all RAR and CBR files in a directory (and optionally its subdirectories)
@@ -23,7 +56,11 @@ def convert_rar_directory(directory):
     app_logger.info("********************// Convert Directory to CBZ //********************")
     os.makedirs(directory, exist_ok=True)
     converted_files = []
-
+    
+    # Count total files first for progress tracking
+    total_files = count_convertable_files(directory)
+    processed_files = 0
+    
     if convertSubdirectories:
         # Recursively traverse the directory tree.
         for root, dirs, files in os.walk(directory):
@@ -36,6 +73,8 @@ def convert_rar_directory(directory):
 
                 # Process only .rar and .cbr files.
                 if file_name.lower().endswith(('.rar', '.cbr')):
+                    processed_files += 1
+                    
                     rar_path = file_path
                     temp_extraction_dir = os.path.join(root, f"temp_{file_name[:-4]}")
                     zip_path = os.path.join(root, f"{file_name[:-4]}.cbz")
@@ -77,6 +116,8 @@ def convert_rar_directory(directory):
                 continue
 
             if file_name.lower().endswith(('.rar', '.cbr')):
+                processed_files += 1
+                
                 rar_path = file_path
                 temp_extraction_dir = os.path.join(directory, f"temp_{file_name[:-4]}")
                 zip_path = os.path.join(directory, f"{file_name[:-4]}.cbz")

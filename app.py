@@ -15,6 +15,7 @@ import pwd
 from api import app 
 from config import config, load_flask_config, write_config, load_config
 from edit import get_edit_modal, save_cbz, cropCenter, cropLeft, cropRight, get_image_data_url, modal_body_template
+from memory_utils import initialize_memory_management, cleanup_on_exit, memory_context, get_global_monitor
 
 load_config()
 
@@ -64,6 +65,8 @@ app_logger.propagate = False
 # Example usage
 app_logger.info("App started successfully!")
 
+# Initialize memory management
+initialize_memory_management()
 
 #########################
 #   List Directories    #
@@ -78,38 +81,39 @@ def list_directories():
         return jsonify({"error": "Directory not found"}), 404
 
     try:
-        entries = os.listdir(current_path)
-        # Only include directories that do not start with '.' or '_'
-        directories = [
-            d for d in entries
-            if os.path.isdir(os.path.join(current_path, d)) and not d.startswith(('.', '_'))
-        ]
-        # Sort directories in alpha-numeric order (case-insensitive)
-        directories.sort(key=lambda s: s.lower())
+        with memory_context("list_directories"):
+            entries = os.listdir(current_path)
+            # Only include directories that do not start with '.' or '_'
+            directories = [
+                d for d in entries
+                if os.path.isdir(os.path.join(current_path, d)) and not d.startswith(('.', '_'))
+            ]
+            # Sort directories in alpha-numeric order (case-insensitive)
+            directories.sort(key=lambda s: s.lower())
 
-        # Exclude file types from browsing and skip files that start with '.' or '_'
-        excluded_extensions = {".png", ".jpg", ".jpeg", ".gif", ".txt", ".html", ".css", ".ds_store", "cvinfo", ".json", ".db"}
-        files = [
-            {
-                "name": f,
-                "size": os.path.getsize(os.path.join(current_path, f))
-            }
-            for f in entries
-            if os.path.isfile(os.path.join(current_path, f)) and
-            not f.startswith(('.', '_')) and
-            not any(f.lower().endswith(ext) for ext in excluded_extensions)
-        ]
-        # Sort files in alpha-numeric order (case-insensitive)
-        files.sort(key=lambda f: f["name"].lower())
+            # Exclude file types from browsing and skip files that start with '.' or '_'
+            excluded_extensions = {".png", ".jpg", ".jpeg", ".gif", ".txt", ".html", ".css", ".ds_store", "cvinfo", ".json", ".db"}
+            files = [
+                {
+                    "name": f,
+                    "size": os.path.getsize(os.path.join(current_path, f))
+                }
+                for f in entries
+                if os.path.isfile(os.path.join(current_path, f)) and
+                not f.startswith(('.', '_')) and
+                not any(f.lower().endswith(ext) for ext in excluded_extensions)
+            ]
+            # Sort files in alpha-numeric order (case-insensitive)
+            files.sort(key=lambda f: f["name"].lower())
 
-        parent_dir = os.path.dirname(current_path) if current_path != DATA_DIR else None
+            parent_dir = os.path.dirname(current_path) if current_path != DATA_DIR else None
 
-        return jsonify({
-            "current_path": current_path,
-            "directories": directories,
-            "files": files,
-            "parent": parent_dir
-        })
+            return jsonify({
+                "current_path": current_path,
+                "directories": directories,
+                "files": files,
+                "parent": parent_dir
+            })
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -127,38 +131,39 @@ def list_downloads():
         return jsonify({"error": "Directory not found"}), 404
 
     try:
-        entries = os.listdir(current_path)
-        # Only include directories that do not start with '.' or '_'
-        directories = [
-            d for d in entries
-            if os.path.isdir(os.path.join(current_path, d)) and not d.startswith(('.', '_'))
-        ]
-        # Sort directories in alpha-numeric order (case-insensitive)
-        directories.sort(key=lambda s: s.lower())
+        with memory_context("list_downloads"):
+            entries = os.listdir(current_path)
+            # Only include directories that do not start with '.' or '_'
+            directories = [
+                d for d in entries
+                if os.path.isdir(os.path.join(current_path, d)) and not d.startswith(('.', '_'))
+            ]
+            # Sort directories in alpha-numeric order (case-insensitive)
+            directories.sort(key=lambda s: s.lower())
 
-        # Exclude file types from browsing and skip files that start with '.' or '_'
-        excluded_extensions = {".png", ".jpg", ".jpeg", ".gif", ".txt", ".html", ".css", ".ds_store", "cvinfo", ".json", ".db"}
-        files = [
-            {
-                "name": f,
-                "size": os.path.getsize(os.path.join(current_path, f))
-            }
-            for f in entries
-            if os.path.isfile(os.path.join(current_path, f)) and
-            not f.startswith(('.', '_')) and
-            not any(f.lower().endswith(ext) for ext in excluded_extensions)
-        ]
-        # Sort files in alpha-numeric order (case-insensitive)
-        files.sort(key=lambda f: f["name"].lower())
+            # Exclude file types from browsing and skip files that start with '.' or '_'
+            excluded_extensions = {".png", ".jpg", ".jpeg", ".gif", ".txt", ".html", ".css", ".ds_store", "cvinfo", ".json", ".db"}
+            files = [
+                {
+                    "name": f,
+                    "size": os.path.getsize(os.path.join(current_path, f))
+                }
+                for f in entries
+                if os.path.isfile(os.path.join(current_path, f)) and
+                not f.startswith(('.', '_')) and
+                not any(f.lower().endswith(ext) for ext in excluded_extensions)
+            ]
+            # Sort files in alpha-numeric order (case-insensitive)
+            files.sort(key=lambda f: f["name"].lower())
 
-        parent_dir = os.path.dirname(current_path) if current_path != TARGET_DIR else None
+            parent_dir = os.path.dirname(current_path) if current_path != TARGET_DIR else None
 
-        return jsonify({
-            "current_path": current_path,
-            "directories": directories,
-            "files": files,
-            "parent": parent_dir
-        })
+            return jsonify({
+                "current_path": current_path,
+                "directories": directories,
+                "files": files,
+                "parent": parent_dir
+            })
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -190,28 +195,32 @@ def move():
 
     if os.path.isfile(source) and stream:
         file_size = os.path.getsize(source)
+        
+        # Use memory context for large file operations
+        cleanup_threshold = 1000 if file_size > 100 * 1024 * 1024 else 500  # 100MB threshold
 
         def generate():
-            bytes_copied = 0
-            chunk_size = 1024 * 1024  # 1 MB
-            try:
-                app_logger.info(f"Streaming file move with progress: {source}")
-                with open(source, 'rb') as fsrc, open(destination, 'wb') as fdst:
-                    while True:
-                        chunk = fsrc.read(chunk_size)
-                        if not chunk:
-                            break
-                        fdst.write(chunk)
-                        bytes_copied += len(chunk)
-                        progress = int((bytes_copied / file_size) * 100)
-                        yield f"data: {progress}\n\n"
-                os.remove(source)
-                app_logger.info(f"Move complete (streamed): Removed {source}")
-                yield "data: 100\n\n"
-            except Exception as e:
-                app_logger.exception(f"Error during streaming move from {source} to {destination}")
-                yield f"data: error: {str(e)}\n\n"
-            yield "data: done\n\n"
+            with memory_context("file_move", cleanup_threshold):
+                bytes_copied = 0
+                chunk_size = 1024 * 1024  # 1 MB
+                try:
+                    app_logger.info(f"Streaming file move with progress: {source}")
+                    with open(source, 'rb') as fsrc, open(destination, 'wb') as fdst:
+                        while True:
+                            chunk = fsrc.read(chunk_size)
+                            if not chunk:
+                                break
+                            fdst.write(chunk)
+                            bytes_copied += len(chunk)
+                            progress = int((bytes_copied / file_size) * 100)
+                            yield f"data: {progress}\n\n"
+                    os.remove(source)
+                    app_logger.info(f"Move complete (streamed): Removed {source}")
+                    yield "data: 100\n\n"
+                except Exception as e:
+                    app_logger.exception(f"Error during streaming move from {source} to {destination}")
+                    yield f"data: error: {str(e)}\n\n"
+                yield "data: done\n\n"
 
         headers = {
             "Content-Type": "text/event-stream",
@@ -222,22 +231,18 @@ def move():
         return Response(stream_with_context(generate()), headers=headers)
 
     else:
-        try:
-            app_logger.info(f"Performing shutil.move from {source} to {destination}")
-            shutil.move(source, destination)
-
-            # Recheck for existence at destination if desired
-            if not os.path.exists(destination):
-                raise FileNotFoundError(f"Destination not found after move: {destination}")
-
-            app_logger.info(f"Move complete (shutil): {source} -> {destination}")
-            return jsonify({"success": True})
-        except FileNotFoundError as fnf:
-            app_logger.warning(f"FileNotFoundError during move: {fnf}")
-            return jsonify({"success": False, "error": str(fnf)}), 404
-        except Exception as e:
-            app_logger.exception(f"Unexpected error moving {source} to {destination}")
-            return jsonify({"success": False, "error": str(e)}), 500
+        # Non-streaming move for folders or when streaming is disabled
+        with memory_context("file_move"):
+            try:
+                if os.path.isfile(source):
+                    shutil.move(source, destination)
+                else:
+                    shutil.move(source, destination)
+                app_logger.info(f"Move complete: {source} -> {destination}")
+                return jsonify({"success": True})
+            except Exception as e:
+                app_logger.error(f"Error moving {source} to {destination}: {e}")
+                return jsonify({"success": False, "error": str(e)}), 500
     
 #####################################
 #       Calculate Folder Size       #
@@ -501,10 +506,11 @@ def stream_logs(script_type):
 
         def generate_logs():
             process = subprocess.Popen(
-                ['python', script_file, file_path],
+                ['python', '-u', script_file, file_path],
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
-                text=True
+                text=True,
+                bufsize=0
             )
             # Capture both stdout and stderr
             for line in process.stdout:
@@ -528,10 +534,11 @@ def stream_logs(script_type):
 
         def generate_logs():
             process = subprocess.Popen(
-                ['python', script_file, directory],
+                ['python', '-u', script_file, directory],
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
-                text=True
+                text=True,
+                bufsize=0
             )
             for line in process.stdout:
                 yield f"data: {line}\n\n"  # Format required by SSE

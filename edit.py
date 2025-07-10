@@ -7,6 +7,8 @@ from flask import render_template_string, request, jsonify
 from PIL import Image
 from app_logging import app_logger
 from config import config, load_config
+from helpers import create_thumbnail_streaming, safe_image_open
+import gc
 
 load_config()
 skipped_exts = config.get("SETTINGS", "SKIPPED_FILES", fallback="")
@@ -68,6 +70,7 @@ def process_cbz_file(file_path):
          (This is done recursively in case there are multiple nested directories.)
       5. Delete all .nfo, .sfv, .db and .DS_Store files.
     Returns a dictionary with 'folder_name' and 'zip_file_path'.
+    Uses memory-efficient streaming extraction.
     """
     app_logger.info("********************// Editing CBZ File //********************")
     if not file_path.lower().endswith('.cbz'):
@@ -80,47 +83,69 @@ def process_cbz_file(file_path):
     
     app_logger.info(f"Processing CBZ: {file_path} --> {zip_path}")
     
-    # Step 1: Rename .cbz to .zip
-    os.rename(file_path, zip_path)
-    
-    # Step 2: Create folder for extraction
-    os.makedirs(folder_name, exist_ok=True)
-    
-    # Step 3: Extract ZIP contents into folder
-    with zipfile.ZipFile(zip_path, 'r') as zf:
-        zf.extractall(folder_name)
-    
-    # Optional: Remove unwanted system files (.DS_Store) before checking for single folder
-    for root, _, files in os.walk(folder_name):
-        for file in files:
-            if file.lower() == '.ds_store':
-                os.remove(os.path.join(root, file))
-    
-    # Step 4: Check if the extracted content contains a single directory.
-    # Do this recursively in case the ZIP nests multiple single-directory levels.
-    while True:
-        # List only directories, ignoring any loose files.
-        inner_dirs = [d for d in os.listdir(folder_name) if os.path.isdir(os.path.join(folder_name, d))]
-        if len(inner_dirs) == 1:
-            folder_name = os.path.join(folder_name, inner_dirs[0])
-            app_logger.info(f"Found a single nested folder, updating folder_name to: {folder_name}")
-        else:
-            break
-    
-    # Step 5: Delete files that match deleted extensions (case-insensitive)
-    for root, _, files in os.walk(folder_name):
-        for file in files:
-            ext = os.path.splitext(file)[1].lower()
-            if ext in deletedFiles:
-                file_path = os.path.join(root, file)
+    try:
+        # Step 1: Rename .cbz to .zip
+        os.rename(file_path, zip_path)
+        
+        # Step 2: Create folder for extraction
+        os.makedirs(folder_name, exist_ok=True)
+        
+        # Step 3: Extract ZIP contents into folder using streaming
+        with zipfile.ZipFile(zip_path, 'r') as zf:
+            # Get list of files first to avoid memory issues
+            file_list = zf.namelist()
+            
+            for filename in file_list:
                 try:
-                    os.remove(file_path)
-                    app_logger.info(f"Deleted unwanted file: {file_path}")
+                    zf.extract(filename, folder_name)
                 except Exception as e:
-                    app_logger.error(f"Error deleting file {file_path}: {e}")
+                    app_logger.warning(f"Failed to extract {filename}: {e}")
+                    continue
+        
+        # Optional: Remove unwanted system files (.DS_Store) before checking for single folder
+        for root, _, files in os.walk(folder_name):
+            for file in files:
+                if file.lower() == '.ds_store':
+                    try:
+                        os.remove(os.path.join(root, file))
+                    except Exception as e:
+                        app_logger.warning(f"Failed to remove .DS_Store file: {e}")
+        
+        # Step 4: Check if the extracted content contains a single directory.
+        # Do this recursively in case the ZIP nests multiple single-directory levels.
+        while True:
+            # List only directories, ignoring any loose files.
+            inner_dirs = [d for d in os.listdir(folder_name) if os.path.isdir(os.path.join(folder_name, d))]
+            if len(inner_dirs) == 1:
+                folder_name = os.path.join(folder_name, inner_dirs[0])
+                app_logger.info(f"Found a single nested folder, updating folder_name to: {folder_name}")
+            else:
+                break
+        
+        # Step 5: Delete files that match deleted extensions (case-insensitive)
+        for root, _, files in os.walk(folder_name):
+            for file in files:
+                ext = os.path.splitext(file)[1].lower()
+                if ext in deletedFiles:
+                    file_path = os.path.join(root, file)
+                    try:
+                        os.remove(file_path)
+                        app_logger.info(f"Deleted unwanted file: {file_path}")
+                    except Exception as e:
+                        app_logger.error(f"Error deleting file {file_path}: {e}")
 
-    app_logger.info(f"Extraction complete: {folder_name}")
-    return {"folder_name": folder_name, "zip_file_path": zip_path}
+        app_logger.info(f"Extraction complete: {folder_name}")
+        return {"folder_name": folder_name, "zip_file_path": zip_path}
+        
+    except Exception as e:
+        app_logger.error(f"Error processing CBZ file: {e}")
+        # Clean up on error
+        if os.path.exists(folder_name):
+            try:
+                shutil.rmtree(folder_name)
+            except Exception as cleanup_error:
+                app_logger.error(f"Error cleaning up folder on failure: {cleanup_error}")
+        raise
 
 
 def get_edit_modal(file_path):
@@ -129,6 +154,7 @@ def get_edit_modal(file_path):
       - modal_body: rendered HTML for the modal body (Bootstrap cards)
       - folder_name, zip_file_path, original_file_path: for the hidden form fields.
     This function walks through subdirectories and ignores .xml files.
+    Uses memory-efficient thumbnail generation.
     """
     result = process_cbz_file(file_path)
     folder_name = result["folder_name"]
@@ -149,23 +175,28 @@ def get_edit_modal(file_path):
             filename_only = os.path.basename(rel_path)  # Extract only the file name
             img_data = None
 
-            # Attempt thumbnail generation for common image types
+            # Attempt thumbnail generation for common image types using streaming
             if f.lower().endswith(('.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp')):
                 try:
                     full_path = os.path.join(root, f)
-                    with Image.open(full_path) as img:
-                        if img.height > 0:
-                            ratio = 100 / float(img.height)
-                            new_width = int(img.width * ratio)
-                            img = img.resize((new_width, 100), Image.LANCZOS)
-                            buffered = io.BytesIO()
-                            img.save(buffered, format="PNG")
-                            encoded = base64.b64encode(buffered.getvalue()).decode('utf-8')
-                            img_data = f"data:image/png;base64,{encoded}"
+                    
+                    # Use streaming thumbnail generation
+                    thumbnail_data = create_thumbnail_streaming(full_path, max_size=(100, 100), quality=85)
+                    
+                    if thumbnail_data:
+                        encoded = base64.b64encode(thumbnail_data).decode('utf-8')
+                        img_data = f"data:image/jpeg;base64,{encoded}"
+                    else:
+                        app_logger.warning(f"Failed to generate thumbnail for: {rel_path}")
+                        
                 except Exception as e:
                     app_logger.info(f"Thumbnail generation failed for '{rel_path}': {e}")
 
             file_cards.append({"filename": filename_only, "rel_path": rel_path, "img_data": img_data})
+            
+            # Force garbage collection periodically to prevent memory buildup
+            if len(file_cards) % 10 == 0:
+                gc.collect()
 
     modal_body_html = render_template_string(modal_body_template, file_cards=file_cards)
     
@@ -183,6 +214,7 @@ def save_cbz():
       - Re-compressing the extracted folder (sorted) into a .cbz file (Step 6)
       - Deleting the .bak file and cleaning up (Step 7)
     This function is meant to be used as a route handler and is imported in app.py.
+    Uses memory-efficient streaming compression.
     """
     app_logger.info(f"Clean up and re-compressing the CBZ file.")
     folder_name = request.form.get('folder_name')
@@ -198,37 +230,58 @@ def save_cbz():
         os.rename(zip_file_path, bak_file_path)
         
         # Step 7: Re-compress the folder contents into a .cbz file (sorted).
-        file_list = []
-        for root, _, files in os.walk(folder_name):
-            for file in files:
-                file_path_in_folder = os.path.join(root, file)
-                arcname = os.path.relpath(file_path_in_folder, folder_name)
-                file_list.append((arcname, file_path_in_folder))
-        file_list.sort(key=lambda x: x[0])
-        with zipfile.ZipFile(original_file_path, 'w', zipfile.ZIP_DEFLATED) as zf:
-            for arcname, file_path_in_folder in file_list:
-                zf.write(file_path_in_folder, arcname)
-        
-        app_logger.info(f"Successfully re-compressed: {original_file_path}")
+        # Use streaming approach to avoid loading all files into memory
+        with zipfile.ZipFile(original_file_path, 'w', zipfile.ZIP_DEFLATED, compresslevel=6) as cbz:
+            # Collect all files first
+            file_list = []
+            for root, _, files in os.walk(folder_name):
+                for file in files:
+                    full_path = os.path.join(root, file)
+                    rel_path = os.path.relpath(full_path, folder_name)
+                    file_list.append((rel_path, full_path))
+            
+            # Sort files for consistent ordering
+            file_list.sort(key=lambda x: x[0])
+            
+            # Add files to zip one by one
+            for rel_path, full_path in file_list:
+                try:
+                    cbz.write(full_path, rel_path)
+                except Exception as e:
+                    app_logger.warning(f"Failed to add {rel_path} to CBZ: {e}")
+                    continue
         
         # Step 8: Delete the .bak file.
-        os.remove(bak_file_path)
-        app_logger.info(f"Deleted the .bak file: {bak_file_path}")
-
-        # Step 9: Clean up the temporary extraction folder.
-        # Instead of deleting folder_name (which might be the inner folder),
-        # compute the outer extraction folder using the original file path.
-        outer_folder = os.path.splitext(original_file_path)[0] + '_folder'
-        if os.path.exists(outer_folder):
-            shutil.rmtree(outer_folder)
-            app_logger.info(f"Deleted the extraction folder: {outer_folder}")
-
-        return jsonify({
-            "success": True,
-            "message": f"File processed successfully: {original_file_path}"
-        })
+        try:
+            os.remove(bak_file_path)
+            app_logger.info(f"Deleted backup file: {bak_file_path}")
+        except Exception as e:
+            app_logger.error(f"Error deleting backup file {bak_file_path}: {e}")
+        
+        # Step 9: Clean up the extracted folder(s).
+        try:
+            # Clean up the current folder (which might be a nested folder)
+            if os.path.exists(folder_name):
+                shutil.rmtree(folder_name)
+                app_logger.info(f"Cleaned up extracted folder: {folder_name}")
+            
+            # Also clean up the outer extraction folder (with _folder suffix)
+            # This handles the case where we extracted to a nested folder
+            outer_folder = os.path.splitext(original_file_path)[0] + '_folder'
+            if os.path.exists(outer_folder) and outer_folder != folder_name:
+                shutil.rmtree(outer_folder)
+                app_logger.info(f"Cleaned up outer extraction folder: {outer_folder}")
+                
+        except Exception as e:
+            app_logger.error(f"Error cleaning up folders: {e}")
+        
+        # Force garbage collection
+        gc.collect()
+        
+        return jsonify({"success": True, "message": "CBZ file saved successfully"})
+        
     except Exception as e:
-        app_logger.error(f"Failed to complete processing: {e}")
+        app_logger.error(f"Error saving CBZ file: {e}")
         return jsonify({"success": False, "error": str(e)}), 500
     
 

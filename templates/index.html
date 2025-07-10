@@ -192,6 +192,27 @@
         </form>
     </div>
 
+    <!-- Progress indicator -->
+    <div class="row p-3" id="progress-container" style="display: none;">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h5 class="card-title mb-0">Processing Progress</h5>
+                    <button type="button" class="btn-close" onclick="hideProgressIndicator()" aria-label="Close"></button>
+                </div>
+                <div class="card-body">
+                    <div class="progress mb-3" style="height: 25px;">
+                        <div id="progress-bar" class="progress-bar progress-bar-striped progress-bar-animated" 
+                             role="progressbar" style="width: 0%" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100">
+                            0%
+                        </div>
+                    </div>
+                    <div id="progress-text" class="text-muted">Initializing...</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- Logs container with Bootstrap classes -->
     <div class="row p-3">
         <div id="liveAlertPlaceholder"></div>
@@ -284,6 +305,13 @@ function disableButtons() {
 function enableButtons() {
     document.querySelectorAll('button').forEach(button => button.disabled = false);
     document.getElementById('selected-directory').disabled = false;
+}
+
+function hideProgressIndicator() {
+    const progressContainer = document.getElementById('progress-container');
+    if (progressContainer) {
+        progressContainer.style.display = 'none';
+    }
 }
 
 function selectFile(filePath) {
@@ -614,9 +642,91 @@ function executeScript(scriptType) {
     disableButtons();
     const logsContainer = document.getElementById('logs');
     logsContainer.innerHTML = "";
+    
+    // Show progress container for directory operations
+    const progressContainer = document.getElementById('progress-container');
+    const progressBar = document.getElementById('progress-bar');
+    const progressText = document.getElementById('progress-text');
+    
+            if (scriptType === 'convert' || scriptType === 'rebuild') {
+            progressContainer.style.display = 'block';
+            progressBar.style.width = '0%';
+            progressBar.textContent = '0%';
+            progressBar.setAttribute('aria-valuenow', '0');
+            progressText.textContent = 'Initializing...';
+            
+            // Initialize progress tracking variables
+            window.progressData = {
+                totalFiles: 0,
+                processedFiles: 0,
+                currentFile: '',
+                initialized: false
+            };
+        }
+    
+
+
+    // Parse log messages for progress updates
     eventSource.onmessage = (event) => {
         const line = event.data.trim();
         const logLine = document.createElement('div');
+        
+        // Check for progress-related log messages
+        if (scriptType === 'convert' || scriptType === 'rebuild') {
+            // Look for total files count - be more specific
+            if (line.includes('Total .cbz files to process:') && !window.progressData.initialized) {
+                const match = line.match(/Total \.cbz files to process: (\d+)/);
+                if (match) {
+                    window.progressData.totalFiles = parseInt(match[1]);
+                    window.progressData.initialized = true;
+                    console.log(`Total files detected: ${window.progressData.totalFiles}`);
+                    progressText.textContent = `Found ${window.progressData.totalFiles} files to process. Starting...`;
+                }
+            }
+            
+            // Look for file processing messages - only if initialized
+            if ((line.includes('Processing file:') || line.includes('Converting:')) && window.progressData.initialized) {
+                window.progressData.processedFiles++;
+                console.log(`Progress update: ${window.progressData.processedFiles}/${window.progressData.totalFiles}`);
+                
+                if (window.progressData.totalFiles > 0) {
+                    const progressPercent = Math.round((window.progressData.processedFiles / window.progressData.totalFiles) * 100);
+                    console.log(`Progress percent: ${progressPercent}%`);
+                    
+                    // Update progress bar immediately
+                    progressBar.style.width = progressPercent + '%';
+                    progressBar.textContent = progressPercent + '%';
+                    progressBar.setAttribute('aria-valuenow', progressPercent);
+                    
+                    // Extract filename from the log message
+                    const filenameMatch = line.match(/Processing file: (.+?) \(/);
+                    const convertMatch = line.match(/Converting: .+? -> (.+?)$/);
+                    if (filenameMatch) {
+                        progressText.textContent = `Processing: ${filenameMatch[1]} (${window.progressData.processedFiles}/${window.progressData.totalFiles})`;
+                    } else if (convertMatch) {
+                        progressText.textContent = `Converting: ${convertMatch[1]} (${window.progressData.processedFiles}/${window.progressData.totalFiles})`;
+                    }
+                }
+            }
+            
+            // Look for completion - be more specific
+            if ((line.includes('Conversion completed') || line.includes('Rebuild completed')) && window.progressData.initialized) {
+                progressBar.style.width = '100%';
+                progressBar.textContent = '100%';
+                progressBar.setAttribute('aria-valuenow', '100');
+                progressText.textContent = `Completed processing ${window.progressData.processedFiles} files!`;
+                
+                // Auto-hide progress container after 5 seconds
+                setTimeout(() => {
+                    const progressContainer = document.getElementById('progress-container');
+                    if (progressContainer) {
+                        progressContainer.style.display = 'none';
+                    }
+                }, 5000);
+            }
+        }
+        
+        // Handle regular log display
         if (line.startsWith("ERROR:")) {
             logLine.textContent = line;
             logLine.className = "alert alert-danger";
