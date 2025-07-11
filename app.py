@@ -12,6 +12,9 @@ import signal
 import psutil
 import select
 import pwd
+from functools import lru_cache
+from collections import defaultdict
+import hashlib
 from api import app 
 from config import config, load_flask_config, write_config, load_config
 from edit import get_edit_modal, save_cbz, cropCenter, cropLeft, cropRight, get_image_data_url, modal_body_template
@@ -23,6 +26,115 @@ load_config()
 
 DATA_DIR = "/data"  # Directory to browse
 TARGET_DIR = config.get("SETTINGS", "TARGET", fallback="/processed")
+
+#########################
+#     Cache System      #
+#########################
+
+# Global cache for directory listings
+directory_cache = {}
+cache_timestamps = {}
+CACHE_DURATION = 5  # Cache for 5 seconds
+MAX_CACHE_SIZE = 100  # Maximum number of cached directories
+
+def get_directory_hash(path):
+    """Generate a hash for directory contents to detect changes."""
+    try:
+        stat = os.stat(path)
+        # Use modification time and size as a simple change detector
+        return f"{stat.st_mtime}_{stat.st_size}"
+    except:
+        return "error"
+
+def is_cache_valid(path):
+    """Check if cached data is still valid."""
+    if path not in cache_timestamps:
+        return False
+    
+    # Check if cache has expired
+    if time.time() - cache_timestamps[path] > CACHE_DURATION:
+        return False
+    
+    # Check if directory has changed
+    current_hash = get_directory_hash(path)
+    cached_hash = directory_cache.get(path, {}).get('hash')
+    return current_hash == cached_hash
+
+def cleanup_cache():
+    """Remove expired entries from cache."""
+    current_time = time.time()
+    expired_paths = [
+        path for path, timestamp in cache_timestamps.items()
+        if current_time - timestamp > CACHE_DURATION
+    ]
+    for path in expired_paths:
+        directory_cache.pop(path, None)
+        cache_timestamps.pop(path, None)
+
+def get_directory_listing(path):
+    """Get directory listing with optimized file system operations."""
+    try:
+        with memory_context("list_directories"):
+            entries = os.listdir(path)
+            
+            # Single pass to categorize entries
+            directories = []
+            files = []
+            excluded_extensions = {".png", ".jpg", ".jpeg", ".gif", ".txt", ".html", ".css", ".ds_store", "cvinfo", ".json", ".db"}
+            
+            for entry in entries:
+                if entry.startswith(('.', '_')):
+                    continue
+                    
+                full_path = os.path.join(path, entry)
+                try:
+                    stat = os.stat(full_path)
+                    if stat.st_mode & 0o40000:  # Directory
+                        directories.append(entry)
+                    else:  # File
+                        # Check if file should be excluded
+                        if not any(entry.lower().endswith(ext) for ext in excluded_extensions):
+                            files.append({
+                                "name": entry,
+                                "size": stat.st_size
+                            })
+                except (OSError, IOError):
+                    # Skip files we can't access
+                    continue
+            
+            # Sort both lists
+            directories.sort(key=lambda s: s.lower())
+            files.sort(key=lambda f: f["name"].lower())
+            
+            return {
+                "directories": directories,
+                "files": files,
+                "hash": get_directory_hash(path)
+            }
+    except Exception as e:
+        app_logger.error(f"Error getting directory listing for {path}: {e}")
+        raise
+
+def invalidate_cache_for_path(path):
+    """Invalidate cache for a specific path and its parent."""
+    if path in directory_cache:
+        del directory_cache[path]
+        del cache_timestamps[path]
+    
+    # Also invalidate parent directory cache
+    parent = os.path.dirname(path)
+    if parent in directory_cache:
+        del directory_cache[parent]
+        del cache_timestamps[parent]
+
+@app.route('/clear-cache', methods=['POST'])
+def clear_cache():
+    """Manually clear the directory cache."""
+    global directory_cache, cache_timestamps
+    directory_cache.clear()
+    cache_timestamps.clear()
+    app_logger.info("Directory cache cleared manually")
+    return jsonify({"success": True, "message": "Cache cleared"})
 
 #########################
 #     Global Values     #
@@ -81,40 +193,47 @@ def list_directories():
         return jsonify({"error": "Directory not found"}), 404
 
     try:
-        with memory_context("list_directories"):
-            entries = os.listdir(current_path)
-            # Only include directories that do not start with '.' or '_'
-            directories = [
-                d for d in entries
-                if os.path.isdir(os.path.join(current_path, d)) and not d.startswith(('.', '_'))
-            ]
-            # Sort directories in alpha-numeric order (case-insensitive)
-            directories.sort(key=lambda s: s.lower())
-
-            # Exclude file types from browsing and skip files that start with '.' or '_'
-            excluded_extensions = {".png", ".jpg", ".jpeg", ".gif", ".txt", ".html", ".css", ".ds_store", "cvinfo", ".json", ".db"}
-            files = [
-                {
-                    "name": f,
-                    "size": os.path.getsize(os.path.join(current_path, f))
-                }
-                for f in entries
-                if os.path.isfile(os.path.join(current_path, f)) and
-                not f.startswith(('.', '_')) and
-                not any(f.lower().endswith(ext) for ext in excluded_extensions)
-            ]
-            # Sort files in alpha-numeric order (case-insensitive)
-            files.sort(key=lambda f: f["name"].lower())
-
+        # Clean up expired cache entries
+        cleanup_cache()
+        
+        # Check if we have valid cached data
+        if is_cache_valid(current_path):
+            cached_data = directory_cache[current_path]
             parent_dir = os.path.dirname(current_path) if current_path != DATA_DIR else None
-
+            
             return jsonify({
                 "current_path": current_path,
-                "directories": directories,
-                "files": files,
-                "parent": parent_dir
+                "directories": cached_data["directories"],
+                "files": cached_data["files"],
+                "parent": parent_dir,
+                "cached": True
             })
+        
+        # Get fresh directory listing
+        listing_data = get_directory_listing(current_path)
+        
+        # Cache the result
+        directory_cache[current_path] = listing_data
+        cache_timestamps[current_path] = time.time()
+        
+        # Limit cache size
+        if len(directory_cache) > MAX_CACHE_SIZE:
+            # Remove oldest entries
+            oldest_path = min(cache_timestamps.keys(), key=lambda k: cache_timestamps[k])
+            directory_cache.pop(oldest_path, None)
+            cache_timestamps.pop(oldest_path, None)
+        
+        parent_dir = os.path.dirname(current_path) if current_path != DATA_DIR else None
+
+        return jsonify({
+            "current_path": current_path,
+            "directories": listing_data["directories"],
+            "files": listing_data["files"],
+            "parent": parent_dir,
+            "cached": False
+        })
     except Exception as e:
+        app_logger.error(f"Error in list_directories for {current_path}: {e}")
         return jsonify({"error": str(e)}), 500
 
 
@@ -131,40 +250,47 @@ def list_downloads():
         return jsonify({"error": "Directory not found"}), 404
 
     try:
-        with memory_context("list_downloads"):
-            entries = os.listdir(current_path)
-            # Only include directories that do not start with '.' or '_'
-            directories = [
-                d for d in entries
-                if os.path.isdir(os.path.join(current_path, d)) and not d.startswith(('.', '_'))
-            ]
-            # Sort directories in alpha-numeric order (case-insensitive)
-            directories.sort(key=lambda s: s.lower())
-
-            # Exclude file types from browsing and skip files that start with '.' or '_'
-            excluded_extensions = {".png", ".jpg", ".jpeg", ".gif", ".txt", ".html", ".css", ".ds_store", "cvinfo", ".json", ".db"}
-            files = [
-                {
-                    "name": f,
-                    "size": os.path.getsize(os.path.join(current_path, f))
-                }
-                for f in entries
-                if os.path.isfile(os.path.join(current_path, f)) and
-                not f.startswith(('.', '_')) and
-                not any(f.lower().endswith(ext) for ext in excluded_extensions)
-            ]
-            # Sort files in alpha-numeric order (case-insensitive)
-            files.sort(key=lambda f: f["name"].lower())
-
+        # Clean up expired cache entries
+        cleanup_cache()
+        
+        # Check if we have valid cached data
+        if is_cache_valid(current_path):
+            cached_data = directory_cache[current_path]
             parent_dir = os.path.dirname(current_path) if current_path != TARGET_DIR else None
-
+            
             return jsonify({
                 "current_path": current_path,
-                "directories": directories,
-                "files": files,
-                "parent": parent_dir
+                "directories": cached_data["directories"],
+                "files": cached_data["files"],
+                "parent": parent_dir,
+                "cached": True
             })
+        
+        # Get fresh directory listing
+        listing_data = get_directory_listing(current_path)
+        
+        # Cache the result
+        directory_cache[current_path] = listing_data
+        cache_timestamps[current_path] = time.time()
+        
+        # Limit cache size
+        if len(directory_cache) > MAX_CACHE_SIZE:
+            # Remove oldest entries
+            oldest_path = min(cache_timestamps.keys(), key=lambda k: cache_timestamps[k])
+            directory_cache.pop(oldest_path, None)
+            cache_timestamps.pop(oldest_path, None)
+        
+        parent_dir = os.path.dirname(current_path) if current_path != TARGET_DIR else None
+
+        return jsonify({
+            "current_path": current_path,
+            "directories": listing_data["directories"],
+            "files": listing_data["files"],
+            "parent": parent_dir,
+            "cached": False
+        })
     except Exception as e:
+        app_logger.error(f"Error in list_downloads for {current_path}: {e}")
         return jsonify({"error": str(e)}), 500
 
 #####################################
@@ -239,6 +365,11 @@ def move():
                 else:
                     shutil.move(source, destination)
                 app_logger.info(f"Move complete: {source} -> {destination}")
+                
+                # Invalidate cache for affected directories
+                invalidate_cache_for_path(os.path.dirname(source))
+                invalidate_cache_for_path(os.path.dirname(destination))
+                
                 return jsonify({"success": True})
             except Exception as e:
                 app_logger.error(f"Error moving {source} to {destination}: {e}")
@@ -314,6 +445,11 @@ def rename():
 
     try:
         os.rename(old_path, new_path)
+        
+        # Invalidate cache for affected directories
+        invalidate_cache_for_path(os.path.dirname(old_path))
+        invalidate_cache_for_path(os.path.dirname(new_path))
+        
         return jsonify({"success": True})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -399,6 +535,10 @@ def delete():
             shutil.rmtree(target)
         else:
             os.remove(target)
+        
+        # Invalidate cache for the directory containing the deleted item
+        invalidate_cache_for_path(os.path.dirname(target))
+        
         return jsonify({"success": True})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -584,6 +724,10 @@ def create_folder():
     
     try:
         os.mkdir(path)
+        
+        # Invalidate cache for the parent directory
+        invalidate_cache_for_path(os.path.dirname(path))
+        
         return jsonify({"success": True}), 200
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500
