@@ -594,6 +594,8 @@ def config_page():
         config["SETTINGS"]["HEADERS"] = request.form.get("customHeaders", "")
         config["SETTINGS"]["SKIPPED_FILES"] = request.form.get("skippedFiles", "")
         config["SETTINGS"]["DELETED_FILES"] = request.form.get("deletedFiles", "")
+        config["SETTINGS"]["OPERATION_TIMEOUT"] = request.form.get("operationTimeout", "3600")
+        config["SETTINGS"]["LARGE_FILE_THRESHOLD"] = request.form.get("largeFileThreshold", "500")
 
         write_config()  # Save changes to config.ini
         load_flask_config(app)  # Reload into Flask config
@@ -621,6 +623,8 @@ def config_page():
         skippedFiles=settings.get("SKIPPED_FILES", ""),
         deletedFiles=settings.get("DELETED_FILES", ""),
         customHeaders=settings.get("HEADERS", ""),
+        operationTimeout=settings.get("OPERATION_TIMEOUT", "3600"),
+        largeFileThreshold=settings.get("LARGE_FILE_THRESHOLD", "500"),
         config=settings,  # Pass full settings dictionary
     )
 
@@ -673,6 +677,9 @@ def stream_logs(script_type):
         script_file = f"{script_type}.py"
 
         def generate_logs():
+            # Set longer timeout for large file operations
+            timeout_seconds = int(config.get("SETTINGS", "OPERATION_TIMEOUT", fallback="3600"))
+            
             process = subprocess.Popen(
                 ['python', '-u', script_file, directory],
                 stdout=subprocess.PIPE,
@@ -680,11 +687,41 @@ def stream_logs(script_type):
                 text=True,
                 bufsize=0
             )
-            for line in process.stdout:
-                yield f"data: {line}\n\n"  # Format required by SSE
-            for line in process.stderr:
-                yield f"data: ERROR: {line}\n\n"
-            process.wait()
+            
+            # Use select to handle timeouts and prevent blocking
+            import select
+            
+            while True:
+                # Check if process is still running
+                if process.poll() is not None:
+                    break
+                
+                # Use select with timeout to check for output
+                ready, _, _ = select.select([process.stdout, process.stderr], [], [], 1.0)
+                
+                if ready:
+                    for stream in ready:
+                        line = stream.readline()
+                        if line:
+                            if stream == process.stderr:
+                                yield f"data: ERROR: {line}\n\n"
+                            else:
+                                yield f"data: {line}\n\n"
+                        else:
+                            # No more output from this stream
+                            continue
+                else:
+                    # No output available, send keepalive for long operations
+                    if script_type in ['convert', 'rebuild']:
+                        yield f"data: \n\n"  # Keepalive to prevent timeout
+
+            # Wait for process to complete
+            try:
+                process.wait(timeout=timeout_seconds)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                yield f"data: ERROR: Process timed out after {timeout_seconds} seconds\n\n"
+                return
 
             if script_type == 'missing' and process.returncode == 0:
                 # Define the path to the generated missing.txt
@@ -708,7 +745,13 @@ def stream_logs(script_type):
             else:
                 yield "event: completed\ndata: Process completed successfully.\n\n"
 
-        return Response(generate_logs(), content_type='text/event-stream')
+        headers = {
+            "Content-Type": "text/event-stream",
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+            "Connection": "keep-alive"
+        }
+        return Response(generate_logs(), headers=headers, content_type='text/event-stream')
 
     return Response("Invalid script type.", status=400)
 

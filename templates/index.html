@@ -104,7 +104,8 @@
                 <div class="card h-100 shadow-sm">
                     <div class="card-body d-flex flex-column">
                         <h5 class="card-title">Single File Rebuild</h5>
-                        <p class="card-text">Rebuild a single file within the directory.</p>
+                        <p class="card-text">Rebuild/Convert a single file within the directory.</p>
+                        <p class="card-text fw-light">Rebuild troublesome CBZ files or convert a single RAR/CBR file to CBZ.</p>
                         <button type="button" id="btn-single_file" class="btn btn-primary mt-auto run-script-btn" onclick="runScript('single_file')">Run Rebuild</button>
                     </div>
                 </div>
@@ -525,6 +526,9 @@ function renderModalDirectoryListing(data, filter) {
             if (fileName.toLowerCase().endsWith(".pdf")) {
                 iconClass = "bi bi-file-earmark-pdf";
                 iconStyle = ' style="color: red;"';
+            } else if (fileName.toLowerCase().endsWith(".cbr")) {
+                iconClass = "bi bi-file-earmark-zip-fill";
+                iconStyle = ' style="color: purple;"';
             }
             fileItem.innerHTML = `<i class="${iconClass} me-2"${iconStyle}></i> ${fileName}`;
             fileItem.onclick = function() {
@@ -671,11 +675,16 @@ function executeScript(scriptType) {
         const line = event.data.trim();
         const logLine = document.createElement('div');
         
+        // Skip empty keepalive messages
+        if (!line) {
+            return;
+        }
+        
         // Check for progress-related log messages
         if (scriptType === 'convert' || scriptType === 'rebuild') {
             // Look for total files count - be more specific
-            if (line.includes('Total .cbz files to process:') && !window.progressData.initialized) {
-                const match = line.match(/Total \.cbz files to process: (\d+)/);
+            if (line.includes('Found') && line.includes('files to convert') && !window.progressData.initialized) {
+                const match = line.match(/Found (\d+) files to convert/);
                 if (match) {
                     window.progressData.totalFiles = parseInt(match[1]);
                     window.progressData.initialized = true;
@@ -685,27 +694,70 @@ function executeScript(scriptType) {
             }
             
             // Look for file processing messages - only if initialized
-            if ((line.includes('Processing file:') || line.includes('Converting:')) && window.progressData.initialized) {
-                window.progressData.processedFiles++;
-                console.log(`Progress update: ${window.progressData.processedFiles}/${window.progressData.totalFiles}`);
-                
-                if (window.progressData.totalFiles > 0) {
-                    const progressPercent = Math.round((window.progressData.processedFiles / window.progressData.totalFiles) * 100);
-                    console.log(`Progress percent: ${progressPercent}%`);
+            if (line.includes('Processing file:') && window.progressData.initialized) {
+                const match = line.match(/Processing file: (.+?) \((\d+)\/(\d+)\)/);
+                if (match) {
+                    const filename = match[1];
+                    const current = parseInt(match[2]);
+                    const total = parseInt(match[3]);
                     
-                    // Update progress bar immediately
-                    progressBar.style.width = progressPercent + '%';
-                    progressBar.textContent = progressPercent + '%';
-                    progressBar.setAttribute('aria-valuenow', progressPercent);
+                    window.progressData.processedFiles = current;
+                    console.log(`Progress update: ${current}/${total}`);
                     
-                    // Extract filename from the log message
-                    const filenameMatch = line.match(/Processing file: (.+?) \(/);
-                    const convertMatch = line.match(/Converting: .+? -> (.+?)$/);
-                    if (filenameMatch) {
-                        progressText.textContent = `Processing: ${filenameMatch[1]} (${window.progressData.processedFiles}/${window.progressData.totalFiles})`;
-                    } else if (convertMatch) {
-                        progressText.textContent = `Converting: ${convertMatch[1]} (${window.progressData.processedFiles}/${window.progressData.totalFiles})`;
+                    if (total > 0) {
+                        const progressPercent = Math.round((current / total) * 100);
+                        console.log(`Progress percent: ${progressPercent}%`);
+                        
+                        // Update progress bar immediately
+                        progressBar.style.width = progressPercent + '%';
+                        progressBar.textContent = progressPercent + '%';
+                        progressBar.setAttribute('aria-valuenow', progressPercent);
+                        progressText.textContent = `Processing: ${filename} (${current}/${total})`;
                     }
+                }
+            }
+            
+            // Look for large file processing
+            if (line.includes('Processing large file') && line.includes('MB')) {
+                const match = line.match(/Processing large file \((\d+\.\d+)MB\): (.+)/);
+                if (match) {
+                    const size = match[1];
+                    const filename = match[2];
+                    progressText.textContent = `Processing large file (${size}MB): ${filename} - This may take several minutes...`;
+                }
+            }
+            
+            // Look for compression progress
+            if (line.includes('Compression progress:')) {
+                const match = line.match(/Compression progress: (\d+\.\d+)% \((\d+)\/(\d+) files\)/);
+                if (match) {
+                    const percent = match[1];
+                    const current = match[2];
+                    const total = match[3];
+                    progressText.textContent = `Compressing files: ${percent}% (${current}/${total} files)`;
+                }
+            }
+            
+            // Look for extraction progress (rebuild operation)
+            if (line.includes('Extraction progress:')) {
+                const match = line.match(/Extraction progress: (\d+\.\d+)% \((\d+)\/(\d+) files\)/);
+                if (match) {
+                    const percent = match[1];
+                    const current = match[2];
+                    const total = match[3];
+                    progressText.textContent = `Extracting files: ${percent}% (${current}/${total} files)`;
+                }
+            }
+            
+            // Look for step progress (convert: 3 steps, rebuild: 4 steps)
+            if (line.includes('Step 1/3:') || line.includes('Step 2/3:') || line.includes('Step 3/3:') || 
+                line.includes('Step 1/4:') || line.includes('Step 2/4:') || line.includes('Step 3/4:') || line.includes('Step 4/4:')) {
+                const stepMatch = line.match(/Step (\d+)\/(\d+): (.+)/);
+                if (stepMatch) {
+                    const step = stepMatch[1];
+                    const totalSteps = stepMatch[2];
+                    const action = stepMatch[3];
+                    progressText.textContent = `Step ${step}/${totalSteps}: ${action}`;
                 }
             }
             

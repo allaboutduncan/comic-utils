@@ -15,3 +15,6 @@ __pycache__
 *.pywz
 *.pyzw
 *.pyzwz 
+test_large_file_convert.py
+test_large_file_rebuild.py
+test_large_file_single.py

@@ -179,6 +179,30 @@
             </div>
         </div>
 
+        <!-- Performance & Timeout Settings -->
+        <div class="container p-4 border rounded shadow-sm mb-4">
+            <h4>Performance & Timeout Settings</h4>
+            <p class="text-muted">Configure timeout settings for large file operations and performance optimizations.</p>
+
+            <div class="row">
+                <div class="col-md-6">
+                    <label for="operationTimeout" class="form-label">Operation Timeout (seconds):</label>
+                    <input type="number" name="operationTimeout" id="operationTimeout" value="{{ operationTimeout }}" class="form-control" min="300" max="7200">
+                    <small class="form-text text-muted">
+                        Timeout for large file operations (convert, rebuild). Default: 3600 seconds (1 hour). Minimum: 300 seconds (5 minutes).
+                    </small>
+                </div>
+
+                <div class="col-md-6">
+                    <label for="largeFileThreshold" class="form-label">Large File Threshold (MB):</label>
+                    <input type="number" name="largeFileThreshold" id="largeFileThreshold" value="{{ largeFileThreshold }}" class="form-control" min="100" max="2000">
+                    <small class="form-text text-muted">
+                        Files larger than this size (in MB) will get enhanced progress reporting. Default: 500 MB.
+                    </small>
+                </div>
+            </div>
+        </div>
+
         <!-- ComicInfo XML editing Configuration -->
         <div class="container p-4 border rounded shadow-sm mb-4">
             <h4>ComicInfo.XML Update Settings</h4>

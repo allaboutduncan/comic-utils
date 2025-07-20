@@ -127,7 +127,7 @@ def extract_rar_with_unar(rar_path, output_dir):
             
             # Check if the output directory has any files
             if os.path.exists(output_dir) and any(os.listdir(output_dir)):
-                app_logger.info(f"Extraction completed with some files. Output directory: {output_dir}")
+                app_logger.info(f"Extraction completed. Output directory: {output_dir}")
                 return True
             else:
                 app_logger.error("No files were actually extracted despite successful status")
