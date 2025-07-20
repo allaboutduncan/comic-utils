@@ -43,6 +43,7 @@
           <div class="btn-group d-grid" role="group" aria-label="Directory Filter" style="grid-template-columns: repeat(auto-fill, minmax(50px, 1fr));">
             <!-- Dynamically inserted buttons go here -->
           </div>
+          <div id="destination-directory-search-row"></div>
         </div>   
         <nav aria-label="breadcrumb">
           <ol id="destination-path-display" class="breadcrumb">
@@ -505,7 +506,7 @@
       if (!outerContainer) return;
       const btnGroup = outerContainer.querySelector('.btn-group');
       if (!btnGroup) return;
-  
+
       let availableLetters = new Set();
       let hasNonAlpha = false;
   
@@ -532,8 +533,25 @@
         }
       }
       btnGroup.innerHTML = buttonsHtml;
+      // --- SEARCH BOX LOGIC (destination only, >25 dirs) ---
+      if (panel === 'destination') {
+        const searchRow = document.getElementById('destination-directory-search-row');
+        if (directories.length > 25) {
+          searchRow.innerHTML = `<input type="text" id="destination-directory-search" class="form-control mb-2" placeholder="Search directories..." oninput="onDestinationDirectorySearch(this.value)">`;
+        } else {
+          searchRow.innerHTML = '';
+        }
+      }
     }
     
+    // --- SEARCH STATE FOR DESTINATION PANEL ---
+    let destinationSearchTerm = '';
+    function onDestinationDirectorySearch(val) {
+      destinationSearchTerm = val.trim().toLowerCase();
+      if (destinationDirectoriesData) {
+        renderDirectoryListing(destinationDirectoriesData, 'destination');
+      }
+    }
     // Updated loadDirectories function.
     function loadDirectories(path, panel) {
       console.log("loadDirectories called with path:", path, "panel:", panel);
@@ -566,6 +584,10 @@
             currentDestinationPath = data.current_path;
             updateBreadcrumb('destination', data.current_path);
             destinationDirectoriesData = data;
+            // Reset search filter and input on navigation
+            destinationSearchTerm = '';
+            const searchInput = document.getElementById('destination-directory-search');
+            if (searchInput) searchInput.value = '';
             updateFilterBar('destination', data.directories);
             renderDirectoryListing(data, 'destination');
           }
@@ -592,6 +614,11 @@
       
       let filter = currentFilter[panel];
       let directoriesToShow = data.directories.filter(dir => {
+        // --- SEARCH FILTER FOR DESTINATION PANEL ---
+        if (panel === 'destination' && destinationSearchTerm) {
+          if (!dir.toLowerCase().includes(destinationSearchTerm)) return false;
+        }
+        // --- END SEARCH FILTER ---
         if (filter === 'all') return true;
         if (filter === '#') return !/^[A-Za-z]/.test(dir.charAt(0));
         return dir.charAt(0).toUpperCase() === filter;
