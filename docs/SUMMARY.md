@@ -35,6 +35,7 @@
   * [Move](features/file-management/editor.md)
   * [Rename](features/file-management/editor-1.md)
   * [Delete](features/file-management/editor-2.md)
+  * [Additional Features](features/file-management/editor-3.md)
 * [Folder Monitoring](features/folder-monitoring/README.md)
   * [Monitoring Setup](features/folder-monitoring/integrations.md)
   * [Features](features/folder-monitoring/integrations-1.md)

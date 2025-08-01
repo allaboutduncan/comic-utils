@@ -1,17 +1,6 @@
 ---
 description: Welcome to CLU (Comic Library Utilities)!
 icon: hand-wave
-layout:
-  title:
-    visible: true
-  description:
-    visible: true
-  tableOfContents:
-    visible: true
-  outline:
-    visible: true
-  pagination:
-    visible: true
 ---
 
 # Welcome
