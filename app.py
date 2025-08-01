@@ -411,6 +411,176 @@ def folder_size():
     })
 
 #####################################
+#       Count Files in Directory    #
+#####################################
+@app.route('/count-files', methods=['GET'])
+def count_files():
+    """Count the total number of files in a directory (recursive)"""
+    path = request.args.get('path')
+    if not path or not os.path.exists(path):
+        return jsonify({"error": "Invalid path"}), 400
+
+    try:
+        file_count = 0
+        for root, _, files in os.walk(path):
+            file_count += len(files)
+        
+        return jsonify({
+            "file_count": file_count,
+            "path": path
+        })
+    except Exception as e:
+        app_logger.error(f"Error counting files in {path}: {e}")
+        return jsonify({"error": str(e)}), 500
+
+#####################################
+#       CBZ Preview & Metadata      #
+#####################################
+@app.route('/cbz-preview', methods=['GET'])
+def cbz_preview():
+    """Extract and return the first image from a CBZ file as base64"""
+    file_path = request.args.get('path')
+    size = request.args.get('size', 'large')  # 'small' or 'large'
+    
+    if not file_path or not os.path.exists(file_path):
+        return jsonify({"error": "Invalid file path"}), 400
+    
+    if not file_path.lower().endswith('.cbz'):
+        return jsonify({"error": "File is not a CBZ"}), 400
+    
+    try:
+        import zipfile
+        import base64
+        from io import BytesIO
+        from PIL import Image
+        
+        # Open the CBZ file
+        with zipfile.ZipFile(file_path, 'r') as zf:
+            # Get list of files in the archive
+            file_list = zf.namelist()
+            
+            # Filter for image files and sort
+            image_extensions = {'.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp'}
+            image_files = []
+            
+            for file_name in file_list:
+                ext = os.path.splitext(file_name.lower())[1]
+                if ext in image_extensions:
+                    image_files.append(file_name)
+            
+            if not image_files:
+                return jsonify({"error": "No image files found in CBZ"}), 404
+            
+            # Sort files to get the first one
+            image_files.sort()
+            first_image = image_files[0]
+            
+            # Read the first image
+            with zf.open(first_image) as image_file:
+                # Open with PIL to resize if needed
+                img = Image.open(image_file)
+                
+                # Convert to RGB if necessary
+                if img.mode in ('RGBA', 'LA', 'P'):
+                    img = img.convert('RGB')
+                
+                # Store original size before resizing
+                original_width, original_height = img.width, img.height
+                
+                # Resize based on size parameter
+                if size == 'small':
+                    max_size = 300
+                else:  # large
+                    max_size = 1200  # Much larger for modal display
+                
+                if img.width > max_size or img.height > max_size:
+                    img.thumbnail((max_size, max_size), Image.Resampling.LANCZOS)
+                
+                # Convert to base64
+                buffer = BytesIO()
+                img.save(buffer, format='JPEG', quality=90)  # Higher quality for large images
+                img_base64 = base64.b64encode(buffer.getvalue()).decode('utf-8')
+                
+                return jsonify({
+                    "success": True,
+                    "preview": f"data:image/jpeg;base64,{img_base64}",
+                    "original_size": {"width": original_width, "height": original_height},
+                    "display_size": {"width": img.width, "height": img.height},
+                    "file_name": first_image,
+                    "total_images": len(image_files)
+                })
+                
+    except Exception as e:
+        app_logger.error(f"Error previewing CBZ {file_path}: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/cbz-metadata', methods=['GET'])
+def cbz_metadata():
+    """Extract metadata from a CBZ file"""
+    file_path = request.args.get('path')
+    if not file_path or not os.path.exists(file_path):
+        return jsonify({"error": "Invalid file path"}), 400
+    
+    if not file_path.lower().endswith('.cbz'):
+        return jsonify({"error": "File is not a CBZ"}), 400
+    
+    try:
+        import zipfile
+        from comicinfo import read_comicinfo_xml
+        
+        metadata = {
+            "file_size": os.path.getsize(file_path),
+            "total_files": 0,
+            "image_files": 0,
+            "comicinfo": None,
+            "file_list": []
+        }
+        
+        # Open the CBZ file
+        with zipfile.ZipFile(file_path, 'r') as zf:
+            file_list = zf.namelist()
+            metadata["total_files"] = len(file_list)
+            
+            # Count image files
+            image_extensions = {'.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp'}
+            image_files = []
+            
+            for file_name in file_list:
+                ext = os.path.splitext(file_name.lower())[1]
+                if ext in image_extensions:
+                    image_files.append(file_name)
+            
+            metadata["image_files"] = len(image_files)
+            
+            # Look for ComicInfo.xml
+            comicinfo_files = [f for f in file_list if f.lower().endswith('comicinfo.xml')]
+            
+            if comicinfo_files:
+                try:
+                    with zf.open(comicinfo_files[0]) as xml_file:
+                        xml_data = xml_file.read()
+                        app_logger.info(f"Found ComicInfo.xml in {file_path}, size: {len(xml_data)} bytes")
+                        comicinfo = read_comicinfo_xml(xml_data)
+                        if comicinfo:
+                            app_logger.info(f"Successfully parsed ComicInfo.xml with {len(comicinfo)} fields")
+                            metadata["comicinfo"] = comicinfo
+                        else:
+                            app_logger.warning(f"ComicInfo.xml parsed but returned empty data")
+                except Exception as e:
+                    app_logger.warning(f"Error reading ComicInfo.xml: {e}")
+            else:
+                app_logger.info(f"No ComicInfo.xml found in {file_path}")
+            
+            # Get first few files for preview
+            metadata["file_list"] = sorted(file_list)[:10]  # First 10 files
+        
+        return jsonify(metadata)
+        
+    except Exception as e:
+        app_logger.error(f"Error reading CBZ metadata {file_path}: {e}")
+        return jsonify({"error": str(e)}), 500
+
+#####################################
 #     Move Files/Folders UI Page    #
 #####################################
 @app.route('/files')

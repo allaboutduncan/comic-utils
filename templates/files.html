@@ -43,7 +43,7 @@
           <div class="btn-group d-grid" role="group" aria-label="Directory Filter" style="grid-template-columns: repeat(auto-fill, minmax(50px, 1fr));">
             <!-- Dynamically inserted buttons go here -->
           </div>
-          <div id="destination-directory-search-row"></div>
+          <div id="destination-directory-search-row" class="pt-2"></div>
         </div>   
         <nav aria-label="breadcrumb">
           <ol id="destination-path-display" class="breadcrumb">
@@ -142,7 +142,60 @@
 </div>
 <!-- End of Moving Status Modal -->
 
+  <!-- CBZ Info Modal -->
+  <div class="modal fade" id="cbzInfoModal" tabindex="-1" aria-labelledby="cbzInfoModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title" id="cbzInfoModalLabel">CBZ Information</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body">
+          <div id="cbzInfoContent">
+            <div class="text-center">
+              <div class="spinner-border" role="status">
+                <span class="visually-hidden">Loading...</span>
+              </div>
+              <p class="mt-2">Loading CBZ information...</p>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- End of CBZ Info Modal -->
+
+
+
   {% endblock %}
+
+  <style>
+    .cbz-preview-container {
+      border: 1px solid #dee2e6;
+      border-radius: 0.375rem;
+      padding: 0.5rem;
+      background-color: #f8f9fa;
+      margin-top: 0.5rem;
+    }
+    
+    .cbz-preview-container img {
+      border-radius: 0.25rem;
+      box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075);
+    }
+    
+    .cbz-metadata {
+      font-size: 0.75rem;
+      color: #6c757d;
+      margin-top: 0.25rem;
+    }
+    
+    .list-group-item:hover .cbz-preview-container {
+      border-color: #adb5bd;
+    }
+  </style>
 
   {% block scripts %}
   {{ super() }}
@@ -168,6 +221,14 @@
 
     // Track current filter (default is 'all') per panel.
     let currentFilter = { source: 'all', destination: 'all' };
+
+    // Format file size helper function
+    function formatSize(bytes) {
+      const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+      if (bytes === 0) return '0 B';
+      const i = parseInt(Math.floor(Math.log(bytes) / Math.log(1024)));
+      return (bytes / Math.pow(1024, i)).toFixed(1) + ' ' + sizes[i];
+    }
 
     // Normalize file object (handles both {name, size} or string)
     function normalizeFile(file) {
@@ -251,17 +312,14 @@
       li.className = "list-group-item d-flex align-items-center justify-content-between";
       li.dataset.fullpath = fullPath;
 
-      function formatSize(bytes) {
-        const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
-        if (bytes === 0) return '0 B';
-        const i = parseInt(Math.floor(Math.log(bytes) / Math.log(1024)));
-        return (bytes / Math.pow(1024, i)).toFixed(1) + ' ' + sizes[i];
-      }
-
       let fileData = typeof itemName === "object" ? itemName : { name: itemName, size: null };
 
       let leftContainer = document.createElement("div");
       leftContainer.className = "d-flex align-items-center";
+      
+      // Create icon container early to avoid undefined reference
+      let iconContainer = document.createElement("div");
+      iconContainer.className = "icon-container";
 
       if (fileData.name.toLowerCase() !== "parent") {
         let icon = document.createElement("i");
@@ -277,9 +335,20 @@
         nameSpan.textContent = fileData.name;
       }
       leftContainer.appendChild(nameSpan);
-
-      let iconContainer = document.createElement("div");
-      iconContainer.className = "icon-container";
+      
+      // Add CBZ info functionality
+      if (type === "file" && fileData.name.toLowerCase().endsWith('.cbz')) {
+        // Add info button for detailed CBZ information
+        const infoBtn = document.createElement("button");
+        infoBtn.className = "btn btn-sm btn-outline-secondary ms-2";
+        infoBtn.innerHTML = '<i class="bi bi-info-circle"></i>';
+        infoBtn.title = "CBZ Information";
+        infoBtn.onclick = function(e) {
+          e.stopPropagation();
+          showCBZInfo(fullPath, fileData.name);
+        };
+        iconContainer.appendChild(infoBtn);
+      }
 
       if (type === "directory") {
         const infoWrapper = document.createElement("span");
@@ -468,7 +537,8 @@
             if (paths.length === 1 && items[0].type === "file") {
               moveSingleItem(paths[0], targetDir);
             } else {
-              moveMultipleItems(paths, targetDir, panel);
+              // Pass item types for better progress tracking
+              moveMultipleItems(paths, targetDir, panel, items);
             } 
             selectedFiles.clear();
           });
@@ -537,7 +607,7 @@
       if (panel === 'destination') {
         const searchRow = document.getElementById('destination-directory-search-row');
         if (directories.length > 25) {
-          searchRow.innerHTML = `<input type="text" id="destination-directory-search" class="form-control mb-2" placeholder="Search directories..." oninput="onDestinationDirectorySearch(this.value)">`;
+          searchRow.innerHTML = `<input type="text" id="destination-directory-search" class="form-control mb-2" placeholder="Type to filter directories..." oninput="onDestinationDirectorySearch(this.value)">`;
         } else {
           searchRow.innerHTML = '';
         }
@@ -930,7 +1000,12 @@
         if (paths.length === 1 && selectedFiles.size <= 1 && validItems[0].type === "file") {
           moveSingleItem(paths[0], targetPath);
         } else {
-          moveMultipleItems(paths, targetPath, panel);
+          // Pass item types for better progress tracking
+          const itemsWithTypes = validItems.map(item => ({
+            path: item.path,
+            type: item.type
+          }));
+          moveMultipleItems(paths, targetPath, panel, itemsWithTypes);
         }
         selectedFiles.clear();
       });
@@ -1063,11 +1138,66 @@
       movingProgressBar.style.width = percentage + "%";
       movingProgressBar.setAttribute('aria-valuenow', percentage);
     }
-    // Fix for moveMultipleItems call (wrap paths with { path, type })
-    function moveMultipleItems(filePaths, targetFolder, panel) {
+    // Enhanced moveMultipleItems with better directory progress
+    function moveMultipleItems(filePaths, targetFolder, panel, itemsWithTypes = null) {
       showMovingModal();
       let totalCount = filePaths.length;
       let currentIndex = 0;
+      let totalFilesToMove = 0;
+      let filesMoved = 0;
+      
+      // First, count files in directories to get accurate progress
+      function countFilesInDirectories() {
+        let directoriesToCount = [];
+        
+        if (itemsWithTypes) {
+          // Use the provided type information
+          directoriesToCount = itemsWithTypes
+            .filter(item => item.type === "directory")
+            .map(item => item.path);
+        } else {
+          // Fallback: check all paths
+          directoriesToCount = filePaths;
+        }
+        
+        if (directoriesToCount.length === 0) {
+          // No directories, proceed with normal counting
+          totalFilesToMove = filePaths.length;
+          startMoving();
+          return;
+        }
+        
+        let countPromises = [];
+        directoriesToCount.forEach(path => {
+          countPromises.push(
+            fetch(`/count-files?path=${encodeURIComponent(path)}`)
+              .then(res => res.json())
+              .then(data => ({ path, fileCount: data.file_count || 0 }))
+              .catch(err => ({ path, fileCount: 0 }))
+          );
+        });
+        
+        Promise.all(countPromises).then(results => {
+          // Calculate total files to move
+          totalFilesToMove = results.reduce((sum, result) => sum + result.fileCount, 0);
+          // Add individual files (non-directories)
+          const fileItems = itemsWithTypes ? 
+            itemsWithTypes.filter(item => item.type === "file").length : 
+            filePaths.length - directoriesToCount.length;
+          totalFilesToMove += fileItems;
+          
+          if (totalFilesToMove === 0) {
+            totalFilesToMove = filePaths.length; // Fallback to item count
+          }
+          
+          startMoving();
+        });
+      }
+      
+      function startMoving() {
+        moveNext();
+      }
+      
       function moveNext() {
         if (currentIndex >= totalCount) {
           hideMovingModal();
@@ -1075,59 +1205,370 @@
           loadDirectories(currentDestinationPath, 'destination');
           return;
         }
+        
         let fileObj = normalizeFile(filePaths[currentIndex]);
         let sourcePath = typeof fileObj === 'string' ? fileObj : fileObj.path || fileObj.name;
         let fileName = sourcePath.split('/').pop();
-        let message = `Moving ${fileName} (${currentIndex + 1} of ${totalCount})`;
-        console.log(message)
-        setMovingStatus(message);
-        let percentage = Math.floor((currentIndex / totalCount) * 100);
-        updateMovingProgress(percentage);
-        fetch('/move', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            source: sourcePath,
-            destination: targetFolder + '/' + fileName
-          })
-        })
-        .then(res => res.json())
-        .then(data => {
-          if (!data.success) {
-            console.warn("Move reported error, but continuing:", data.error);
-            // Optional: display a non-blocking log to user or modal footer
-          }
-          currentIndex++;
-          moveNext();
-        })
-        .catch(err => {
-          const fileName = filePaths[currentIndex].split('/').pop();
-          const detailMessage = `Failed to move "${fileName}" → "${targetFolder}": ${err.message || err}`;
-          
-          // Console logging
-          console.error("Move failed:", {
-            file: fileName,
-            source: filePaths[currentIndex],
-            destination: targetFolder + '/' + fileName,
-            error: err
-          });
-
-          // Optional: Toast fallback (if Bootstrap 5 or custom toast is available)
-          if (window.bootstrap && document.getElementById("moveErrorToast")) {
-            document.getElementById("moveErrorToastBody").textContent = detailMessage;
-            bootstrap.Toast.getOrCreateInstance(document.getElementById("moveErrorToast")).show();
+        
+        // Determine if this is a directory based on item type or by checking filesystem
+        const currentItem = itemsWithTypes ? itemsWithTypes[currentIndex] : null;
+        const isDirectory = currentItem ? currentItem.type === "directory" : null;
+        
+        let movePromise;
+        
+        if (isDirectory !== null) {
+          // We have type information, use it
+          if (isDirectory) {
+            // For directories, use item-based progress since we can't track individual files
+            setMovingStatus(`Moving directory ${fileName} (${currentIndex + 1} of ${totalCount} items)`);
+            
+            let percentage = Math.floor((currentIndex / totalCount) * 100);
+            updateMovingProgress(percentage);
+            
+            movePromise = fetch('/move', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                source: sourcePath,
+                destination: targetFolder + '/' + fileName
+              })
+            });
           } else {
-            // Fallback alert
-            alert(detailMessage);
+            // For files, use file-based progress
+            setMovingStatus(`Moving file ${fileName} (${filesMoved + 1} of ${totalFilesToMove} files)`);
+            
+            let percentage;
+            if (totalFilesToMove > 0) {
+              percentage = Math.floor((filesMoved / totalFilesToMove) * 100);
+            } else {
+              percentage = Math.floor((currentIndex / totalCount) * 100);
+            }
+            updateMovingProgress(percentage);
+            
+            movePromise = fetch('/move', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                source: sourcePath,
+                destination: targetFolder + '/' + fileName
+              })
+            });
           }
+        } else {
+          // Fallback: check filesystem
+          movePromise = fetch(`/count-files?path=${encodeURIComponent(sourcePath)}`)
+            .then(res => res.json())
+            .then(data => {
+              const isDirectory = data.file_count !== undefined;
+              const fileCount = data.file_count || 0;
+              
+              if (isDirectory && fileCount > 0) {
+                // This is a directory with files - show progress based on items
+                setMovingStatus(`Moving directory ${fileName} (${currentIndex + 1} of ${totalCount} items)`);
+              } else {
+                // This is a file or empty directory
+                setMovingStatus(`Moving ${fileName} (${currentIndex + 1} of ${totalCount} items)`);
+              }
+              
+              let percentage = Math.floor((currentIndex / totalCount) * 100);
+              updateMovingProgress(percentage);
+              
+              return fetch('/move', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  source: sourcePath,
+                  destination: targetFolder + '/' + fileName
+                })
+              });
+            });
+        }
+        
+        movePromise
+          .then(res => res.json())
+          .then(data => {
+            if (!data.success) {
+              console.warn("Move reported error, but continuing:", data.error);
+            }
+            
+            // Update progress counters
+            const currentItem = itemsWithTypes ? itemsWithTypes[currentIndex] : null;
+            const isDirectory = currentItem ? currentItem.type === "directory" : null;
+            
+            if (isDirectory) {
+              // For directories, we can't track individual files, so just increment item counter
+              // The progress bar will update based on currentIndex/totalCount
+            } else {
+              // For files, increment file counter for file-based progress
+              if (totalFilesToMove > 0) {
+                filesMoved += 1;
+              }
+            }
+            
+            currentIndex++;
+            moveNext();
+          })
+          .catch(err => {
+            const fileName = filePaths[currentIndex].split('/').pop();
+            const detailMessage = `Failed to move "${fileName}" → "${targetFolder}": ${err.message || err}`;
+            
+            console.error("Move failed:", {
+              file: fileName,
+              source: filePaths[currentIndex],
+              destination: targetFolder + '/' + fileName,
+              error: err
+            });
 
-          currentIndex++;
-          moveNext();
-        });
+            if (window.bootstrap && document.getElementById("moveErrorToast")) {
+              document.getElementById("moveErrorToastBody").textContent = detailMessage;
+              bootstrap.Toast.getOrCreateInstance(document.getElementById("moveErrorToast")).show();
+            } else {
+              alert(detailMessage);
+            }
+
+            currentIndex++;
+            moveNext();
+          });
       }
-      moveNext();
+      
+      // Start the process
+      countFilesInDirectories();
     }
   
+
+
+    // Function to show detailed CBZ information
+    function showCBZInfo(filePath, fileName) {
+      const modal = new bootstrap.Modal(document.getElementById('cbzInfoModal'));
+      const content = document.getElementById('cbzInfoContent');
+      
+      // Reset content
+      content.innerHTML = `
+        <div class="text-center">
+          <div class="spinner-border" role="status">
+            <span class="visually-hidden">Loading...</span>
+          </div>
+          <p class="mt-2">Loading CBZ information...</p>
+        </div>
+      `;
+      
+      modal.show();
+      
+      // Load metadata
+      fetch(`/cbz-metadata?path=${encodeURIComponent(filePath)}`)
+        .then(res => res.json())
+        .then(data => {
+          console.log('CBZ metadata response:', data);
+          if (data.comicinfo) {
+            console.log('ComicInfo data:', data.comicinfo);
+          }
+          
+          let html = `
+            <div class="row">
+              <div class="col-md-6">
+          `;
+          
+          // Add ComicInfo section if available
+          if (data.comicinfo) {
+            html += `
+                <h6>Comic Information</h6>
+                <div class="card">
+                  <div class="card-body">
+                    <div class="row">
+            `;
+            
+            const comicInfo = data.comicinfo;
+            console.log('Processing comicInfo:', comicInfo);
+            
+            // Define field groups for better organization
+            const fieldGroups = [
+              {
+                title: "Basic Information",
+                fields: [
+                  { key: 'Title', label: 'Title' },
+                  { key: 'Series', label: 'Series' },
+                  { key: 'Number', label: 'Number' },
+                  { key: 'Count', label: 'Count' },
+                  { key: 'Volume', label: 'Volume' },
+                  { key: 'AlternateSeries', label: 'Alternate Series' },
+                  { key: 'AlternateNumber', label: 'Alternate Number' },
+                  { key: 'AlternateCount', label: 'Alternate Count' }
+                ]
+              },
+              {
+                title: "Publication Details",
+                fields: [
+                  { key: 'Year', label: 'Year' },
+                  { key: 'Month', label: 'Month' },
+                  { key: 'Day', label: 'Day' },
+                  { key: 'Publisher', label: 'Publisher' },
+                  { key: 'Imprint', label: 'Imprint' },
+                  { key: 'Format', label: 'Format' },
+                  { key: 'PageCount', label: 'Page Count' },
+                  { key: 'LanguageISO', label: 'Language' }
+                ]
+              },
+              {
+                title: "Creative Team",
+                fields: [
+                  { key: 'Writer', label: 'Writer' },
+                  { key: 'Penciller', label: 'Penciller' },
+                  { key: 'Inker', label: 'Inker' },
+                  { key: 'Colorist', label: 'Colorist' },
+                  { key: 'Letterer', label: 'Letterer' },
+                  { key: 'CoverArtist', label: 'Cover Artist' },
+                  { key: 'Editor', label: 'Editor' }
+                ]
+              },
+              {
+                title: "Content Details",
+                fields: [
+                  { key: 'Genre', label: 'Genre' },
+                  { key: 'Characters', label: 'Characters' },
+                  { key: 'Teams', label: 'Teams' },
+                  { key: 'Locations', label: 'Locations' },
+                  { key: 'StoryArc', label: 'Story Arc' },
+                  { key: 'SeriesGroup', label: 'Series Group' },
+                  { key: 'MainCharacterOrTeam', label: 'Main Character/Team' },
+                  { key: 'AgeRating', label: 'Age Rating' }
+                ]
+              },
+              {
+                title: "Additional Information",
+                fields: [
+                  { key: 'Summary', label: 'Summary' },
+                  { key: 'Notes', label: 'Notes' },
+                  { key: 'Web', label: 'Web' },
+                  { key: 'ScanInformation', label: 'Scan Information' },
+                  { key: 'Review', label: 'Review' },
+                  { key: 'CommunityRating', label: 'Community Rating' },
+                  { key: 'BlackAndWhite', label: 'Black & White' },
+                  { key: 'Manga', label: 'Manga' }
+                ],
+                fullWidth: true
+              }
+            ];
+            
+            // Generate HTML for each field group
+            fieldGroups.forEach(group => {
+              const hasFields = group.fields.some(field => comicInfo[field.key]);
+              console.log(`Group "${group.title}" has fields:`, hasFields);
+              if (hasFields) {
+                const colClass = group.fullWidth ? 'col-md-12' : 'col-md-6';
+                html += `
+                  <div class="${colClass} mb-3">
+                    <h6 class="text-muted small">${group.title}</h6>
+                    <ul class="list-unstyled small">
+                `;
+                
+                group.fields.forEach(field => {
+                  if (comicInfo[field.key] && comicInfo[field.key] !== '' && comicInfo[field.key] !== -1) {
+                    let value = comicInfo[field.key];
+                    
+                    // Format special values
+                    if (field.key === 'BlackAndWhite' || field.key === 'Manga') {
+                      if (value === 'Yes') value = 'Yes';
+                      else if (value === 'No') value = 'No';
+                      else if (value === 'YesAndRightToLeft') value = 'Yes (Right to Left)';
+                      else value = 'Unknown';
+                    }
+                    
+                    if (field.key === 'CommunityRating' && value > 0) {
+                      value = `${value}/5`;
+                    }
+                    
+                    html += `<li><strong>${field.label}:</strong> ${value}</li>`;
+                  }
+                });
+                
+                html += `
+                    </ul>
+                  </div>
+                `;
+              }
+            });
+            
+            html += `
+                      </div>
+                    </div>
+                  </div>
+            `;
+          } else {
+            html += `<p class="text-muted">No ComicInfo.xml found</p>`;
+          }
+          
+          html += `
+              </div>
+              <div class="col-md-6">
+                <h6>Preview</h6>
+                <div id="cbzPreviewContainer" class="text-center">
+                  <div class="spinner-border spinner-border-sm" role="status">
+                    <span class="visually-hidden">Loading...</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          `;
+          
+          // Add File Information and First Files below the columns
+          html += `
+            <div class="row mt-4">
+              <div class="col-12">
+                <h6>File Information</h6>
+                <ul class="list-unstyled">
+                  <li><strong>Name:</strong> ${fileName}</li>
+                  <li><strong>Size:</strong> ${formatSize(data.file_size)}</li>
+                  <li><strong>Total Files:</strong> ${data.total_files}</li>
+                  <li><strong>Image Files:</strong> ${data.image_files}</li>
+                </ul>
+                
+                <h6 class="mt-4">First Files</h6>
+                <ul class="list-unstyled small">
+          `;
+          
+          // Add file list
+          if (data.file_list && data.file_list.length > 0) {
+            data.file_list.forEach(file => {
+              html += `<li><code>${file}</code></li>`;
+            });
+          }
+          
+          html += `
+                </ul>
+              </div>
+            </div>
+          `;
+          
+          content.innerHTML = html;
+          
+          // Load preview
+          fetch(`/cbz-preview?path=${encodeURIComponent(filePath)}&size=large`)
+            .then(res => res.json())
+            .then(previewData => {
+              const previewContainer = document.getElementById('cbzPreviewContainer');
+              if (previewData.success) {
+                previewContainer.innerHTML = `
+                  <img src="${previewData.preview}" class="img-fluid" style="max-width: 100%; max-height: 600px;" alt="CBZ Preview">
+                  <p class="small text-muted mt-2">${previewData.file_name}</p>
+                  <small class="text-muted">Images: ${previewData.total_images} | Original: ${previewData.original_size.width}×${previewData.original_size.height} | Display: ${previewData.display_size.width}×${previewData.display_size.height}</small>
+                `;
+              } else {
+                previewContainer.innerHTML = '<p class="text-muted">Preview not available</p>';
+              }
+            })
+            .catch(err => {
+              document.getElementById('cbzPreviewContainer').innerHTML = '<p class="text-danger">Error loading preview</p>';
+            });
+        })
+        .catch(err => {
+          content.innerHTML = `
+            <div class="alert alert-danger">
+              Error loading CBZ information: ${err.message}
+            </div>
+          `;
+        });
+    }
+
     // Delete confirmation handler.
     document.getElementById("confirmDeleteBtn").addEventListener("click", function() {
       let deleteModalEl = document.getElementById("deleteModal");

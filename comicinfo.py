@@ -150,11 +150,24 @@ def read_comicinfo_xml(xml_data: bytes) -> dict:
     :param xml_data: Bytes of the original ComicInfo.xml content.
     :return:         Dictionary containing the XML tags and their text values.
     """
-    root = ET.fromstring(xml_data)
-    data = {}
-    for child in root:
-        data[child.tag] = child.text if child.text else ""
-    return data
+    try:
+        root = ET.fromstring(xml_data)
+        data = {}
+        
+        # Handle both namespaced and non-namespaced XML
+        # Remove namespace prefixes from tag names for consistency
+        for child in root:
+            # Get the tag name without namespace
+            tag_name = child.tag.split('}')[-1] if '}' in child.tag else child.tag
+            data[tag_name] = child.text if child.text else ""
+            
+        return data
+    except ET.ParseError as e:
+        app_logger.error(f"XML parsing error: {e}")
+        return {}
+    except Exception as e:
+        app_logger.error(f"Unexpected error parsing ComicInfo.xml: {e}")
+        return {}
 
 
 def read_comicinfo_from_zip(zip_path: str) -> dict:
