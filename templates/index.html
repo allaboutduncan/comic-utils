@@ -104,7 +104,8 @@
                 <div class="card h-100 shadow-sm">
                     <div class="card-body d-flex flex-column">
                         <h5 class="card-title">Single File Rebuild</h5>
-                        <p class="card-text">Rebuild a single file within the directory.</p>
+                        <p class="card-text">Rebuild/Convert a single file within the directory.</p>
+                        <p class="card-text fw-light">Rebuild troublesome CBZ files or convert a single RAR/CBR file to CBZ.</p>
                         <button type="button" id="btn-single_file" class="btn btn-primary mt-auto run-script-btn" onclick="runScript('single_file')">Run Rebuild</button>
                     </div>
                 </div>
@@ -192,6 +193,27 @@
         </form>
     </div>
 
+    <!-- Progress indicator -->
+    <div class="row p-3" id="progress-container" style="display: none;">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h5 class="card-title mb-0">Processing Progress</h5>
+                    <button type="button" class="btn-close" onclick="hideProgressIndicator()" aria-label="Close"></button>
+                </div>
+                <div class="card-body">
+                    <div class="progress mb-3" style="height: 25px;">
+                        <div id="progress-bar" class="progress-bar progress-bar-striped progress-bar-animated" 
+                             role="progressbar" style="width: 0%" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100">
+                            0%
+                        </div>
+                    </div>
+                    <div id="progress-text" class="text-muted">Initializing...</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- Logs container with Bootstrap classes -->
     <div class="row p-3">
         <div id="liveAlertPlaceholder"></div>
@@ -261,7 +283,7 @@
 {% endblock %}
 
 {% block scripts %}
-
+{{ super() }}
 <script>
 
 // Full JavaScript for index.html
@@ -284,6 +306,13 @@ function disableButtons() {
 function enableButtons() {
     document.querySelectorAll('button').forEach(button => button.disabled = false);
     document.getElementById('selected-directory').disabled = false;
+}
+
+function hideProgressIndicator() {
+    const progressContainer = document.getElementById('progress-container');
+    if (progressContainer) {
+        progressContainer.style.display = 'none';
+    }
 }
 
 function selectFile(filePath) {
@@ -489,17 +518,21 @@ function renderModalDirectoryListing(data, filter) {
     // When the filter is "all", also list files.
     if (filter === 'all' && data.files && data.files.length > 0) {
         data.files.forEach(file => {
+            const fileName = typeof file === "string" ? file : file.name;
             let fileItem = document.createElement("li");
             fileItem.className = "list-group-item list-group-item-action";
             let iconClass = "bi bi-file-earmark-zip";
             let iconStyle = "";
-            if (file.toLowerCase().endsWith(".pdf")) {
+            if (fileName.toLowerCase().endsWith(".pdf")) {
                 iconClass = "bi bi-file-earmark-pdf";
                 iconStyle = ' style="color: red;"';
+            } else if (fileName.toLowerCase().endsWith(".cbr")) {
+                iconClass = "bi bi-file-earmark-zip-fill";
+                iconStyle = ' style="color: purple;"';
             }
-            fileItem.innerHTML = `<i class="${iconClass} me-2"${iconStyle}></i> ${file}`;
+            fileItem.innerHTML = `<i class="${iconClass} me-2"${iconStyle}></i> ${fileName}`;
             fileItem.onclick = function() {
-                selectFile(data.current_path + "/" + file);
+                selectFile(data.current_path + "/" + fileName);
             };
             directoryList.appendChild(fileItem);
         });
@@ -613,9 +646,139 @@ function executeScript(scriptType) {
     disableButtons();
     const logsContainer = document.getElementById('logs');
     logsContainer.innerHTML = "";
+    
+    // Show progress container for directory operations
+    const progressContainer = document.getElementById('progress-container');
+    const progressBar = document.getElementById('progress-bar');
+    const progressText = document.getElementById('progress-text');
+    
+            if (scriptType === 'convert' || scriptType === 'rebuild') {
+            progressContainer.style.display = 'block';
+            progressBar.style.width = '0%';
+            progressBar.textContent = '0%';
+            progressBar.setAttribute('aria-valuenow', '0');
+            progressText.textContent = 'Initializing...';
+            
+            // Initialize progress tracking variables
+            window.progressData = {
+                totalFiles: 0,
+                processedFiles: 0,
+                currentFile: '',
+                initialized: false
+            };
+        }
+    
+
+
+    // Parse log messages for progress updates
     eventSource.onmessage = (event) => {
         const line = event.data.trim();
         const logLine = document.createElement('div');
+        
+        // Skip empty keepalive messages
+        if (!line) {
+            return;
+        }
+        
+        // Check for progress-related log messages
+        if (scriptType === 'convert' || scriptType === 'rebuild') {
+            // Look for total files count - be more specific
+            if (line.includes('Found') && line.includes('files to convert') && !window.progressData.initialized) {
+                const match = line.match(/Found (\d+) files to convert/);
+                if (match) {
+                    window.progressData.totalFiles = parseInt(match[1]);
+                    window.progressData.initialized = true;
+                    console.log(`Total files detected: ${window.progressData.totalFiles}`);
+                    progressText.textContent = `Found ${window.progressData.totalFiles} files to process. Starting...`;
+                }
+            }
+            
+            // Look for file processing messages - only if initialized
+            if (line.includes('Processing file:') && window.progressData.initialized) {
+                const match = line.match(/Processing file: (.+?) \((\d+)\/(\d+)\)/);
+                if (match) {
+                    const filename = match[1];
+                    const current = parseInt(match[2]);
+                    const total = parseInt(match[3]);
+                    
+                    window.progressData.processedFiles = current;
+                    console.log(`Progress update: ${current}/${total}`);
+                    
+                    if (total > 0) {
+                        const progressPercent = Math.round((current / total) * 100);
+                        console.log(`Progress percent: ${progressPercent}%`);
+                        
+                        // Update progress bar immediately
+                        progressBar.style.width = progressPercent + '%';
+                        progressBar.textContent = progressPercent + '%';
+                        progressBar.setAttribute('aria-valuenow', progressPercent);
+                        progressText.textContent = `Processing: ${filename} (${current}/${total})`;
+                    }
+                }
+            }
+            
+            // Look for large file processing
+            if (line.includes('Processing large file') && line.includes('MB')) {
+                const match = line.match(/Processing large file \((\d+\.\d+)MB\): (.+)/);
+                if (match) {
+                    const size = match[1];
+                    const filename = match[2];
+                    progressText.textContent = `Processing large file (${size}MB): ${filename} - This may take several minutes...`;
+                }
+            }
+            
+            // Look for compression progress
+            if (line.includes('Compression progress:')) {
+                const match = line.match(/Compression progress: (\d+\.\d+)% \((\d+)\/(\d+) files\)/);
+                if (match) {
+                    const percent = match[1];
+                    const current = match[2];
+                    const total = match[3];
+                    progressText.textContent = `Compressing files: ${percent}% (${current}/${total} files)`;
+                }
+            }
+            
+            // Look for extraction progress (rebuild operation)
+            if (line.includes('Extraction progress:')) {
+                const match = line.match(/Extraction progress: (\d+\.\d+)% \((\d+)\/(\d+) files\)/);
+                if (match) {
+                    const percent = match[1];
+                    const current = match[2];
+                    const total = match[3];
+                    progressText.textContent = `Extracting files: ${percent}% (${current}/${total} files)`;
+                }
+            }
+            
+            // Look for step progress (convert: 3 steps, rebuild: 4 steps)
+            if (line.includes('Step 1/3:') || line.includes('Step 2/3:') || line.includes('Step 3/3:') || 
+                line.includes('Step 1/4:') || line.includes('Step 2/4:') || line.includes('Step 3/4:') || line.includes('Step 4/4:')) {
+                const stepMatch = line.match(/Step (\d+)\/(\d+): (.+)/);
+                if (stepMatch) {
+                    const step = stepMatch[1];
+                    const totalSteps = stepMatch[2];
+                    const action = stepMatch[3];
+                    progressText.textContent = `Step ${step}/${totalSteps}: ${action}`;
+                }
+            }
+            
+            // Look for completion - be more specific
+            if ((line.includes('Conversion completed') || line.includes('Rebuild completed')) && window.progressData.initialized) {
+                progressBar.style.width = '100%';
+                progressBar.textContent = '100%';
+                progressBar.setAttribute('aria-valuenow', '100');
+                progressText.textContent = `Completed processing ${window.progressData.processedFiles} files!`;
+                
+                // Auto-hide progress container after 5 seconds
+                setTimeout(() => {
+                    const progressContainer = document.getElementById('progress-container');
+                    if (progressContainer) {
+                        progressContainer.style.display = 'none';
+                    }
+                }, 5000);
+            }
+        }
+        
+        // Handle regular log display
         if (line.startsWith("ERROR:")) {
             logLine.textContent = line;
             logLine.className = "alert alert-danger";

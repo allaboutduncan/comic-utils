@@ -14,11 +14,21 @@ ENV PYTHONUNBUFFERED=1
 
 WORKDIR /app
 
-RUN apt-get update && apt-get install -y git
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    git \
+    unar \
+    poppler-utils \
+    && rm -rf /var/lib/apt/lists/*
+
+# Upgrade pip
 RUN pip3 install --upgrade pip --user
-RUN apt-get install unar -y
-RUN apt-get install poppler-utils -y
-RUN pip install --no-cache-dir flask rarfile pillow pdf2image watchdog self psutil requests flask-cors mega.py
+
+# Copy requirements first for better caching
+COPY requirements.txt .
+
+# Install Python dependencies from requirements.txt
+RUN pip install --no-cache-dir --user -r requirements.txt
 
 # Copy the source code into the container.
 COPY . .
@@ -31,16 +41,8 @@ RUN mkdir -p /app/logs /app/static && \
 # Expose the port that the application listens on.
 EXPOSE 5577
 
-# Copy the entrypoint script
-COPY entrypoint.sh /entrypoint.sh
-
-# Make it executable (as root)
-RUN chmod +x /entrypoint.sh
-
 # Switch to non-root user AFTER setting permissions
 USER cluser
 
-# Use the custom entrypoint
-ENTRYPOINT ["/entrypoint.sh"]
-
-
+# Start the Flask app directly
+CMD ["python", "app.py"]

@@ -12,6 +12,7 @@
 {% endblock %}
 
 {% block scripts %}
+{{ super() }}
     <script>
         document.addEventListener("DOMContentLoaded", function() {
             const logOutput = document.getElementById('log-output');

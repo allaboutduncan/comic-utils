@@ -12,9 +12,13 @@ import signal
 import psutil
 import select
 import pwd
+from functools import lru_cache
+from collections import defaultdict
+import hashlib
 from api import app 
 from config import config, load_flask_config, write_config, load_config
 from edit import get_edit_modal, save_cbz, cropCenter, cropLeft, cropRight, get_image_data_url, modal_body_template
+from memory_utils import initialize_memory_management, cleanup_on_exit, memory_context, get_global_monitor
 
 load_config()
 
@@ -22,6 +26,115 @@ load_config()
 
 DATA_DIR = "/data"  # Directory to browse
 TARGET_DIR = config.get("SETTINGS", "TARGET", fallback="/processed")
+
+#########################
+#     Cache System      #
+#########################
+
+# Global cache for directory listings
+directory_cache = {}
+cache_timestamps = {}
+CACHE_DURATION = 5  # Cache for 5 seconds
+MAX_CACHE_SIZE = 100  # Maximum number of cached directories
+
+def get_directory_hash(path):
+    """Generate a hash for directory contents to detect changes."""
+    try:
+        stat = os.stat(path)
+        # Use modification time and size as a simple change detector
+        return f"{stat.st_mtime}_{stat.st_size}"
+    except:
+        return "error"
+
+def is_cache_valid(path):
+    """Check if cached data is still valid."""
+    if path not in cache_timestamps:
+        return False
+    
+    # Check if cache has expired
+    if time.time() - cache_timestamps[path] > CACHE_DURATION:
+        return False
+    
+    # Check if directory has changed
+    current_hash = get_directory_hash(path)
+    cached_hash = directory_cache.get(path, {}).get('hash')
+    return current_hash == cached_hash
+
+def cleanup_cache():
+    """Remove expired entries from cache."""
+    current_time = time.time()
+    expired_paths = [
+        path for path, timestamp in cache_timestamps.items()
+        if current_time - timestamp > CACHE_DURATION
+    ]
+    for path in expired_paths:
+        directory_cache.pop(path, None)
+        cache_timestamps.pop(path, None)
+
+def get_directory_listing(path):
+    """Get directory listing with optimized file system operations."""
+    try:
+        with memory_context("list_directories"):
+            entries = os.listdir(path)
+            
+            # Single pass to categorize entries
+            directories = []
+            files = []
+            excluded_extensions = {".png", ".jpg", ".jpeg", ".gif", ".txt", ".html", ".css", ".ds_store", "cvinfo", ".json", ".db"}
+            
+            for entry in entries:
+                if entry.startswith(('.', '_')):
+                    continue
+                    
+                full_path = os.path.join(path, entry)
+                try:
+                    stat = os.stat(full_path)
+                    if stat.st_mode & 0o40000:  # Directory
+                        directories.append(entry)
+                    else:  # File
+                        # Check if file should be excluded
+                        if not any(entry.lower().endswith(ext) for ext in excluded_extensions):
+                            files.append({
+                                "name": entry,
+                                "size": stat.st_size
+                            })
+                except (OSError, IOError):
+                    # Skip files we can't access
+                    continue
+            
+            # Sort both lists
+            directories.sort(key=lambda s: s.lower())
+            files.sort(key=lambda f: f["name"].lower())
+            
+            return {
+                "directories": directories,
+                "files": files,
+                "hash": get_directory_hash(path)
+            }
+    except Exception as e:
+        app_logger.error(f"Error getting directory listing for {path}: {e}")
+        raise
+
+def invalidate_cache_for_path(path):
+    """Invalidate cache for a specific path and its parent."""
+    if path in directory_cache:
+        del directory_cache[path]
+        del cache_timestamps[path]
+    
+    # Also invalidate parent directory cache
+    parent = os.path.dirname(path)
+    if parent in directory_cache:
+        del directory_cache[parent]
+        del cache_timestamps[parent]
+
+@app.route('/clear-cache', methods=['POST'])
+def clear_cache():
+    """Manually clear the directory cache."""
+    global directory_cache, cache_timestamps
+    directory_cache.clear()
+    cache_timestamps.clear()
+    app_logger.info("Directory cache cleared manually")
+    return jsonify({"success": True, "message": "Cache cleared"})
 
 #########################
 #     Global Values     #
@@ -64,6 +177,8 @@ app_logger.propagate = False
 # Example usage
 app_logger.info("App started successfully!")
 
+# Initialize memory management
+initialize_memory_management()
 
 #########################
 #   List Directories    #
@@ -78,35 +193,47 @@ def list_directories():
         return jsonify({"error": "Directory not found"}), 404
 
     try:
-        entries = os.listdir(current_path)
-        # Only include directories that do not start with '.' or '_'
-        directories = [
-            d for d in entries
-            if os.path.isdir(os.path.join(current_path, d)) and not d.startswith(('.', '_'))
-        ]
-        # Sort directories in alpha-numeric order (case-insensitive)
-        directories.sort(key=lambda s: s.lower())
-
-        # Exclude file types from browsing and skip files that start with '.' or '_'
-        excluded_extensions = {".png", ".jpg", ".jpeg", ".gif", ".txt", ".html", ".css", ".ds_store", "cvinfo", ".json", ".db"}
-        files = [
-            f for f in entries
-            if os.path.isfile(os.path.join(current_path, f)) and
-               not f.startswith(('.', '_')) and
-               not any(f.lower().endswith(ext) for ext in excluded_extensions)
-        ]
-        # Sort files in alpha-numeric order (case-insensitive)
-        files.sort(key=lambda s: s.lower())
-
+        # Clean up expired cache entries
+        cleanup_cache()
+        
+        # Check if we have valid cached data
+        if is_cache_valid(current_path):
+            cached_data = directory_cache[current_path]
+            parent_dir = os.path.dirname(current_path) if current_path != DATA_DIR else None
+            
+            return jsonify({
+                "current_path": current_path,
+                "directories": cached_data["directories"],
+                "files": cached_data["files"],
+                "parent": parent_dir,
+                "cached": True
+            })
+        
+        # Get fresh directory listing
+        listing_data = get_directory_listing(current_path)
+        
+        # Cache the result
+        directory_cache[current_path] = listing_data
+        cache_timestamps[current_path] = time.time()
+        
+        # Limit cache size
+        if len(directory_cache) > MAX_CACHE_SIZE:
+            # Remove oldest entries
+            oldest_path = min(cache_timestamps.keys(), key=lambda k: cache_timestamps[k])
+            directory_cache.pop(oldest_path, None)
+            cache_timestamps.pop(oldest_path, None)
+        
         parent_dir = os.path.dirname(current_path) if current_path != DATA_DIR else None
 
         return jsonify({
             "current_path": current_path,
-            "directories": directories,
-            "files": files,
-            "parent": parent_dir
+            "directories": listing_data["directories"],
+            "files": listing_data["files"],
+            "parent": parent_dir,
+            "cached": False
         })
     except Exception as e:
+        app_logger.error(f"Error in list_directories for {current_path}: {e}")
         return jsonify({"error": str(e)}), 500
 
 
@@ -123,37 +250,48 @@ def list_downloads():
         return jsonify({"error": "Directory not found"}), 404
 
     try:
-        entries = os.listdir(current_path)
-        # Only include directories that do not start with '.' or '_'
-        directories = [
-            d for d in entries
-            if os.path.isdir(os.path.join(current_path, d)) and not d.startswith(('.', '_'))
-        ]
-        # Sort directories in alpha-numeric order (case-insensitive)
-        directories.sort(key=lambda s: s.lower())
-
-        # Exclude file types from browsing and skip files that start with '.' or '_'
-        excluded_extensions = {".png", ".jpg", ".jpeg", ".gif", ".txt", ".html", ".css", ".ds_store", "cvinfo", ".json", ".db"}
-        files = [
-            f for f in entries
-            if os.path.isfile(os.path.join(current_path, f)) and
-               not f.startswith(('.', '_')) and
-               not any(f.lower().endswith(ext) for ext in excluded_extensions)
-        ]
-        # Sort files in alpha-numeric order (case-insensitive)
-        files.sort(key=lambda s: s.lower())
-
+        # Clean up expired cache entries
+        cleanup_cache()
+        
+        # Check if we have valid cached data
+        if is_cache_valid(current_path):
+            cached_data = directory_cache[current_path]
+            parent_dir = os.path.dirname(current_path) if current_path != TARGET_DIR else None
+            
+            return jsonify({
+                "current_path": current_path,
+                "directories": cached_data["directories"],
+                "files": cached_data["files"],
+                "parent": parent_dir,
+                "cached": True
+            })
+        
+        # Get fresh directory listing
+        listing_data = get_directory_listing(current_path)
+        
+        # Cache the result
+        directory_cache[current_path] = listing_data
+        cache_timestamps[current_path] = time.time()
+        
+        # Limit cache size
+        if len(directory_cache) > MAX_CACHE_SIZE:
+            # Remove oldest entries
+            oldest_path = min(cache_timestamps.keys(), key=lambda k: cache_timestamps[k])
+            directory_cache.pop(oldest_path, None)
+            cache_timestamps.pop(oldest_path, None)
+        
         parent_dir = os.path.dirname(current_path) if current_path != TARGET_DIR else None
 
         return jsonify({
             "current_path": current_path,
-            "directories": directories,
-            "files": files,
-            "parent": parent_dir
+            "directories": listing_data["directories"],
+            "files": listing_data["files"],
+            "parent": parent_dir,
+            "cached": False
         })
     except Exception as e:
+        app_logger.error(f"Error in list_downloads for {current_path}: {e}")
         return jsonify({"error": str(e)}), 500
-
 
 #####################################
 #  Move Files/Folders (Drag & Drop) #
@@ -168,40 +306,48 @@ def move():
     data = request.get_json()
     source = data.get('source')
     destination = data.get('destination')
-    app_logger.info(f"********************// Move File //********************")
-    app_logger.info(f"Moving {source} to {destination}")
+    app_logger.info("********************// Move File //********************")
+    app_logger.info(f"Requested move from: {source} to: {destination}")
     
     if not source or not destination:
-        app_logger.error(f"Missing source or destination")
-        return jsonify({"error": "Missing source or destination"}), 400
+        app_logger.error("Missing source or destination in request")
+        return jsonify({"success": False, "error": "Missing source or destination"}), 400
+
     if not os.path.exists(source):
-        app_logger.error(f"Source does not exist")
-        return jsonify({"error": "Source does not exist"}), 404
+        app_logger.warning(f"Source path does not exist: {source}")
+        return jsonify({"success": False, "error": "Source path does not exist"}), 404
 
     stream = request.headers.get('X-Stream', 'false').lower() == 'true'
 
     if os.path.isfile(source) and stream:
         file_size = os.path.getsize(source)
+        
+        # Use memory context for large file operations
+        cleanup_threshold = 1000 if file_size > 100 * 1024 * 1024 else 500  # 100MB threshold
+
         def generate():
-            bytes_copied = 0
-            chunk_size = 1024 * 1024  # 1 MB chunks
-            try:
-                with open(source, 'rb') as fsrc, open(destination, 'wb') as fdst:
-                    while True:
-                        chunk = fsrc.read(chunk_size)
-                        if not chunk:
-                            break
-                        fdst.write(chunk)
-                        bytes_copied += len(chunk)
-                        progress = int((bytes_copied / file_size) * 100)
-                        yield f"data: {progress}\n\n"
-                os.remove(source)
-                app_logger.info(f"Move complete: Removed {source}")
-                yield "data: 100\n\n"
-            except Exception as e:
-                yield f"data: error: {str(e)}\n\n"
-            # Signal that the stream is complete.
-            yield "data: done\n\n"
+            with memory_context("file_move", cleanup_threshold):
+                bytes_copied = 0
+                chunk_size = 1024 * 1024  # 1 MB
+                try:
+                    app_logger.info(f"Streaming file move with progress: {source}")
+                    with open(source, 'rb') as fsrc, open(destination, 'wb') as fdst:
+                        while True:
+                            chunk = fsrc.read(chunk_size)
+                            if not chunk:
+                                break
+                            fdst.write(chunk)
+                            bytes_copied += len(chunk)
+                            progress = int((bytes_copied / file_size) * 100)
+                            yield f"data: {progress}\n\n"
+                    os.remove(source)
+                    app_logger.info(f"Move complete (streamed): Removed {source}")
+                    yield "data: 100\n\n"
+                except Exception as e:
+                    app_logger.exception(f"Error during streaming move from {source} to {destination}")
+                    yield f"data: error: {str(e)}\n\n"
+                yield "data: done\n\n"
+
         headers = {
             "Content-Type": "text/event-stream",
             "Cache-Control": "no-cache",
@@ -209,13 +355,60 @@ def move():
             "Connection": "close"
         }
         return Response(stream_with_context(generate()), headers=headers)
+
     else:
-        try:
-            shutil.move(source, destination)
-            return jsonify({"success": True})
-        except Exception as e:
-            return jsonify({"error": str(e)}), 500
+        # Non-streaming move for folders or when streaming is disabled
+        with memory_context("file_move"):
+            try:
+                if os.path.isfile(source):
+                    shutil.move(source, destination)
+                else:
+                    shutil.move(source, destination)
+                app_logger.info(f"Move complete: {source} -> {destination}")
+                
+                # Invalidate cache for affected directories
+                invalidate_cache_for_path(os.path.dirname(source))
+                invalidate_cache_for_path(os.path.dirname(destination))
+                
+                return jsonify({"success": True})
+            except Exception as e:
+                app_logger.error(f"Error moving {source} to {destination}: {e}")
+                return jsonify({"success": False, "error": str(e)}), 500
     
+#####################################
+#       Calculate Folder Size       #
+#####################################
+@app.route('/folder-size', methods=['GET'])
+def folder_size():
+    path = request.args.get('path')
+    if not path or not os.path.exists(path):
+        return jsonify({"error": "Invalid path"}), 400
+
+    def get_directory_stats(path):
+        total_size = 0
+        comic_count = 0
+        magazine_count = 0
+        for root, _, files in os.walk(path):
+            for f in files:
+                try:
+                    fp = os.path.join(root, f)
+                    if os.path.exists(fp):
+                        total_size += os.path.getsize(fp)
+                        ext = f.lower()
+                        if ext.endswith(('.cbz', '.cbr')):
+                            comic_count += 1
+                        elif ext.endswith('.pdf'):
+                            magazine_count += 1
+                except Exception:
+                    pass
+        return total_size, comic_count, magazine_count
+
+    size, comic_count, magazine_count = get_directory_stats(path)
+    return jsonify({
+        "size": size,
+        "comic_count": comic_count,
+        "magazine_count": magazine_count
+    })
 
 #####################################
 #     Move Files/Folders UI Page    #
@@ -252,6 +445,11 @@ def rename():
 
     try:
         os.rename(old_path, new_path)
+        
+        # Invalidate cache for affected directories
+        invalidate_cache_for_path(os.path.dirname(old_path))
+        invalidate_cache_for_path(os.path.dirname(new_path))
+        
         return jsonify({"success": True})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -337,6 +535,10 @@ def delete():
             shutil.rmtree(target)
         else:
             os.remove(target)
+        
+        # Invalidate cache for the directory containing the deleted item
+        invalidate_cache_for_path(os.path.dirname(target))
+        
         return jsonify({"success": True})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -392,6 +594,8 @@ def config_page():
         config["SETTINGS"]["HEADERS"] = request.form.get("customHeaders", "")
         config["SETTINGS"]["SKIPPED_FILES"] = request.form.get("skippedFiles", "")
         config["SETTINGS"]["DELETED_FILES"] = request.form.get("deletedFiles", "")
+        config["SETTINGS"]["OPERATION_TIMEOUT"] = request.form.get("operationTimeout", "3600")
+        config["SETTINGS"]["LARGE_FILE_THRESHOLD"] = request.form.get("largeFileThreshold", "500")
 
         write_config()  # Save changes to config.ini
         load_flask_config(app)  # Reload into Flask config
@@ -419,6 +623,8 @@ def config_page():
         skippedFiles=settings.get("SKIPPED_FILES", ""),
         deletedFiles=settings.get("DELETED_FILES", ""),
         customHeaders=settings.get("HEADERS", ""),
+        operationTimeout=settings.get("OPERATION_TIMEOUT", "3600"),
+        largeFileThreshold=settings.get("LARGE_FILE_THRESHOLD", "500"),
         config=settings,  # Pass full settings dictionary
     )
 
@@ -444,10 +650,11 @@ def stream_logs(script_type):
 
         def generate_logs():
             process = subprocess.Popen(
-                ['python', script_file, file_path],
+                ['python', '-u', script_file, file_path],
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
-                text=True
+                text=True,
+                bufsize=0
             )
             # Capture both stdout and stderr
             for line in process.stdout:
@@ -470,17 +677,51 @@ def stream_logs(script_type):
         script_file = f"{script_type}.py"
 
         def generate_logs():
+            # Set longer timeout for large file operations
+            timeout_seconds = int(config.get("SETTINGS", "OPERATION_TIMEOUT", fallback="3600"))
+            
             process = subprocess.Popen(
-                ['python', script_file, directory],
+                ['python', '-u', script_file, directory],
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
-                text=True
+                text=True,
+                bufsize=0
             )
-            for line in process.stdout:
-                yield f"data: {line}\n\n"  # Format required by SSE
-            for line in process.stderr:
-                yield f"data: ERROR: {line}\n\n"
-            process.wait()
+            
+            # Use select to handle timeouts and prevent blocking
+            import select
+            
+            while True:
+                # Check if process is still running
+                if process.poll() is not None:
+                    break
+                
+                # Use select with timeout to check for output
+                ready, _, _ = select.select([process.stdout, process.stderr], [], [], 1.0)
+                
+                if ready:
+                    for stream in ready:
+                        line = stream.readline()
+                        if line:
+                            if stream == process.stderr:
+                                yield f"data: ERROR: {line}\n\n"
+                            else:
+                                yield f"data: {line}\n\n"
+                        else:
+                            # No more output from this stream
+                            continue
+                else:
+                    # No output available, send keepalive for long operations
+                    if script_type in ['convert', 'rebuild']:
+                        yield f"data: \n\n"  # Keepalive to prevent timeout
+
+            # Wait for process to complete
+            try:
+                process.wait(timeout=timeout_seconds)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                yield f"data: ERROR: Process timed out after {timeout_seconds} seconds\n\n"
+                return
 
             if script_type == 'missing' and process.returncode == 0:
                 # Define the path to the generated missing.txt
@@ -504,7 +745,13 @@ def stream_logs(script_type):
             else:
                 yield "event: completed\ndata: Process completed successfully.\n\n"
 
-        return Response(generate_logs(), content_type='text/event-stream')
+        headers = {
+            "Content-Type": "text/event-stream",
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+            "Connection": "keep-alive"
+        }
+        return Response(generate_logs(), headers=headers, content_type='text/event-stream')
 
     return Response("Invalid script type.", status=400)
 
@@ -520,6 +767,10 @@ def create_folder():
     
     try:
         os.mkdir(path)
+        
+        # Invalidate cache for the parent directory
+        invalidate_cache_for_path(os.path.dirname(path))
+        
         return jsonify({"success": True}), 200
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500
@@ -633,6 +884,22 @@ def shutdown_server():
 # Handle termination signals
 signal.signal(signal.SIGTERM, lambda signum, frame: shutdown_server())
 signal.signal(signal.SIGINT, lambda signum, frame: shutdown_server())
+
+@app.route('/watch-count')
+def watch_count():
+    watch_dir = config.get("SETTINGS", "WATCH", fallback="/temp")
+    ignored_exts = config.get("SETTINGS", "IGNORED_EXTENSIONS", fallback=".crdownload")
+    ignored = set(ext.strip().lower() for ext in ignored_exts.split(",") if ext.strip())
+
+    total = 0
+    for root, _, files in os.walk(watch_dir):
+        for f in files:
+            if f.startswith('.') or f.startswith('_'):
+                continue
+            if any(f.lower().endswith(ext) for ext in ignored):
+                continue
+            total += 1
+    return jsonify({"total_files": total})
 
 #########################
 #   Application Start   #

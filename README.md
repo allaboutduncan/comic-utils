@@ -35,12 +35,20 @@ Here's a quick list of features
 7. Clean / Update ComicInfo.xml
 
 ### Single File Options
-1. Single File - Rebuild/Convert
+1. Rebuild/Convert (CBR --> CBZ)
 2. Crop Cover
 3. Remove First Image
-4. Add blank Image at End
-5. Enhance Images (__New in 2.0__)
-6. Delete File
+4. Full GUI Editing of CBZ (rename/rearrange files, delete files, crop images) (__New in 3.0__)
+5. Add blank Image at End
+6. Enhance Images (__New in 2.0__)
+7. Delete File
+
+### Remote Downloads (New in 3.0)
+1. Send Downloads from GetComics.org Directly to your Server
+2. Support for GetComics, Pixeldrain and Mega
+3. Chrome Extension
+4. Download Queue
+5. Custom Header Support (for Auth or other variables)
 
 ### File Management (New in 2.0)
 1. _Source_ and _Destination_ file browsing
@@ -49,7 +57,6 @@ Here's a quick list of features
 4. Delete directories or files
 
 ### Folder Monitoring
-
 1. __Auto-Renaming:__ Based on the manually triggered renaming, this option will monitor the configured folder.
 2. __Auto-Convert to CBZ:__ If this is enabled, files that are not CBZ will be converted to CBZ when they are moved to the `/downloads/processed` location
 3. __Processing Sub-Directories:__ If this is enabled, the app will monitor and perform all functions on any sub-directory within the *default monitoring location*. 

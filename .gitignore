@@ -6,3 +6,15 @@
 temp-*
 .dockerignore
 .DS_Store
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+*.pyw
+*.pyz
+*.pywz
+*.pyzw
+*.pyzwz 
+test_large_file_convert.py
+test_large_file_rebuild.py
+test_large_file_single.py
