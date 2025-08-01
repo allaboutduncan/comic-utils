@@ -55,21 +55,13 @@ docker run \
 
 text
 
-| Parameter                                              | Function                                                                                                                                                         |
-| ------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| <pre><code>-p 5577:5577
-</code></pre>                  | The port exposed by the app for the web interface.                                                                                                               |
-| <pre><code>-v /docker/clu:/config
-</code></pre>        | Location for your CLU directory on a local disk. Enables local storage of the `config.ini` which preservers settings during updates. Must be mapped to `/config` |
-| <pre><code>-v /User/comics:/data
-</code></pre>         | Location of your library to manage. Must be mapped to `/data`                                                                                                    |
-| <pre><code>-v /User/downloads:/downloads
-</code></pre> | Optional folder to configure if MONITOR is enabled (see below)                                                                                                   |
-| <pre><code>-e FLASK_ENV=development
-</code></pre>      |                                                                                                                                                                  |
-| <pre><code>-e MONITOR=no
-</code></pre>                 | If set to `yes` [folder monitoring](../features/folder-monitoring/) will be enabled                                                                              |
-|                                                        |                                                                                                                                                                  |
+<table><thead><tr><th>Parameter</th><th>Function</th></tr></thead><tbody><tr><td><pre><code>-p 5577:5577
+</code></pre></td><td>The port exposed by the app for the web interface.</td></tr><tr><td><pre><code>-v /docker/clu:/config
+</code></pre></td><td>Location for your CLU directory on a local disk. Enables local storage of the <code>config.ini</code> which preservers settings during updates. Must be mapped to <code>/config</code></td></tr><tr><td><pre><code>-v /User/comics:/data
+</code></pre></td><td>Location of your library to manage. Must be mapped to <code>/data</code></td></tr><tr><td><pre><code>-v /User/downloads:/downloads
+</code></pre></td><td>Optional folder to configure if MONITOR is enabled (see below)</td></tr><tr><td><pre><code>-e FLASK_ENV=development
+</code></pre></td><td></td></tr><tr><td><pre><code>-e MONITOR=no
+</code></pre></td><td>If set to <code>yes</code> <a href="../features/folder-monitoring/">folder monitoring</a> will be enabled</td></tr><tr><td></td><td></td></tr></tbody></table>
 
 
 
