@@ -28,7 +28,7 @@ RUN pip3 install --upgrade pip --user
 COPY requirements.txt .
 
 # Install Python dependencies from requirements.txt
-RUN pip install --no-cache-dir --user -r requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy the source code into the container.
 COPY . .
