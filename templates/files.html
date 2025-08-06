@@ -21,6 +21,8 @@
           <div class="btn-group d-grid" role="group" aria-label="Directory Filter" style="grid-template-columns: repeat(auto-fill, minmax(50px, 1fr));">
             <!-- Dynamically inserted buttons go here -->
           </div>
+          <div id="source-directory-search-row" class="pt-2"></div>
+          <div id="source-directory-rename-row" class="pt-2"></div>
         </div>             
         <nav aria-label="breadcrumb">
           <ol id="source-path-display" class="breadcrumb">
@@ -44,6 +46,7 @@
             <!-- Dynamically inserted buttons go here -->
           </div>
           <div id="destination-directory-search-row" class="pt-2"></div>
+          <div id="destination-directory-rename-row" class="pt-2"></div>
         </div>   
         <nav aria-label="breadcrumb">
           <ol id="destination-path-display" class="breadcrumb">
@@ -167,6 +170,45 @@
     </div>
   </div>
   <!-- End of CBZ Info Modal -->
+
+<!-- Custom Rename Modal -->
+<div class="modal fade" id="customRenameModal" tabindex="-1" aria-labelledby="customRenameModalLabel" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="customRenameModalLabel">Custom Rename Files</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <div class="mb-3">
+          <label for="textToRemove" class="form-label">Text to Remove from All Filenames:</label>
+          <input type="text" class="form-control" id="textToRemove" placeholder="e.g., ' v1'" autocomplete="off">
+          <div class="form-text">
+            This text will be removed from all files in the selected directory. File extensions are ignored.
+          </div>
+        </div>
+        <div class="mb-3">
+          <div class="alert alert-info">
+            <strong>Example:</strong><br>
+            Filename: <code>Captain Britain v1 001.cbz</code><br>
+            Text to Remove: <code> v1</code><br>
+            New Filename: <code>Captain Britain 001.cbz</code>
+          </div>
+        </div>
+        <div id="renamePreview" class="mb-3" style="display: none;">
+          <h6>Preview of Changes:</h6>
+          <div id="renamePreviewList" class="small text-muted" style="max-height: 200px; overflow-y: auto;"></div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="button" class="btn btn-primary" id="previewRenameBtn" onclick="previewCustomRename()">Preview</button>
+        <button type="button" class="btn btn-success" id="executeRenameBtn" onclick="executeCustomRename()" style="display: none;">Execute Rename</button>
+      </div>
+    </div>
+  </div>
+</div>
+<!-- End of Custom Rename Modal -->
 
 
 
@@ -326,6 +368,11 @@
         icon.className = (type === "directory") ? "bi bi-folder me-2" : "bi bi-file-earmark-zip me-2";
         if (type === "directory") icon.style.color = "#bf9300";
         leftContainer.appendChild(icon);
+        
+        // Track file additions for rename button visibility
+        if (type === "file") {
+          trackFileForRename(panel);
+        }
       }
 
       let nameSpan = document.createElement("span");
@@ -341,7 +388,7 @@
         // Add info button for detailed CBZ information
         const infoBtn = document.createElement("button");
         infoBtn.className = "btn btn-sm btn-outline-secondary ms-2";
-        infoBtn.innerHTML = '<i class="bi bi-info-circle"></i>';
+        infoBtn.innerHTML = '<i class="bi bi-eye"></i>';
         infoBtn.title = "CBZ Information";
         infoBtn.onclick = function(e) {
           e.stopPropagation();
@@ -799,6 +846,10 @@
         .then(data => {
           console.log("Received data:", data);
           container.innerHTML = "";
+          
+          // Reset file tracking for this panel
+          resetFileTracking(panel, data.current_path);
+          
           if (panel === 'source') {
             currentSourcePath = data.current_path;
             updateBreadcrumb('source', data.current_path);
@@ -832,6 +883,10 @@
         });
     }
   
+    // Initialize rename rows as hidden
+    document.getElementById('source-directory-rename-row').style.display = 'none';
+    document.getElementById('destination-directory-rename-row').style.display = 'none';
+
     // Initial load for both panels.
     loadDirectories(currentSourcePath, 'source');
     loadDirectories(currentDestinationPath, 'destination');
@@ -1576,6 +1631,274 @@
       deleteModal.hide();
       deleteItem(deleteTarget, deletePanel);
     });
+
+    // Track file counts and current paths for rename button
+    let fileTracking = {
+      source: { fileCount: 0, currentPath: '' },
+      destination: { fileCount: 0, currentPath: '' }
+    };
+
+    // Function to track file additions and update rename button
+    function trackFileForRename(panel) {
+      fileTracking[panel].fileCount++;
+      console.log(`File tracked for ${panel}: count now ${fileTracking[panel].fileCount}`);
+      updateRenameButtonVisibility(panel);
+    }
+
+    // Function to reset file tracking for a panel
+    function resetFileTracking(panel, currentPath) {
+      fileTracking[panel].fileCount = 0;
+      fileTracking[panel].currentPath = currentPath;
+      console.log(`Reset file tracking for ${panel}: path=${currentPath}`);
+      updateRenameButtonVisibility(panel);
+    }
+
+    // Function to update rename button visibility and functionality
+    function updateRenameButtonVisibility(panel) {
+      const renameRowId = panel === 'source' ? 'source-directory-rename-row' : 'destination-directory-rename-row';
+      const renameRow = document.getElementById(renameRowId);
+      
+      if (!renameRow) {
+        console.log('Rename row not found:', renameRowId);
+        return;
+      }
+
+      const hasFiles = fileTracking[panel].fileCount > 0;
+      // Use the global path variables instead of file tracking
+      const currentPath = panel === 'source' ? currentSourcePath : currentDestinationPath;
+      const isNotRoot = currentPath !== '/data';
+
+      console.log('updateRenameButtonVisibility:', panel, 'hasFiles=', hasFiles, 'currentPath=', currentPath, 'isNotRoot=', isNotRoot);
+
+      // Show button if there are files and we're not at root level
+      if (hasFiles && isNotRoot) {
+        console.log('Showing rename button:', panel, 'files=', fileTracking[panel].fileCount, 'path=', currentPath);
+        
+        // Create or update the rename button
+        let renameButton = renameRow.querySelector('.rename-files-btn');
+        if (!renameButton) {
+          renameButton = document.createElement('button');
+          renameButton.className = 'btn btn-outline-primary btn-sm rename-files-btn';
+          renameButton.innerHTML = '<i class="bi bi-input-cursor-text me-2"></i>Rename Files';
+          renameButton.title = 'Remove text from all filenames in this directory';
+          renameRow.appendChild(renameButton);
+        }
+        
+        // Store the current path as a data attribute
+        renameButton.dataset.currentPath = currentPath;
+        renameButton.dataset.currentPanel = panel;
+        
+        // Update button click handler with current context
+        renameButton.onclick = function(e) {
+          e.preventDefault();
+          const pathFromData = e.target.dataset.currentPath;
+          const panelFromData = e.target.dataset.currentPanel;
+          console.log('Button clicked, path from data:', pathFromData, 'panel:', panelFromData);
+          openCustomRenameModal(pathFromData, panelFromData);
+        };
+        
+        renameRow.style.display = 'block';
+      } else {
+        console.log('Hiding rename button:', panel, 'hasFiles=', hasFiles, 'isNotRoot=', isNotRoot, 'path=', currentPath);
+        renameRow.style.display = 'none';
+      }
+    }
+
+    // Custom Rename Modal functionality
+    let customRenameModal;
+    let currentRenameDirectory = '';
+    let currentRenamePanel = '';
+    let fileList = [];
+
+    function openCustomRenameModal(directoryPath, panel) {
+      console.log('openCustomRenameModal called with:', directoryPath, panel);
+      currentRenameDirectory = directoryPath;
+      currentRenamePanel = panel;
+      
+      // Validate that we have a valid directory path
+      if (!directoryPath || directoryPath === '') {
+        console.error('Invalid directory path provided to openCustomRenameModal:', directoryPath);
+        alert('Error: No directory path provided for rename operation.');
+        return;
+      }
+      
+      // Reset modal state
+      document.getElementById('textToRemove').value = '';
+      document.getElementById('renamePreview').style.display = 'none';
+      document.getElementById('previewRenameBtn').style.display = 'inline-block';
+      document.getElementById('executeRenameBtn').style.display = 'none';
+      
+      // Show modal
+      const modalEl = document.getElementById('customRenameModal');
+      customRenameModal = new bootstrap.Modal(modalEl);
+      customRenameModal.show();
+      
+      // Focus on input when modal opens
+      modalEl.addEventListener('shown.bs.modal', function () {
+        document.getElementById('textToRemove').focus();
+      }, { once: true });
+    }
+
+    function previewCustomRename() {
+      const textToRemove = document.getElementById('textToRemove').value;
+      
+      console.log('previewCustomRename called');
+      console.log('currentRenameDirectory:', currentRenameDirectory);
+      console.log('currentRenamePanel:', currentRenamePanel);
+      console.log('textToRemove:', textToRemove);
+      
+      if (!textToRemove.trim()) {
+        alert('Please enter text to remove from filenames.');
+        return;
+      }
+
+      if (!currentRenameDirectory || currentRenameDirectory === '') {
+        alert('Error: No directory selected for rename operation.');
+        console.error('currentRenameDirectory is empty');
+        return;
+      }
+
+      // Fetch files in the directory
+      const url = `/list-directories?path=${encodeURIComponent(currentRenameDirectory)}`;
+      console.log('Fetching URL:', url);
+      fetch(url)
+        .then(response => response.json())
+        .then(data => {
+          if (data.error) {
+            throw new Error(data.error);
+          }
+          
+          fileList = [];
+          const previewList = document.getElementById('renamePreviewList');
+          previewList.innerHTML = '';
+          
+          // Filter only files (not directories) that contain the text to remove
+          const filesToRename = data.files.filter(file => {
+            const fileData = normalizeFile(file);
+            const nameWithoutExtension = fileData.name.substring(0, fileData.name.lastIndexOf('.')) || fileData.name;
+            return nameWithoutExtension.includes(textToRemove);
+          });
+          
+          if (filesToRename.length === 0) {
+            previewList.innerHTML = '<div class="text-warning">No files found containing the specified text.</div>';
+          } else {
+            filesToRename.forEach(file => {
+              const fileData = normalizeFile(file);
+              const nameWithoutExtension = fileData.name.substring(0, fileData.name.lastIndexOf('.')) || fileData.name;
+              const extension = fileData.name.substring(fileData.name.lastIndexOf('.')) || '';
+              const newNameWithoutExtension = nameWithoutExtension.replace(new RegExp(escapeRegExp(textToRemove), 'g'), '');
+              const newName = newNameWithoutExtension + extension;
+              
+              fileList.push({
+                oldPath: `${currentRenameDirectory}/${fileData.name}`,
+                newName: newName,
+                oldName: fileData.name
+              });
+              
+              const previewItem = document.createElement('div');
+              previewItem.className = 'mb-2 p-2 border rounded';
+              previewItem.innerHTML = `
+                <div><strong>Old:</strong> <code>${fileData.name}</code></div>
+                <div><strong>New:</strong> <code>${newName}</code></div>
+              `;
+              previewList.appendChild(previewItem);
+            });
+          }
+          
+          // Show preview and execute button
+          document.getElementById('renamePreview').style.display = 'block';
+          if (filesToRename.length > 0) {
+            document.getElementById('executeRenameBtn').style.display = 'inline-block';
+          }
+        })
+        .catch(error => {
+          console.error('Error fetching directory contents:', error);
+          alert('Error fetching directory contents: ' + error.message);
+        });
+    }
+
+    function executeCustomRename() {
+      if (fileList.length === 0) {
+        alert('No files to rename.');
+        return;
+      }
+
+      // Disable buttons during execution
+      document.getElementById('previewRenameBtn').disabled = true;
+      document.getElementById('executeRenameBtn').disabled = true;
+      document.getElementById('executeRenameBtn').textContent = 'Renaming...';
+
+      // Execute renames
+      const renamePromises = fileList.map(file => {
+        const newPath = `${currentRenameDirectory}/${file.newName}`;
+        return fetch('/custom-rename', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            old: file.oldPath,
+            new: newPath
+          })
+        });
+      });
+
+      Promise.all(renamePromises)
+        .then(responses => {
+          const errors = [];
+          responses.forEach((response, index) => {
+            if (!response.ok) {
+              errors.push(`Failed to rename ${fileList[index].oldName}`);
+            }
+          });
+
+          if (errors.length > 0) {
+            alert('Some files could not be renamed:\n' + errors.join('\n'));
+          } else {
+            // Show success message in modal before closing
+            const renamePreviewList = document.getElementById('renamePreviewList');
+            renamePreviewList.innerHTML = `
+              <div class="alert alert-success text-center">
+                <i class="bi bi-check-circle-fill me-2"></i>
+                <strong>Success!</strong> Renamed ${fileList.length} files.
+              </div>
+            `;
+            document.getElementById('previewRenameBtn').style.display = 'none';
+            document.getElementById('executeRenameBtn').style.display = 'none';
+            
+            // Auto-close modal after 2 seconds
+            setTimeout(() => {
+              customRenameModal.hide();
+            }, 2000);
+          }
+
+          // Refresh directory listing - use loadDownloads since that's what shows files
+          loadDownloads(currentRenameDirectory, currentRenamePanel);
+        })
+        .catch(error => {
+          console.error('Error during rename operation:', error);
+          alert('Error during rename operation: ' + error.message);
+        })
+        .finally(() => {
+          // Re-enable buttons
+          document.getElementById('previewRenameBtn').disabled = false;
+          document.getElementById('executeRenameBtn').disabled = false;
+          document.getElementById('executeRenameBtn').textContent = 'Execute Rename';
+        });
+    }
+
+    // Helper function to escape special regex characters
+    function escapeRegExp(string) {
+      return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    }
+
+    // Add Enter key support for the text input
+    document.getElementById('textToRemove').addEventListener('keypress', function(e) {
+      if (e.key === 'Enter') {
+        previewCustomRename();
+      }
+    });
+
   </script>  
   
   {% endblock %}

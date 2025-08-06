@@ -28,6 +28,46 @@ DATA_DIR = "/data"  # Directory to browse
 TARGET_DIR = config.get("SETTINGS", "TARGET", fallback="/processed")
 
 #########################
+#   Critical Path Check #
+#########################
+
+def is_critical_path(path):
+    """
+    Check if a path is a critical system path (WATCH or TARGET folders).
+    Returns True if the path is critical, False otherwise.
+    """
+    if not path:
+        return False
+    
+    # Get current watch and target folders from config
+    watch_folder = config.get("SETTINGS", "WATCH", fallback="/temp")
+    target_folder = config.get("SETTINGS", "TARGET", fallback="/processed")
+    
+    # Check if path is exactly a critical folder
+    if path == watch_folder or path == target_folder:
+        return True
+    
+    # Check if path is a parent directory of critical folders
+    if (path in watch_folder and watch_folder.startswith(path)) or (path in target_folder and target_folder.startswith(path)):
+        return True
+    
+    return False
+
+def get_critical_path_error_message(path, operation="modify"):
+    """
+    Generate an error message for critical path operations.
+    """
+    watch_folder = config.get("SETTINGS", "WATCH", fallback="/temp")
+    target_folder = config.get("SETTINGS", "TARGET", fallback="/processed")
+    
+    if path == watch_folder:
+        return f"Cannot {operation} watch folder: {path}. Please use the configuration page to change the watch folder."
+    elif path == target_folder:
+        return f"Cannot {operation} target folder: {path}. Please use the configuration page to change the target folder."
+    else:
+        return f"Cannot {operation} parent directory of critical folders: {path}. Please use the configuration page to change watch/target folders."
+
+#########################
 #     Cache System      #
 #########################
 
@@ -316,6 +356,16 @@ def move():
     if not os.path.exists(source):
         app_logger.warning(f"Source path does not exist: {source}")
         return jsonify({"success": False, "error": "Source path does not exist"}), 404
+
+    # Check if trying to move critical folders
+    if is_critical_path(source):
+        app_logger.error(f"Attempted to move critical folder: {source}")
+        return jsonify({"success": False, "error": get_critical_path_error_message(source, "move")}), 403
+    
+    # Check if destination would overwrite critical folders
+    if is_critical_path(destination):
+        app_logger.error(f"Attempted to move to critical folder location: {destination}")
+        return jsonify({"success": False, "error": get_critical_path_error_message(destination, "move to")}), 403
 
     stream = request.headers.get('X-Stream', 'false').lower() == 'true'
 
@@ -609,6 +659,16 @@ def rename():
     if not os.path.exists(old_path):
         return jsonify({"error": "Source file or directory does not exist"}), 404
 
+    # Check if trying to rename critical folders
+    if is_critical_path(old_path):
+        app_logger.error(f"Attempted to rename critical folder: {old_path}")
+        return jsonify({"error": get_critical_path_error_message(old_path, "rename")}), 403
+    
+    # Check if new path would be a critical folder
+    if is_critical_path(new_path):
+        app_logger.error(f"Attempted to rename to critical folder location: {new_path}")
+        return jsonify({"error": get_critical_path_error_message(new_path, "rename to")}), 403
+
     # Optionally, check if the new path already exists to avoid overwriting
     if os.path.exists(new_path):
         return jsonify({"error": "Destination already exists"}), 400
@@ -700,6 +760,11 @@ def delete():
     if not os.path.exists(target):
         return jsonify({"error": "Target does not exist"}), 404
 
+    # Check if trying to delete critical folders
+    if is_critical_path(target):
+        app_logger.error(f"Attempted to delete critical folder: {target}")
+        return jsonify({"error": get_critical_path_error_message(target, "delete")}), 403
+
     try:
         if os.path.isdir(target):
             shutil.rmtree(target)
@@ -711,6 +776,56 @@ def delete():
         
         return jsonify({"success": True})
     except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+#####################################
+#        Custom Rename Route        #
+#####################################
+@app.route('/custom-rename', methods=['POST'])
+def custom_rename():
+    """
+    Custom rename route that handles bulk renaming operations
+    specifically for removing text from filenames.
+    """
+    data = request.get_json()
+    old_path = data.get('old')
+    new_path = data.get('new')
+    
+    app_logger.info(f"Custom rename request: {old_path} -> {new_path}")
+
+    # Validate input
+    if not old_path or not new_path:
+        return jsonify({"error": "Missing old or new path"}), 400
+    
+    # Check if the old path exists
+    if not os.path.exists(old_path):
+        return jsonify({"error": "Source file does not exist"}), 404
+
+    # Check if trying to rename critical folders
+    if is_critical_path(old_path):
+        app_logger.error(f"Attempted to rename critical folder: {old_path}")
+        return jsonify({"error": get_critical_path_error_message(old_path, "rename")}), 403
+    
+    # Check if new path would be a critical folder
+    if is_critical_path(new_path):
+        app_logger.error(f"Attempted to rename to critical folder location: {new_path}")
+        return jsonify({"error": get_critical_path_error_message(new_path, "rename to")}), 403
+
+    # Check if the new path already exists to avoid overwriting
+    if os.path.exists(new_path):
+        return jsonify({"error": "Destination already exists"}), 400
+
+    try:
+        os.rename(old_path, new_path)
+        
+        # Invalidate cache for affected directories
+        invalidate_cache_for_path(os.path.dirname(old_path))
+        invalidate_cache_for_path(os.path.dirname(new_path))
+        
+        app_logger.info(f"Custom rename successful: {old_path} -> {new_path}")
+        return jsonify({"success": True})
+    except Exception as e:
+        app_logger.error(f"Error in custom rename: {e}")
         return jsonify({"error": str(e)}), 500
         
 #########################
@@ -748,8 +863,19 @@ def config_page():
             config["SETTINGS"] = {}
 
         # Safely update config values
-        config["SETTINGS"]["WATCH"] = request.form.get("watch", "/temp")
-        config["SETTINGS"]["TARGET"] = request.form.get("target", "/processed")
+        new_watch = request.form.get("watch", "/temp")
+        new_target = request.form.get("target", "/processed")
+        
+        # Validate that watch and target are not the same
+        if new_watch == new_target:
+            return jsonify({"error": "Watch and target folders cannot be the same"}), 400
+        
+        # Validate that watch and target are not subdirectories of each other
+        if new_watch.startswith(new_target + "/") or new_target.startswith(new_watch + "/"):
+            return jsonify({"error": "Watch and target folders cannot be subdirectories of each other"}), 400
+        
+        config["SETTINGS"]["WATCH"] = new_watch
+        config["SETTINGS"]["TARGET"] = new_target
         config["SETTINGS"]["IGNORED_TERMS"] = request.form.get("ignored_terms", "")
         config["SETTINGS"]["IGNORED_FILES"] = request.form.get("ignored_files", "")
         config["SETTINGS"]["IGNORED_EXTENSIONS"] = request.form.get("ignored_extensions", "")
@@ -934,6 +1060,11 @@ def create_folder():
     path = data.get('path')
     if not path:
         return jsonify({"success": False, "error": "No path specified"}), 400
+    
+    # Check if trying to create folder inside critical paths
+    if is_critical_path(path):
+        app_logger.error(f"Attempted to create folder in critical path: {path}")
+        return jsonify({"success": False, "error": get_critical_path_error_message(path, "create folder in")}), 403
     
     try:
         os.mkdir(path)
