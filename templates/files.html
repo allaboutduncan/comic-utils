@@ -369,7 +369,8 @@
         if (type === "directory") icon.style.color = "#bf9300";
         leftContainer.appendChild(icon);
         
-        // Track file additions for rename button visibility
+        // Track file additions for rename button visibility (only actual files, not directories)
+        console.log(`createListItem: type=${type}, name=${fileData.name}, panel=${panel}`);
         if (type === "file") {
           trackFileForRename(panel);
         }
@@ -691,6 +692,10 @@
         .then(response => response.json())
         .then(data => {
           console.log("Received data:", data);
+          
+          // Reset file tracking for this panel
+          resetFileTracking(panel, data.current_path);
+          
           if (panel === 'source') {
             currentSourcePath = data.current_path;
             updateBreadcrumb('source', data.current_path);
@@ -1679,7 +1684,7 @@
         if (!renameButton) {
           renameButton = document.createElement('button');
           renameButton.className = 'btn btn-outline-primary btn-sm rename-files-btn';
-          renameButton.innerHTML = '<i class="bi bi-input-cursor-text me-2"></i>Rename Files';
+          renameButton.innerHTML = '<i class="bi bi-input-cursor-text me-2"></i>Remove Text from Filenames';
           renameButton.title = 'Remove text from all filenames in this directory';
           renameRow.appendChild(renameButton);
         }
@@ -1701,6 +1706,12 @@
       } else {
         console.log('Hiding rename button:', panel, 'hasFiles=', hasFiles, 'isNotRoot=', isNotRoot, 'path=', currentPath);
         renameRow.style.display = 'none';
+        
+        // Reset file count to 0 when hiding the button (no files in current directory)
+        if (fileTracking[panel].fileCount > 0) {
+          console.log(`Resetting file count for ${panel} from ${fileTracking[panel].fileCount} to 0 (no files in current directory)`);
+          fileTracking[panel].fileCount = 0;
+        }
       }
     }
 
