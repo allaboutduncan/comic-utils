@@ -36,10 +36,13 @@
       <!-- Destination Panel -->
       <div class="col-md-6">
         <h3>Destination</h3>
-        <!-- Button Group to Create a Folder -->
+        <!-- Button Group to Create a Folder and Search -->
         <div class="btn-group mb-2" role="group" aria-label="Folder Options">
-          <button type="button" class="btn btn-outline-success" onclick="openCreateFolderModal()">Create Folder</button>
+          <button type="button" class="btn btn-outline-primary" onclick="openCreateFolderModal()"><i class="bi bi-folder-plus"></i> Create Folder</button>
+          <button type="button" class="btn btn-outline-primary" onclick="openSearchModal()"><i class="bi bi-search"></i> Search Files</button>
         </div>
+        
+
         <!-- Filter buttons for destination panel -->
         <div id="destination-directory-filter" class="mb-2">
           <div class="btn-group d-grid" role="group" aria-label="Directory Filter" style="grid-template-columns: repeat(auto-fill, minmax(50px, 1fr));">
@@ -210,7 +213,45 @@
 </div>
 <!-- End of Custom Rename Modal -->
 
-
+<!-- Search Files Modal -->
+<div class="modal fade" id="searchModal" tabindex="-1" aria-labelledby="searchModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="searchModalLabel">Search Files</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <div class="mb-3">
+          <label for="searchQuery" class="form-label">Search Query:</label>
+          <div class="input-group">
+            <input type="text" class="form-control" id="searchQuery" placeholder="Enter search term..." autocomplete="off">
+            <button class="btn btn-outline-secondary" type="button" onclick="performSearch()">
+              <i class="bi bi-search"></i>
+            </button>
+          </div>
+          <div class="form-text">
+            Search through all files and directories in /data. Results will appear below.
+          </div>
+        </div>
+        <div id="searchResults" class="mt-3" style="display: none;">
+          <h6>Search Results for: <span id="currentSearchTerm" class="text-primary"></span></h6>
+          <div id="searchResultsList" class="list-group" style="max-height: 400px; overflow-y: auto;"></div>
+        </div>
+        <div id="searchLoading" class="text-center mt-3" style="display: none;">
+          <div class="spinner-border" role="status">
+            <span class="visually-hidden">Searching...</span>
+          </div>
+          <p class="mt-2">Searching files...</p>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+      </div>
+    </div>
+  </div>
+</div>
+<!-- End of Search Files Modal -->
 
   {% endblock %}
 
@@ -237,6 +278,8 @@
     .list-group-item:hover .cbz-preview-container {
       border-color: #adb5bd;
     }
+    
+
   </style>
 
   {% block scripts %}
@@ -1909,6 +1952,252 @@
         previewCustomRename();
       }
     });
+
+    // Search functionality
+    let searchModal;
+    let currentSearchController = null; // AbortController for current search
+
+    function openSearchModal() {
+      searchModal = new bootstrap.Modal(document.getElementById('searchModal'));
+      searchModal.show();
+      
+      // Clear previous search and focus on search input
+      document.getElementById('searchQuery').value = '';
+      document.getElementById('searchResults').style.display = 'none';
+      document.getElementById('currentSearchTerm').textContent = '';
+      
+      // Cancel any ongoing search when modal opens
+      cancelCurrentSearch();
+      
+      // Clear any pending search timeout
+      if (searchTimeout) {
+        clearTimeout(searchTimeout);
+        searchTimeout = null;
+      }
+      
+      // Focus on search input
+      setTimeout(() => {
+        document.getElementById('searchQuery').focus();
+      }, 500);
+    }
+
+    function cancelCurrentSearch() {
+      if (currentSearchController) {
+        currentSearchController.abort();
+        currentSearchController = null;
+        console.log('Search cancelled');
+      }
+    }
+
+    function performSearch() {
+      const query = document.getElementById('searchQuery').value.trim();
+      
+      if (!query) {
+        alert('Please enter a search term.');
+        return;
+      }
+      
+      if (query.length < 2) {
+        alert('Search term must be at least 2 characters.');
+        return;
+      }
+      
+      // Cancel any ongoing search before starting a new one
+      cancelCurrentSearch();
+      
+      // Create new AbortController for this search
+      currentSearchController = new AbortController();
+      
+      // Show loading and update search term immediately
+      document.getElementById('searchLoading').style.display = 'block';
+      document.getElementById('searchResults').style.display = 'block';
+      document.getElementById('currentSearchTerm').textContent = query;
+      
+      // Perform search with abort signal
+      fetch(`/search-files?query=${encodeURIComponent(query)}`, {
+        signal: currentSearchController.signal
+      })
+        .then(response => {
+          // Check if the request was aborted
+          if (response.ok) {
+            return response.json();
+          } else {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+          }
+        })
+        .then(data => {
+          // Only process results if this is still the current search
+          if (currentSearchController) {
+            document.getElementById('searchLoading').style.display = 'none';
+            
+            if (data.error) {
+              throw new Error(data.error);
+            }
+            
+            // Check for timeout message
+            if (data.timeout) {
+              alert(`Search timeout: ${data.message}`);
+            }
+            
+            displaySearchResults(data.results, query);
+          }
+        })
+        .catch(error => {
+          // Only show error if it's not an abort error
+          if (error.name !== 'AbortError') {
+            document.getElementById('searchLoading').style.display = 'none';
+            console.error('Search error:', error);
+            alert('Search error: ' + error.message);
+          }
+        });
+    }
+
+    function displaySearchResults(results, query) {
+      const resultsContainer = document.getElementById('searchResultsList');
+      const resultsDiv = document.getElementById('searchResults');
+      
+      resultsContainer.innerHTML = '';
+      
+      // Always show the results container with the search term
+      resultsDiv.style.display = 'block';
+      
+      if (results.length === 0) {
+        resultsContainer.innerHTML = `
+          <div class="text-center text-muted p-3">
+            <i class="bi bi-search me-2"></i>
+            No results found for "${query}"
+          </div>
+        `;
+      } else {
+        results.forEach(item => {
+          const resultItem = document.createElement('div');
+          resultItem.className = 'list-group-item list-group-item-action d-flex align-items-center justify-content-between';
+          
+          const icon = item.type === 'directory' ? 'bi-folder' : 'bi-file-earmark-zip';
+          const size = item.type === 'file' ? formatSize(item.size) : '';
+          
+          resultItem.innerHTML = `
+            <div class="d-flex align-items-center">
+              <i class="bi ${icon} me-2"></i>
+              <span>${item.name}</span>
+              ${size ? `<span class="text-info-emphasis small ms-2">(${size})</span>` : ''}
+            </div>
+            <div class="text-muted small">
+              ${item.parent}
+            </div>
+          `;
+          
+          // Add click handler to navigate to the item
+          resultItem.addEventListener('click', () => {
+            navigateToSearchResult(item);
+          });
+          
+          resultsContainer.appendChild(resultItem);
+        });
+      }
+    }
+
+    function navigateToSearchResult(item) {
+      // Close search modal
+      searchModal.hide();
+      
+      // Navigate to the parent directory in the destination panel
+      loadDirectories(item.parent, 'destination');
+      
+      // Highlight the item (optional - could add a visual indicator)
+      setTimeout(() => {
+        // You could add highlighting logic here if needed
+        console.log('Navigated to:', item.parent, 'for item:', item.name);
+      }, 500);
+    }
+
+    // Debounced search functionality
+    let searchTimeout = null;
+    
+    // Add input event listener for debounced search
+    document.getElementById('searchQuery').addEventListener('input', function(e) {
+      const query = e.target.value.trim();
+      
+      // Clear existing timeout
+      if (searchTimeout) {
+        clearTimeout(searchTimeout);
+      }
+      
+      // Cancel current search if there is one
+      cancelCurrentSearch();
+      
+      // Hide loading and results for new input
+      document.getElementById('searchLoading').style.display = 'none';
+      document.getElementById('searchResults').style.display = 'none';
+      
+      // Only search if query is at least 2 characters
+      if (query.length >= 2) {
+        searchTimeout = setTimeout(() => {
+          performSearch();
+        }, 500); // 500ms delay
+      }
+    });
+
+    // Add Enter key support for search input
+    document.getElementById('searchQuery').addEventListener('keypress', function(e) {
+      if (e.key === 'Enter') {
+        // Clear the timeout and perform immediate search
+        if (searchTimeout) {
+          clearTimeout(searchTimeout);
+          searchTimeout = null;
+        }
+        performSearch();
+      }
+    });
+
+    // Cancel search when modal is closed
+    document.getElementById('searchModal').addEventListener('hidden.bs.modal', function() {
+      cancelCurrentSearch();
+      // Clear any pending search timeout
+      if (searchTimeout) {
+        clearTimeout(searchTimeout);
+        searchTimeout = null;
+      }
+      // Hide loading and results when modal is closed
+      document.getElementById('searchLoading').style.display = 'none';
+      document.getElementById('searchResults').style.display = 'none';
+    });
+
+
+
+
+
+    // Helper function to show toast notifications
+    function showToast(title, message, type = 'info') {
+      // Create toast element
+      const toastHtml = `
+        <div class="toast bg-${type === 'error' ? 'danger' : type === 'success' ? 'success' : 'info'} text-white" role="alert" aria-live="assertive" aria-atomic="true">
+          <div class="toast-header bg-${type === 'error' ? 'danger' : type === 'success' ? 'success' : 'info'} text-white">
+            <strong class="me-auto">${title}</strong>
+            <button type="button" class="btn-close btn-close-white" data-bs-dismiss="toast" aria-label="Close"></button>
+          </div>
+          <div class="toast-body">
+            ${message}
+          </div>
+        </div>
+      `;
+      
+      const toastContainer = document.querySelector('.toast-container');
+      const toastElement = document.createElement('div');
+      toastElement.innerHTML = toastHtml;
+      toastContainer.appendChild(toastElement.firstElementChild);
+      
+      // Show the toast
+      const toast = new bootstrap.Toast(toastElement.firstElementChild);
+      toast.show();
+      
+      // Remove toast element after it's hidden
+      toastElement.firstElementChild.addEventListener('hidden.bs.toast', function() {
+        toastElement.remove();
+      });
+    }
+
+
 
   </script>  
   

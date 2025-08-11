@@ -4,6 +4,18 @@
 
 {% block content %}
 
+<style>
+    /* Spinning icon for cache operations */
+    .spin {
+        animation: spin 1s linear infinite;
+    }
+    
+    @keyframes spin {
+        from { transform: rotate(0deg); }
+        to { transform: rotate(360deg); }
+    }
+</style>
+
 <div class="container-lg">
     <h2 class="text-primary-emphasis">App Settings</h2>
     <form method="POST" class="mt-4">
@@ -203,6 +215,102 @@
             </div>
         </div>
 
+        <!-- Cache Management Settings -->
+        <div class="container p-4 border rounded shadow-sm mb-4">
+            <h4>Cache Management</h4>
+            <p class="text-muted">
+                Manage the application's directory cache and search index. The cache automatically rebuilds every 6 hours to ensure data accuracy.
+                <br><br>
+                <strong>How it works:</strong> When you browse directories, the app caches the listing for 5 seconds to improve performance. 
+                If files change (downloads, moves, etc.), the cache is automatically invalidated. The search index provides fast file searching 
+                across your entire data directory.
+            </p>
+
+            <!-- Cache Status Display -->
+            <div class="row mb-3">
+                <div class="col-md-12">
+                    <div class="alert alert-info">
+                        <div class="row">
+                            <div class="col-md-4">
+                                <strong>Cache Status:</strong><br>
+                                <span id="cacheStatus">Checking...</span>
+                            </div>
+                            <div class="col-md-4">
+                                <strong>Data Directory:</strong><br>
+                                <span id="dataDirStatus">Checking...</span>
+                            </div>
+                            <div class="col-md-4">
+                                <strong>Next Rebuild:</strong><br>
+                                <span id="nextRebuild">Calculating...</span>
+                            </div>
+                        </div>
+                        <div class="row mt-2">
+                            <div class="col-md-12">
+                                <small class="text-muted">
+                                    <span id="cacheDetails">Loading cache details...</span>
+                                </small>
+                            </div>
+                        </div>
+                        <div class="row mt-1">
+                            <div class="col-md-12">
+                                <small class="text-muted">
+                                    <span id="cachePerformance">Loading performance info...</span>
+                                </small>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Cache Management Buttons -->
+            <div class="row">
+                <div class="col-md-6">
+                    <button type="button" class="btn btn-outline-primary w-100" onclick="rebuildCache()" title="Rebuild cache and search index">
+                        <i class="bi bi-arrow-clockwise"></i> Rebuild Cache
+                    </button>
+                    <small class="form-text text-muted">
+                        Manually rebuild the entire directory cache and search index. This will clear all cached data and rebuild it from scratch.
+                    </small>
+                </div>
+
+                <div class="col-md-6">
+                    <button type="button" class="btn btn-outline-secondary w-100" onclick="clearCache()" title="Clear directory cache">
+                        <i class="bi bi-trash"></i> Clear Cache
+                    </button>
+                    <small class="form-text text-muted">
+                        Clear the directory cache only. This will force the next directory listing to rebuild the cache, but won't affect the search index.
+                    </small>
+                </div>
+            </div>
+
+            <!-- Cache Configuration -->
+            <div class="row mt-3">
+                <div class="col-md-4">
+                    <label for="cacheRebuildInterval" class="form-label">Cache Rebuild Interval (hours):</label>
+                    <input type="number" name="cacheRebuildInterval" id="cacheRebuildInterval" value="6" class="form-control" min="1" max="24" readonly>
+                    <small class="form-text text-muted">
+                        How often the cache automatically rebuilds. Currently set to 6 hours and cannot be changed from the UI.
+                    </small>
+                </div>
+
+                <div class="col-md-4">
+                    <label for="cacheDuration" class="form-label">Cache Duration (seconds):</label>
+                    <input type="number" name="cacheDuration" id="cacheDuration" value="5" class="form-control" min="1" max="60" readonly>
+                    <small class="form-text text-muted">
+                        How long individual directory listings are cached. Currently set to 5 seconds and cannot be changed from the UI.
+                    </small>
+                </div>
+
+                <div class="col-md-4">
+                    <label for="maxCacheSize" class="form-label">Maximum Cache Size:</label>
+                    <input type="number" name="maxCacheSize" id="maxCacheSize" value="100" class="form-control" readonly>
+                    <small class="form-text text-muted">
+                        Maximum number of directories that can be cached in memory. Currently set to 100 and cannot be changed from the UI.
+                    </small>
+                </div>
+            </div>
+        </div>
+
         <!-- ComicInfo XML editing Configuration -->
         <div class="container p-4 border rounded shadow-sm mb-4">
             <h4>ComicInfo.XML Update Settings</h4>
@@ -284,6 +392,199 @@
                 }
             });
         });
+
+        // Initialize cache status display
+        updateCacheStatus();
+        
+        // Update cache status every minute
+        setInterval(updateCacheStatus, 60000);
     });
+
+    // Cache Management Functions
+    function rebuildCache() {
+        const button = event.target.closest('button');
+        const originalText = button.innerHTML;
+        
+        // Show loading state
+        button.innerHTML = '<i class="bi bi-arrow-clockwise spin"></i> Rebuilding...';
+        button.disabled = true;
+        
+        fetch('/rebuild-cache', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' }
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                showToast('Cache Rebuilt', data.message, 'success');
+                // Update cache status display
+                updateCacheStatus();
+            } else {
+                showToast('Cache Rebuild Failed', data.error || 'Unknown error', 'error');
+            }
+        })
+        .catch(error => {
+            console.error('Error rebuilding cache:', error);
+            showToast('Cache Rebuild Failed', 'Network error occurred', 'error');
+        })
+        .finally(() => {
+            // Restore button state
+            button.innerHTML = originalText;
+            button.disabled = false;
+        });
+    }
+
+    function clearCache() {
+        const button = event.target.closest('button');
+        const originalText = button.innerHTML;
+        
+        // Show loading state
+        button.innerHTML = '<i class="bi bi-trash"></i> Clearing...';
+        button.disabled = true;
+        
+        fetch('/clear-cache', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' }
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                showToast('Cache Cleared', 'Directory cache cleared successfully', 'success');
+                // Update cache status display
+                updateCacheStatus();
+            } else {
+                showToast('Cache Clear Failed', data.error || 'Unknown error', 'error');
+            }
+        })
+        .catch(error => {
+            console.error('Error clearing cache:', error);
+            showToast('Cache Clear Failed', 'Network error occurred', 'error');
+        })
+        .finally(() => {
+            // Restore button state
+            button.innerHTML = originalText;
+            button.disabled = false;
+        });
+    }
+
+    // Update cache status display
+    function updateCacheStatus() {
+        fetch('/cache-status')
+            .then(response => response.json())
+            .then(data => {
+                const cacheStatusEl = document.getElementById('cacheStatus');
+                const dataDirStatusEl = document.getElementById('dataDirStatus');
+                const nextRebuildEl = document.getElementById('nextRebuild');
+                const cacheDetailsEl = document.getElementById('cacheDetails');
+                const cachePerformanceEl = document.getElementById('cachePerformance');
+                
+                if (cacheStatusEl && nextRebuildEl && dataDirStatusEl && cacheDetailsEl && cachePerformanceEl) {
+                    // Update cache status with more detail
+                    const cachedDirs = data.cache_size;
+                    const totalDirs = data.total_directories || 'Unknown';
+                    const statusText = `${cachedDirs}/${totalDirs} dirs cached | Last: ${data.formatted_since} ago`;
+                    cacheStatusEl.textContent = statusText;
+                    
+                    // Update data directory status
+                    if (data.data_dir_stats) {
+                        const stats = data.data_dir_stats;
+                        const dirStatusText = `${stats.subdir_count} subdirs | ${stats.total_files} files`;
+                        dataDirStatusEl.textContent = dirStatusText;
+                    } else {
+                        dataDirStatusEl.textContent = 'Loading...';
+                    }
+                    
+                    // Update next rebuild time
+                    if (data.time_until_next > 0) {
+                        nextRebuildEl.textContent = `in ${data.formatted_until}`;
+                    } else {
+                        nextRebuildEl.textContent = 'Due now';
+                    }
+                    
+                    // Update cache details
+                    let detailsText = '';
+                    if (data.cache_invalidated) {
+                        detailsText += '⚠️ Cache was recently invalidated by file changes. ';
+                    }
+                    if (data.index_built) {
+                        detailsText += '✅ Search index is ready. ';
+                    } else {
+                        detailsText += '⏳ Building search index... ';
+                    }
+                    detailsText += `Cache duration: ${data.cache_duration || 5}s | Max cache size: ${data.max_cache_size || 100}`;
+                    
+                    cacheDetailsEl.textContent = detailsText;
+                    
+                    // Update cache performance information
+                    const cacheHitRate = data.total_directories > 0 ? 
+                        Math.round((data.cache_size / data.total_directories) * 100) : 0;
+                    let performanceText = `Cache hit rate: ${cacheHitRate}% | `;
+                    
+                    if (data.cache_size >= data.max_cache_size) {
+                        performanceText += '⚠️ Cache at maximum size | ';
+                    }
+                    
+                    if (data.cache_size === 0) {
+                        performanceText += '🔄 Cache is empty, will rebuild on next access';
+                    } else {
+                        performanceText += `Cache efficiency: ${data.cache_size}/${data.max_cache_size}`;
+                    }
+                    
+                    cachePerformanceEl.textContent = performanceText;
+                }
+            })
+            .catch(error => {
+                console.error('Error fetching cache status:', error);
+                const cacheStatusEl = document.getElementById('cacheStatus');
+                const dataDirStatusEl = document.getElementById('dataDirStatus');
+                const nextRebuildEl = document.getElementById('nextRebuild');
+                const cacheDetailsEl = document.getElementById('cacheDetails');
+                const cachePerformanceEl = document.getElementById('cachePerformance');
+                
+                if (cacheStatusEl) cacheStatusEl.textContent = 'Error loading status';
+                if (dataDirStatusEl) dataDirStatusEl.textContent = 'Error loading status';
+                if (nextRebuildEl) nextRebuildEl.textContent = 'Unknown';
+                if (cacheDetailsEl) cacheDetailsEl.textContent = 'Error loading cache details';
+                if (cachePerformanceEl) cachePerformanceEl.textContent = 'Error loading performance info';
+            });
+    }
+
+    // Helper function to show toast notifications
+    function showToast(title, message, type = 'info') {
+        // Create toast element
+        const toastHtml = `
+            <div class="toast bg-${type === 'error' ? 'danger' : type === 'success' ? 'success' : 'info'} text-white" role="alert" aria-live="assertive" aria-atomic="true">
+                <div class="toast-header bg-${type === 'error' ? 'danger' : type === 'success' ? 'success' : 'info'} text-white">
+                    <strong class="me-auto">${title}</strong>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="toast" aria-label="Close"></button>
+                </div>
+                <div class="toast-body">
+                    ${message}
+                </div>
+            </div>
+        `;
+        
+        // Create toast container if it doesn't exist
+        let toastContainer = document.querySelector('.toast-container');
+        if (!toastContainer) {
+            toastContainer = document.createElement('div');
+            toastContainer.className = 'toast-container position-fixed bottom-0 end-0 p-3';
+            toastContainer.style.zIndex = '1100';
+            document.body.appendChild(toastContainer);
+        }
+        
+        const toastElement = document.createElement('div');
+        toastElement.innerHTML = toastHtml;
+        toastContainer.appendChild(toastElement.firstElementChild);
+        
+        // Show the toast
+        const toast = new bootstrap.Toast(toastElement.firstElementChild);
+        toast.show();
+        
+        // Remove toast element after it's hidden
+        toastElement.firstElementChild.addEventListener('hidden.bs.toast', function() {
+            toastElement.remove();
+        });
+    }
 </script>
 {% endblock %}

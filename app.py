@@ -76,6 +76,9 @@ directory_cache = {}
 cache_timestamps = {}
 CACHE_DURATION = 5  # Cache for 5 seconds
 MAX_CACHE_SIZE = 100  # Maximum number of cached directories
+CACHE_REBUILD_INTERVAL = 6 * 60 * 60  # 6 hours in seconds
+last_cache_rebuild = time.time()
+last_cache_invalidation = None  # Track when cache was last invalidated
 
 def get_directory_hash(path):
     """Generate a hash for directory contents to detect changes."""
@@ -110,6 +113,108 @@ def cleanup_cache():
     for path in expired_paths:
         directory_cache.pop(path, None)
         cache_timestamps.pop(path, None)
+
+# LRU cache for search results (cache last 100 searches)
+@lru_cache(maxsize=100)
+def cached_search(query):
+    """Cached search function for repeated queries"""
+    global file_index, index_built
+    
+    # If index is not built yet, fall back to filesystem search
+    if not index_built:
+        app_logger.info("Search index not ready, using filesystem search...")
+        return filesystem_search(query)
+    
+    query_lower = query.lower()
+    results = []
+    
+    for item in file_index:
+        if query_lower in item["name"].lower():
+            results.append(item)
+            if len(results) >= 100:  # Limit results
+                break
+    
+    # Sort results: directories first, then files, both alphabetically
+    results.sort(key=lambda x: (x["type"] != "directory", x["name"].lower()))
+    
+    return results
+
+def filesystem_search(query):
+    """Fallback filesystem search when index is not ready"""
+    import time
+    
+    query_lower = query.lower()
+    results = []
+    excluded_extensions = {".png", ".jpg", ".jpeg", ".gif", ".txt", ".html", ".css", ".ds_store", "cvinfo", ".json", ".db"}
+    
+    try:
+        for root, dirs, files in os.walk(DATA_DIR):
+            # Skip hidden directories
+            dirs[:] = [d for d in dirs if not d.startswith('.') and not d.startswith('_')]
+            
+            # Check directories
+            for dir_name in dirs:
+                if query_lower in dir_name.lower():
+                    rel_path = os.path.relpath(root, DATA_DIR)
+                    if rel_path == '.':
+                        full_path = f"/data/{dir_name}"
+                    else:
+                        full_path = f"/data/{rel_path}/{dir_name}"
+                    
+                    results.append({
+                        "name": dir_name,
+                        "path": full_path,
+                        "type": "directory",
+                        "parent": f"/data/{rel_path}" if rel_path != '.' else "/data"
+                    })
+                    
+                    if len(results) >= 100:
+                        break
+            
+            if len(results) >= 100:
+                break
+            
+            # Check files
+            for file_name in files:
+                if file_name.startswith('.') or file_name.startswith('_'):
+                    continue
+                
+                if any(file_name.lower().endswith(ext) for ext in excluded_extensions):
+                    continue
+                
+                if query_lower in file_name.lower():
+                    rel_path = os.path.relpath(root, DATA_DIR)
+                    if rel_path == '.':
+                        full_path = f"/data/{file_name}"
+                    else:
+                        full_path = f"/data/{rel_path}/{file_name}"
+                    
+                    try:
+                        file_size = os.path.getsize(os.path.join(root, file_name))
+                        results.append({
+                            "name": file_name,
+                            "path": full_path,
+                            "type": "file",
+                            "size": file_size,
+                            "parent": f"/data/{rel_path}" if rel_path != '.' else "/data"
+                        })
+                        
+                        if len(results) >= 100:
+                            break
+                    except (OSError, IOError):
+                        continue
+            
+            if len(results) >= 100:
+                break
+        
+        # Sort results
+        results.sort(key=lambda x: (x["type"] != "directory", x["name"].lower()))
+        return results
+        
+    except Exception as e:
+        app_logger.error(f"Error in filesystem search: {e}")
+        return []
+
 
 def get_directory_listing(path):
     """Get directory listing with optimized file system operations."""
@@ -157,6 +262,8 @@ def get_directory_listing(path):
 
 def invalidate_cache_for_path(path):
     """Invalidate cache for a specific path and its parent."""
+    global last_cache_invalidation
+    
     if path in directory_cache:
         del directory_cache[path]
         del cache_timestamps[path]
@@ -166,19 +273,215 @@ def invalidate_cache_for_path(path):
     if parent in directory_cache:
         del directory_cache[parent]
         del cache_timestamps[parent]
+    
+    # Track when cache invalidation occurred
+    last_cache_invalidation = time.time()
+
+def rebuild_entire_cache():
+    """Rebuild the entire directory cache and search index."""
+    global directory_cache, cache_timestamps, last_cache_rebuild, last_cache_invalidation
+    
+    app_logger.info("🔄 Starting scheduled cache rebuild...")
+    start_time = time.time()
+    
+    # Clear all caches
+    directory_cache.clear()
+    cache_timestamps.clear()
+    
+    # Rebuild search index
+    invalidate_file_index()
+    build_file_index()
+    
+    # Update rebuild timestamp and reset invalidation
+    last_cache_rebuild = time.time()
+    last_cache_invalidation = None  # Reset invalidation tracking after rebuild
+    
+    rebuild_time = time.time() - start_time
+    app_logger.info(f"✅ Cache rebuild completed in {rebuild_time:.2f} seconds")
+    
+    return rebuild_time
+
+def should_rebuild_cache():
+    """Check if it's time to rebuild the cache based on the interval."""
+    global last_cache_rebuild
+    return time.time() - last_cache_rebuild >= CACHE_REBUILD_INTERVAL
 
 @app.route('/clear-cache', methods=['POST'])
 def clear_cache():
     """Manually clear the directory cache."""
-    global directory_cache, cache_timestamps
+    global directory_cache, cache_timestamps, last_cache_invalidation
     directory_cache.clear()
     cache_timestamps.clear()
+    last_cache_invalidation = time.time()
     app_logger.info("Directory cache cleared manually")
     return jsonify({"success": True, "message": "Cache cleared"})
+
+@app.route('/rebuild-search-index', methods=['POST'])
+def rebuild_search_index():
+    """Manually rebuild the search index."""
+    invalidate_file_index()
+    build_file_index()
+    return jsonify({"success": True, "message": "Search index rebuilt"})
+
+@app.route('/rebuild-cache', methods=['POST'])
+def rebuild_cache():
+    """Manually rebuild the entire cache and search index."""
+    try:
+        rebuild_time = rebuild_entire_cache()
+        return jsonify({
+            "success": True, 
+            "message": f"Cache rebuilt successfully in {rebuild_time:.2f} seconds"
+        })
+    except Exception as e:
+        app_logger.error(f"Error rebuilding cache: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+@app.route('/cache-status', methods=['GET'])
+def get_cache_status():
+    """Get current cache status and next rebuild time."""
+    global last_cache_rebuild
+    
+    current_time = time.time()
+    time_since_rebuild = current_time - last_cache_rebuild
+    time_until_next = CACHE_REBUILD_INTERVAL - time_since_rebuild
+    
+    # Format times
+    def format_time(seconds):
+        if seconds < 60:
+            return f"{int(seconds)}s"
+        elif seconds < 3600:
+            return f"{int(seconds // 60)}m {int(seconds % 60)}s"
+        else:
+            hours = int(seconds // 3600)
+            minutes = int((seconds % 3600) // 60)
+            return f"{hours}h {minutes}m"
+    
+    # Get data directory statistics
+    data_dir_stats = get_data_directory_stats()
+    
+    # Check if cache was recently invalidated (within last 30 seconds)
+    cache_recently_invalidated = False
+    if last_cache_invalidation:
+        cache_recently_invalidated = (current_time - last_cache_invalidation) < 30
+    
+    return jsonify({
+        "last_rebuild": last_cache_rebuild,
+        "time_since_rebuild": time_since_rebuild,
+        "time_until_next": time_until_next,
+        "formatted_since": format_time(time_since_rebuild),
+        "formatted_until": format_time(max(0, time_until_next)),
+        "cache_size": len(directory_cache),
+        "total_directories": data_dir_stats.get('total_dirs', 0),
+        "index_built": index_built,
+        "data_dir_stats": data_dir_stats,
+        "cache_invalidated": cache_recently_invalidated,
+        "cache_duration": CACHE_DURATION,
+        "max_cache_size": MAX_CACHE_SIZE
+    })
+
+def get_data_directory_stats():
+    """Get statistics about the DATA_DIR including subdirectory count and file count."""
+    try:
+        subdir_count = 0
+        total_files = 0
+        
+        for root, dirs, files in os.walk(DATA_DIR):
+            # Count subdirectories (excluding the root DATA_DIR)
+            if root != DATA_DIR:
+                subdir_count += 1
+            
+            # Count files
+            total_files += len(files)
+        
+        return {
+            "subdir_count": subdir_count,
+            "total_files": total_files,
+            "total_dirs": subdir_count + 1  # +1 for the root DATA_DIR
+        }
+    except Exception as e:
+        app_logger.error(f"Error getting data directory stats: {e}")
+        return {
+            "subdir_count": 0,
+            "total_files": 0,
+            "total_dirs": 0
+        }
 
 #########################
 #     Global Values     #
 #########################
+
+# Global file index for fast searching
+file_index = []
+index_built = False
+
+def build_file_index():
+    """Build an in-memory index of all files and directories for fast searching"""
+    global file_index, index_built
+    
+    if index_built:
+        return
+    
+    app_logger.info("Building file index for fast search...")
+    start_time = time.time()
+    
+    file_index.clear()
+    excluded_extensions = {".png", ".jpg", ".jpeg", ".gif", ".txt", ".html", ".css", ".ds_store", "cvinfo", ".json", ".db"}
+    
+    try:
+        for root, dirs, files in os.walk(DATA_DIR):
+            # Skip hidden directories
+            dirs[:] = [d for d in dirs if not d.startswith('.') and not d.startswith('_')]
+            
+            # Index directories
+            for name in dirs:
+                try:
+                    rel_path = os.path.relpath(os.path.join(root, name), DATA_DIR)
+                    file_index.append({
+                        "name": name,
+                        "path": f"/data/{rel_path}",
+                        "type": "directory",
+                        "parent": f"/data/{os.path.dirname(rel_path)}" if os.path.dirname(rel_path) else "/data"
+                    })
+                except (OSError, IOError):
+                    continue
+            
+            # Index files (excluding certain extensions)
+            for name in files:
+                if name.startswith('.') or name.startswith('_'):
+                    continue
+                
+                # Skip excluded file types
+                if any(name.lower().endswith(ext) for ext in excluded_extensions):
+                    continue
+                
+                try:
+                    full_path = os.path.join(root, name)
+                    rel_path = os.path.relpath(full_path, DATA_DIR)
+                    file_size = os.path.getsize(full_path)
+                    
+                    file_index.append({
+                        "name": name,
+                        "path": f"/data/{rel_path}",
+                        "type": "file",
+                        "size": file_size,
+                        "parent": f"/data/{os.path.dirname(rel_path)}" if os.path.dirname(rel_path) else "/data"
+                    })
+                except (OSError, IOError):
+                    continue
+    
+    except Exception as e:
+        app_logger.error(f"Error building file index: {e}")
+        return
+    
+    build_time = time.time() - start_time
+    app_logger.info(f"File index built successfully: {len(file_index)} items in {build_time:.2f} seconds")
+    index_built = True
+
+def invalidate_file_index():
+    """Invalidate the file index to force rebuild"""
+    global index_built
+    index_built = False
+    app_logger.info("File index invalidated")
 
 @app.context_processor
 def inject_monitor():
@@ -419,6 +722,8 @@ def move():
                 # Invalidate cache for affected directories
                 invalidate_cache_for_path(os.path.dirname(source))
                 invalidate_cache_for_path(os.path.dirname(destination))
+                # Invalidate search index since files have moved
+                invalidate_file_index()
                 
                 return jsonify({"success": True})
             except Exception as e:
@@ -459,6 +764,37 @@ def folder_size():
         "comic_count": comic_count,
         "magazine_count": magazine_count
     })
+
+#####################################
+#       Search Files in /data       #
+#####################################
+@app.route('/search-files', methods=['GET'])
+def search_files():
+    """Search for files and directories in /data directory using cached index"""
+    query = request.args.get('query', '').strip()
+    
+    if not query:
+        return jsonify({"error": "No search query provided"}), 400
+    
+    if len(query) < 2:
+        return jsonify({"error": "Search query must be at least 2 characters"}), 400
+    
+    try:
+        # Use cached search function
+        results = cached_search(query)
+        
+        return jsonify({
+            "success": True,
+            "results": results,
+            "total_found": len(results),
+            "query": query,
+            "cached": True,
+            "index_ready": index_built
+        })
+        
+    except Exception as e:
+        app_logger.error(f"Error searching files: {e}")
+        return jsonify({"error": str(e)}), 500
 
 #####################################
 #       Count Files in Directory    #
@@ -773,6 +1109,8 @@ def delete():
         
         # Invalidate cache for the directory containing the deleted item
         invalidate_cache_for_path(os.path.dirname(target))
+        # Invalidate search index since files have been deleted
+        invalidate_file_index()
         
         return jsonify({"success": True})
     except Exception as e:
@@ -821,6 +1159,8 @@ def custom_rename():
         # Invalidate cache for affected directories
         invalidate_cache_for_path(os.path.dirname(old_path))
         invalidate_cache_for_path(os.path.dirname(new_path))
+        # Invalidate search index since files have been renamed
+        invalidate_file_index()
         
         app_logger.info(f"Custom rename successful: {old_path} -> {new_path}")
         return jsonify({"success": True})
@@ -1208,6 +1548,33 @@ def watch_count():
 
 if __name__ == '__main__':
     app_logger.info("Flask app is starting up...")
+    
+    # Build search index in background thread
+    def build_index_background():
+        try:
+            build_file_index()
+            app_logger.info("✅ Search index built successfully and ready for use")
+        except Exception as e:
+            app_logger.error(f"❌ Error building search index: {e}")
+    
+    # Cache maintenance background thread
+    def cache_maintenance_background():
+        """Background thread that checks and rebuilds cache every hour."""
+        while True:
+            try:
+                time.sleep(60 * 60)  # Check every hour
+                if should_rebuild_cache():
+                    rebuild_entire_cache()
+            except Exception as e:
+                app_logger.error(f"Error in cache maintenance thread: {e}")
+    
+    # Start index building in background
+    threading.Thread(target=build_index_background, daemon=True).start()
+    app_logger.info("🔄 Building search index in background...")
+    
+    # Start cache maintenance in background
+    threading.Thread(target=cache_maintenance_background, daemon=True).start()
+    app_logger.info("🔄 Cache maintenance thread started (checks every hour, rebuilds every 6 hours)...")
     
     if os.environ.get("MONITOR", "").strip().lower() == "yes":
         app_logger.info("MONITOR=yes detected. Starting monitor.py...")
