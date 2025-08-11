@@ -1232,6 +1232,7 @@ def config_page():
         config["SETTINGS"]["DELETED_FILES"] = request.form.get("deletedFiles", "")
         config["SETTINGS"]["OPERATION_TIMEOUT"] = request.form.get("operationTimeout", "3600")
         config["SETTINGS"]["LARGE_FILE_THRESHOLD"] = request.form.get("largeFileThreshold", "500")
+        config["SETTINGS"]["PIXELDRAIN_API_KEY"] = request.form.get("pixeldrainApiKey", "")
 
         write_config()  # Save changes to config.ini
         load_flask_config(app)  # Reload into Flask config
@@ -1261,6 +1262,7 @@ def config_page():
         customHeaders=settings.get("HEADERS", ""),
         operationTimeout=settings.get("OPERATION_TIMEOUT", "3600"),
         largeFileThreshold=settings.get("LARGE_FILE_THRESHOLD", "500"),
+        pixeldrainApiKey=settings.get("PIXELDRAIN_API_KEY", ""),
         config=settings,  # Pass full settings dictionary
     )
 

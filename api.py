@@ -17,6 +17,7 @@ from typing import Optional
 from http.client import IncompleteRead
 import time
 import signal
+import base64
 
 # Mega download support
 from mega import Mega
@@ -26,6 +27,8 @@ from Crypto.Cipher import AES
 from Crypto.Util import Counter
 
 import pixeldrain
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 # Application logging and configuration (adjust these as needed)
 from app_logging import app_logger
@@ -348,69 +351,195 @@ def download_mega(url, download_id, dest_filename=None):
 # Pixeldrain support
 # -------------------------------
 def _pd_id(url: str) -> str:
-    """Return the last path component regardless of URL shape."""
     return urlparse(url).path.rstrip("/").split("/")[-1]
 
+def _requests_session() -> requests.Session:
+    s = requests.Session()
+    retries = Retry(
+        total=5,
+        connect=5,
+        read=5,
+        backoff_factor=1.0,
+        status_forcelist=(429, 500, 502, 503, 504),
+        allowed_methods=frozenset(["GET", "HEAD"])
+    )
+    s.mount("https://", HTTPAdapter(max_retries=retries, pool_connections=32, pool_maxsize=32))
+    s.mount("http://",  HTTPAdapter(max_retries=retries, pool_connections=32, pool_maxsize=32))
+    return s
+
+def _parse_total_from_headers(hdrs, default_size=None):
+    # Prefer Content-Range when resuming, else Content-Length
+    cr = hdrs.get("Content-Range")
+    if cr and "bytes" in cr:
+        # e.g., "bytes 1048576-2097151/987654321"
+        try:
+            total = int(cr.split("/")[-1])
+            return total
+        except Exception:
+            pass
+    cl = hdrs.get("Content-Length")
+    if cl:
+        try:
+            return int(cl)
+        except Exception:
+            pass
+    return default_size
 
 def download_pixeldrain(url: str, download_id: str, dest_name: Optional[str] = None) -> str:
     """
-    Download a single PixelDrain *file* **or** a *folder/album* (as ZIP).
-
-    • Progress is reported via `download_progress[download_id]`
-    • Returns the absolute path to the completed file on success
+    Download a single PixelDrain file or folder (as ZIP).
+    Keeps anonymous + API-key modes, but uses the fast '?download' endpoint,
+    enables resume, larger chunks, and resilient retries.
     """
     file_id = _pd_id(url)
 
-    # ---------- 1. Look up metadata via the library -----------------
-    info = pixeldrain.info(file_id)                  # dict from API
-    is_folder = info.get("content_type") == "folder"
-    original_name = info.get("name") or f"{file_id}.bin"
-    wanted_name = dest_name or original_name
-    filename_fs  = secure_filename(wanted_name)
+    # --- config / auth ---
+    api_key = config.get("SETTINGS", "PIXELDRAIN_API_KEY", fallback="").strip()
+    auth = ("", api_key) if api_key else None
 
-    # ---------- 2. Set filename in progress dict (early!) ----------
-    download_progress[download_id] |= {
-        "filename": filename_fs,
-        "progress": 0,
-    }
+    # 1) Resolve metadata (mostly for naming). We’ll try a lightweight HEAD to the download URL
+    #    which is faster + works for both modes; if it fails, fall back to library/info.
+    is_folder = False
+    original_name = dest_name
+    session = _requests_session()
 
-    # ---------- 3. Decide download URL ----------
-    if is_folder:
-        dl_url = f"https://pixeldrain.com/api/file/{file_id}/zip"
-        total_bytes = None
-    else:
-        dl_url = f"{pixeldrain.file(file_id)}?download"
-        total_bytes = info.get("size")
-        download_progress[download_id]["bytes_total"] = total_bytes or 0
+    # Build the *download* endpoints up-front
+    file_dl_url   = f"https://pixeldrain.com/api/file/{file_id}?download"
+    folder_dl_url = f"https://pixeldrain.com/api/file/{file_id}/zip?download"
 
-    # ---------- 4. Reserve output path ----------
+    try:
+        # Quick HEAD on file endpoint (if it's actually a folder we'll detect after)
+        h = session.head(file_dl_url, headers={**headers, "Accept": "application/octet-stream"},
+                         auth=auth, allow_redirects=True, timeout=(10, 60))
+        # PixelDrain sends filename via Content-Disposition
+        cd = h.headers.get("Content-Disposition", "")
+        m = re.search(r'filename\*?=(?:UTF-8\'\')?"?([^";]+)"?', cd)
+        if m:
+            original_name = unquote(m.group(1))
+    except Exception:
+        # Fallback to library/json info (works anonymously too)
+        try:
+            info = pixeldrain.info(file_id)
+            is_folder = info.get("content_type") == "folder"
+            if not original_name:
+                original_name = info.get("name") or f"{file_id}.bin"
+        except Exception:
+            # still make sure we have a name
+            if not original_name:
+                original_name = f"{file_id}.bin"
+
+    # If we didn’t know folder/file yet, do a tiny GET to folder URL to check
+    if not is_folder:
+        try:
+            # Ping the folder url; folder responses are not octet-stream for direct file
+            test = session.head(folder_dl_url, headers=headers, auth=auth,
+                                allow_redirects=False, timeout=(5, 30))
+            # folder zip exists if not 404
+            is_folder = test.status_code != 404
+        except Exception:
+            pass
+
+    # Final URL + name
+    dl_url = folder_dl_url if is_folder else file_dl_url
+    if not original_name:
+        original_name = f"{file_id}.zip" if is_folder else f"{file_id}.bin"
+    filename_fs = secure_filename(original_name)
+
+    # 2) progress bootstrap
+    download_progress.setdefault(download_id, {})
+    download_progress[download_id] |= {"filename": filename_fs, "progress": 0}
+
+    # 3) choose output path
     out_path = os.path.join(DOWNLOAD_DIR, filename_fs)
     base, ext = os.path.splitext(out_path)
-    i = 1
+    n = 1
     while os.path.exists(out_path):
-        out_path = f"{base}_{i}{ext}"
-        i += 1
-
+        out_path = f"{base}_{n}{ext}"
+        n += 1
     tmp_path = out_path + ".part"
-    download_progress[download_id] |= {"filename": out_path, "progress": 0}
 
-    # ---------- 5. Download ----------
-    with requests.get(dl_url, stream=True, timeout=60) as r, open(tmp_path, "wb") as f:
-        r.raise_for_status()
-        done = 0
-        for chunk in r.iter_content(chunk_size=1 << 20):   # 1 MiB
-            if chunk:
-                f.write(chunk)
-                done += len(chunk)
-                if total_bytes:
-                    pct = int(done / total_bytes * 100)
-                    download_progress[download_id]["progress"] = pct
-                    download_progress[download_id]["bytes_downloaded"] = done
+    # 4) resume support
+    existing = os.path.getsize(tmp_path) if os.path.exists(tmp_path) else 0
+    range_header = {"Range": f"bytes={existing}-"} if existing > 0 else {}
 
-    os.rename(tmp_path, out_path)
-    download_progress[download_id]["progress"] = 100
-    app_logger.info(f"PixelDrain download complete → {out_path}")
-    return out_path
+    # 5) start download (bigger chunks; robust retries)
+    req_headers = {
+        **headers,
+        "Accept": "application/octet-stream",
+        "Connection": "keep-alive",
+        "Accept-Encoding": "identity",  # avoid gzip on large binaries
+        **range_header,
+    }
+
+    app_logger.info(
+        f"PixelDrain download → {dl_url} "
+        f"({'auth' if auth else 'anon'}; resume={existing>0}; tmp={os.path.basename(tmp_path)})"
+    )
+
+    # Open mode: append if resuming, else write-new
+    mode = "ab" if existing > 0 else "wb"
+    chunk = 8 * 1024 * 1024  # 8 MiB
+
+    try:
+        with session.get(dl_url, stream=True, headers=req_headers, auth=auth,
+                         allow_redirects=True, timeout=(10, 180)) as r, open(tmp_path, mode) as f:
+
+            r.raise_for_status()
+
+            # If we asked for a range but didn’t get 206, start over
+            if existing > 0 and r.status_code != 206:
+                app_logger.info("Server did not honor Range; restarting from 0")
+                f.close()
+                os.remove(tmp_path)
+                existing = 0
+                req_headers.pop("Range", None)
+                with session.get(dl_url, stream=True, headers=req_headers, auth=auth,
+                                 allow_redirects=True, timeout=(10, 180)) as r2, open(tmp_path, "wb") as f2:
+                    r2.raise_for_status()
+                    total = _parse_total_from_headers(r2.headers, None)
+                    if total:
+                        download_progress[download_id]["bytes_total"] = total
+                    done = 0
+                    for chunk_bytes in r2.iter_content(chunk_size=chunk):
+                        if chunk_bytes:
+                            f2.write(chunk_bytes)
+                            done += len(chunk_bytes)
+                            if total:
+                                download_progress[download_id]["bytes_downloaded"] = done
+                                download_progress[download_id]["progress"] = int(done / total * 100)
+            else:
+                total = _parse_total_from_headers(r.headers, None)
+                if total:
+                    # If resuming, total is the full size; update counters accordingly
+                    download_progress[download_id]["bytes_total"] = total
+                done = existing
+                if existing and total:
+                    download_progress[download_id]["bytes_downloaded"] = existing
+                    download_progress[download_id]["progress"] = int(existing / total * 100)
+
+                for chunk_bytes in r.iter_content(chunk_size=chunk):
+                    if not chunk_bytes:
+                        continue
+                    f.write(chunk_bytes)
+                    done += len(chunk_bytes)
+                    if total:
+                        download_progress[download_id]["bytes_downloaded"] = done
+                        download_progress[download_id]["progress"] = int(done / total * 100)
+
+        os.replace(tmp_path, out_path)
+        download_progress[download_id]["progress"] = 100
+        app_logger.info(f"PixelDrain download complete → {out_path}")
+        return out_path
+
+    except requests.Timeout as e:
+        app_logger.error(f"Timeout during PixelDrain download: {e}")
+        raise Exception(f"Timeout during download: {e}")
+    except requests.RequestException as e:
+        app_logger.error(f"Request error during PixelDrain download: {e}")
+        raise Exception(f"Request error during download: {e}")
+    except Exception as e:
+        app_logger.error(f"Unexpected error during PixelDrain download: {e}")
+        raise
 
 # -------------------------------
 # API Endpoints

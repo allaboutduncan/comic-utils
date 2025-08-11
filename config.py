@@ -37,7 +37,8 @@ def load_config():
             "AUTO_UNPACK": "False",
             "SKIPPED_FILES": ".xml",
             "DELETED_FILES": ".nfo,.sfv,.db,.DS_Store",
-            "HEADERS": ""
+            "HEADERS": "",
+            "PIXELDRAIN_API_KEY": ""
         }
         write_config()
     else:
@@ -79,6 +80,7 @@ def load_flask_config(app, logger=None):
     app.config["SKIPPED_FILES"] = settings.get("SKIPPED_FILES", "")
     app.config["DELETED_FILES"] = settings.get("DELETED_FILES", "")
     app.config["HEADERS"] = settings.get("HEADERS", "")
+    app.config["PIXELDRAIN_API_KEY"] = settings.get("PIXELDRAIN_API_KEY", "")
 
     if logger:
         logger.info(f"Watching: {app.config['WATCH']}")
