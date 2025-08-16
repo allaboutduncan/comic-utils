@@ -40,8 +40,16 @@
         <div class="btn-group mb-2" role="group" aria-label="Folder Options">
           <button type="button" class="btn btn-outline-primary" onclick="openCreateFolderModal()"><i class="bi bi-folder-plus"></i> Create Folder</button>
           <button type="button" class="btn btn-outline-primary" onclick="openSearchModal()"><i class="bi bi-search"></i> Search Files</button>
+          <button type="button" class="btn btn-outline-warning" onclick="cleanupOrphanFiles()"><i class="bi bi-trash"></i> Cleanup Orphan Downloads</button>
         </div>
         
+        <!-- Cleanup Status -->
+        <div class="mb-2">
+          <small class="text-muted">
+            <i class="bi bi-info-circle me-1"></i>
+            Last downloads cleanup: <span id="lastCleanupStatus">Never</span>
+          </small>
+        </div>
 
         <!-- Filter buttons for destination panel -->
         <div id="destination-directory-filter" class="mb-2">
@@ -66,11 +74,11 @@
     <div class="toast-container position-fixed bottom-0 end-0 p-3" style="z-index: 1100">
       <div id="moveErrorToast" class="toast bg-danger text-white" role="alert" aria-live="assertive" aria-atomic="true">
         <div class="toast-header bg-danger text-white">
-          <strong class="me-auto">Move Error</strong>
+          <strong class="me-auto">Rename Error</strong>
           <button type="button" class="btn-close btn-close-white" data-bs-dismiss="toast" aria-label="Close"></button>
         </div>
         <div class="toast-body" id="moveErrorToastBody">
-          Move failed.
+          Rename failed.
         </div>
       </div>
     </div>
@@ -404,7 +412,9 @@
       
       // Create icon container early to avoid undefined reference
       let iconContainer = document.createElement("div");
-      iconContainer.className = "icon-container";
+      iconContainer.className = "btn-group";
+      iconContainer.setAttribute("role", "group");
+      iconContainer.setAttribute("aria-label", "File actions");
 
       if (fileData.name.toLowerCase() !== "parent") {
         let icon = document.createElement("i");
@@ -431,9 +441,10 @@
       if (type === "file" && fileData.name.toLowerCase().endsWith('.cbz')) {
         // Add info button for detailed CBZ information
         const infoBtn = document.createElement("button");
-        infoBtn.className = "btn btn-sm btn-outline-secondary ms-2";
+        infoBtn.className = "btn btn-sm btn-outline-secondary";
         infoBtn.innerHTML = '<i class="bi bi-eye"></i>';
         infoBtn.title = "CBZ Information";
+        infoBtn.setAttribute("type", "button");
         infoBtn.onclick = function(e) {
           e.stopPropagation();
           showCBZInfo(fullPath, fileData.name);
@@ -445,16 +456,18 @@
         const infoWrapper = document.createElement("span");
         infoWrapper.className = "me-2";
 
-        const infoIcon = document.createElement("i");
-        infoIcon.className = "bi bi-info-circle";
-        infoIcon.style.cursor = "pointer";
+        const infoIcon = document.createElement("button");
+        infoIcon.className = "btn btn-sm btn-outline-info";
+        infoIcon.innerHTML = '<i class="bi bi-info-circle"></i>';
+        infoIcon.title = "Show folder information";
+        infoIcon.setAttribute("type", "button");
 
         const sizeDisplay = document.createElement("span");
         sizeDisplay.className = "text-info-emphasis small ms-2";
 
         infoIcon.onclick = function (e) {
           e.stopPropagation();
-          infoIcon.className = "spinner-border spinner-border-sm";
+          infoIcon.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
 
           fetch(`/folder-size?path=${encodeURIComponent(fullPath)}`)
             .then(res => res.json())
@@ -486,19 +499,70 @@
             .catch(err => {
               console.error("Error calculating folder size:", err);
               sizeDisplay.textContent = "(error)";
-              infoIcon.className = "bi bi-info-circle"; // restore fallback
+              infoIcon.innerHTML = '<i class="bi bi-info-circle"></i>'; // restore fallback
             });
         };
 
         infoWrapper.appendChild(infoIcon);
         infoWrapper.appendChild(sizeDisplay);
         iconContainer.appendChild(infoWrapper);
+        
+        // Add rename button for directories (but not for Parent directory)
+        if (fileData.name !== "Parent") {
+          const renameBtn = document.createElement("button");
+          renameBtn.className = "btn btn-sm btn-outline-primary";
+          renameBtn.innerHTML = '<i class="bi bi-input-cursor-text"></i>';
+          renameBtn.title = "Rename files in this directory";
+          renameBtn.setAttribute("type", "button");
+          renameBtn.addEventListener("click", function(e) {
+            if (e) e.stopPropagation();
+            // Call the rename_files function from rename.py
+            fetch('/rename-directory', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ directory: fullPath })
+            })
+            .then(response => response.json())
+            .then(result => {
+              if (result.success) {
+                // Show success message using the showToast function
+                showToast('Rename Successful', `Successfully renamed files in ${fileData.name}`, 'success');
+                // Refresh the current directory listing
+                if (panel === 'source') {
+                  loadDirectories(currentSourcePath, 'source');
+                } else {
+                  loadDirectories(currentDestinationPath, 'destination');
+                }
+              } else {
+                // Show error message
+                if (window.bootstrap && document.getElementById("moveErrorToast")) {
+                  document.getElementById("moveErrorToastBody").textContent = `RENAME ERROR: ${result.error}`;
+                  bootstrap.Toast.getOrCreateInstance(document.getElementById("moveErrorToast")).show();
+                } else {
+                  alert(`RENAME ERROR: ${result.error}`);
+                }
+              }
+            })
+            .catch(error => {
+              console.error("Error calling rename function:", error);
+              if (window.bootstrap && document.getElementById("moveErrorToast")) {
+                document.getElementById("moveErrorToastBody").textContent = `RENAME ERROR: ${error.message}`;
+                bootstrap.Toast.getOrCreateInstance(document.getElementById("moveErrorToast")).show();
+              } else {
+                alert(`RENAME ERROR: ${error.message}`);
+              }
+            });
+          });
+          iconContainer.appendChild(renameBtn);
+        }
       }
 
       if (fileData.name !== "Parent") {
-        let pencil = document.createElement("i");
-        pencil.className = "bi bi-pencil";
-        pencil.style.cursor = "pointer";
+        let pencil = document.createElement("button");
+        pencil.className = "btn btn-sm btn-outline-secondary";
+        pencil.innerHTML = '<i class="bi bi-pencil"></i>';
+        pencil.title = "Edit filename";
+        pencil.setAttribute("type", "button");
 
         pencil.addEventListener("click", e => {
           e.stopPropagation();
@@ -528,9 +592,11 @@
           input.focus();
         });
 
-        let trash = document.createElement("i");
-        trash.className = "bi bi-trash";
-        trash.style.cursor = "pointer";
+        let trash = document.createElement("button");
+        trash.className = "btn btn-sm btn-outline-danger";
+        trash.innerHTML = '<i class="bi bi-trash"></i>';
+        trash.title = "Delete file";
+        trash.setAttribute("type", "button");
         trash.onclick = function(e) {
           e.stopPropagation();
           deleteTarget = fullPath;
@@ -1241,6 +1307,69 @@
       movingProgressBar.style.width = percentage + "%";
       movingProgressBar.setAttribute('aria-valuenow', percentage);
     }
+    // Handle streaming directory move with size-based progress
+    function handleStreamingDirectoryMove(response, fileName, sourcePath, targetFolder) {
+      return new Promise((resolve, reject) => {
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+        
+        function processStream() {
+          reader.read().then(({ done, value }) => {
+            if (done) {
+              // Stream complete
+              resolve({ success: true });
+              return;
+            }
+            
+            // Decode the chunk and add to buffer
+            buffer += decoder.decode(value, { stream: true });
+            
+            // Process complete lines
+            const lines = buffer.split('\n');
+            buffer = lines.pop(); // Keep incomplete line in buffer
+            
+            for (const line of lines) {
+              if (line.startsWith('data: ')) {
+                const data = line.slice(6); // Remove 'data: ' prefix
+                
+                if (data === 'done') {
+                  // Operation complete
+                  resolve({ success: true });
+                  return;
+                } else if (data.startsWith('error:')) {
+                  // Operation failed
+                  const error = data.slice(7); // Remove 'error: ' prefix
+                  reject(new Error(error));
+                  return;
+                } else if (data.startsWith('keepalive:')) {
+                  // Keepalive message, update status
+                  const status = data.slice(11); // Remove 'keepalive: ' prefix
+                  setMovingStatus(`Moving directory ${fileName}: ${status}`);
+                } else if (!isNaN(data)) {
+                  // Progress percentage
+                  const progress = parseInt(data);
+                  updateMovingProgress(progress);
+                  
+                  // Update status with progress
+                  if (progress < 100) {
+                    setMovingStatus(`Moving directory ${fileName}: ${progress}% complete`);
+                  } else {
+                    setMovingStatus(`Finalizing directory move: ${fileName}`);
+                  }
+                }
+              }
+            }
+            
+            // Continue reading
+            processStream();
+          }).catch(reject);
+        }
+        
+        processStream();
+      });
+    }
+
     // Enhanced moveMultipleItems with better directory progress
     function moveMultipleItems(filePaths, targetFolder, panel, itemsWithTypes = null) {
       showMovingModal();
@@ -1248,6 +1377,17 @@
       let currentIndex = 0;
       let totalFilesToMove = 0;
       let filesMoved = 0;
+      let hasPendingOperations = false;
+      
+      // Add timeout protection to prevent modal from staying open indefinitely
+      const operationTimeout = setTimeout(() => {
+        console.warn("Move operation timed out, closing modal");
+        hideMovingModal();
+        if (window.bootstrap && document.getElementById("moveErrorToast")) {
+          document.getElementById("moveErrorToastBody").textContent = "Move operation timed out. Please check the server logs for details.";
+          bootstrap.Toast.getOrCreateInstance(document.getElementById("moveErrorToast")).show();
+        }
+      }, 300000); // 5 minutes timeout
       
       // First, count files in directories to get accurate progress
       function countFilesInDirectories() {
@@ -1303,6 +1443,15 @@
       
       function moveNext() {
         if (currentIndex >= totalCount) {
+                  // Check if there are any pending operations before closing
+        if (hasPendingOperations) {
+          console.log("Waiting for pending operations to complete...");
+          setMovingStatus("Finalizing move operation...");
+          setTimeout(moveNext, 100); // Wait a bit and check again
+          return;
+        }
+          
+          clearTimeout(operationTimeout); // Clear the timeout
           hideMovingModal();
           loadDirectories(currentSourcePath, 'source');
           loadDirectories(currentDestinationPath, 'destination');
@@ -1322,19 +1471,40 @@
         if (isDirectory !== null) {
           // We have type information, use it
           if (isDirectory) {
-            // For directories, use item-based progress since we can't track individual files
-            setMovingStatus(`Moving directory ${fileName} (${currentIndex + 1} of ${totalCount} items)`);
+            // For directories, use streaming mode to get size-based progress
+            setMovingStatus(`Preparing to move directory ${fileName}...`);
             
-            let percentage = Math.floor((currentIndex / totalCount) * 100);
-            updateMovingProgress(percentage);
+            // Initialize progress at 0 for directories
+            updateMovingProgress(0);
             
-            movePromise = fetch('/move', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                source: sourcePath,
-                destination: targetFolder + '/' + fileName
+            hasPendingOperations = true;
+            
+            // Get directory size information for better status display
+            const sizePromise = fetch(`/folder-size?path=${encodeURIComponent(sourcePath)}`)
+              .then(res => res.json())
+              .then(data => data.size || 0)
+              .catch(err => 0);
+            
+            // For directories, use streaming mode to get size-based progress
+            movePromise = Promise.all([
+              sizePromise,
+              fetch('/move', {
+                method: 'POST',
+                headers: { 
+                  'Content-Type': 'application/json',
+                  'X-Stream': 'true'
+                },
+                body: JSON.stringify({
+                  source: sourcePath,
+                  destination: targetFolder + '/' + fileName
+                })
               })
+            ]).then(([dirSize, moveResponse]) => {
+              // Update status with directory size information
+              if (dirSize > 0) {
+                setMovingStatus(`Moving directory ${fileName} (${formatFileSize(dirSize)}) - Starting...`);
+              }
+              return moveResponse;
             });
           } else {
             // For files, use file-based progress
@@ -1348,6 +1518,7 @@
             }
             updateMovingProgress(percentage);
             
+            hasPendingOperations = true;
             movePromise = fetch('/move', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
@@ -1366,32 +1537,106 @@
               const fileCount = data.file_count || 0;
               
               if (isDirectory && fileCount > 0) {
-                // This is a directory with files - show progress based on items
-                setMovingStatus(`Moving directory ${fileName} (${currentIndex + 1} of ${totalCount} items)`);
+                // This is a directory with files - use streaming mode for size-based progress
+                setMovingStatus(`Preparing to move directory ${fileName}...`);
+                updateMovingProgress(0);
+                
+                hasPendingOperations = true;
+                
+                // Get directory size information for better status display
+                const sizePromise = fetch(`/folder-size?path=${encodeURIComponent(sourcePath)}`)
+                  .then(res => res.json())
+                  .then(data => data.size || 0)
+                  .catch(err => 0);
+                
+                return Promise.all([
+                  sizePromise,
+                  fetch('/move', {
+                    method: 'POST',
+                    headers: { 
+                      'Content-Type': 'application/json',
+                      'X-Stream': 'true'
+                    },
+                    body: JSON.stringify({
+                      source: sourcePath,
+                      destination: targetFolder + '/' + fileName
+                    })
+                  })
+                ]).then(([dirSize, moveResponse]) => {
+                  // Update status with directory size information
+                  if (dirSize > 0) {
+                    setMovingStatus(`Moving directory ${fileName} (${formatFileSize(dirSize)}) - Starting...`);
+                  }
+                  return moveResponse;
+                });
               } else {
                 // This is a file or empty directory
                 setMovingStatus(`Moving ${fileName} (${currentIndex + 1} of ${totalCount} items)`);
+                
+                let percentage = Math.floor((currentIndex / totalCount) * 100);
+                updateMovingProgress(percentage);
+                
+                hasPendingOperations = true;
+                return fetch('/move', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    source: sourcePath,
+                    destination: targetFolder + '/' + fileName
+                  })
+                });
               }
-              
-              let percentage = Math.floor((currentIndex / totalCount) * 100);
-              updateMovingProgress(percentage);
-              
-              return fetch('/move', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  source: sourcePath,
-                  destination: targetFolder + '/' + fileName
-                })
-              });
             });
         }
         
         movePromise
-          .then(res => res.json())
+          .then(res => {
+            // Check if this is a streaming response (for directories)
+            const currentItem = itemsWithTypes ? itemsWithTypes[currentIndex] : null;
+            const isDirectory = currentItem ? currentItem.type === "directory" : null;
+            
+            if (isDirectory && res.headers.get('content-type')?.includes('text/event-stream')) {
+              // Handle streaming response for directories
+              return handleStreamingDirectoryMove(res, fileName, sourcePath, targetFolder);
+            } else {
+              // Handle regular JSON response for files
+              return res.json();
+            }
+          })
           .then(data => {
             if (!data.success) {
-              console.warn("Move reported error, but continuing:", data.error);
+              console.error("Move reported error:", data.error);
+              
+              // For directory moves, this is a critical error that should stop the operation
+              const currentItem = itemsWithTypes ? itemsWithTypes[currentIndex] : null;
+              const isDirectory = currentItem ? currentItem.type === "directory" : null;
+              
+              if (isDirectory) {
+                const fileName = filePaths[currentIndex].split('/').pop();
+                const detailMessage = `Failed to move directory "${fileName}" → "${targetFolder}": ${data.error}`;
+                
+                console.error("Directory move failed:", {
+                  directory: fileName,
+                  source: filePaths[currentIndex],
+                  destination: targetFolder + '/' + fileName,
+                  error: data.error
+                });
+
+                if (window.bootstrap && document.getElementById("moveErrorToast")) {
+                  document.getElementById("moveErrorToastBody").textContent = detailMessage;
+                  bootstrap.Toast.getOrCreateInstance(document.getElementById("moveErrorToast")).show();
+                } else {
+                  alert(detailMessage);
+                }
+                
+                // Hide the modal and stop the operation for directory failures
+                clearTimeout(operationTimeout); // Clear the timeout
+                hideMovingModal();
+                return;
+              } else {
+                // For files, show warning but continue
+                console.warn("File move reported error, but continuing:", data.error);
+              }
             }
             
             // Update progress counters
@@ -1401,13 +1646,16 @@
             if (isDirectory) {
               // For directories, we can't track individual files, so just increment item counter
               // The progress bar will update based on currentIndex/totalCount
+              console.log(`Directory move completed: ${fileName}`);
             } else {
               // For files, increment file counter for file-based progress
               if (totalFilesToMove > 0) {
                 filesMoved += 1;
               }
+              console.log(`File move completed: ${fileName}`);
             }
             
+            hasPendingOperations = false; // Clear pending operations flag
             currentIndex++;
             moveNext();
           })
@@ -1422,13 +1670,35 @@
               error: err
             });
 
-            if (window.bootstrap && document.getElementById("moveErrorToast")) {
-              document.getElementById("moveErrorToastBody").textContent = detailMessage;
-              bootstrap.Toast.getOrCreateInstance(document.getElementById("moveErrorToast")).show();
+            // Check if this is a directory move failure
+            const currentItem = itemsWithTypes ? itemsWithTypes[currentIndex] : null;
+            const isDirectory = currentItem ? currentItem.type === "directory" : null;
+            
+            if (isDirectory) {
+              // For directory failures, show error and stop the operation
+              if (window.bootstrap && document.getElementById("moveErrorToast")) {
+                document.getElementById("moveErrorToastBody").textContent = detailMessage;
+                bootstrap.Toast.getOrCreateInstance(document.getElementById("moveErrorToast")).show();
+              } else {
+                alert(detailMessage);
+              }
+              
+              // Hide the modal and stop the operation for directory failures
+              clearTimeout(operationTimeout); // Clear the timeout
+              hasPendingOperations = false; // Clear pending operations flag
+              hideMovingModal();
+              return;
             } else {
-              alert(detailMessage);
+              // For file failures, show error but continue
+              if (window.bootstrap && document.getElementById("moveErrorToast")) {
+                document.getElementById("moveErrorToastBody").textContent = detailMessage;
+                bootstrap.Toast.getOrCreateInstance(document.getElementById("moveErrorToast")).show();
+              } else {
+                alert(detailMessage);
+              }
             }
 
+            hasPendingOperations = false; // Clear pending operations flag
             currentIndex++;
             moveNext();
           });
@@ -1439,6 +1709,15 @@
     }
   
 
+
+    // Format file size for display
+    function formatFileSize(bytes) {
+      if (bytes === 0) return '0 B';
+      const k = 1024;
+      const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+      const i = Math.floor(Math.log(bytes) / Math.log(k));
+      return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+    }
 
     // Function to show detailed CBZ information
     function showCBZInfo(filePath, fileName) {
@@ -1678,6 +1957,15 @@
       let deleteModal = bootstrap.Modal.getInstance(deleteModalEl);
       deleteModal.hide();
       deleteItem(deleteTarget, deletePanel);
+    });
+
+    // Add keyboard support for delete modal (Enter key to confirm)
+    document.getElementById("deleteModal").addEventListener("keydown", function(event) {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        // Trigger the delete confirmation
+        document.getElementById("confirmDeleteBtn").click();
+      }
     });
 
     // Track file counts and current paths for rename button
@@ -2197,8 +2485,85 @@
       });
     }
 
+    // Function to cleanup orphan files in the watch directory
+    function cleanupOrphanFiles() {
+      if (!confirm('This will remove all temporary download files (like .crdownload, .tmp, .part) from the downloads folder. Continue?')) {
+        return;
+      }
+      
+      // Show loading state
+      const cleanupBtn = event.target;
+      const originalText = cleanupBtn.innerHTML;
+      cleanupBtn.disabled = true;
+      cleanupBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Cleaning...';
+      
+      fetch('/cleanup-orphan-files', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      })
+      .then(response => response.json())
+      .then(data => {
+        if (data.success) {
+          // Update last cleanup status
+          updateLastCleanupStatus();
+          
+          if (data.cleaned_count > 0) {
+            // Show detailed results
+            let message = `Cleaned up ${data.cleaned_count} orphan files, freed ${data.total_size_cleaned}`;
+            if (data.cleaned_files && data.cleaned_files.length > 0) {
+              message += '\n\nCleaned files:\n' + data.cleaned_files.map(f => `• ${f.file} (${f.size})`).join('\n');
+            }
+            showToast('Cleanup Complete', message, 'success');
+          } else {
+            showToast('Cleanup Complete', 'No orphan files found', 'info');
+          }
+          
+          // Refresh the destination directory listing
+          loadDirectories(currentDestinationPath, 'destination');
+        } else {
+          showToast('Cleanup Failed', data.error || 'Unknown error occurred', 'error');
+        }
+      })
+      .catch(error => {
+        console.error('Error during cleanup:', error);
+        showToast('Cleanup Failed', 'Network or server error occurred', 'error');
+      })
+      .finally(() => {
+        // Restore button state
+        cleanupBtn.disabled = false;
+        cleanupBtn.innerHTML = originalText;
+      });
+    }
 
+    // Function to update the last cleanup status
+    function updateLastCleanupStatus() {
+      const now = new Date();
+      const statusElement = document.getElementById('lastCleanupStatus');
+      if (statusElement) {
+        statusElement.textContent = formatTimestamp(now);
+      }
+    }
 
+    // Function to format timestamp in a user-friendly way
+    function formatTimestamp(date) {
+      const now = new Date();
+      const diffMs = now - date;
+      const diffMins = Math.floor(diffMs / 60000);
+      const diffHours = Math.floor(diffMs / 3600000);
+      const diffDays = Math.floor(diffMs / 86400000);
+      
+      if (diffMins < 1) {
+        return 'Just now';
+      } else if (diffMins < 60) {
+        return `${diffMins} minute${diffMins !== 1 ? 's' : ''} ago`;
+      } else if (diffHours < 24) {
+        return `${diffHours} hour${diffHours !== 1 ? 's' : ''} ago`;
+      } else if (diffDays < 7) {
+        return `${diffDays} day${diffDays !== 1 ? 's' : ''} ago`;
+      } else {
+        return date.toLocaleDateString() + ' ' + date.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+      }
+    }
   </script>  
   
   {% endblock %}

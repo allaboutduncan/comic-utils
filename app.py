@@ -19,6 +19,7 @@ from api import app
 from config import config, load_flask_config, write_config, load_config
 from edit import get_edit_modal, save_cbz, cropCenter, cropLeft, cropRight, get_image_data_url, modal_body_template
 from memory_utils import initialize_memory_management, cleanup_on_exit, memory_context, get_global_monitor
+from helpers import is_hidden
 
 load_config()
 
@@ -262,7 +263,7 @@ def get_directory_listing(path):
 
 def invalidate_cache_for_path(path):
     """Invalidate cache for a specific path and its parent."""
-    global last_cache_invalidation
+    global last_cache_invalidation, _data_dir_stats_last_update
     
     if path in directory_cache:
         del directory_cache[path]
@@ -273,6 +274,9 @@ def invalidate_cache_for_path(path):
     if parent in directory_cache:
         del directory_cache[parent]
         del cache_timestamps[parent]
+    
+    # Also invalidate directory stats cache when files change
+    _data_dir_stats_last_update = 0
     
     # Track when cache invalidation occurred
     last_cache_invalidation = time.time()
@@ -309,10 +313,11 @@ def should_rebuild_cache():
 @app.route('/clear-cache', methods=['POST'])
 def clear_cache():
     """Manually clear the directory cache."""
-    global directory_cache, cache_timestamps, last_cache_invalidation
+    global directory_cache, cache_timestamps, last_cache_invalidation, _data_dir_stats_last_update
     directory_cache.clear()
     cache_timestamps.clear()
     last_cache_invalidation = time.time()
+    _data_dir_stats_last_update = 0  # Also invalidate directory stats cache
     app_logger.info("Directory cache cleared manually")
     return jsonify({"success": True, "message": "Cache cleared"})
 
@@ -341,6 +346,7 @@ def get_cache_status():
     """Get current cache status and next rebuild time."""
     global last_cache_rebuild
     
+    start_time = time.time()
     current_time = time.time()
     time_since_rebuild = current_time - last_cache_rebuild
     time_until_next = CACHE_REBUILD_INTERVAL - time_since_rebuild
@@ -356,13 +362,31 @@ def get_cache_status():
             minutes = int((seconds % 3600) // 60)
             return f"{hours}h {minutes}m"
     
-    # Get data directory statistics
-    data_dir_stats = get_data_directory_stats()
+    # Get data directory statistics with timeout protection
+    try:
+        data_dir_stats = get_data_directory_stats()
+    except Exception as e:
+        app_logger.warning(f"Error getting data directory stats, using cached or default values: {e}")
+        # Use cached stats if available, otherwise use defaults
+        if _data_dir_stats_cache:
+            data_dir_stats = _data_dir_stats_cache
+        else:
+            data_dir_stats = {
+                "subdir_count": 0,
+                "total_files": 0,
+                "total_dirs": 0,
+                "scan_limited": False,
+                "max_depth_reached": 0,
+                "scan_time": 0
+            }
     
     # Check if cache was recently invalidated (within last 30 seconds)
     cache_recently_invalidated = False
     if last_cache_invalidation:
         cache_recently_invalidated = (current_time - last_cache_invalidation) < 30
+    
+    response_time = time.time() - start_time
+    app_logger.debug(f"Full cache status request completed in {response_time:.3f}s")
     
     return jsonify({
         "last_rebuild": last_cache_rebuild,
@@ -376,14 +400,100 @@ def get_cache_status():
         "data_dir_stats": data_dir_stats,
         "cache_invalidated": cache_recently_invalidated,
         "cache_duration": CACHE_DURATION,
+        "max_cache_size": MAX_CACHE_SIZE,
+        "response_time": round(response_time, 3)
+    })
+
+@app.route('/cache-status-light', methods=['GET'])
+def get_cache_status_light():
+    """Get lightweight cache status without heavy directory statistics."""
+    global last_cache_rebuild
+    
+    current_time = time.time()
+    time_since_rebuild = current_time - last_cache_rebuild
+    time_until_next = CACHE_REBUILD_INTERVAL - time_since_rebuild
+    
+    # Format times
+    def format_time(seconds):
+        if seconds < 60:
+            return f"{int(seconds)}s"
+        elif seconds < 3600:
+            return f"{int(seconds // 60)}m {int(seconds % 60)}s"
+        else:
+            hours = int(seconds // 3600)
+            minutes = int((seconds % 3600) // 60)
+            return f"{hours}h {minutes}m"
+    
+    # Check if cache was recently invalidated (within last 30 seconds)
+    cache_recently_invalidated = False
+    if last_cache_invalidation:
+        cache_recently_invalidated = (current_time - last_cache_invalidation) < 30
+    
+    app_logger.debug(f"Light cache status request - cache size: {len(directory_cache)}, index built: {index_built}")
+    
+    return jsonify({
+        "last_rebuild": last_cache_rebuild,
+        "time_since_rebuild": time_since_rebuild,
+        "time_until_next": time_until_next,
+        "formatted_since": format_time(time_since_rebuild),
+        "formatted_until": format_time(max(0, time_until_next)),
+        "cache_size": len(directory_cache),
+        "index_built": index_built,
+        "cache_invalidated": cache_recently_invalidated,
+        "cache_duration": CACHE_DURATION,
         "max_cache_size": MAX_CACHE_SIZE
     })
 
+@app.route('/cache-debug', methods=['GET'])
+def get_cache_debug():
+    """Debug endpoint to show current cache state and performance metrics."""
+    global directory_cache, cache_timestamps, last_cache_rebuild, last_cache_invalidation
+    
+    current_time = time.time()
+    
+    # Get some sample cache entries
+    sample_cache = {}
+    for i, (path, timestamp) in enumerate(list(cache_timestamps.items())[:5]):
+        age = current_time - timestamp
+        sample_cache[path] = {
+            "age_seconds": round(age, 2),
+            "cached_data": bool(path in directory_cache)
+        }
+    
+    return jsonify({
+        "current_time": current_time,
+        "cache_size": len(directory_cache),
+        "cache_timestamps_count": len(cache_timestamps),
+        "last_rebuild": last_cache_rebuild,
+        "last_invalidation": last_cache_invalidation,
+        "sample_cache_entries": sample_cache,
+        "memory_usage_mb": round(len(str(directory_cache)) / (1024 * 1024), 2)
+    })
+
+# Cache for directory statistics to avoid repeated filesystem walks
+_data_dir_stats_cache = {}
+_data_dir_stats_last_update = 0
+DATA_DIR_STATS_CACHE_DURATION = 300  # Cache for 5 minutes
+
 def get_data_directory_stats():
     """Get statistics about the DATA_DIR including subdirectory count and file count."""
+    global _data_dir_stats_cache, _data_dir_stats_last_update
+    
+    current_time = time.time()
+    
+    # Return cached stats if they're still valid
+    if (current_time - _data_dir_stats_last_update) < DATA_DIR_STATS_CACHE_DURATION:
+        return _data_dir_stats_cache
+    
     try:
+        app_logger.debug("Calculating fresh data directory statistics...")
         subdir_count = 0
         total_files = 0
+        
+        # Use a much more efficient approach with early termination
+        max_items = 5000   # Reduced limit for faster response
+        max_depth = 3      # Reduced depth for faster response
+        start_time = time.time()
         
         for root, dirs, files in os.walk(DATA_DIR):
             # Count subdirectories (excluding the root DATA_DIR)
@@ -392,18 +502,54 @@ def get_data_directory_stats():
             
             # Count files
             total_files += len(files)
+            
+            # Early termination if we've counted enough items
+            if (subdir_count + total_files) > max_items:
+                app_logger.debug(f"Reached item limit ({max_items}), stopping scan early")
+                break
+            
+            # Limit traversal depth to prevent excessive scanning
+            current_depth = root.count(os.sep) - DATA_DIR.count(os.sep)
+            if current_depth > max_depth:
+                dirs.clear()  # Don't traverse deeper
+                continue
+            
+            # Skip hidden directories to speed up traversal
+            dirs[:] = [d for d in dirs if not d.startswith('.') and not d.startswith('_')]
+            
+            # Timeout protection - don't spend more than 2 seconds on this
+            if time.time() - start_time > 2.0:
+                app_logger.debug("Directory scan timeout reached, stopping early")
+                break
         
-        return {
+        scan_time = time.time() - start_time
+        
+        # Cache the results
+        _data_dir_stats_cache = {
             "subdir_count": subdir_count,
             "total_files": total_files,
-            "total_dirs": subdir_count + 1  # +1 for the root DATA_DIR
+            "total_dirs": subdir_count + 1,  # +1 for the root DATA_DIR
+            "scan_limited": (subdir_count + total_files) >= max_items,  # Flag if scan was limited
+            "max_depth_reached": max_depth,  # Show what depth limit was used
+            "scan_time": round(scan_time, 2)  # Show how long the scan took
         }
+        _data_dir_stats_last_update = current_time
+        
+        app_logger.debug(f"Data directory stats updated: {subdir_count} subdirs, {total_files} files (scan limited: {_data_dir_stats_cache['scan_limited']}, time: {scan_time:.2f}s)")
+        return _data_dir_stats_cache
+        
     except Exception as e:
         app_logger.error(f"Error getting data directory stats: {e}")
+        # Return cached stats if available, otherwise return defaults
+        if _data_dir_stats_cache:
+            return _data_dir_stats_cache
         return {
             "subdir_count": 0,
             "total_files": 0,
-            "total_dirs": 0
+            "total_dirs": 0,
+            "scan_limited": False,
+            "max_depth_reached": 0,
+            "scan_time": 0
         }
 
 #########################
@@ -643,14 +789,16 @@ def list_downloads():
 def move():
     """
     Move a file or folder from the source path to the destination.
-    If the "X-Stream" header is true and the source is a file,
-    streams progress updates as SSE.
+    If the "X-Stream" header is true, streams progress updates as SSE.
     """
     data = request.get_json()
     source = data.get('source')
     destination = data.get('destination')
+    stream = request.headers.get('X-Stream', 'false').lower() == 'true'
+    
     app_logger.info("********************// Move File //********************")
     app_logger.info(f"Requested move from: {source} to: {destination}")
+    app_logger.info(f"Streaming mode: {stream}")
     
     if not source or not destination:
         app_logger.error("Missing source or destination in request")
@@ -670,36 +818,144 @@ def move():
         app_logger.error(f"Attempted to move to critical folder location: {destination}")
         return jsonify({"success": False, "error": get_critical_path_error_message(destination, "move to")}), 403
 
-    stream = request.headers.get('X-Stream', 'false').lower() == 'true'
+    if stream:
+        app_logger.info(f"Starting streaming move operation")
+        # Streaming move for both files and directories
+        if os.path.isfile(source):
+            file_size = os.path.getsize(source)
+            
+            # Use memory context for large file operations
+            cleanup_threshold = 1000 if file_size > 100 * 1024 * 1024 else 500  # 100MB threshold
 
-    if os.path.isfile(source) and stream:
-        file_size = os.path.getsize(source)
-        
-        # Use memory context for large file operations
-        cleanup_threshold = 1000 if file_size > 100 * 1024 * 1024 else 500  # 100MB threshold
-
-        def generate():
-            with memory_context("file_move", cleanup_threshold):
-                bytes_copied = 0
-                chunk_size = 1024 * 1024  # 1 MB
-                try:
-                    app_logger.info(f"Streaming file move with progress: {source}")
-                    with open(source, 'rb') as fsrc, open(destination, 'wb') as fdst:
-                        while True:
-                            chunk = fsrc.read(chunk_size)
-                            if not chunk:
-                                break
-                            fdst.write(chunk)
-                            bytes_copied += len(chunk)
-                            progress = int((bytes_copied / file_size) * 100)
-                            yield f"data: {progress}\n\n"
-                    os.remove(source)
-                    app_logger.info(f"Move complete (streamed): Removed {source}")
-                    yield "data: 100\n\n"
-                except Exception as e:
-                    app_logger.exception(f"Error during streaming move from {source} to {destination}")
-                    yield f"data: error: {str(e)}\n\n"
-                yield "data: done\n\n"
+            def generate():
+                with memory_context("file_move", cleanup_threshold):
+                    bytes_copied = 0
+                    chunk_size = 1024 * 1024  # 1 MB
+                    try:
+                        app_logger.info(f"Streaming file move with progress: {source}")
+                        with open(source, 'rb') as fsrc, open(destination, 'wb') as fdst:
+                            while True:
+                                chunk = fsrc.read(chunk_size)
+                                if not chunk:
+                                    break
+                                fdst.write(chunk)
+                                bytes_copied += len(chunk)
+                                progress = int((bytes_copied / file_size) * 100)
+                                yield f"data: {progress}\n\n"
+                        os.remove(source)
+                        app_logger.info(f"Move complete (streamed): Removed {source}")
+                        yield "data: 100\n\n"
+                    except Exception as e:
+                        app_logger.exception(f"Error during streaming move from {source} to {destination}")
+                        yield f"data: error: {str(e)}\n\n"
+                    yield "data: done\n\n"
+        else:
+            # Streaming move for directories
+            def generate():
+                with memory_context("file_move"):
+                    try:
+                        app_logger.info(f"Streaming directory move with progress: {source}")
+                        
+                        # Calculate total size and file count for progress tracking
+                        total_size = 0
+                        file_count = 0
+                        file_list = []
+                        try:
+                            for root, _, files in os.walk(source):
+                                for file in files:
+                                    file_path = os.path.join(root, file)
+                                    if os.path.exists(file_path):
+                                        file_size = os.path.getsize(file_path)
+                                        total_size += file_size
+                                        file_count += 1
+                                        file_list.append((file_path, file_size))
+                        except Exception as e:
+                            app_logger.warning(f"Could not calculate directory size: {e}")
+                        
+                        app_logger.info(f"Directory contains {file_count} files, total size: {total_size}")
+                        
+                        if total_size == 0:
+                            # Empty directory or couldn't calculate size
+                            shutil.move(source, destination)
+                            yield "data: 100\n\n"
+                        else:
+                            # Create destination directory if it doesn't exist
+                            os.makedirs(os.path.dirname(destination), exist_ok=True)
+                            
+                            # Copy files individually with progress tracking
+                            bytes_moved = 0
+                            chunk_size = 1024 * 1024  # 1 MB chunks
+                            last_progress_update = time.time()
+                            start_time = time.time()
+                            
+                            for i, (file_path, file_size) in enumerate(file_list):
+                                # Check for timeout every 100 files
+                                if i % 100 == 0 and i > 0:
+                                    elapsed = time.time() - start_time
+                                    if elapsed > 3600:  # 1 hour timeout
+                                        raise Exception(f"Directory move operation timed out after {elapsed:.0f} seconds")
+                                
+                                # Calculate relative path from source
+                                rel_path = os.path.relpath(file_path, source)
+                                dest_file_path = os.path.join(destination, rel_path)
+                                
+                                # Create destination directory structure
+                                os.makedirs(os.path.dirname(dest_file_path), exist_ok=True)
+                                
+                                # Copy file with progress updates
+                                try:
+                                    with open(file_path, 'rb') as fsrc, open(dest_file_path, 'wb') as fdst:
+                                        while True:
+                                            chunk = fsrc.read(chunk_size)
+                                            if not chunk:
+                                                break
+                                            fdst.write(chunk)
+                                            bytes_moved += len(chunk)
+                                            
+                                            # Calculate overall progress
+                                            progress = int((bytes_moved / total_size) * 100)
+                                            current_time = time.time()
+                                            
+                                            # Send progress update every 2 seconds or when progress changes significantly
+                                            if (current_time - last_progress_update > 2.0 or 
+                                                progress % 5 == 0):
+                                                yield f"data: {progress}\n\n"
+                                                last_progress_update = current_time
+                                except Exception as e:
+                                    app_logger.error(f"Error copying file {file_path}: {e}")
+                                    # Try to continue with other files
+                                    continue
+                                
+                                # Send keepalive every 10 files to prevent connection timeout
+                                if i % 10 == 0:
+                                    yield f"data: keepalive: {i+1}/{file_count} files processed\n\n"
+                                
+                                # Update status every few files
+                                if i % 10 == 0 or i == len(file_list) - 1:
+                                    app_logger.info(f"Copied {i+1}/{file_count} files ({bytes_moved}/{total_size} bytes)")
+                            
+                            # Remove source directory after successful copy
+                            try:
+                                shutil.rmtree(source)
+                            except Exception as e:
+                                app_logger.warning(f"Could not remove source directory {source}: {e}")
+                                # Continue anyway since files were copied successfully
+                            
+                            yield "data: 100\n\n"
+                        
+                        app_logger.info(f"Directory move complete: {source} -> {destination}")
+                        
+                        # Invalidate cache for affected directories
+                        invalidate_cache_for_path(os.path.dirname(source))
+                        invalidate_cache_for_path(os.path.dirname(destination))
+                        # Invalidate search index since files have moved
+                        invalidate_file_index()
+                        
+                    except Exception as e:
+                        app_logger.exception(f"Error during streaming directory move from {source} to {destination}")
+                        yield f"data: error: {str(e)}\n\n"
+                    
+                    yield "data: done\n\n"
 
         headers = {
             "Content-Type": "text/event-stream",
@@ -1021,6 +1277,52 @@ def rename():
         return jsonify({"error": str(e)}), 500
 
 
+@app.route('/rename-directory', methods=['POST'])
+def rename_directory():
+    """Rename all files in a directory using rename.py patterns"""
+    try:
+        data = request.get_json()
+        directory_path = data.get('directory')
+        
+        app_logger.info("********************// Rename Directory Files //********************")
+        app_logger.info(f"Directory: {directory_path}")
+        
+        # Validate input
+        if not directory_path:
+            return jsonify({"error": "Missing directory path"}), 400
+        
+        # Check if the directory exists
+        if not os.path.exists(directory_path):
+            return jsonify({"error": "Directory does not exist"}), 404
+        
+        if not os.path.isdir(directory_path):
+            return jsonify({"error": "Path is not a directory"}), 400
+        
+        # Check if trying to rename files in critical folders
+        if is_critical_path(directory_path):
+            app_logger.error(f"Attempted to rename files in critical folder: {directory_path}")
+            return jsonify({"error": get_critical_path_error_message(directory_path, "rename files in")}), 403
+        
+        # Import and call the rename_files function from rename.py
+        from rename import rename_files
+        
+        # Call the rename function
+        rename_files(directory_path)
+        
+        # Invalidate cache for the directory
+        invalidate_cache_for_path(directory_path)
+        
+        app_logger.info(f"Successfully renamed files in directory: {directory_path}")
+        return jsonify({"success": True, "message": f"Successfully renamed files in {os.path.basename(directory_path)}"})
+        
+    except ImportError as e:
+        app_logger.error(f"Failed to import rename module: {e}")
+        return jsonify({"error": "Rename module not available"}), 500
+    except Exception as e:
+        app_logger.error(f"Error renaming files in directory {directory_path}: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
 #####################################
 #           Crop Images             #
 #####################################
@@ -1227,6 +1529,8 @@ def config_page():
         config["SETTINGS"]["XML_LIST"] = str(request.form.get("xmlList") == "on")
         config["SETTINGS"]["MOVE_DIRECTORY"] = str(request.form.get("moveDirectory") == "on")
         config["SETTINGS"]["AUTO_UNPACK"] = str(request.form.get("autoUnpack") == "on")
+        config["SETTINGS"]["AUTO_CLEANUP_ORPHAN_FILES"] = str(request.form.get("autoCleanupOrphanFiles") == "on")
+        config["SETTINGS"]["CLEANUP_INTERVAL_HOURS"] = request.form.get("cleanupIntervalHours", "1")
         config["SETTINGS"]["HEADERS"] = request.form.get("customHeaders", "")
         config["SETTINGS"]["SKIPPED_FILES"] = request.form.get("skippedFiles", "")
         config["SETTINGS"]["DELETED_FILES"] = request.form.get("deletedFiles", "")
@@ -1257,6 +1561,8 @@ def config_page():
         xmlList=settings.get("XML_LIST", "False") == "True",
         moveDirectory=settings.get("MOVE_DIRECTORY", "False") == "True",
         autoUnpack=settings.get("AUTO_UNPACK", "False") == "True",
+        autoCleanupOrphanFiles=settings.get("AUTO_CLEANUP_ORPHAN_FILES", "False") == "True",
+        cleanupIntervalHours=settings.get("CLEANUP_INTERVAL_HOURS", "1"),
         skippedFiles=settings.get("SKIPPED_FILES", ""),
         deletedFiles=settings.get("DELETED_FILES", ""),
         customHeaders=settings.get("HEADERS", ""),
@@ -1409,13 +1715,124 @@ def create_folder():
         return jsonify({"success": False, "error": get_critical_path_error_message(path, "create folder in")}), 403
     
     try:
-        os.mkdir(path)
+        os.makedirs(path)
         
         # Invalidate cache for the parent directory
         invalidate_cache_for_path(os.path.dirname(path))
         
         return jsonify({"success": True}), 200
     except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+#########################
+#    Cleanup Orphan Files    #
+#########################
+@app.route('/cleanup-orphan-files', methods=['POST'])
+def cleanup_orphan_files():
+    """
+    Clean up orphan temporary download files in the WATCH directory.
+    This endpoint allows manual cleanup of files that shouldn't be there.
+    """
+    try:
+        watch_directory = config.get("SETTINGS", "WATCH", fallback="/temp")
+        
+        if not os.path.exists(watch_directory):
+            return jsonify({"success": False, "error": "Watch directory does not exist"}), 400
+        
+        cleaned_count = 0
+        total_size_cleaned = 0
+        cleaned_files = []
+        
+        # Define temporary download file patterns
+        temp_patterns = [
+            '.crdownload', '.tmp', '.part', '.mega', '.bak',
+            '.download', '.downloading', '.incomplete'
+        ]
+        
+        def is_temporary_download_file(filename):
+            """Check if a filename indicates a temporary download file"""
+            filename_lower = filename.lower()
+            
+            # Check for common temporary download patterns
+            for pattern in temp_patterns:
+                if pattern in filename_lower:
+                    return True
+            
+            # Check for numbered temporary files (e.g., .0, .1, .2)
+            import re
+            if re.search(r'\.\d+\.(crdownload|tmp|part|download)$', filename_lower):
+                return True
+            
+            # Check for files that look like incomplete downloads
+            if re.search(r'\.(crdownload|tmp|part|download)$', filename_lower):
+                return True
+                
+            return False
+        
+        def format_size(size_bytes):
+            """Helper function to format file sizes in human-readable format"""
+            if size_bytes == 0:
+                return "0B"
+            
+            import math
+            size_names = ["B", "KB", "MB", "GB", "TB"]
+            i = int(math.floor(math.log(size_bytes, 1024)))
+            p = math.pow(1024, i)
+            s = round(size_bytes / p, 2)
+            return f"{s} {size_names[i]}"
+        
+        # Walk through watch directory and clean up orphan files
+        for root, dirs, files in os.walk(watch_directory):
+            # Skip hidden directories
+            dirs[:] = [d for d in dirs if not is_hidden(os.path.join(root, d))]
+            
+            for file in files:
+                file_path = os.path.join(root, file)
+                
+                # Skip hidden files
+                if is_hidden(file_path):
+                    continue
+                
+                # Check if this is a temporary download file
+                if is_temporary_download_file(file):
+                    try:
+                        file_size = os.path.getsize(file_path)
+                        os.remove(file_path)
+                        cleaned_count += 1
+                        total_size_cleaned += file_size
+                        
+                        # Add to cleaned files list for reporting
+                        rel_path = os.path.relpath(file_path, watch_directory)
+                        cleaned_files.append({
+                            "file": rel_path,
+                            "size": format_size(file_size)
+                        })
+                        
+                        app_logger.info(f"Cleaned up orphan file: {file_path} ({format_size(file_size)})")
+                    except Exception as e:
+                        app_logger.error(f"Error cleaning up orphan file {file_path}: {e}")
+        
+        if cleaned_count > 0:
+            app_logger.info(f"Manual cleanup completed: {cleaned_count} files removed, {format_size(total_size_cleaned)} freed")
+            return jsonify({
+                "success": True,
+                "message": f"Cleanup completed: {cleaned_count} files removed, {format_size(total_size_cleaned)} freed",
+                "cleaned_count": cleaned_count,
+                "total_size_cleaned": format_size(total_size_cleaned),
+                "cleaned_files": cleaned_files
+            })
+        else:
+            app_logger.info("No orphan files found during manual cleanup")
+            return jsonify({
+                "success": True,
+                "message": "No orphan files found",
+                "cleaned_count": 0,
+                "total_size_cleaned": "0B",
+                "cleaned_files": []
+            })
+            
+    except Exception as e:
+        app_logger.error(f"Error during manual orphan file cleanup: {e}")
         return jsonify({"success": False, "error": str(e)}), 500
 
 #########################

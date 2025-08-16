@@ -171,7 +171,30 @@
                         Enter extensions to ignore when monitoring files (e.g., .tmp, .crdownload).
                     </small>
                 </div>
-            </div>            
+            </div>
+
+            <hr>
+
+            <!-- Cleanup Configuration -->
+            <div class="row">
+                <div class="col-md-6">
+                    <div class="form-check form-switch">
+                        <input class="form-check-input" type="checkbox" role="switch" id="autoCleanupOrphanFiles" name="autoCleanupOrphanFiles" {% if autoCleanupOrphanFiles %}checked{% endif %}>
+                        <label class="form-check-label" for="autoCleanupOrphanFiles">{% if autoCleanupOrphanFiles %}Disable{% else %}Enable{% endif %} Auto Cleanup Orphan Files</label>
+                        <small class="form-text text-muted">
+                            <br />Automatically removes temporary download files (.crdownload, .tmp, .part) from the downloads folder.
+                        </small>
+                    </div>
+                </div>
+
+                <div class="col-md-6">
+                    <label for="cleanupIntervalHours" class="form-label">CLEANUP INTERVAL (HOURS):</label>
+                    <input type="number" name="cleanupIntervalHours" id="cleanupIntervalHours" value="{{ cleanupIntervalHours }}" class="form-control" min="1" max="24">
+                    <small class="form-text text-muted">
+                        How often to automatically clean up orphan files (1-24 hours).
+                    </small>
+                </div>
+            </div>
 
         </div>
 
@@ -264,6 +287,13 @@
                                 <small class="text-muted">
                                     <span id="cachePerformance">Loading performance info...</span>
                                 </small>
+                            </div>
+                        </div>
+                        <div class="row mt-2">
+                            <div class="col-md-12 text-center">
+                                <button type="button" class="btn btn-sm btn-outline-info" onclick="updateCacheStatus()" title="Refresh cache status">
+                                    <i class="bi bi-arrow-clockwise"></i> Refresh Status
+                                </button>
                             </div>
                         </div>
                     </div>
@@ -401,11 +431,11 @@
             });
         });
 
-        // Initialize cache status display
-        updateCacheStatus();
+        // Initialize cache status display with a slight delay to avoid blocking page load
+        setTimeout(updateCacheStatus, 1000);
         
-        // Update cache status every minute
-        setInterval(updateCacheStatus, 60000);
+        // Update cache status every 5 minutes instead of every minute to reduce server load
+        setInterval(updateCacheStatus, 300000);
     });
 
     // Cache Management Functions
@@ -477,84 +507,228 @@
 
     // Update cache status display
     function updateCacheStatus() {
-        fetch('/cache-status')
-            .then(response => response.json())
-            .then(data => {
-                const cacheStatusEl = document.getElementById('cacheStatus');
-                const dataDirStatusEl = document.getElementById('dataDirStatus');
-                const nextRebuildEl = document.getElementById('nextRebuild');
-                const cacheDetailsEl = document.getElementById('cacheDetails');
-                const cachePerformanceEl = document.getElementById('cachePerformance');
-                
-                if (cacheStatusEl && nextRebuildEl && dataDirStatusEl && cacheDetailsEl && cachePerformanceEl) {
-                    // Update cache status with more detail
-                    const cachedDirs = data.cache_size;
-                    const totalDirs = data.total_directories || 'Unknown';
-                    const statusText = `${cachedDirs}/${totalDirs} dirs cached | Last: ${data.formatted_since} ago`;
-                    cacheStatusEl.textContent = statusText;
-                    
-                    // Update data directory status
-                    if (data.data_dir_stats) {
-                        const stats = data.data_dir_stats;
-                        const dirStatusText = `${stats.subdir_count} subdirs | ${stats.total_files} files`;
-                        dataDirStatusEl.textContent = dirStatusText;
-                    } else {
-                        dataDirStatusEl.textContent = 'Loading...';
-                    }
-                    
-                    // Update next rebuild time
-                    if (data.time_until_next > 0) {
-                        nextRebuildEl.textContent = `in ${data.formatted_until}`;
-                    } else {
-                        nextRebuildEl.textContent = 'Due now';
-                    }
-                    
-                    // Update cache details
-                    let detailsText = '';
-                    if (data.cache_invalidated) {
-                        detailsText += '⚠️ Cache was recently invalidated by file changes. ';
-                    }
-                    if (data.index_built) {
-                        detailsText += '✅ Search index is ready. ';
-                    } else {
-                        detailsText += '⏳ Building search index... ';
-                    }
-                    detailsText += `Cache duration: ${data.cache_duration || 5}s | Max cache size: ${data.max_cache_size || 100}`;
-                    
-                    cacheDetailsEl.textContent = detailsText;
-                    
-                    // Update cache performance information
-                    const cacheHitRate = data.total_directories > 0 ? 
-                        Math.round((data.cache_size / data.total_directories) * 100) : 0;
-                    let performanceText = `Cache hit rate: ${cacheHitRate}% | `;
-                    
-                    if (data.cache_size >= data.max_cache_size) {
-                        performanceText += '⚠️ Cache at maximum size | ';
-                    }
-                    
-                    if (data.cache_size === 0) {
-                        performanceText += '🔄 Cache is empty, will rebuild on next access';
-                    } else {
-                        performanceText += `Cache efficiency: ${data.cache_size}/${data.max_cache_size}`;
-                    }
-                    
-                    cachePerformanceEl.textContent = performanceText;
+        // First try the lightweight endpoint for quick response
+        updateCacheStatusLight();
+    }
+    
+    function updateCacheStatusLight() {
+        // Show loading state
+        const cacheStatusEl = document.getElementById('cacheStatus');
+        if (cacheStatusEl) {
+            cacheStatusEl.innerHTML = '<i class="bi bi-arrow-clockwise spin"></i> Updating...';
+        }
+        
+        // Add timeout to prevent hanging requests
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 second timeout for light endpoint
+        
+        fetch('/cache-status-light', { 
+            signal: controller.signal,
+            headers: { 'Cache-Control': 'no-cache' } // Ensure fresh data
+        })
+            .then(response => {
+                clearTimeout(timeoutId);
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
                 }
+                return response.json();
+            })
+            .then(data => {
+                // Update basic cache status immediately
+                updateBasicCacheStatus(data);
+                
+                // Then try to get full statistics in background
+                setTimeout(() => updateCacheStatusFull(), 1000);
+                
+                // Set a fallback timeout in case detailed stats take too long
+                setTimeout(() => {
+                    const dataDirStatusEl = document.getElementById('dataDirStatus');
+                    if (dataDirStatusEl && dataDirStatusEl.textContent.includes('Loading detailed stats')) {
+                        dataDirStatusEl.innerHTML = '<i class="bi bi-exclamation-triangle"></i> Detailed stats unavailable (timeout)';
+                    }
+                }, 10000); // 10 second fallback
             })
             .catch(error => {
-                console.error('Error fetching cache status:', error);
-                const cacheStatusEl = document.getElementById('cacheStatus');
-                const dataDirStatusEl = document.getElementById('dataDirStatus');
-                const nextRebuildEl = document.getElementById('nextRebuild');
-                const cacheDetailsEl = document.getElementById('cacheDetails');
-                const cachePerformanceEl = document.getElementById('cachePerformance');
+                clearTimeout(timeoutId);
+                console.error('Error fetching light cache status:', error);
                 
-                if (cacheStatusEl) cacheStatusEl.textContent = 'Error loading status';
-                if (dataDirStatusEl) dataDirStatusEl.textContent = 'Error loading status';
-                if (nextRebuildEl) nextRebuildEl.textContent = 'Unknown';
-                if (cacheDetailsEl) cacheDetailsEl.textContent = 'Error loading cache details';
-                if (cachePerformanceEl) cachePerformanceEl.textContent = 'Error loading performance info';
+                // Show error state briefly
+                const cacheStatusEl = document.getElementById('cacheStatus');
+                if (cacheStatusEl) {
+                    cacheStatusEl.innerHTML = '<i class="bi bi-exclamation-triangle"></i> Update failed';
+                }
+                
+                // If light endpoint fails, try the full endpoint as fallback after a delay
+                setTimeout(() => updateCacheStatusFull(), 2000);
+                
+                // Retry the light endpoint after a longer delay
+                setTimeout(() => updateCacheStatusLight(), 30000);
             });
+    }
+    
+    function updateCacheStatusFull() {
+        // Add timeout to prevent hanging requests
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 15000); // 15 second timeout for full endpoint
+        
+        fetch('/cache-status', { 
+            signal: controller.signal,
+            headers: { 'Cache-Control': 'no-cache' } // Ensure fresh data
+        })
+            .then(response => {
+                clearTimeout(timeoutId);
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                return response.json();
+            })
+            .then(data => {
+                updateFullCacheStatus(data);
+            })
+            .catch(error => {
+                clearTimeout(timeoutId);
+                console.error('Error fetching full cache status:', error);
+                
+                // Don't show error for full endpoint failure, just log it
+                // The basic status should already be displayed from the light endpoint
+            });
+    }
+    
+    function updateBasicCacheStatus(data) {
+        const cacheStatusEl = document.getElementById('cacheStatus');
+        const nextRebuildEl = document.getElementById('nextRebuild');
+        const cacheDetailsEl = document.getElementById('cacheDetails');
+        const cachePerformanceEl = document.getElementById('cachePerformance');
+        
+        if (cacheStatusEl && nextRebuildEl && cacheDetailsEl && cachePerformanceEl) {
+            // Update basic cache status
+            const cachedDirs = data.cache_size;
+            const statusText = `${cachedDirs} dirs cached | Last: ${data.formatted_since} ago`;
+            cacheStatusEl.textContent = statusText;
+            
+            // Update next rebuild time
+            if (data.time_until_next > 0) {
+                nextRebuildEl.textContent = `in ${data.formatted_until}`;
+            } else {
+                nextRebuildEl.textContent = 'Due now';
+            }
+            
+            // Update cache details
+            let detailsText = '';
+            if (data.cache_invalidated) {
+                detailsText += '⚠️ Cache was recently invalidated by file changes. ';
+            }
+            if (data.index_built) {
+                detailsText += '✅ Search index is ready. ';
+            } else {
+                detailsText += '⏳ Building search index... ';
+            }
+            detailsText += `Cache duration: ${data.cache_duration || 5}s | Max cache size: ${data.max_cache_size || 100}`;
+            
+            cacheDetailsEl.textContent = detailsText;
+            
+            // Update basic cache performance information
+            let performanceText = `Cache efficiency: ${cachedDirs}/${data.max_cache_size || 100}`;
+            
+            if (cachedDirs >= (data.max_cache_size || 100)) {
+                performanceText += ' | ⚠️ Cache at maximum size';
+            }
+            
+            if (cachedDirs === 0) {
+                performanceText = '🔄 Cache is empty, will rebuild on next access';
+            }
+            
+            cachePerformanceEl.textContent = performanceText;
+            
+            // Set data directory status to loading
+            const dataDirStatusEl = document.getElementById('dataDirStatus');
+            if (dataDirStatusEl) {
+                dataDirStatusEl.innerHTML = '<i class="bi bi-arrow-clockwise spin"></i> Loading detailed stats...';
+            }
+        }
+    }
+    
+    function updateFullCacheStatus(data) {
+        const cacheStatusEl = document.getElementById('cacheStatus');
+        const dataDirStatusEl = document.getElementById('dataDirStatus');
+        const nextRebuildEl = document.getElementById('nextRebuild');
+        const cacheDetailsEl = document.getElementById('cacheDetails');
+        const cachePerformanceEl = document.getElementById('cachePerformance');
+        
+        if (cacheStatusEl && nextRebuildEl && dataDirStatusEl && cacheDetailsEl && cachePerformanceEl) {
+            // Update cache status with more detail
+            const cachedDirs = data.cache_size;
+            const totalDirs = data.total_directories || 'Unknown';
+            const statusText = `${cachedDirs}/${totalDirs} dirs cached | Last: ${data.formatted_since} ago`;
+            cacheStatusEl.textContent = statusText;
+            
+            // Update data directory status
+            if (data.data_dir_stats) {
+                const stats = data.data_dir_stats;
+                let dirStatusText = `${stats.subdir_count} subdirs | ${stats.total_files} files`;
+                
+                // Add indicators for limited scans
+                if (stats.scan_limited) {
+                    dirStatusText += ' (scan limited)';
+                }
+                if (stats.max_depth_reached > 0) {
+                    dirStatusText += ` | Max depth: ${stats.max_depth_reached}`;
+                }
+                if (stats.scan_time > 0) {
+                    dirStatusText += ` | Scan time: ${stats.scan_time}s`;
+                }
+                
+                dataDirStatusEl.textContent = dirStatusText;
+                
+                // Show response time if available
+                if (data.response_time) {
+                    const cacheDetailsEl = document.getElementById('cacheDetails');
+                    if (cacheDetailsEl) {
+                        cacheDetailsEl.textContent += ` | Response time: ${data.response_time}s`;
+                    }
+                }
+            } else {
+                dataDirStatusEl.textContent = 'Stats unavailable';
+            }
+            
+            // Update next rebuild time
+            if (data.time_until_next > 0) {
+                nextRebuildEl.textContent = `in ${data.formatted_until}`;
+            } else {
+                nextRebuildEl.textContent = 'Due now';
+            }
+            
+            // Update cache details
+            let detailsText = '';
+            if (data.cache_invalidated) {
+                detailsText += '⚠️ Cache was recently invalidated by file changes. ';
+            }
+            if (data.index_built) {
+                detailsText += '✅ Search index is ready. ';
+            } else {
+                detailsText += '⏳ Building search index... ';
+            }
+            detailsText += `Cache duration: ${data.cache_duration || 5}s | Max cache size: ${data.max_cache_size || 100}`;
+            
+            cacheDetailsEl.textContent = detailsText;
+            
+            // Update cache performance information
+            const cacheHitRate = data.total_directories > 0 ? 
+                Math.round((data.cache_size / data.total_directories) * 100) : 0;
+            let performanceText = `Cache hit rate: ${cacheHitRate}% | `;
+            
+            if (data.cache_size >= data.max_cache_size) {
+                performanceText += '⚠️ Cache at maximum size | ';
+            }
+            
+            if (data.cache_size === 0) {
+                performanceText += '🔄 Cache is empty, will rebuild on next access';
+            } else {
+                performanceText += `Cache efficiency: ${data.cache_size}/${data.max_cache_size}`;
+            }
+            
+            cachePerformanceEl.textContent = performanceText;
+        }
     }
 
     // Helper function to show toast notifications

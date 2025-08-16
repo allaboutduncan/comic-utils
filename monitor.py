@@ -3,6 +3,8 @@ import logging
 import shutil
 import os
 import zipfile
+import re # Added for _is_temporary_download_file
+import math # Added for format_size
 from watchdog.observers.polling import PollingObserver
 from watchdog.events import FileSystemEventHandler
 from rename import rename_file, clean_directory_name
@@ -21,6 +23,8 @@ autoconvert = config.getboolean("SETTINGS", "AUTOCONVERT", fallback=False)
 subdirectories = config.getboolean("SETTINGS", "READ_SUBDIRECTORIES", fallback=False)
 move_directories = config.getboolean("SETTINGS", "MOVE_DIRECTORY", fallback=False)
 auto_unpack = config.getboolean("SETTINGS", "AUTO_UNPACK", fallback=False)
+auto_cleanup = config.getboolean("SETTINGS", "AUTO_CLEANUP_ORPHAN_FILES", fallback=True)
+cleanup_interval_hours = config.getint("SETTINGS", "CLEANUP_INTERVAL_HOURS", fallback=1)
 
 # Logging setup
 MONITOR_LOG = "logs/monitor.log"
@@ -43,6 +47,8 @@ monitor_logger.info(f"4. Auto-Conversion Enabled: {autoconvert}")
 monitor_logger.info(f"5. Monitor Sub-Directories Enabled: {subdirectories}")
 monitor_logger.info(f"6. Move Sub-Directories Enabled: {move_directories}")
 monitor_logger.info(f"7. Auto Unpack Enabled: {auto_unpack}")
+monitor_logger.info(f"8. Auto Cleanup Orphan Files: {auto_cleanup}")
+monitor_logger.info(f"9. Cleanup Interval: {cleanup_interval_hours} hour(s)")
 
 class DownloadCompleteHandler(FileSystemEventHandler):
     def __init__(self, directory, target_directory, ignored_extensions):
@@ -74,12 +80,16 @@ class DownloadCompleteHandler(FileSystemEventHandler):
         self.subdirectories = config.getboolean("SETTINGS", "READ_SUBDIRECTORIES", fallback=False)
         self.move_directories = config.getboolean("SETTINGS", "MOVE_DIRECTORY", fallback=False)
         self.auto_unpack = config.getboolean("SETTINGS", "AUTO_UNPACK", fallback=False)
+        self.auto_cleanup = config.getboolean("SETTINGS", "AUTO_CLEANUP_ORPHAN_FILES", fallback=True)
+        self.cleanup_interval_hours = config.getint("SETTINGS", "CLEANUP_INTERVAL_HOURS", fallback=1)
 
         monitor_logger.info(f"********************// Config Reloaded //********************")
         monitor_logger.info(
             f"Directory: {self.directory}, Target: {self.target_directory}, "
             f"Ignored: {self.ignored_extensions}, autoconvert: {self.autoconvert}, "
-            f"subdirectories: {self.subdirectories}, move_directories: {self.move_directories}, auto_unpack: {self.auto_unpack}"
+            f"subdirectories: {self.subdirectories}, move_directories: {self.move_directories}, "
+            f"auto_unpack: {self.auto_unpack}, auto_cleanup: {self.auto_cleanup}, "
+            f"cleanup_interval: {self.cleanup_interval_hours}h"
         )
 
 
@@ -163,6 +173,11 @@ class DownloadCompleteHandler(FileSystemEventHandler):
         _, extension = os.path.splitext(filepath)
         extension = extension.lower()
 
+        # Check if this is a temporary download file that should be ignored
+        if self._is_temporary_download_file(filepath, extension):
+            monitor_logger.info(f"Ignoring temporary download file: {filepath}")
+            return
+
         # If the extension is in the ignored list, ignore it—unless it's a .zip file and auto_unpack is enabled.
         if extension in self.ignored_extensions:
             if extension == '.zip' and getattr(self, 'auto_unpack', False):
@@ -176,6 +191,80 @@ class DownloadCompleteHandler(FileSystemEventHandler):
             monitor_logger.info(f"File Download Complete: {filepath}")
         else:
             monitor_logger.info(f"File not yet complete: {filepath}")
+
+    def _is_temporary_download_file(self, filepath, extension):
+        """
+        Check if a file is a temporary download file that should be ignored.
+        This includes files with multiple extensions like .zip.0.crdownload
+        """
+        filename = os.path.basename(filepath)
+        
+        # Check for common temporary download patterns
+        temp_patterns = [
+            '.crdownload', '.tmp', '.part', '.mega', '.bak',
+            '.download', '.downloading', '.incomplete'
+        ]
+        
+        # Check if the filename contains any temporary patterns
+        for pattern in temp_patterns:
+            if pattern in filename.lower():
+                return True
+        
+        # Check for numbered temporary files (e.g., .0, .1, .2)
+        if re.search(r'\.\d+\.(crdownload|tmp|part|download)$', filename.lower()):
+            return True
+        
+        # Check for files that look like incomplete downloads
+        if re.search(r'\.(crdownload|tmp|part|download)$', filename.lower()):
+            return True
+            
+        return False
+
+    def cleanup_orphan_files(self):
+        """
+        Clean up orphan temporary files in the WATCH directory.
+        This should be called periodically or on startup.
+        """
+        try:
+            monitor_logger.info(f"Starting cleanup of orphan files in: {self.directory}")
+            
+            if not os.path.exists(self.directory):
+                monitor_logger.info("Watch directory does not exist, skipping cleanup")
+                return
+            
+            cleaned_count = 0
+            total_size_cleaned = 0
+            
+            for root, dirs, files in os.walk(self.directory):
+                # Skip hidden directories
+                dirs[:] = [d for d in dirs if not is_hidden(os.path.join(root, d))]
+                
+                for file in files:
+                    file_path = os.path.join(root, file)
+                    
+                    # Skip hidden files
+                    if is_hidden(file_path):
+                        continue
+                    
+                    # Check if this is a temporary download file
+                    _, extension = os.path.splitext(file)
+                    if self._is_temporary_download_file(file_path, extension):
+                        try:
+                            file_size = os.path.getsize(file_path)
+                            os.remove(file_path)
+                            cleaned_count += 1
+                            total_size_cleaned += file_size
+                            monitor_logger.info(f"Cleaned up orphan file: {file_path} ({format_size(file_size)})")
+                        except Exception as e:
+                            monitor_logger.error(f"Error cleaning up orphan file {file_path}: {e}")
+            
+            if cleaned_count > 0:
+                monitor_logger.info(f"Cleanup completed: {cleaned_count} files removed, {format_size(total_size_cleaned)} freed")
+            else:
+                monitor_logger.info("No orphan files found during cleanup")
+                
+        except Exception as e:
+            monitor_logger.error(f"Error during orphan file cleanup: {e}")
 
 
     def _rename_file(self, filepath):
@@ -353,6 +442,17 @@ def _wait_for_download_completion(filepath, wait_time=2.0, retries=20):
 
     return False
 
+def format_size(size_bytes):
+    """Helper function to format file sizes in human-readable format"""
+    if size_bytes == 0:
+        return "0B"
+    
+    size_names = ["B", "KB", "MB", "GB", "TB"]
+    i = int(math.floor(math.log(size_bytes, 1024)))
+    p = math.pow(1024, i)
+    s = round(size_bytes / p, 2)
+    return f"{s} {size_names[i]}"
+
 
 if __name__ == "__main__":
     os.makedirs(directory, exist_ok=True)
@@ -362,6 +462,13 @@ if __name__ == "__main__":
         target_directory=target_directory,
         ignored_extensions=ignored_extensions
     )
+
+    # Initial cleanup of orphan files in target directory
+    if auto_cleanup:
+        monitor_logger.info("Performing initial cleanup of orphan files...")
+        event_handler.cleanup_orphan_files()
+    else:
+        monitor_logger.info("Auto cleanup disabled, skipping initial cleanup")
 
     # Initial scan
     for root, _, files in os.walk(directory):
@@ -374,9 +481,22 @@ if __name__ == "__main__":
     observer.schedule(event_handler, directory, recursive=subdirectories)
     observer.start()
 
+    # Set up periodic cleanup (every hour)
+    last_cleanup_time = time.time()
+    cleanup_interval = cleanup_interval_hours * 3600  # Convert hours to seconds
+
     try:
         while True:
             time.sleep(1)
+            
+            # Check if it's time for periodic cleanup (only if auto_cleanup is enabled)
+            if auto_cleanup:
+                current_time = time.time()
+                if current_time - last_cleanup_time >= cleanup_interval:
+                    monitor_logger.info("Running periodic cleanup of orphan files...")
+                    event_handler.cleanup_orphan_files()
+                    last_cleanup_time = current_time
+                
     except KeyboardInterrupt:
         observer.stop()
     observer.join()

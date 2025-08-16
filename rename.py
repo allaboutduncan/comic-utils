@@ -19,6 +19,19 @@ VOLUME_ISSUE_PATTERN = re.compile(
 )
 
 # -------------------------------------------------------------------
+# Pattern for Volume + Subtitle (no issue number), e.g.:
+#   "Infinity 8 v03 - The Gospel According to Emma (2019).cbr"
+#   Group(1) => "Infinity 8"
+#   Group(2) => "v03"
+#   Group(3) => " - The Gospel According to Emma (2019)"
+#   Group(4) => ".cbr"
+# -------------------------------------------------------------------
+VOLUME_SUBTITLE_PATTERN = re.compile(
+    r'^(.*?)\s+(v\d{1,3})\s+(-\s*[^-]+.*?)(\.\w+)$',
+    re.IGNORECASE
+)
+
+# -------------------------------------------------------------------
 # Pattern for just "Title YEAR anything.ext"
 # e.g. "Hulk vs. The Marvel Universe 2008 Digital4K.cbz" → "Hulk vs. The Marvel Universe (2008).cbz"
 # -------------------------------------------------------------------
@@ -100,6 +113,21 @@ ISSUE_YEAR_PARENTHESES_PATTERN = re.compile(
     re.IGNORECASE
 )
 
+# -------------------------------------------------------------------
+# Pattern for Title, YYYY-MM-DD (NN) format, e.g.:
+#   "Justice League Europe, 1990-02-00 ( 13) (digital) (OkC.O.M.P.U.T.O.-Novus-HD).cbz"
+#   "Blue Devil, 1984-04-00 (_01) (digital) (Glorith-Novus-HD).cbz"
+#   Group(1) => "Justice League Europe" or "Blue Devil"
+#   Group(2) => "1990" or "1984"
+#   Group(3) => "13" or "_01"
+#   Group(4) => " (digital) (OkC.O.M.P.U.T.O.-Novus-HD)" or " (digital) (Glorith-Novus-HD)"
+#   Group(5) => ".cbz"
+# -------------------------------------------------------------------
+TITLE_COMMA_YEAR_ISSUE_PATTERN = re.compile(
+    r'^(.*?),\s*(\d{4})-\d{2}-\d{2}\s*\(\s*([_\d]\d{1,3})\s*\)(.*)(\.\w+)$',
+    re.IGNORECASE
+)
+
 
 def parentheses_replacer(match):
     """
@@ -178,15 +206,41 @@ def get_renamed_filename(filename):
       6) If that fails, try FALLBACK_PATTERN for just (YYYY).
       7) If none match, return None.
     """
+    app_logger.info(f"Attempting to rename filename: {filename}")
+    
     # ==========================================================
     # 0) Special case: Issue number + year in parentheses (BEFORE pre-cleaning)
     #    e.g. "Leonard Nimoy's Primortals (00 1996).cbz"
     # ==========================================================
     issue_year_paren_match = ISSUE_YEAR_PARENTHESES_PATTERN.match(filename)
     if issue_year_paren_match:
+        app_logger.info(f"Matched ISSUE_YEAR_PARENTHESES_PATTERN for: {filename}")
         raw_title, issue_num, year, extra, extension = issue_year_paren_match.groups()
         clean_title = raw_title.replace('_', ' ').strip()
         final_issue = f"{int(issue_num):03d}"
+        new_filename = f"{clean_title} {final_issue} ({year}){extension}"
+        return new_filename
+
+    # ==========================================================
+    # 0.5) Special case: Title, YYYY-MM-DD (NN) format (BEFORE pre-cleaning)
+    #    e.g. "Justice League Europe, 1990-02-00 ( 13) (digital) (OkC.O.M.P.U.T.O.-Novus-HD).cbz"
+    #    e.g. "Blue Devil, 1984-04-00 (_01) (digital) (Glorith-Novus-HD).cbz"
+    # ==========================================================
+    title_comma_year_issue_match = TITLE_COMMA_YEAR_ISSUE_PATTERN.match(filename)
+    if title_comma_year_issue_match:
+        app_logger.info(f"Matched TITLE_COMMA_YEAR_ISSUE_PATTERN for: {filename}")
+        raw_title, year, issue_num, extra, extension = title_comma_year_issue_match.groups()
+        clean_title = raw_title.replace('_', ' ').strip()
+        
+        # Handle issue numbers that may have underscore prefixes
+        if issue_num.startswith('_'):
+            # Remove underscore and zero-pad the numeric part
+            numeric_part = issue_num[1:]  # Remove the underscore
+            final_issue = f"{int(numeric_part):03d}"
+        else:
+            # Regular numeric issue number
+            final_issue = f"{int(issue_num):03d}"
+            
         new_filename = f"{clean_title} {final_issue} ({year}){extension}"
         return new_filename
 
@@ -198,6 +252,7 @@ def get_renamed_filename(filename):
     # ==========================================================
     vol_issue_match = VOLUME_ISSUE_PATTERN.match(cleaned_filename)
     if vol_issue_match:
+        app_logger.info(f"Matched VOLUME_ISSUE_PATTERN for: {cleaned_filename}")
         raw_title, volume_part, issue_part, middle, extension = vol_issue_match.groups()
 
         # Clean the title: underscores -> spaces, then strip
@@ -234,6 +289,7 @@ def get_renamed_filename(filename):
     # ==========================================================
     hash_match = ISSUE_HASH_PATTERN.match(cleaned_filename)
     if hash_match:
+        app_logger.info(f"Matched ISSUE_HASH_PATTERN for: {cleaned_filename}")
         raw_title, issue_num, middle, extension = hash_match.groups()
 
         clean_title = raw_title.replace('_', ' ').strip()
@@ -254,11 +310,46 @@ def get_renamed_filename(filename):
         return new_filename
 
     # ==========================================================
-    # 2) Series-number + issue-number (no “v”, no “#”)
+    # 3) VOLUME + SUBTITLE pattern (e.g. "Infinity 8 v03 - The Gospel According to Emma (2019).cbr")
+    # ==========================================================
+    vol_subtitle_match = VOLUME_SUBTITLE_PATTERN.match(cleaned_filename)
+    if vol_subtitle_match:
+        app_logger.info(f"Matched VOLUME_SUBTITLE_PATTERN for: {cleaned_filename}")
+        raw_title, volume_part, subtitle_part, extension = vol_subtitle_match.groups()
+
+        # Clean the title: underscores -> spaces, then strip
+        clean_title = raw_title.replace('_', ' ').strip()
+
+        # volume_part (e.g. "v03") - keep as-is
+        final_volume = volume_part.strip()
+
+        # Extract year from subtitle and clean it up
+        found_year = None
+        clean_subtitle = subtitle_part.strip()
+        
+        # Look for a 4-digit year in parentheses
+        year_match = re.search(r'\((\d{4})\)', subtitle_part)
+        if year_match:
+            found_year = year_match.group(1)
+            # Remove everything after the year parentheses, but keep the subtitle clean
+            clean_subtitle = subtitle_part[:year_match.start()].strip()
+            # Also remove any trailing parentheses that might be left
+            clean_subtitle = re.sub(r'\s*\([^)]*\)\s*$', '', clean_subtitle).strip()
+        
+        if found_year:
+            new_filename = f"{clean_title} {final_volume} {clean_subtitle} ({found_year}){extension}"
+        else:
+            new_filename = f"{clean_title} {final_volume} {clean_subtitle}{extension}"
+
+        return new_filename
+
+    # ==========================================================
+    # 4) Series-number + issue-number (no “v”, no “#”)
     #    e.g. "Injustice 2 001 (2018).cbz"
     # ==========================================================
     series_match = SERIES_ISSUE_PATTERN.match(cleaned_filename)
     if series_match:
+        app_logger.info(f"Matched SERIES_ISSUE_PATTERN for: {cleaned_filename}")
         raw_title, series_num, issue_num, middle, extension = series_match.groups()
 
         # Keep the series number in the title
@@ -277,11 +368,12 @@ def get_renamed_filename(filename):
         return f"{clean_title} {final_issue}{extension}"
 
     # ==========================================================
-    # 3) Single ISSUE pattern (no separate "volume" token)
+    # 5) Single ISSUE pattern (no separate "volume" token)
     #    e.g. "Comic Name 051 (2018).cbz" or "Comic Name v3 (2018).cbz"
     # ==========================================================
     issue_match = ISSUE_PATTERN.match(cleaned_filename)
     if issue_match:
+        app_logger.info(f"Matched ISSUE_PATTERN for: {cleaned_filename}")
         raw_title, issue_part, middle, extension = issue_match.groups()
 
         # Clean the title: underscores -> spaces, then strip
@@ -310,22 +402,24 @@ def get_renamed_filename(filename):
         return new_filename
 
     # ==========================================================
-    # 4) ISSUE number AFTER YEAR pattern
+    # 6) ISSUE number AFTER YEAR pattern
     #    e.g. "Spider-Man 2099 (1992) #44 (digital) (Colecionadores.GO).cbz"
     # ==========================================================
     issue_after_year_match = ISSUE_AFTER_YEAR_PATTERN.match(cleaned_filename)
     if issue_after_year_match:
+        app_logger.info(f"Matched ISSUE_AFTER_YEAR_PATTERN for: {cleaned_filename}")
         raw_title, year, issue, extra, extension = issue_after_year_match.groups()
         clean_title = raw_title.replace('_', ' ').strip()
         new_filename = f"{clean_title} {issue} ({year}){extension}"
         return new_filename
 
     # ==========================================================
-    # 5) Title with just YEAR (no volume or issue)
+    # 7) Title with just YEAR (no volume or issue)
     #     e.g. "Hulk vs. The Marvel Universe 2008 Digital.cbz"
     # ==========================================================
     title_year_match = TITLE_YEAR_PATTERN.match(cleaned_filename)
     if title_year_match:
+        app_logger.info(f"Matched TITLE_YEAR_PATTERN for: {cleaned_filename}")
         raw_title, found_year, _, extension = title_year_match.groups()
         clean_title = raw_title.replace('_', ' ').strip()
         # Remove any trailing opening parenthesis that might have been captured
@@ -333,19 +427,21 @@ def get_renamed_filename(filename):
         return f"{clean_title} ({found_year}){extension}"
 
     # ==========================================================
-    # 6) Fallback: Title (YYYY) anything .ext
+    # 8) Fallback: Title (YYYY) anything .ext
     #    e.g. "Comic Name (2018) some extra.cbz" -> "Comic Name (2018).cbz"
     # ==========================================================
     fallback_match = FALLBACK_PATTERN.match(cleaned_filename)
     if fallback_match:
+        app_logger.info(f"Matched FALLBACK_PATTERN for: {cleaned_filename}")
         raw_title, found_year, _, extension = fallback_match.groups()
         clean_title = raw_title.replace('_', ' ').strip()
         new_filename = f"{clean_title} ({found_year}){extension}"
         return new_filename
 
     # ==========================================================
-    # 7) No match => return None
+    # 9) No match => return None
     # ==========================================================
+    app_logger.info(f"No pattern matched for: {filename}")
     return None
 
 
@@ -356,22 +452,64 @@ def rename_files(directory):
     """
 
     app_logger.info("********************// Rename Directory Files //********************")
+    app_logger.info(f"Starting rename process for directory: {directory}")
+    app_logger.info(f"Current working directory: {os.getcwd()}")
+    #app_logger.info(f"Directory exists: {os.path.exists(directory)}")
+    #app_logger.info(f"Directory is directory: {os.path.isdir(directory)}")
+    
+    files_processed = 0
+    files_renamed = 0
 
     for subdir, dirs, files in os.walk(directory):
         # Skip hidden directories.
         dirs[:] = [d for d in dirs if not is_hidden(os.path.join(subdir, d))]
+        #app_logger.info(f"Processing subdirectory: {subdir} with {len(files)} files")
+        
+        # List all files in this subdirectory
+        #for filename in files:
+            #app_logger.info(f"Found file: {filename} in {subdir}")
+        
         for filename in files:
+            files_processed += 1
             old_path = os.path.join(subdir, filename)
+            
+            app_logger.info(f"Processing file: {filename}")
+            #app_logger.info(f"Full old path: {old_path}")
+            #app_logger.info(f"File exists: {os.path.exists(old_path)}")
+            #app_logger.info(f"File size: {os.path.getsize(old_path) if os.path.exists(old_path) else 'N/A'}")
+            
             # Skip hidden files.
             if is_hidden(old_path):
                 app_logger.info(f"Skipping hidden file: {old_path}")
                 continue
 
+            app_logger.info(f"Processing file: {filename}")
             new_name = get_renamed_filename(filename)
+            
             if new_name and new_name != filename:
                 new_path = os.path.join(subdir, new_name)
                 app_logger.info(f"Renaming:\n  {old_path}\n  --> {new_path}\n")
-                os.rename(old_path, new_path)
+                try:
+                    os.rename(old_path, new_path)
+                    files_renamed += 1
+                    #app_logger.info(f"Successfully renamed: {filename} -> {new_name}")
+                    
+                    # Verify the rename actually happened
+                    if os.path.exists(new_path) and not os.path.exists(old_path):
+                        app_logger.info(f"Rename verification successful: new file exists, old file removed")
+                    else:
+                        app_logger.warning(f"Rename verification failed: new file exists: {os.path.exists(new_path)}, old file exists: {os.path.exists(old_path)}")
+                        
+                except Exception as e:
+                    app_logger.error(f"Failed to rename {filename}: {e}")
+            else:
+                if new_name is None:
+                    app_logger.info(f"No rename pattern matched for: {filename}")
+                else:
+                    app_logger.info(f"No change needed for: {filename}")
+    
+    app_logger.info(f"Rename process complete. Processed {files_processed} files, renamed {files_renamed} files.")
+    return files_renamed
 
 
 def rename_file(file_path):
