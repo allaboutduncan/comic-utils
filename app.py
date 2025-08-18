@@ -265,6 +265,11 @@ def invalidate_cache_for_path(path):
     """Invalidate cache for a specific path and its parent."""
     global last_cache_invalidation, _data_dir_stats_last_update
     
+    # Skip cache invalidation for WATCH and TARGET directories
+    if is_critical_path(path):
+        app_logger.debug(f"Skipping cache invalidation for critical path: {path}")
+        return
+    
     if path in directory_cache:
         del directory_cache[path]
         del cache_timestamps[path]
