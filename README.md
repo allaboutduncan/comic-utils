@@ -91,7 +91,15 @@ Copy the following and edit the environment variables
             environment:
                 - FLASK_ENV=development
                 ## Set to 'yes' if you want to use folder monitoring.
-                - MONITOR=yes/no 
+                - MONITOR=yes/no
+                ## Set the User ID (PUID) and Group ID (PGID) for the container.
+                ## This is often needed to resolve permission issues, especially on systems like Unraid
+                ## where a specific user/group owns the files.
+                ## For Unraid, PUID is typically 99 (user 'nobody') and PGID is typically 100 (group 'users').
+                # - PUID=99
+                # - PGID=100
+                ## Set the file creation mask (UMASK). 022 is a common value.
+                # - UMASK=022
 
 __Update your Docker Compose:__ Mapping the `/config` directory is required now to ensure that config settings are persisted on updates.
 __First Install:__ On the first install with new config settings, visit the config page, ensure everything is configured as desired.
