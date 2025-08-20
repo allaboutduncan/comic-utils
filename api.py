@@ -203,7 +203,9 @@ def download_getcomics(url, download_id):
             # Create a unique temp file per attempt
             attempt_suffix = f".{attempt}.crdownload"
             temp_file_path = file_path + attempt_suffix
-
+            
+            app_logger.info(f"Temp file path: {temp_file_path}")
+            app_logger.info(f"Final file path: {file_path}")
 
             total_length = int(response.headers.get('content-length', 0))
             download_progress[download_id]['bytes_total'] = total_length
@@ -241,8 +243,11 @@ def download_getcomics(url, download_id):
             if temp_file_path and os.path.exists(temp_file_path):
                 try:
                     os.remove(temp_file_path)
+                    app_logger.info(f"Cleaned up temp file between retries: {temp_file_path}")
                 except Exception as cleanup_err:
                     app_logger.warning(f"Failed to remove temp file: {cleanup_err}")
+            else:
+                app_logger.debug("No temp file to clean up between retries")
 
     # All retries failed
     app_logger.error(f"Download failed after {retries} attempts: {last_exception}")
@@ -257,6 +262,8 @@ def download_getcomics(url, download_id):
                 os.remove(leftover)
             except Exception as e:
                 app_logger.warning(f"Failed to remove stale temp file: {leftover} — {e}")
+        else:
+            app_logger.debug(f"No leftover temp file to remove: {leftover}")
 
     raise Exception(f"Download failed after {retries} attempts for {url}: {last_exception}")
 

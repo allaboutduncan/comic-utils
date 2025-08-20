@@ -289,6 +289,27 @@
       border-color: #adb5bd;
     }
     
+    /* Smooth removal animation for deleted items */
+    .list-group-item {
+      transition: all 0.2s ease-out;
+    }
+    
+    .list-group-item.deleting {
+      opacity: 0;
+      transform: translateX(-20px);
+      pointer-events: none;
+    }
+    
+    .drop-target-item {
+      opacity: 0.6;
+      font-style: italic;
+      transition: opacity 0.3s ease;
+    }
+    
+    .drop-target-item:hover {
+      opacity: 1;
+    }
+    
 
   </style>
 
@@ -323,6 +344,43 @@
       if (bytes === 0) return '0 B';
       const i = parseInt(Math.floor(Math.log(bytes) / Math.log(1024)));
       return (bytes / Math.pow(1024, i)).toFixed(1) + ' ' + sizes[i];
+    }
+
+    // Helper function to create drop target item
+    function createDropTargetItem(container, currentPath, panel) {
+      let dropTargetItem = document.createElement("li");
+      dropTargetItem.className = "list-group-item text-center drop-target-item";
+      dropTargetItem.textContent = "... Drop Files Here";
+      
+      dropTargetItem.addEventListener("dragover", function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        dropTargetItem.classList.add("folder-hover");
+      });
+      dropTargetItem.addEventListener("dragleave", function(e) {
+        e.stopPropagation();
+        dropTargetItem.classList.remove("folder-hover");
+      });
+      dropTargetItem.addEventListener("drop", function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        dropTargetItem.classList.remove("folder-hover");
+        let dataStr = e.dataTransfer.getData("text/plain");
+        let items;
+        try {
+          items = JSON.parse(dataStr);
+          if (!Array.isArray(items)) {
+            items = [items];
+          }
+        } catch (err) {
+          items = [{ path: dataStr, type: "unknown" }];
+        }
+        let paths = items.map(item => item.path);
+        moveMultipleItems(paths, currentPath, panel);
+        selectedFiles.clear();
+      });
+      
+      container.appendChild(dropTargetItem);
     }
 
     // Normalize file object (handles both {name, size} or string)
@@ -379,6 +437,55 @@
   
     // Function to send a delete request.
     function deleteItem(target, panel) {
+      // Find the list item element to remove from UI
+      let container = panel === 'source' ? document.getElementById("source-list") : document.getElementById("destination-list");
+      let itemToRemove = container.querySelector(`li[data-fullpath="${target}"]`);
+      
+      if (!itemToRemove) {
+        console.warn("Could not find item to remove from UI:", target);
+        // Fallback to refreshing the directory listing
+        if(panel === 'source') {
+          loadDirectories(currentSourcePath, 'source');
+        } else {
+          loadDirectories(currentDestinationPath, 'destination');
+        }
+        return;
+      }
+      
+      // Prevent multiple delete operations on the same item
+      if (itemToRemove.classList.contains('deleting')) {
+        console.warn("Item is already being deleted:", target);
+        return;
+      }
+      
+      // Add fade-out animation before removing
+      itemToRemove.classList.add('deleting');
+      
+      // Also remove from selectedFiles if it was selected
+      if (selectedFiles.has(target)) {
+        selectedFiles.delete(target);
+      }
+      
+      // Remove the item from UI after animation completes
+      setTimeout(() => {
+        // Check if the item is still in the DOM before removing
+        if (itemToRemove && itemToRemove.parentNode) {
+          itemToRemove.remove();
+          
+          // After removal, check if we need to show the drop target in destination panel
+          if (panel === 'destination') {
+            let container = document.getElementById("destination-list");
+            let remainingItems = container.querySelectorAll("li:not(.drop-target-item)");
+            
+            // If no items left (excluding drop target), add the drop target
+            if (remainingItems.length === 0) {
+              createDropTargetItem(container, currentDestinationPath, panel);
+            }
+          }
+        }
+      }, 200); // Match the CSS transition duration
+      
+      // Send delete request to server
       fetch('/delete', {
         method: 'POST',
         headers: {"Content-Type": "application/json"},
@@ -387,17 +494,28 @@
       .then(response => response.json())
       .then(result => {
         if(result.success) {
-          if(panel === 'source') {
-            loadDirectories(currentSourcePath, 'source');
-          } else {
-            loadDirectories(currentDestinationPath, 'destination');
-          }
+          // Item already removed from UI, no need to refresh
+          console.log("Item deleted successfully:", target);
         } else {
+          // If deletion failed, restore the item to UI
+          console.error("Delete failed, restoring item to UI:", result.error);
+          if (itemToRemove && container && itemToRemove.parentNode === null) {
+            // Remove the deleting class and restore the item only if it's not already in the DOM
+            itemToRemove.classList.remove('deleting');
+            container.appendChild(itemToRemove);
+          }
           alert("Error deleting item: " + result.error);
         }
       })
       .catch(error => {
         console.error("Error in delete request:", error);
+        // If network error, restore the item to UI
+        if (itemToRemove && container && itemToRemove.parentNode === null) {
+          // Remove the deleting class and restore the item only if it's not already in the DOM
+          itemToRemove.classList.remove('deleting');
+          container.appendChild(itemToRemove);
+        }
+        alert("Delete failed due to a network or server error.");
       });
     }
   
@@ -518,16 +636,21 @@
           renameBtn.setAttribute("type", "button");
           renameBtn.addEventListener("click", function(e) {
             if (e) e.stopPropagation();
+            console.log('Rename button clicked for directory:', fullPath);
             // Call the rename_files function from rename.py
             fetch('/rename-directory', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ directory: fullPath })
             })
-            .then(response => response.json())
+            .then(response => {
+              console.log('Rename response status:', response.status);
+              return response.json();
+            })
             .then(result => {
+              console.log('Rename result:', result);
               if (result.success) {
-                // Show success message using the showToast function
+                // Show success message using the enhanced showToast function
                 showToast('Rename Successful', `Successfully renamed files in ${fileData.name}`, 'success');
                 // Refresh the current directory listing
                 if (panel === 'source') {
@@ -658,6 +781,9 @@
       }
 
       if (type === "directory") {
+        // Set data-fullpath for directories so they can be found during deletion
+        li.setAttribute("data-fullpath", fullPath);
+        
         li.onclick = function() {
           currentFilter[panel] = 'all';
           loadDirectories(fullPath, panel);
@@ -842,6 +968,8 @@
       if (data.parent) {
         let parentItem = createListItem("Parent", data.parent, "directory", panel, false);
         parentItem.querySelector("span").innerHTML = `<i class="bi bi-arrow-left-square me-2"></i> Parent`;
+        // Ensure Parent directory has data-fullpath for consistency
+        parentItem.setAttribute("data-fullpath", data.parent);
         container.appendChild(parentItem);
       }
       
@@ -874,39 +1002,7 @@
       
       // For the destination panel, only add the drop target if the directory is truly empty.
       if (panel === 'destination' && data.directories.length === 0 && data.files.length === 0) {
-        let dropTargetItem = document.createElement("li");
-        dropTargetItem.className = "list-group-item text-center drop-target-item";
-        dropTargetItem.textContent = "... Drop Files Here";
-        
-        dropTargetItem.addEventListener("dragover", function(e) {
-          e.preventDefault();
-          e.stopPropagation();
-          dropTargetItem.classList.add("folder-hover");
-        });
-        dropTargetItem.addEventListener("dragleave", function(e) {
-          e.stopPropagation();
-          dropTargetItem.classList.remove("folder-hover");
-        });
-        dropTargetItem.addEventListener("drop", function(e) {
-          e.preventDefault();
-          e.stopPropagation();
-          dropTargetItem.classList.remove("folder-hover");
-          let dataStr = e.dataTransfer.getData("text/plain");
-          let items;
-          try {
-            items = JSON.parse(dataStr);
-            if (!Array.isArray(items)) {
-              items = [items];
-            }
-          } catch (err) {
-            items = [{ path: dataStr, type: "unknown" }];
-          }
-          let paths = items.map(item => item.path);
-          moveMultipleItems(paths, data.current_path, panel);
-          selectedFiles.clear();
-        });
-        
-        container.appendChild(dropTargetItem);
+        createDropTargetItem(container, data.current_path, panel);
       }
     }
   
@@ -976,6 +1072,8 @@
           if (data.parent) {
             let parentItem = createListItem("Parent", data.parent, "directory", panel, false);
             parentItem.querySelector("span").innerHTML = `<i class="bi bi-arrow-left-square me-2"></i> Parent`;
+            // Ensure Parent directory has data-fullpath for consistency
+            parentItem.setAttribute("data-fullpath", data.parent);
             container.appendChild(parentItem);
           }
           data.directories.forEach(dir => {
@@ -2459,32 +2557,99 @@
 
     // Helper function to show toast notifications
     function showToast(title, message, type = 'info') {
-      // Create toast element
-      const toastHtml = `
-        <div class="toast bg-${type === 'error' ? 'danger' : type === 'success' ? 'success' : 'info'} text-white" role="alert" aria-live="assertive" aria-atomic="true">
-          <div class="toast-header bg-${type === 'error' ? 'danger' : type === 'success' ? 'success' : 'info'} text-white">
-            <strong class="me-auto">${title}</strong>
-            <button type="button" class="btn-close btn-close-white" data-bs-dismiss="toast" aria-label="Close"></button>
+      // Wait for Bootstrap to be fully loaded
+      const waitForBootstrap = () => {
+        if (typeof bootstrap !== 'undefined' && bootstrap.Toast && typeof bootstrap.Toast === 'function') {
+          showToastInternal(title, message, type);
+        } else {
+          // Wait a bit more for Bootstrap to load
+          setTimeout(waitForBootstrap, 100);
+        }
+      };
+      
+      // Start waiting for Bootstrap
+      waitForBootstrap();
+    }
+    
+    // Internal function to actually show the toast
+    function showToastInternal(title, message, type) {
+      try {
+        // Check if Bootstrap is available and fully loaded
+        if (typeof bootstrap === 'undefined' || !bootstrap.Toast || typeof bootstrap.Toast !== 'function') {
+          console.warn('Bootstrap Toast not available, falling back to alert');
+          alert(`${title}: ${message}`);
+          return;
+        }
+        
+        // Check if toast container exists
+        const toastContainer = document.querySelector('.toast-container');
+        if (!toastContainer) {
+          console.warn('Toast container not found, falling back to alert');
+          alert(`${title}: ${message}`);
+          return;
+        }
+        
+        // Create toast element
+        const toastHtml = `
+          <div class="toast bg-${type === 'error' ? 'danger' : type === 'success' ? 'success' : 'info'} text-white" role="alert" aria-live="assertive" aria-atomic="true">
+            <div class="toast-header bg-${type === 'error' ? 'danger' : type === 'success' ? 'success' : 'info'} text-white">
+              <strong class="me-auto">${title}</strong>
+              <button type="button" class="btn-close btn-close-white" data-bs-dismiss="toast" aria-label="Close"></button>
+            </div>
+            <div class="toast-body">
+              ${message}
+            </div>
           </div>
-          <div class="toast-body">
-            ${message}
-          </div>
-        </div>
-      `;
-      
-      const toastContainer = document.querySelector('.toast-container');
-      const toastElement = document.createElement('div');
-      toastElement.innerHTML = toastHtml;
-      toastContainer.appendChild(toastElement.firstElementChild);
-      
-      // Show the toast
-      const toast = new bootstrap.Toast(toastElement.firstElementChild);
-      toast.show();
-      
-      // Remove toast element after it's hidden
-      toastElement.firstElementChild.addEventListener('hidden.bs.toast', function() {
-        toastElement.remove();
-      });
+        `;
+        
+        const toastElement = document.createElement('div');
+        toastElement.innerHTML = toastHtml;
+        const actualToastElement = toastElement.firstElementChild;
+        
+        // Ensure the element is valid
+        if (!actualToastElement) {
+          console.warn('Failed to create toast element, falling back to alert');
+          alert(`${title}: ${message}`);
+          return;
+        }
+        
+        toastContainer.appendChild(actualToastElement);
+        
+        // Show the toast with error handling
+        try {
+          // Double-check Bootstrap availability before creating toast
+          if (typeof bootstrap === 'undefined' || !bootstrap.Toast) {
+            throw new Error('Bootstrap not available during toast creation');
+          }
+          
+          const toast = new bootstrap.Toast(actualToastElement);
+          if (toast && typeof toast.show === 'function') {
+            toast.show();
+          } else {
+            throw new Error('Invalid toast object');
+          }
+        } catch (toastError) {
+          console.error('Error creating/showing toast:', toastError);
+          // Remove the element we added and fallback to alert
+          if (actualToastElement.parentNode === toastContainer) {
+            toastContainer.removeChild(actualToastElement);
+          }
+          alert(`${title}: ${message}`);
+          return;
+        }
+        
+        // Remove toast element after it's hidden
+        actualToastElement.addEventListener('hidden.bs.toast', function() {
+          if (toastContainer && actualToastElement.parentNode === toastContainer) {
+            toastContainer.removeChild(actualToastElement);
+          }
+        });
+        
+      } catch (error) {
+        console.error('Error in showToast function:', error);
+        // Final fallback to alert
+        alert(`${title}: ${message}`);
+      }
     }
 
     // Function to cleanup orphan files in the watch directory

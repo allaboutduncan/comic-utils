@@ -67,6 +67,8 @@ Here's a quick list of features
 
 Copy the following and edit the environment variables
 
+> **⚠️ Windows/WSL Users**: If you're deploying on Windows with WSL, see [WINDOWS_WSL_SETUP.md](WINDOWS_WSL_SETUP.md) for important PUID/PGID configuration instructions.
+
     version: '3.9'
     services:
         comic-utils:
@@ -96,6 +98,7 @@ Copy the following and edit the environment variables
                 ## This is often needed to resolve permission issues, especially on systems like Unraid
                 ## where a specific user/group owns the files.
                 ## For Unraid, PUID is typically 99 (user 'nobody') and PGID is typically 100 (group 'users').
+                ## For Windows/WSL, you need to set these to match your Windows user ID (see WINDOWS_WSL_SETUP.md)
                 # - PUID=99
                 # - PGID=100
                 ## Set the file creation mask (UMASK). 022 is a common value.
