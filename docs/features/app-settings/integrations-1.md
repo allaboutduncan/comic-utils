@@ -7,7 +7,7 @@ icon: square-sliders
 
 With the exception on enabling [folder-monitoring](../folder-monitoring/ "mention"), all options can be updated in the Settings page.
 
-<figure><img src="../../.gitbook/assets/Screenshot 2025-05-28 120734.png" alt=""><figcaption><p>Settings Menu</p></figcaption></figure>
+<figure><img src="../../.gitbook/assets/Screenshot 2025-08-20 125115.png" alt=""><figcaption></figcaption></figure>
 
 ### Missing Issue Configuration
 
@@ -49,7 +49,17 @@ For ZIP only, this specifically bypasses the IGNORED EXTENSIONS.
 To Do: Hide these in settings if folder monitoring is not enabled or inform user that folder monitoring is not enabled.
 {% endhint %}
 
+**Auto Cleanup Orphan Files:** If you are using the monitoring and [editor.md](../file-downloads/editor.md "mention") for downloads, failed downloads will be removed at regular intervals.
+
+**Cleanup Interval (hours):** Set the timing for removing orphaned files.
+
+## App Settings Continued
+
+<figure><img src="../../.gitbook/assets/Screenshot 2025-08-20 125142.png" alt=""><figcaption></figcaption></figure>
+
 ### API Download Configuration <a href="#api-configuration" id="api-configuration"></a>
+
+#### Custom Headers for Auth
 
 Depending on your authentication/VPN/etc to protect your site, this setting will allow you to pass custom auth variables or anything else in the header. Simply enter the content you need to pass as JSON.&#x20;
 
@@ -61,6 +71,40 @@ The example provided shows you how to pass Client ID and Client Secret to authen
     "CF-Access-Client-Secret":"your-secret"
 }
 ```
+
+#### PixelDrain API Key
+
+For the [file-downloads](../file-downloads/ "mention") feature, you can bypass daily limits by entering your API key in this field.
+
+### Performance and Timeout Settings
+
+Allows you to better manage large files depending on your system. Adjusting these values will enable/disable additional timing checks when processing large files (converting or rebuilding files). The default settings on average systems should easily handle converting a 2GB CBR file to CBZ.
+
+### Cache Management
+
+v4 Introduced searches and improved cache management. To allow you to search your library quickly, a cached search index is built when the app starts and rebuilt every 6 hours.
+
+From this area in admin, you can manually trigger a cache rebuild or clear the current cache.
+
+Settings are show, but currently hard coded, for:
+
+#### Cache Rebuild Interval (hours)
+
+Timing for automatically rebuilding the cache. Default is every 6 hours
+
+#### Cache Duration (seconds)
+
+When browsing in file manager, directory listings are cached (default 5-seconds) to speed up moving back and forth between views.
+
+#### Maximum Cache Size
+
+Determines the number of directories that can be cached in memory while browsing. Current default value is set to 100 directories.
+
+{% hint style="info" %}
+Download directories configured in the app are not indexed.&#x20;
+
+Moving files in these directories does not invalidate the cache.
+{% endhint %}
 
 ### ComicInfo.XML Updates
 
