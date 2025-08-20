@@ -7,14 +7,15 @@ from helpers import is_hidden
 # -------------------------------------------------------------------
 #  Pattern for Volume + Issue, e.g.:
 #   "Comic Name v3 051 (2018) (DCP-Scan Final).cbz"
+#   "2000AD v1 1795 (2018).cbz" (4-digit issue numbers for 2000AD)
 #   Group(1) => "Comic Name"
 #   Group(2) => "v3"
-#   Group(3) => "051"
+#   Group(3) => "051" or "1795"
 #   Group(4) => " (2018) (DCP-Scan Final)"
 #   Group(5) => ".cbz"
 # -------------------------------------------------------------------
 VOLUME_ISSUE_PATTERN = re.compile(
-    r'^(.*?)\s+(v\d{1,3})\s+(\d{1,3})(.*)(\.\w+)$',
+    r'^(.*?)\s+(v\d{1,3})\s+(\d{1,4})(.*)(\.\w+)$',
     re.IGNORECASE
 )
 
@@ -43,37 +44,40 @@ TITLE_YEAR_PATTERN = re.compile(
 # -------------------------------------------------------------------
 # Pattern for explicit hash‐issue notation, e.g.:
 #   "Title 2 #10 (2018).cbz"
+#   "2000AD #1795 (2018).cbz" (4-digit issue numbers for 2000AD)
 #   Group(1) ⇒ "Title 2"
-#   Group(2) ⇒ "10"
+#   Group(2) ⇒ "10" or "1795"
 #   Group(3) ⇒ " (2018)"
 #   Group(4) ⇒ ".cbz"
 # -------------------------------------------------------------------
 ISSUE_HASH_PATTERN = re.compile(
-    r'^(.*?)\s*#\s*(\d{1,3})\b(.*)(\.\w+)$',
+    r'^(.*?)\s*#\s*(\d{1,4})\b(.*)(\.\w+)$',
     re.IGNORECASE
 )
 
 # -------------------------------------------------------------------
 # Original ISSUE_PATTERN:
-#   Title + space + (v## or up to 3 digits) + (middle) + extension
+#   Title + space + (v## or up to 4 digits) + (middle) + extension
 #   e.g. "Comic Name 051 (2018).cbz"  or  "Comic Name v3 (2022).cbr"
+#   e.g. "2000AD 1795.cbz" (4-digit issue numbers for 2000AD)
 # -------------------------------------------------------------------
 ISSUE_PATTERN = re.compile(
-    r'^(.*?)\s+((?:v\d{1,3})|(?:\d{1,3}))\b(.*)(\.\w+)$',
+    r'^(.*?)\s+((?:v\d{1,3})|(?:\d{1,4}))\b(.*)(\.\w+)$',
     re.IGNORECASE
 )
 
 # -------------------------------------------------------------------
 # New pattern for cases where the issue number comes after the year.
 # e.g. "Spider-Man 2099 (1992) #44 (digital) (Colecionadores.GO).cbz"
+# e.g. "2000AD (2018) #1795 (digital).cbz" (4-digit issue numbers for 2000AD)
 #   Group(1) => Title (e.g. "Spider-Man 2099")
 #   Group(2) => Year (e.g. "1992")
-#   Group(3) => Issue number (e.g. "#44")
+#   Group(3) => Issue number (e.g. "#44" or "#1795")
 #   Group(4) => Extra text (ignored)
 #   Group(5) => Extension (e.g. ".cbz")
 # -------------------------------------------------------------------
 ISSUE_AFTER_YEAR_PATTERN = re.compile(
-    r'^(.*?)\s*\((\d{4})\)\s*(#\d{1,3})(.*)(\.\w+)$',
+    r'^(.*?)\s*\((\d{4})\)\s*(#\d{1,4})(.*)(\.\w+)$',
     re.IGNORECASE
 )
 
@@ -145,6 +149,63 @@ def parentheses_replacer(match):
     return ''
 
 
+def clean_parentheses_content(filename):
+    """
+    Enhanced parentheses cleaning that:
+    1) Keeps parentheses containing 4-digit years
+    2) Removes all other parentheses content
+    3) If a 4-digit year parentheses exists, removes any parentheses content that comes after it
+    """
+    # First, extract the file extension to preserve it
+    last_dot_pos = filename.rfind('.')
+    if last_dot_pos == -1:
+        # No file extension found
+        base_name = filename
+        extension = ''
+    else:
+        base_name = filename[:last_dot_pos]
+        extension = filename[last_dot_pos:]
+    
+    # Find all parentheses groups in the base name
+    parentheses_groups = list(re.finditer(r'\([^)]*\)', base_name))
+    
+    if not parentheses_groups:
+        return filename
+    
+    # Find the first parentheses group with a 4-digit year
+    first_year_parentheses = None
+    for match in parentheses_groups:
+        inner_text = match.group(0)[1:-1]  # Remove outer parentheses
+        if re.search(r'\b\d{4}\b', inner_text):
+            first_year_parentheses = match
+            break
+    
+    # If we found a 4-digit year parentheses, remove everything after it
+    if first_year_parentheses:
+        # Keep everything up to and including the first year parentheses
+        year_end_pos = first_year_parentheses.end()
+        base_name = base_name[:year_end_pos]
+        
+        # Now clean up any remaining parentheses content before the year parentheses
+        before_year = base_name[:first_year_parentheses.start()]
+        after_year = base_name[first_year_parentheses.start():]
+        
+        # Clean the part before the year parentheses
+        cleaned_before = re.sub(r'\([^)]*\)', parentheses_replacer, before_year)
+        
+        # Combine cleaned before + year parentheses
+        base_name = cleaned_before + after_year
+    else:
+        # No 4-digit year found, remove all parentheses content
+        base_name = re.sub(r'\([^)]*\)', '', base_name)
+    
+    # Clean up any extra spaces that might result
+    base_name = re.sub(r'\s+', ' ', base_name).strip()
+    
+    # Reattach the file extension
+    return base_name + extension
+
+
 def clean_filename_pre(filename):
     """
     Pre-process the filename to:
@@ -162,8 +223,8 @@ def clean_filename_pre(filename):
     # 1) Remove bracketed text [ ... ]
     filename = re.sub(r'\[.*?\]', '', filename)
 
-    # 2) Process parentheses using the helper
-    filename = re.sub(r'\([^)]*\)', parentheses_replacer, filename)
+    # 2) Process parentheses using the enhanced helper
+    filename = clean_parentheses_content(filename)
 
     # 3a) Replace 4-digit–dash–2-digit (e.g. "2018-04") with the 4-digit year.
     filename = re.sub(r'\b(\d{4})-\d{2}\b', r'\1', filename)
@@ -241,6 +302,22 @@ def get_renamed_filename(filename):
             # Regular numeric issue number
             final_issue = f"{int(issue_num):03d}"
             
+        new_filename = f"{clean_title} {final_issue} ({year}){extension}"
+        return new_filename
+
+    # ==========================================================
+    # 0.6) Special case: ISSUE number AFTER YEAR pattern (BEFORE pre-cleaning)
+    #    e.g. "Spider-Man 2099 (1992) #44 (digital) (Colecionadores.GO).cbz"
+    #    e.g. "2000AD (2018) #1795.cbz"
+    # ==========================================================
+    issue_after_year_match = ISSUE_AFTER_YEAR_PATTERN.match(filename)
+    if issue_after_year_match:
+        app_logger.info(f"Matched ISSUE_AFTER_YEAR_PATTERN for: {filename}")
+        raw_title, year, issue, extra, extension = issue_after_year_match.groups()
+        clean_title = raw_title.replace('_', ' ').strip()
+        # Remove the # from the issue number and zero-pad
+        issue_num = issue[1:]  # Remove the # prefix
+        final_issue = f"{int(issue_num):03d}"
         new_filename = f"{clean_title} {final_issue} ({year}){extension}"
         return new_filename
 
@@ -401,17 +478,7 @@ def get_renamed_filename(filename):
 
         return new_filename
 
-    # ==========================================================
-    # 6) ISSUE number AFTER YEAR pattern
-    #    e.g. "Spider-Man 2099 (1992) #44 (digital) (Colecionadores.GO).cbz"
-    # ==========================================================
-    issue_after_year_match = ISSUE_AFTER_YEAR_PATTERN.match(cleaned_filename)
-    if issue_after_year_match:
-        app_logger.info(f"Matched ISSUE_AFTER_YEAR_PATTERN for: {cleaned_filename}")
-        raw_title, year, issue, extra, extension = issue_after_year_match.groups()
-        clean_title = raw_title.replace('_', ' ').strip()
-        new_filename = f"{clean_title} {issue} ({year}){extension}"
-        return new_filename
+
 
     # ==========================================================
     # 7) Title with just YEAR (no volume or issue)
@@ -537,9 +604,56 @@ def rename_file(file_path):
         return None
     
 
+def test_parentheses_cleaning():
+    """
+    Test function to verify the new parentheses cleaning logic works correctly
+    """
+    test_cases = [
+        # Test case 1: Remove parentheses without 4-digit year
+        ("2000AD 1700 (01-09-10).cbz", "2000AD 1700.cbz"),
+        
+        # Test case 2: Keep 4-digit year, remove everything after
+        ("Comic Name v3 051 (2018) (DCP-Scan Final).cbz", "Comic Name v3 051 (2018).cbz"),
+        
+        # Test case 3: Keep 4-digit year, remove everything after
+        ("Title (2019) (digital) (scan).cbz", "Title (2019).cbz"),
+        
+        # Test case 4: No 4-digit year, remove all parentheses
+        ("Comic (digital) (scan) (final).cbz", "Comic.cbz"),
+        
+        # Test case 5: Multiple 4-digit years, keep first one, remove rest
+        ("Comic (2018) (2019) (digital).cbz", "Comic (2018).cbz"),
+        
+        # Test case 6: 4-digit year in middle, remove before and after
+        ("Comic (scan) (2018) (digital).cbz", "Comic (2018).cbz"),
+        
+        # Test case 7: No parentheses
+        ("Comic Name 001.cbz", "Comic Name 001.cbz"),
+        
+        # Test case 8: Only 4-digit year parentheses
+        ("Comic Name (2020).cbz", "Comic Name (2020).cbz"),
+    ]
+    
+    print("Testing parentheses cleaning logic:")
+    print("=" * 50)
+    
+    for i, (input_name, expected_output) in enumerate(test_cases, 1):
+        result = clean_parentheses_content(input_name)
+        status = "✓ PASS" if result == expected_output else "✗ FAIL"
+        print(f"Test {i}: {status}")
+        print(f"  Input:    {input_name}")
+        print(f"  Expected: {expected_output}")
+        print(f"  Got:      {result}")
+        if result != expected_output:
+            print(f"  ERROR: Expected '{expected_output}' but got '{result}'")
+        print()
+
+
 if __name__ == "__main__":
     if len(sys.argv) < 2:
         app_logger.info("No directory provided!")
+        # Run tests if no directory provided
+        test_parentheses_cleaning()
     else:
         directory = sys.argv[1]
         rename_files(directory)
