@@ -12,26 +12,40 @@ Docker Hub images are available for quick installation and deploy.
 {% hint style="info" %}
 {% code lineNumbers="true" %}
 ```yaml
-version: '3.9' 
-services: 
-    comic-utils: 
+version: '3.9'
+services:
+    comic-utils:
         image: allaboutduncan/comic-utils-web:latest
-        container_name: comic-utils
 
+        container_name: comic-utils
+        logging:
+            options:
+            max-size: '20m'  # Reduce log size to 20MB
+            max-file: '3'     # Keep only 3 rotated files
         restart: always
         ports:
             - '5577:5577'
         volumes:
+            - '/var/run/docker.sock:/tmp/docker.sock:ro' # do not change this line
             - '/path/to/local/config:/config' # Maps local folder to container
             ## update the line below to map to your library.
             ## Your library MUST be mapped to '/data' for the app to work
             - 'D:/Comics:/data'
-            ## Additional folder if you want to use Folder Monitoring.
+            ## Additional folder is you want to use Folder Monitoring.
             - 'F:/downloads:/temp'
         environment:
             - FLASK_ENV=development
             ## Set to 'yes' if you want to use folder monitoring.
-            - MONITOR=yes/no 
+            - MONITOR=yes/no
+            ## Set the User ID (PUID) and Group ID (PGID) for the container.
+            ## This is often needed to resolve permission issues, especially on systems like Unraid
+            ## where a specific user/group owns the files.
+            ## For Unraid, PUID is typically 99 (user 'nobody') and PGID is typically 100 (group 'users').
+            ## For Windows/WSL, you need to set these to match your Windows user ID (see WINDOWS_WSL_SETUP.md)
+            # - PUID=99
+            # - PGID=100
+            ## Set the file creation mask (UMASK). 022 is a common value.
+            # - UMASK=022
 ```
 {% endcode %}
 {% endhint %}
@@ -48,6 +62,9 @@ docker run \
   -v /Users/phillipduncan/Documents/GitHub/comic-utils/files:/downloads \
   -e FLASK_ENV=development \
   -e MONITOR=no \
+  -e PUID=99 \
+  -e PGID=100 \
+  -e UMASK=022 \
   allaboutduncan/comic-utils-web:latest
 ```
 
