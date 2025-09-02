@@ -184,12 +184,12 @@
   </div>
   <!-- End of CBZ Info Modal -->
 
-<!-- Custom Rename Modal -->
-<div class="modal fade" id="customRenameModal" tabindex="-1" aria-labelledby="customRenameModalLabel" aria-hidden="true">
+<!-- Custom Remove Text from Filenames Modal -->
+<div class="modal fade" id="customRemoveModal" tabindex="-1" aria-labelledby="customRemoveModalLabel" aria-hidden="true">
   <div class="modal-dialog">
     <div class="modal-content">
       <div class="modal-header">
-        <h5 class="modal-title" id="customRenameModalLabel">Custom Rename Files</h5>
+        <h5 class="modal-title" id="customRemoveModalLabel">Custom Remove Text from Filenames</h5>
         <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
       </div>
       <div class="modal-body">
@@ -222,6 +222,45 @@
   </div>
 </div>
 <!-- End of Custom Rename Modal -->
+
+<!-- Rename Files Modal -->
+<div class="modal fade" id="renameFilesModal" tabindex="-1" aria-labelledby="renameFilesModalLabel" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="renameFilesModalLabel">Rename Files with New Pattern</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <div class="mb-3">
+          <label for="newSeriesName" class="form-label">New Series Name:</label>
+          <input type="text" class="form-control" id="newSeriesName" placeholder="e.g., 'Saga of the Swamp Thing'" autocomplete="off">
+          <div class="form-text">
+            This will replace the series name while preserving issue numbers and years. File extensions will remain unchanged.
+          </div>
+        </div>
+        <div class="mb-3">
+          <div class="alert alert-info">
+            <strong>Example:</strong><br>
+            Original: <code>Swamp Thing 001 (1982).cbz</code><br>
+            New Series Name: <code>Saga of the Swamp Thing</code><br>
+            Result: <code>Saga of the Swamp Thing 001 (1982).cbz</code>
+          </div>
+        </div>
+        <div id="renameFilesPreview" class="mb-3" style="display: none;">
+          <h6>Preview of Changes:</h6>
+          <div id="renameFilesPreviewList" class="small text-muted" style="max-height: 200px; overflow-y: auto;"></div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="button" class="btn btn-primary" id="previewRenameFilesBtn" onclick="previewRenameFiles()">Preview</button>
+        <button type="button" class="btn btn-success" id="executeRenameFilesBtn" onclick="executeRenameFiles()" style="display: none;">Execute Rename</button>
+      </div>
+    </div>
+  </div>
+</div>
+<!-- End of Rename Files Modal -->
 
 <!-- Search Files Modal -->
 <div class="modal fade" id="searchModal" tabindex="-1" aria-labelledby="searchModalLabel" aria-hidden="true">
@@ -2176,9 +2215,21 @@
           renameRow.appendChild(renameButton);
         }
         
+        // Create or update the rename files button
+        let renameFilesButton = renameRow.querySelector('.rename-files-pattern-btn');
+        if (!renameFilesButton) {
+          renameFilesButton = document.createElement('button');
+          renameFilesButton.className = 'btn btn-outline-success btn-sm rename-files-pattern-btn ms-2';
+          renameFilesButton.innerHTML = '<i class="bi bi-pencil-square me-2"></i>Rename Files';
+          renameFilesButton.title = 'Rename files with new pattern while preserving issue numbers and years';
+          renameRow.appendChild(renameFilesButton);
+        }
+        
         // Store the current path as a data attribute
         renameButton.dataset.currentPath = currentPath;
         renameButton.dataset.currentPanel = panel;
+        renameFilesButton.dataset.currentPath = currentPath;
+        renameFilesButton.dataset.currentPanel = panel;
         
         // Update button click handler with current context
         renameButton.onclick = function(e) {
@@ -2186,7 +2237,16 @@
           const pathFromData = e.target.dataset.currentPath;
           const panelFromData = e.target.dataset.currentPanel;
           console.log('Button clicked, path from data:', pathFromData, 'panel:', panelFromData);
-          openCustomRenameModal(pathFromData, panelFromData);
+          openCustomRemoveModal(pathFromData, panelFromData);
+        };
+        
+        // Update rename files button click handler
+        renameFilesButton.onclick = function(e) {
+          e.preventDefault();
+          const pathFromData = e.target.dataset.currentPath;
+          const panelFromData = e.target.dataset.currentPanel;
+          console.log('Rename files button clicked, path from data:', pathFromData, 'panel:', panelFromData);
+          openRenameFilesModal(pathFromData, panelFromData);
         };
         
         renameRow.style.display = 'block';
@@ -2203,19 +2263,25 @@
     }
 
     // Custom Rename Modal functionality
-    let customRenameModal;
+    let customRemoveModal;
     let currentRenameDirectory = '';
     let currentRenamePanel = '';
     let fileList = [];
 
-    function openCustomRenameModal(directoryPath, panel) {
-      console.log('openCustomRenameModal called with:', directoryPath, panel);
+    // Rename Files Modal functionality
+    let renameFilesModal;
+    let currentRenameFilesDirectory = '';
+    let currentRenameFilesPanel = '';
+    let renameFilesList = [];
+
+    function openCustomRemoveModal(directoryPath, panel) {
+      console.log('openCustomRemoveModal called with:', directoryPath, panel);
       currentRenameDirectory = directoryPath;
       currentRenamePanel = panel;
       
       // Validate that we have a valid directory path
       if (!directoryPath || directoryPath === '') {
-        console.error('Invalid directory path provided to openCustomRenameModal:', directoryPath);
+        console.error('Invalid directory path provided to openCustomRemoveModal:', directoryPath);
         alert('Error: No directory path provided for rename operation.');
         return;
       }
@@ -2227,13 +2293,42 @@
       document.getElementById('executeRenameBtn').style.display = 'none';
       
       // Show modal
-      const modalEl = document.getElementById('customRenameModal');
-      customRenameModal = new bootstrap.Modal(modalEl);
-      customRenameModal.show();
+      const modalEl = document.getElementById('customRemoveModal');
+      customRemoveModal = new bootstrap.Modal(modalEl);
+      customRemoveModal.show();
       
       // Focus on input when modal opens
       modalEl.addEventListener('shown.bs.modal', function () {
         document.getElementById('textToRemove').focus();
+      }, { once: true });
+    }
+
+    function openRenameFilesModal(directoryPath, panel) {
+      console.log('openRenameFilesModal called with:', directoryPath, panel);
+      currentRenameFilesDirectory = directoryPath;
+      currentRenameFilesPanel = panel;
+      
+      // Validate that we have a valid directory path
+      if (!directoryPath || directoryPath === '') {
+        console.error('Invalid directory path provided to openRenameFilesModal:', directoryPath);
+        alert('Error: No directory path provided for rename operation.');
+        return;
+      }
+      
+      // Reset modal state
+      document.getElementById('newSeriesName').value = '';
+      document.getElementById('renameFilesPreview').style.display = 'none';
+      document.getElementById('previewRenameFilesBtn').style.display = 'inline-block';
+      document.getElementById('executeRenameFilesBtn').style.display = 'none';
+      
+      // Show modal
+      const modalEl = document.getElementById('renameFilesModal');
+      renameFilesModal = new bootstrap.Modal(modalEl);
+      renameFilesModal.show();
+      
+      // Focus on input when modal opens
+      modalEl.addEventListener('shown.bs.modal', function () {
+        document.getElementById('newSeriesName').focus();
       }, { once: true });
     }
 
@@ -2315,6 +2410,130 @@
         });
     }
 
+    // Helper function to check if a file can be renamed (has issue number and year)
+    function canRenameFile(filename) {
+      const parsed = parseFilename(filename);
+      return parsed && parsed.issueNumber && parsed.year;
+    }
+
+    // Helper function to parse filename and extract issue number and year
+    function parseFilename(filename) {
+      // Pattern: [Series Name] [Issue Number] ([Year]).ext
+      // Issue numbers are typically 3-digit padded (001, 002, etc.)
+      // Years are 4-digit in parentheses
+      
+      const match = filename.match(/^(.+?)\s+(\d{3,4})\s*\((\d{4})\)(\.\w+)$/);
+      if (match) {
+        return {
+          seriesName: match[1].trim(),
+          issueNumber: match[2],
+          year: match[3],
+          extension: match[4]
+        };
+      }
+      
+      // Try alternative pattern without parentheses around year
+      const match2 = filename.match(/^(.+?)\s+(\d{3,4})\s+(\d{4})(\.\w+)$/);
+      if (match2) {
+        return {
+          seriesName: match2[1].trim(),
+          issueNumber: match2[2],
+          year: match2[3],
+          extension: match2[4]
+        };
+      }
+      
+      return null;
+    }
+
+    // Helper function to generate new filename
+    function generateNewFilename(newSeriesName, parsedInfo) {
+      if (!parsedInfo || !parsedInfo.issueNumber || !parsedInfo.year) {
+        return null;
+      }
+      
+      return `${newSeriesName} ${parsedInfo.issueNumber} (${parsedInfo.year})${parsedInfo.extension}`;
+    }
+
+    function previewRenameFiles() {
+      const newSeriesName = document.getElementById('newSeriesName').value.trim();
+      
+      console.log('previewRenameFiles called');
+      console.log('currentRenameFilesDirectory:', currentRenameFilesDirectory);
+      console.log('currentRenameFilesPanel:', currentRenameFilesPanel);
+      console.log('newSeriesName:', newSeriesName);
+      
+      if (!newSeriesName) {
+        alert('Please enter a new series name.');
+        return;
+      }
+
+      if (!currentRenameFilesDirectory || currentRenameFilesDirectory === '') {
+        alert('Error: No directory selected for rename operation.');
+        console.error('currentRenameFilesDirectory is empty');
+        return;
+      }
+
+      // Fetch files in the directory
+      const url = `/list-directories?path=${encodeURIComponent(currentRenameFilesDirectory)}`;
+      console.log('Fetching URL:', url);
+      fetch(url)
+        .then(response => response.json())
+        .then(data => {
+          if (data.error) {
+            throw new Error(data.error);
+          }
+          
+          renameFilesList = [];
+          const previewList = document.getElementById('renameFilesPreviewList');
+          previewList.innerHTML = '';
+          
+          // Filter only files (not directories) that can be renamed
+          const filesToRename = data.files.filter(file => {
+            const fileData = normalizeFile(file);
+            return canRenameFile(fileData.name);
+          });
+          
+          if (filesToRename.length === 0) {
+            previewList.innerHTML = '<div class="text-warning">No files found that can be renamed (files must have issue numbers and years).</div>';
+          } else {
+            filesToRename.forEach(file => {
+              const fileData = normalizeFile(file);
+              const parsedInfo = parseFilename(fileData.name);
+              
+              if (parsedInfo) {
+                const newName = generateNewFilename(newSeriesName, parsedInfo);
+                
+                renameFilesList.push({
+                  oldPath: `${currentRenameFilesDirectory}/${fileData.name}`,
+                  newName: newName,
+                  oldName: fileData.name,
+                  parsedInfo: parsedInfo
+                });
+                
+                const previewItem = document.createElement('div');
+                previewItem.className = 'mb-2 p-2 border rounded';
+                previewItem.innerHTML = `
+                  <div><strong>Old:</strong> <code>${fileData.name}</code></div>
+                  <div><strong>New:</strong> <code>${newName}</code></div>
+                `;
+                previewList.appendChild(previewItem);
+              }
+            });
+          }
+          
+          // Show preview and execute button
+          document.getElementById('renameFilesPreview').style.display = 'block';
+          if (renameFilesList.length > 0) {
+            document.getElementById('executeRenameFilesBtn').style.display = 'inline-block';
+          }
+        })
+        .catch(error => {
+          console.error('Error fetching directory contents:', error);
+          alert('Error fetching directory contents: ' + error.message);
+        });
+    }
+
     function executeCustomRename() {
       if (fileList.length === 0) {
         alert('No files to rename.');
@@ -2366,7 +2585,7 @@
             
             // Auto-close modal after 2 seconds
             setTimeout(() => {
-              customRenameModal.hide();
+              customRemoveModal.hide();
             }, 2000);
           }
 
@@ -2385,6 +2604,76 @@
         });
     }
 
+    function executeRenameFiles() {
+      if (renameFilesList.length === 0) {
+        alert('No files to rename.');
+        return;
+      }
+
+      // Disable buttons during execution
+      document.getElementById('previewRenameFilesBtn').disabled = true;
+      document.getElementById('executeRenameFilesBtn').disabled = true;
+      document.getElementById('executeRenameFilesBtn').textContent = 'Renaming...';
+
+      // Execute renames
+      const renamePromises = renameFilesList.map(file => {
+        const newPath = `${currentRenameFilesDirectory}/${file.newName}`;
+        return fetch('/custom-rename', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            old: file.oldPath,
+            new: newPath
+          })
+        });
+      });
+
+      Promise.all(renamePromises)
+        .then(responses => {
+          const errors = [];
+          responses.forEach((response, index) => {
+            if (!response.ok) {
+              errors.push(`Failed to rename ${renameFilesList[index].oldName}`);
+            }
+          });
+
+          if (errors.length > 0) {
+            alert('Some files could not be renamed:\n' + errors.join('\n'));
+          } else {
+            // Show success message in modal before closing
+            const renamePreviewList = document.getElementById('renameFilesPreviewList');
+            renamePreviewList.innerHTML = `
+              <div class="alert alert-success text-center">
+                <i class="bi bi-check-circle-fill me-2"></i>
+                <strong>Success!</strong> Renamed ${renameFilesList.length} files.
+              </div>
+            `;
+            document.getElementById('previewRenameFilesBtn').style.display = 'none';
+            document.getElementById('executeRenameFilesBtn').style.display = 'none';
+            
+            // Auto-close modal after 2 seconds
+            setTimeout(() => {
+              renameFilesModal.hide();
+            }, 2000);
+          }
+
+          // Refresh directory listing
+          loadDirectories(currentRenameFilesDirectory, currentRenameFilesPanel);
+        })
+        .catch(error => {
+          console.error('Error during rename operation:', error);
+          alert('Error during rename operation: ' + error.message);
+        })
+        .finally(() => {
+          // Re-enable buttons
+          document.getElementById('previewRenameFilesBtn').disabled = false;
+          document.getElementById('executeRenameFilesBtn').disabled = false;
+          document.getElementById('executeRenameFilesBtn').textContent = 'Execute Rename';
+        });
+    }
+
     // Helper function to escape special regex characters
     function escapeRegExp(string) {
       return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -2394,6 +2683,13 @@
     document.getElementById('textToRemove').addEventListener('keypress', function(e) {
       if (e.key === 'Enter') {
         previewCustomRename();
+      }
+    });
+
+    // Add Enter key support for the new series name input
+    document.getElementById('newSeriesName').addEventListener('keypress', function(e) {
+      if (e.key === 'Enter') {
+        previewRenameFiles();
       }
     });
 
