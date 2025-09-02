@@ -349,6 +349,52 @@
             </div>
         </div>
 
+        <!-- Custom Rename Pattern Configuration -->
+        <div class="container p-4 border rounded shadow-sm mb-4">
+            <h4>Custom Rename Pattern Settings</h4>
+            <p class="text-muted">Configure custom patterns for renaming comic files. You can use variables to create your own naming convention, or leave empty to use the default rename logic.</p>
+
+            <div class="row">
+                <div class="col-md-12">
+                    <div class="form-check form-switch mb-3">
+                        <input class="form-check-input" type="checkbox" role="switch" id="enableCustomRename" name="enableCustomRename" {% if enableCustomRename %}checked{% endif %}>
+                        <label class="form-check-label" for="enableCustomRename">{% if enableCustomRename %}Disable{% else %}Enable{% endif %} Custom Rename Patterns</label>
+                        <small class="form-text text-muted">
+                            <br />If enabled, files will be renamed using your custom pattern instead of the default rename logic.
+                        </small>
+                    </div>
+                </div>
+            </div>
+
+            <div class="row">
+                <div class="col-md-8">
+                    <label for="customRenamePattern" class="form-label">Custom Rename Pattern:</label>
+                    <input type="text" name="customRenamePattern" id="customRenamePattern" value="{{ customRenamePattern }}" class="form-control" placeholder="e.g., {series_name} {issue_number} ({year})">
+                    <small class="form-text text-muted">
+                        Use variables to create your naming pattern. Available variables: <code>{series_name}</code>, <code>{volume_number}</code>, <code>{year}</code>, <code>{issue_number}</code>
+                    </small>
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label">Example Preview:</label>
+                    <div class="border rounded p-2 bg-light">
+                        <small id="renamePreview">Enter a pattern to see preview...</small>
+                    </div>
+                </div>
+            </div>
+
+            <div class="row mt-2">
+                <div class="col-md-12">
+                    <small class="text-muted">
+                        <strong>Examples:</strong><br>
+                        • <code>{series_name} {issue_number} ({year})</code> → <code>Spider-Man 2099 044 (1992).cbz</code><br>
+                        • <code>{series_name} [{year}] {issue_number}</code> → <code>Spider-Man 2099 [1992] 044.cbz</code><br>
+                        • <code>issue{issue_number}</code> → <code>issue001.cbz</code><br>
+                        • <code>{volume_number}_{issue_number}</code> → <code>v2_044.cbz</code>
+                    </small>
+                </div>
+            </div>
+        </div>
+
         <!-- ComicInfo XML editing Configuration -->
         <div class="container p-4 border rounded shadow-sm mb-4">
             <h4>ComicInfo.XML Update Settings</h4>
@@ -430,6 +476,9 @@
                 }
             });
         });
+
+        // Initialize custom rename pattern preview
+        initializeRenamePreview();
 
         // Initialize cache status display with a slight delay to avoid blocking page load
         setTimeout(updateCacheStatus, 1000);
@@ -767,6 +816,65 @@
         toastElement.firstElementChild.addEventListener('hidden.bs.toast', function() {
             toastElement.remove();
         });
+    }
+
+    // Custom Rename Pattern Preview Functions
+    function initializeRenamePreview() {
+        const patternInput = document.getElementById('customRenamePattern');
+        const previewElement = document.getElementById('renamePreview');
+        
+        if (patternInput && previewElement) {
+            // Add event listeners for live preview
+            patternInput.addEventListener('input', updateRenamePreview);
+            patternInput.addEventListener('change', updateRenamePreview);
+            
+            // Initial preview
+            updateRenamePreview();
+        }
+    }
+    
+    function updateRenamePreview() {
+        const patternInput = document.getElementById('customRenamePattern');
+        const previewElement = document.getElementById('renamePreview');
+        
+        if (!patternInput || !previewElement) return;
+        
+        const pattern = patternInput.value.trim();
+        if (!pattern) {
+            previewElement.textContent = 'Enter a pattern to see preview...';
+            return;
+        }
+        
+        // Sample values for preview
+        const sampleValues = {
+            series_name: 'Spider-Man 2099',
+            volume_number: 'v2',
+            year: '1992',
+            issue_number: '044'
+        };
+        
+        try {
+            const preview = applyCustomPattern(sampleValues, pattern);
+            previewElement.textContent = preview + '.cbz';
+        } catch (error) {
+            previewElement.textContent = 'Invalid pattern';
+        }
+    }
+    
+    function applyCustomPattern(values, pattern) {
+        // Simple pattern replacement for preview
+        let result = pattern;
+        
+        // Replace variables with sample values
+        result = result.replace(/\{series_name\}/g, values.series_name || '');
+        result = result.replace(/\{volume_number\}/g, values.volume_number || '');
+        result = result.replace(/\{year\}/g, values.year || '');
+        result = result.replace(/\{issue_number\}/g, values.issue_number || '');
+        
+        // Clean up extra spaces
+        result = result.replace(/\s+/g, ' ').trim();
+        
+        return result;
     }
 </script>
 {% endblock %}

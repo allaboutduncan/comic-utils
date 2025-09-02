@@ -1,0 +1,35 @@
+2025-08-31 08:47:37,675 - INFO - No directory provided!
+2025-08-31 08:47:45,885 - INFO - Attempting to rename filename: 2000AD 1795 (08-08-12).cbz
+2025-08-31 08:47:45,885 - INFO - Custom rename pattern disabled or not configured, using default logic
+2025-08-31 08:47:45,885 - INFO - Matched ISSUE_PATTERN for: 2000AD 1795.cbz
+2025-08-31 08:48:35,925 - INFO - No directory provided!
+2025-08-31 09:28:55,540 - INFO - Attempting to rename filename: 199309 Hokum & Hex v1 001.cbz
+2025-08-31 09:28:55,540 - INFO - Custom rename pattern disabled or not configured, using default logic
+2025-08-31 09:28:55,540 - INFO - Matched YEAR_MONTH_SERIES_VOLUME_ISSUE_PATTERN for: 199309 Hokum & Hex v1 001.cbz
+2025-08-31 09:31:14,479 - INFO - Attempting to rename filename: Legion of Super-Heroes, 1985-07-00 (#14) (digital) (Glorith-Novus-HD).cbz
+2025-08-31 09:31:14,480 - INFO - Custom rename pattern disabled or not configured, using default logic
+2025-08-31 09:31:14,480 - INFO - Matched TITLE_COMMA_YEAR_HASH_ISSUE_PATTERN for: Legion of Super-Heroes, 1985-07-00 (#14) (digital) (Glorith-Novus-HD).cbz
+2025-08-31 09:31:23,511 - INFO - Attempting to rename filename: 199309 Hokum & Hex v1 001.cbz
+2025-08-31 09:31:23,512 - INFO - Custom rename pattern disabled or not configured, using default logic
+2025-08-31 09:31:23,512 - INFO - Matched YEAR_MONTH_SERIES_VOLUME_ISSUE_PATTERN for: 199309 Hokum & Hex v1 001.cbz
+2025-08-31 09:31:23,512 - INFO - Attempting to rename filename: Legion of Super-Heroes, 1985-07-00 (#14) (digital) (Glorith-Novus-HD).cbz
+2025-08-31 09:31:23,512 - INFO - Custom rename pattern disabled or not configured, using default logic
+2025-08-31 09:31:23,512 - INFO - Matched TITLE_COMMA_YEAR_HASH_ISSUE_PATTERN for: Legion of Super-Heroes, 1985-07-00 (#14) (digital) (Glorith-Novus-HD).cbz
+2025-08-31 09:41:43,484 - INFO - Attempting to rename filename: 199403 Hokum & Hex v1 007.cbr
+2025-08-31 09:41:43,484 - INFO - Custom rename pattern disabled or not configured, using default logic
+2025-08-31 09:41:43,485 - INFO - Matched YEAR_MONTH_SERIES_VOLUME_ISSUE_PATTERN for: 199403 Hokum & Hex v1 007.cbr
+2025-08-31 15:14:14,799 - INFO - Attempting to rename filename: Legion of Super-Heroes, 1985-06-00 (#13) (digital) (Glorith-Novus-HD).cbz
+2025-08-31 15:14:14,799 - INFO - Custom rename pattern disabled or not configured, using default logic
+2025-08-31 15:14:14,799 - INFO - Matched TITLE_COMMA_YEAR_HASH_ISSUE_PATTERN for: Legion of Super-Heroes, 1985-06-00 (#13) (digital) (Glorith-Novus-HD).cbz
+2025-08-31 16:00:10,469 - WARNING - Missing series_name in extracted values: {'series_name': '', 'volume_number': '', 'year': '1990', 'issue_number': ''}
+2025-08-31 16:00:10,469 - WARNING - Missing series_name in extracted values: {'series_name': '', 'volume_number': '', 'year': '', 'issue_number': ''}
+2025-08-31 16:00:32,561 - INFO - Attempting to rename filename: Mister Miracle 1989-08 ( 08) (1989) (Digital) (Shadowcat-Empire).cbz
+2025-08-31 16:00:32,561 - INFO - Custom rename pattern disabled or not configured, using default logic
+2025-08-31 16:00:32,562 - INFO - Matched SERIES_YEAR_MONTH_ISSUE_PATTERN for: Mister Miracle 1989-08 ( 08) (1989) (Digital) (Shadowcat-Empire).cbz
+2025-08-31 16:00:32,562 - INFO - Attempting to rename filename: Mister Miracle 1989-10 ( 10) (1989) (Digital) (Shadowcat-Empire).cbz
+2025-08-31 16:00:32,562 - INFO - Custom rename pattern disabled or not configured, using default logic
+2025-08-31 16:00:32,562 - INFO - Matched SERIES_YEAR_MONTH_ISSUE_PATTERN for: Mister Miracle 1989-10 ( 10) (1989) (Digital) (Shadowcat-Empire).cbz
+2025-08-31 16:00:35,827 - INFO - No directory provided!
+2025-09-01 10:00:27,859 - INFO - Attempting to rename filename: Mister Miracle 1990-09-18 ( 21) (digital) (Glorith-Novus-HD).cbz
+2025-09-01 10:00:27,860 - INFO - Custom rename pattern disabled or not configured, using default logic
+2025-09-01 10:00:27,860 - INFO - Matched SERIES_YEAR_MONTH_DAY_ISSUE_PATTERN for: Mister Miracle 1990-09-18 ( 21) (digital) (Glorith-Novus-HD).cbz

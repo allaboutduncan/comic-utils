@@ -1,6 +1,7 @@
 import sys
 import os
 import re
+import configparser
 from app_logging import app_logger
 from helpers import is_hidden
 
@@ -68,7 +69,8 @@ ISSUE_PATTERN = re.compile(
 
 # -------------------------------------------------------------------
 # New pattern for cases where the issue number comes after the year.
-# e.g. "Spider-Man 2099 (1992) #44 (digital) (Colecionadores.GO).cbz"
+# e.g. "
+#  (digital) (Colecionadores.GO).cbz"
 # e.g. "2000AD (2018) #1795 (digital).cbz" (4-digit issue numbers for 2000AD)
 #   Group(1) => Title (e.g. "Spider-Man 2099")
 #   Group(2) => Year (e.g. "1992")
@@ -128,9 +130,370 @@ ISSUE_YEAR_PARENTHESES_PATTERN = re.compile(
 #   Group(5) => ".cbz"
 # -------------------------------------------------------------------
 TITLE_COMMA_YEAR_ISSUE_PATTERN = re.compile(
-    r'^(.*?),\s*(\d{4})-\d{2}-\d{2}\s*\(\s*([_\d]\d{1,3})\s*\)(.*)(\.\w+)$',
+    r'^(.*?),\s*(\d{4})-\d{2}-\d{2}\s*\(\s*(_?\d{1,3})\s*\)(.*)(\.\w+)$',
     re.IGNORECASE
 )
+
+# -------------------------------------------------------------------
+# Pattern for Title, YYYY-MM-DD (#NN) format, e.g.:
+#   "Legion of Super-Heroes, 1985-07-00 (#14) (digital) (Glorith-Novus-HD).cbz"
+#   Group(1) => "Legion of Super-Heroes"
+#   Group(2) => "1985"
+#   Group(3) => "#14"
+#   Group(4) => " (digital) (Glorith-Novus-HD)"
+#   Group(5) => ".cbz"
+# -------------------------------------------------------------------
+TITLE_COMMA_YEAR_HASH_ISSUE_PATTERN = re.compile(
+    r'^(.*?),\s*(\d{4})-\d{2}-\d{2}\s*\(\s*(#\d{1,4})\s*\)(.*)(\.\w+)$',
+    re.IGNORECASE
+)
+
+# -------------------------------------------------------------------
+# Pattern for YYYYMM Series Name v# ### format, e.g.:
+#   "199309 Hokum & Hex v1 001.cbz"
+#   Group(1) => "199309" (year + month)
+#   Group(2) => "Hokum & Hex" (series name)
+#   Group(3) => "v1" (volume)
+#   Group(4) => "001" (issue number)
+#   Group(5) => ".cbz" (extension)
+# -------------------------------------------------------------------
+YEAR_MONTH_SERIES_VOLUME_ISSUE_PATTERN = re.compile(
+    r'^(\d{6})\s+(.*?)\s+(v\d{1,3})\s+(\d{1,4})(\.\w+)$',
+    re.IGNORECASE
+)
+
+# -------------------------------------------------------------------
+# Pattern for Series Name YYYY-MM ( NN) (YYYY) format, e.g.:
+#   "Mister Miracle 1989-08 ( 08) (1989) (Digital) (Shadowcat-Empire).cbz"
+#   Group(1) => "Mister Miracle" (series name)
+#   Group(2) => "1989" (year from YYYY-MM)
+#   Group(3) => "08" (issue number)
+#   Group(4) => " (Digital) (Shadowcat-Empire)" (extra info)
+#   Group(5) => ".cbz" (extension)
+# -------------------------------------------------------------------
+SERIES_YEAR_MONTH_ISSUE_PATTERN = re.compile(
+    r'^(.*?)\s+(\d{4})-\d{2}\s*\(\s*(\d{1,3})\s*\)\s*\(\d{4}\)(.*)(\.\w+)$',
+    re.IGNORECASE
+)
+
+# -------------------------------------------------------------------
+# Pattern for Series Name YYYY-MM-DD ( NN) (digital) format, e.g.:
+#   "Mister Miracle 1990-09-18 ( 21) (digital) (Glorith-Novus-HD).cbz"
+#   Group(1) => "Mister Miracle" (series name)
+#   Group(2) => "1990" (year from YYYY-MM-DD)
+#   Group(3) => "21" (issue number)
+#   Group(4) => " (digital) (Glorith-Novus-HD)" (extra info)
+#   Group(5) => ".cbz" (extension)
+# -------------------------------------------------------------------
+SERIES_YEAR_MONTH_DAY_ISSUE_PATTERN = re.compile(
+    r'^(.*?)\s+(\d{4})-\d{2}-\d{2}\s*\(\s*(\d{1,3})\s*\)(.*)(\.\w+)$',
+    re.IGNORECASE
+)
+
+# ====== BEGIN: Rule Engine Helpers ======
+def _apply_filters(val: str, filters: list[str]) -> str:
+    for f in filters:
+        if f == "digits":
+            val = re.sub(r'\D+', '', val or '')
+        elif f == "pad3":
+            val = f"{int(val):03d}" if val else val
+        elif f == "pad4":
+            val = f"{int(val):04d}" if val else val
+        elif f == "upper":
+            val = (val or '').upper()
+        elif f == "lower":
+            val = (val or '').lower()
+        elif f == "title":
+            val = (val or '').title()
+    return val
+
+def _format_from_groups(fmt: str, groups: dict[str, str]) -> str:
+    def repl(m):
+        spec = m.group(1)  # e.g. issue|digits|pad3
+        parts = spec.split("|")
+        key, filters = parts[0], parts[1:]
+        val = groups.get(key, "")
+        return _apply_filters(val, filters)
+    return re.sub(r"\{([^{}]+)\}", repl, fmt).strip()
+
+def try_rule_engine(filename: str, cfg_path="/config/rename_rules.ini"):
+    # Split ext safely in case rules don't capture it
+    m = re.match(r"^(.*)(\.\w+)$", filename)
+    if not m:
+        base, ext = filename, ""
+    else:
+        base, ext = m.group(1), m.group(2)
+
+    if not os.path.exists(cfg_path):
+        return None
+
+    cp = configparser.ConfigParser()
+    try:
+        cp.read(cfg_path)
+    except Exception:
+        return None
+
+    if "RENAME" not in cp:
+        return None
+
+    rules = []
+    for key in cp["RENAME"]:
+        if key.endswith(".pattern"):
+            name = key[:-8]  # strip ".pattern"
+            pattern = cp["RENAME"][key]
+            output  = cp["RENAME"].get(f"{name}.output", "{series} {issue|pad3} ({year}){ext}")
+            prio    = int(cp["RENAME"].get(f"{name}.priority", "100"))
+            try:
+                rx = re.compile(pattern, re.IGNORECASE)
+            except re.error:
+                continue
+            rules.append((prio, name, rx, output))
+
+    rules.sort()  # smallest prio first
+
+    for _, _, rx, outfmt in rules:
+        m = rx.match(filename) or rx.match(base)
+        if not m:
+            continue
+        g = m.groupdict()
+
+        # ensure ext available
+        g.setdefault("ext", g.get("extension", ext))
+
+        # normalize common fields
+        if "series" in g:
+            g["series"] = g["series"].replace("_", " ").strip()
+        if "series_name" in g and "series" not in g:
+            g["series"] = g["series_name"].replace("_", " ").strip()
+
+        # allow deriving year from YYYYMM token if present
+        if "yearmonth" in g and not g.get("year"):
+            ym_digits = re.sub(r"\D+", "", g["yearmonth"] or "")
+            if len(ym_digits) >= 4:
+                g["year"] = ym_digits[:4]
+
+        new_name = _format_from_groups(outfmt, g)
+        if not new_name.endswith(g.get("ext", "")):
+            new_name += g.get("ext", "")
+        return new_name
+
+    return None
+# ====== END: Rule Engine Helpers ======
+
+
+# -------------------------------------------------------------------
+# Custom Rename Pattern Support
+# -------------------------------------------------------------------
+
+def norm_issue(s): 
+    s = re.sub(r'\D+', '', s or '')
+    return f"{int(s):03d}" if s else ''
+
+def load_custom_rename_config():
+    """
+    Load custom rename pattern configuration from config.ini
+    Returns tuple: (enabled, pattern)
+    """
+    try:
+        config = configparser.ConfigParser()
+        config_file = "/config/config.ini"
+        
+        if os.path.exists(config_file):
+            config.read(config_file)
+            if "SETTINGS" in config:
+                enabled = config.getboolean("SETTINGS", "ENABLE_CUSTOM_RENAME", fallback=False)
+                pattern = config.get("SETTINGS", "CUSTOM_RENAME_PATTERN", fallback="")
+                return enabled, pattern
+        
+        return False, ""
+    except Exception as e:
+        app_logger.warning(f"Failed to load custom rename config: {e}")
+        return False, ""
+
+
+def extract_comic_values(filename):
+    """
+    Extract comic values from filename using existing regex patterns.
+    Returns a dictionary with keys: series_name, volume_number, year, issue_number
+    Missing values will be empty strings.
+    """
+    values = {
+        'series_name': '',
+        'volume_number': '',
+        'year': '',
+        'issue_number': ''
+    }
+    
+    # First, try to match the new YYYYMM Series Name v# ### format
+    year_month_series_volume_issue_match = YEAR_MONTH_SERIES_VOLUME_ISSUE_PATTERN.match(filename)
+    if year_month_series_volume_issue_match:
+        year_month, series_name, volume, issue_num, extension = year_month_series_volume_issue_match.groups()
+        
+        # Extract year from the first 4 digits of year_month
+        values['year'] = year_month[:4]
+        values['series_name'] = series_name.replace('_', ' ').strip()
+        values['volume_number'] = volume.strip()
+        values['issue_number'] = issue_num
+        return values
+    
+    # Try to match the Series Name YYYY-MM ( NN) (YYYY) format
+    series_year_month_issue_match = SERIES_YEAR_MONTH_ISSUE_PATTERN.match(filename)
+    if series_year_month_issue_match:
+        series_name, year, issue_num, extra, extension = series_year_month_issue_match.groups()
+        
+        values['series_name'] = series_name.replace('_', ' ').strip()
+        values['year'] = year
+        values['issue_number'] = f"{int(issue_num):03d}"  # Zero-pad to 3 digits
+        return values
+    
+    # Try to match the Series Name YYYY-MM-DD ( NN) (digital) format
+    series_year_month_day_issue_match = SERIES_YEAR_MONTH_DAY_ISSUE_PATTERN.match(filename)
+    if series_year_month_day_issue_match:
+        series_name, year, issue_num, extra, extension = series_year_month_day_issue_match.groups()
+        
+        values['series_name'] = series_name.replace('_', ' ').strip()
+        values['year'] = year
+        values['issue_number'] = f"{int(issue_num):03d}"  # Zero-pad to 3 digits
+        return values
+    
+    # Try to match the Title, YYYY-MM-DD (#NN) format
+    title_comma_year_hash_issue_match = TITLE_COMMA_YEAR_HASH_ISSUE_PATTERN.match(filename)
+    if title_comma_year_hash_issue_match:
+        raw_title, year, hash_issue_num, extra, extension = title_comma_year_hash_issue_match.groups()
+        values['year'] = year
+        values['series_name'] = raw_title.replace('_', ' ').strip()
+        # Remove the # prefix and zero-pad to 3 digits
+        issue_num = hash_issue_num[1:]  # Remove the # prefix
+        values['issue_number'] = f"{int(issue_num):03d}"
+        return values
+    
+    # Try to match the Title, YYYY-MM-DD (NN) format
+    title_comma_year_issue_match = TITLE_COMMA_YEAR_ISSUE_PATTERN.match(filename)
+    if title_comma_year_issue_match:
+        raw_title, year, issue_num, extra, extension = title_comma_year_issue_match.groups()
+        values['year'] = year
+        values['series_name'] = raw_title.replace('_', ' ').strip()
+        # Handle issue numbers that may have underscore prefixes and zero-pad to 3 digits
+        if issue_num.startswith('_'):
+            numeric_part = issue_num[1:]  # Remove the underscore
+            values['issue_number'] = f"{int(numeric_part):03d}"
+        else:
+            values['issue_number'] = f"{int(issue_num):03d}"
+        return values
+    
+    # Extract year from parentheses (most reliable fallback)
+    year_match = re.search(r'\((\d{4})\)', filename)
+    if year_match:
+        values['year'] = year_match.group(1)
+    
+    # Try to extract issue number from various patterns
+    # Look for patterns like "v2 044", "#044", "044", etc.
+    issue_patterns = [
+        r'v\d{1,3}\s+(\d{1,4})',  # v2 044
+        r'#(\d{1,4})',             # #044
+        r'\b(\d{1,4})\s*\(',       # 044 (
+        r'\b(\d{1,4})\s*\[',       # 044 [
+        r'\b(\d{1,4})\s*$',        # 044 at end
+    ]
+    
+    for pattern in issue_patterns:
+        match = re.search(pattern, filename)
+        if match:
+            # Zero-pad the issue number to 3 digits
+            issue_num = match.group(1)
+            values['issue_number'] = f"{int(issue_num):03d}"
+            break
+    
+    # If no issue number found with patterns, try to find any 4-digit number that's not a year
+    if not values['issue_number']:
+        # Look for 4-digit numbers that aren't years (not in parentheses)
+        all_numbers = re.findall(r'\b(\d{4})\b', filename)
+        for num in all_numbers:
+            # Check if this number is not in parentheses (i.e., not a year)
+            num_pos = filename.find(num)
+            # Look backwards and forwards to see if it's in parentheses
+            before = filename[:num_pos]
+            after = filename[num_pos + 4:]
+            
+            # If it's not surrounded by parentheses, it might be an issue number
+            if not (before.rstrip().endswith('(') and after.lstrip().startswith(')')):
+                # Zero-pad the issue number to 3 digits
+                values['issue_number'] = f"{int(num):03d}"
+                break
+    
+    # Extract series name (everything before the issue number)
+    if values['issue_number']:
+        # Find the position of the issue number
+        issue_pos = filename.find(values['issue_number'])
+        if issue_pos > 0:
+            series_part = filename[:issue_pos].strip()
+            # Clean up the series name
+            series_part = re.sub(r'[\(\)\[\]]', '', series_part).strip()
+            values['series_name'] = series_part
+        else:
+            # If we can't find the issue number position, try a different approach
+            # Look for the pattern: "Series Name ### (YYYY)"
+            series_pattern = r'^(.*?)\s+\d{1,4}\s*\(\d{4}\)'
+            series_match = re.match(series_pattern, filename)
+            if series_match:
+                values['series_name'] = series_match.group(1).strip()
+    
+    # Extract volume number (look for v1, v2, etc.)
+    volume_match = re.search(r'\b(v\d{1,3})\b', filename)
+    if volume_match:
+        values['volume_number'] = volume_match.group(1)
+    
+    return values
+
+
+def apply_custom_pattern(values, pattern):
+    """
+    Apply custom rename pattern with extracted values.
+    Returns the new filename (without extension).
+    """
+    if not pattern:
+        return ""
+    
+    # Validate that we have the required fields
+    series_name = values.get('series_name', '').strip()
+    issue_number = values.get('issue_number', '').strip()
+    
+    if not series_name:
+        app_logger.warning(f"Missing series_name in extracted values: {values}")
+        return ""
+    
+    if not issue_number:
+        app_logger.warning(f"Missing issue_number in extracted values: {values}")
+        return ""
+    
+    result = pattern
+    
+    # Replace variables with extracted values
+    result = result.replace('{series_name}', series_name)
+    result = result.replace('{volume_number}', values.get('volume_number', ''))
+    result = result.replace('{year}', values.get('year', ''))
+    result = result.replace('{issue_number}', issue_number)
+    
+    # Clean up extra spaces and trim
+    result = re.sub(r'\s+', ' ', result).strip()
+    
+    return result
+
+
+def validate_custom_pattern(pattern):
+    """
+    Basic validation of custom rename pattern.
+    Returns True if valid, False otherwise.
+    """
+    if not pattern:
+        return True  # Empty pattern is valid (will use default logic)
+    
+    # Check for valid variable syntax
+    valid_variables = ['{series_name}', '{volume_number}', '{year}', '{issue_number}']
+    
+    # Check if pattern contains only valid variables and other characters
+    # This is a simple validation - we could make it more sophisticated
+    return True  # For now, accept any pattern
 
 
 def parentheses_replacer(match):
@@ -257,20 +620,67 @@ def clean_directory_name(directory_name):
 def get_renamed_filename(filename):
     """
     Given a single filename (no directory path):
-      1) Check for special case: issue number + year in parentheses (e.g. "Title (00 1996).ext")
-      2) Pre-clean the filename by removing bracketed text,
+      1) Check if custom rename pattern is enabled and try to apply it
+      2) If custom rename fails or is disabled, check for special case: issue number + year in parentheses (e.g. "Title (00 1996).ext")
+      3) Special case: Title, YYYY-MM-DD (NN) format
+      4) Special case: Title, YYYY-MM-DD (#NN) format (e.g. "Legion of Super-Heroes, 1985-07-00 (#14)")
+      5) Special case: ISSUE number AFTER YEAR pattern
+      6) Special case: YYYYMM Series Name v# ### format (e.g. "199309 Hokum & Hex v1 001.cbz")
+      7) Pre-clean the filename by removing bracketed text,
          processing parentheses (keeping only 4-digit years),
          and removing dash-separated numbers.
-      3) Try VOLUME_ISSUE_PATTERN first (e.g. "Title v3 051 (2018).ext").
-      4) If it fails, try the single ISSUE_PATTERN.
-      5) Next, try ISSUE_AFTER_YEAR_PATTERN for cases where the issue number follows the year.
-      6) If that fails, try FALLBACK_PATTERN for just (YYYY).
-      7) If none match, return None.
+      8) Try VOLUME_ISSUE_PATTERN first (e.g. "Title v3 051 (2018).ext").
+      9) If it fails, try the single ISSUE_PATTERN.
+      10) Next, try ISSUE_AFTER_YEAR_PATTERN for cases where the issue number follows the year.
+      11) If that fails, try FALLBACK_PATTERN for just (YYYY).
+      12) If none match, return None.
     """
     app_logger.info(f"Attempting to rename filename: {filename}")
+
+    # Try declarative rule engine first (hot-patchable via /config/rename_rules.ini)
+    rule_name = try_rule_engine(filename)
+    if rule_name:
+        return rule_name    
+    # ==========================================================
+    # 0) Check for custom rename pattern (BEFORE all other logic)
+    # ==========================================================
+    try:
+        custom_enabled, custom_pattern = load_custom_rename_config()
+        if custom_enabled and custom_pattern:
+            app_logger.info(f"Custom rename pattern enabled: {custom_pattern}")
+            
+            # Extract comic values from the filename
+            comic_values = extract_comic_values(filename)
+            app_logger.info(f"Extracted comic values: {comic_values}")
+            
+            # Apply custom pattern
+            custom_result = apply_custom_pattern(comic_values, custom_pattern)
+            if custom_result:
+                # Get file extension
+                last_dot_pos = filename.rfind('.')
+                extension = filename[last_dot_pos:] if last_dot_pos != -1 else ''
+                
+                # Check if this would create a duplicate filename by looking for unique identifiers
+                # in the original filename that we can preserve
+                base_filename = custom_result
+                
+                # Don't preserve scanner/source information - it's not needed for uniqueness
+                # The custom pattern already provides the essential information (series, issue, year)
+                # Scanner info like (Glorith-Novus-HD), (Other-Source), etc. should be removed
+                base_filename = custom_result
+                
+                new_filename = base_filename + extension
+                app_logger.info(f"Custom rename result: {filename} -> {new_filename}")
+                return new_filename
+            else:
+                app_logger.info("Custom rename pattern failed, falling back to default logic")
+        else:
+            app_logger.info("Custom rename pattern disabled or not configured, using default logic")
+    except Exception as e:
+        app_logger.warning(f"Error in custom rename logic: {e}, falling back to default logic")
     
     # ==========================================================
-    # 0) Special case: Issue number + year in parentheses (BEFORE pre-cleaning)
+    # 1) Special case: Issue number + year in parentheses (BEFORE pre-cleaning)
     #    e.g. "Leonard Nimoy's Primortals (00 1996).cbz"
     # ==========================================================
     issue_year_paren_match = ISSUE_YEAR_PARENTHESES_PATTERN.match(filename)
@@ -278,12 +688,12 @@ def get_renamed_filename(filename):
         app_logger.info(f"Matched ISSUE_YEAR_PARENTHESES_PATTERN for: {filename}")
         raw_title, issue_num, year, extra, extension = issue_year_paren_match.groups()
         clean_title = raw_title.replace('_', ' ').strip()
-        final_issue = f"{int(issue_num):03d}"
+        final_issue = norm_issue(issue_num)
         new_filename = f"{clean_title} {final_issue} ({year}){extension}"
         return new_filename
 
     # ==========================================================
-    # 0.5) Special case: Title, YYYY-MM-DD (NN) format (BEFORE pre-cleaning)
+    # 2) Special case: Title, YYYY-MM-DD (NN) format (BEFORE pre-cleaning)
     #    e.g. "Justice League Europe, 1990-02-00 ( 13) (digital) (OkC.O.M.P.U.T.O.-Novus-HD).cbz"
     #    e.g. "Blue Devil, 1984-04-00 (_01) (digital) (Glorith-Novus-HD).cbz"
     # ==========================================================
@@ -297,16 +707,33 @@ def get_renamed_filename(filename):
         if issue_num.startswith('_'):
             # Remove underscore and zero-pad the numeric part
             numeric_part = issue_num[1:]  # Remove the underscore
-            final_issue = f"{int(numeric_part):03d}"
+            final_issue = norm_issue(issue_num)
         else:
             # Regular numeric issue number
-            final_issue = f"{int(issue_num):03d}"
+            final_issue = norm_issue(issue_num)
             
         new_filename = f"{clean_title} {final_issue} ({year}){extension}"
         return new_filename
 
     # ==========================================================
-    # 0.6) Special case: ISSUE number AFTER YEAR pattern (BEFORE pre-cleaning)
+    # 3) Special case: Title, YYYY-MM-DD (#NN) format (BEFORE pre-cleaning)
+    #    e.g. "Legion of Super-Heroes, 1985-07-00 (#14) (digital) (Glorith-Novus-HD).cbz"
+    # ==========================================================
+    title_comma_year_hash_issue_match = TITLE_COMMA_YEAR_HASH_ISSUE_PATTERN.match(filename)
+    if title_comma_year_hash_issue_match:
+        app_logger.info(f"Matched TITLE_COMMA_YEAR_HASH_ISSUE_PATTERN for: {filename}")
+        raw_title, year, hash_issue_num, extra, extension = title_comma_year_hash_issue_match.groups()
+        clean_title = raw_title.replace('_', ' ').strip()
+        
+        # Remove the # from the issue number and zero-pad
+        issue_num = hash_issue_num[1:]  # Remove the # prefix
+        final_issue = norm_issue(issue_num)
+        
+        new_filename = f"{clean_title} {final_issue} ({year}){extension}"
+        return new_filename
+
+    # ==========================================================
+    # 4) Special case: ISSUE number AFTER YEAR pattern (BEFORE pre-cleaning)
     #    e.g. "Spider-Man 2099 (1992) #44 (digital) (Colecionadores.GO).cbz"
     #    e.g. "2000AD (2018) #1795.cbz"
     # ==========================================================
@@ -317,15 +744,75 @@ def get_renamed_filename(filename):
         clean_title = raw_title.replace('_', ' ').strip()
         # Remove the # from the issue number and zero-pad
         issue_num = issue[1:]  # Remove the # prefix
-        final_issue = f"{int(issue_num):03d}"
+        final_issue = norm_issue(issue_num)
         new_filename = f"{clean_title} {final_issue} ({year}){extension}"
+        return new_filename
+
+    # ==========================================================
+    # 5) Special case: YYYYMM Series Name v# ### format (BEFORE pre-cleaning)
+    #    e.g. "199309 Hokum & Hex v1 001.cbz"
+    # ==========================================================
+    year_month_series_volume_issue_match = YEAR_MONTH_SERIES_VOLUME_ISSUE_PATTERN.match(filename)
+    if year_month_series_volume_issue_match:
+        app_logger.info(f"Matched YEAR_MONTH_SERIES_VOLUME_ISSUE_PATTERN for: {filename}")
+        year_month, series_name, volume, issue_num, extension = year_month_series_volume_issue_match.groups()
+        
+        # Extract year from the first 4 digits of year_month
+        year = year_month[:4]
+        
+        # Clean the series name: underscores -> spaces, then strip
+        clean_series = series_name.replace('_', ' ').strip()
+        
+        # Keep volume as-is (e.g., "v1")
+        final_volume = volume.strip()
+        
+        # Zero-pad the issue number
+        final_issue = norm_issue(issue_num)
+        
+        new_filename = f"{clean_series} {final_volume} {final_issue} ({year}){extension}"
+        return new_filename
+
+    # ==========================================================
+    # 6) Special case: Series Name YYYY-MM ( NN) (YYYY) format (BEFORE pre-cleaning)
+    #    e.g. "Mister Miracle 1989-08 ( 08) (1989) (Digital) (Shadowcat-Empire).cbz"
+    # ==========================================================
+    series_year_month_issue_match = SERIES_YEAR_MONTH_ISSUE_PATTERN.match(filename)
+    if series_year_month_issue_match:
+        app_logger.info(f"Matched SERIES_YEAR_MONTH_ISSUE_PATTERN for: {filename}")
+        series_name, year, issue_num, extra, extension = series_year_month_issue_match.groups()
+        
+        # Clean the series name: underscores -> spaces, then strip
+        clean_series = series_name.replace('_', ' ').strip()
+        
+        # Zero-pad the issue number
+        final_issue = norm_issue(issue_num)
+        
+        new_filename = f"{clean_series} {final_issue} ({year}){extension}"
+        return new_filename
+
+    # ==========================================================
+    # 7) Special case: Series Name YYYY-MM-DD ( NN) (digital) format (BEFORE pre-cleaning)
+    #    e.g. "Mister Miracle 1990-09-18 ( 21) (digital) (Glorith-Novus-HD).cbz"
+    # ==========================================================
+    series_year_month_day_issue_match = SERIES_YEAR_MONTH_DAY_ISSUE_PATTERN.match(filename)
+    if series_year_month_day_issue_match:
+        app_logger.info(f"Matched SERIES_YEAR_MONTH_DAY_ISSUE_PATTERN for: {filename}")
+        series_name, year, issue_num, extra, extension = series_year_month_day_issue_match.groups()
+        
+        # Clean the series name: underscores -> spaces, then strip
+        clean_series = series_name.replace('_', ' ').strip()
+        
+        # Zero-pad the issue number
+        final_issue = norm_issue(issue_num)
+        
+        new_filename = f"{clean_series} {final_issue} ({year}){extension}"
         return new_filename
 
     # Pre-processing step
     cleaned_filename = clean_filename_pre(filename)
 
     # ==========================================================
-    # 1) VOLUME + ISSUE pattern (e.g. "Comic Name v3 051 (2018).ext")
+    # 5) VOLUME + ISSUE pattern (e.g. "Comic Name v3 051 (2018).ext")
     # ==========================================================
     vol_issue_match = VOLUME_ISSUE_PATTERN.match(cleaned_filename)
     if vol_issue_match:
@@ -361,7 +848,7 @@ def get_renamed_filename(filename):
         return new_filename
 
     # ==========================================================
-    # 2) Hash‐issue pattern (explicit "#NNN"): catch before bare digits
+    # 6) Hash‐issue pattern (explicit "#NNN"): catch before bare digits
     #    e.g. "Injustice 2 #1 (2018).cbz"
     # ==========================================================
     hash_match = ISSUE_HASH_PATTERN.match(cleaned_filename)
@@ -370,7 +857,7 @@ def get_renamed_filename(filename):
         raw_title, issue_num, middle, extension = hash_match.groups()
 
         clean_title = raw_title.replace('_', ' ').strip()
-        final_issue = f"{int(issue_num):03d}"
+        final_issue = norm_issue(issue_num)
 
         # Try to pull a year out of any parentheses in `middle`
         found_year = None
@@ -387,7 +874,7 @@ def get_renamed_filename(filename):
         return new_filename
 
     # ==========================================================
-    # 3) VOLUME + SUBTITLE pattern (e.g. "Infinity 8 v03 - The Gospel According to Emma (2019).cbr")
+    # 7) VOLUME + SUBTITLE pattern (e.g. "Infinity 8 v03 - The Gospel According to Emma (2019).cbr")
     # ==========================================================
     vol_subtitle_match = VOLUME_SUBTITLE_PATTERN.match(cleaned_filename)
     if vol_subtitle_match:
@@ -431,7 +918,7 @@ def get_renamed_filename(filename):
 
         # Keep the series number in the title
         clean_title = f"{raw_title.replace('_', ' ').strip()} {series_num}"
-        final_issue = f"{int(issue_num):03d}"
+        final_issue = norm_issue(issue_num)
 
         # Pull out a 4-digit year if present
         found_year = None
@@ -445,7 +932,7 @@ def get_renamed_filename(filename):
         return f"{clean_title} {final_issue}{extension}"
 
     # ==========================================================
-    # 5) Single ISSUE pattern (no separate "volume" token)
+    # 9) Single ISSUE pattern (no separate "volume" token)
     #    e.g. "Comic Name 051 (2018).cbz" or "Comic Name v3 (2018).cbz"
     # ==========================================================
     issue_match = ISSUE_PATTERN.match(cleaned_filename)
@@ -481,7 +968,7 @@ def get_renamed_filename(filename):
 
 
     # ==========================================================
-    # 7) Title with just YEAR (no volume or issue)
+    # 10) Title with just YEAR (no volume or issue)
     #     e.g. "Hulk vs. The Marvel Universe 2008 Digital.cbz"
     # ==========================================================
     title_year_match = TITLE_YEAR_PATTERN.match(cleaned_filename)
@@ -494,7 +981,7 @@ def get_renamed_filename(filename):
         return f"{clean_title} ({found_year}){extension}"
 
     # ==========================================================
-    # 8) Fallback: Title (YYYY) anything .ext
+    # 11) Fallback: Title (YYYY) anything .ext
     #    e.g. "Comic Name (2018) some extra.cbz" -> "Comic Name (2018).cbz"
     # ==========================================================
     fallback_match = FALLBACK_PATTERN.match(cleaned_filename)
@@ -506,7 +993,7 @@ def get_renamed_filename(filename):
         return new_filename
 
     # ==========================================================
-    # 9) No match => return None
+    # 12) No match => return None
     # ==========================================================
     app_logger.info(f"No pattern matched for: {filename}")
     return None
@@ -649,11 +1136,57 @@ def test_parentheses_cleaning():
         print()
 
 
+def test_custom_rename():
+    """
+    Test function to verify the custom rename functionality works correctly
+    """
+    print("Testing custom rename functionality:")
+    print("=" * 50)
+    
+    # Test custom pattern application
+    test_values = {
+        'series_name': 'Spider-Man 2099',
+        'volume_number': 'v2',
+        'year': '1992',
+        'issue_number': '044'
+    }
+    
+    test_patterns = [
+        ("{series_name} {issue_number} ({year})", "Spider-Man 2099 044 (1992)"),
+        ("{series_name} [{year}] {issue_number}", "Spider-Man 2099 [1992] 044"),
+        ("issue{issue_number}", "issue044"),
+        ("{volume_number}_{issue_number}", "v2_044"),
+        ("{series_name} - {year}", "Spider-Man 2099 - 1992"),
+        ("{series_name} {volume_number} {issue_number}", "Spider-Man 2099 v2 044"),
+    ]
+    
+    for i, (pattern, expected) in enumerate(test_patterns, 1):
+        result = apply_custom_pattern(test_values, pattern)
+        status = "✓ PASS" if result == expected else "✗ FAIL"
+        print(f"Test {i}: {status}")
+        print(f"  Pattern:  {pattern}")
+        print(f"  Expected: {expected}")
+        print(f"  Got:      {result}")
+        if result != expected:
+            print(f"  ERROR: Expected '{expected}' but got '{result}'")
+        print()
+    
+    # Test value extraction
+    test_filename = "Spider-Man 2099 v2 044 (1992) (digital).cbz"
+    extracted_values = extract_comic_values(test_filename)
+    print("Value extraction test:")
+    print(f"  Input:    {test_filename}")
+    print(f"  Extracted: {extracted_values}")
+    print()
+
+
 if __name__ == "__main__":
     if len(sys.argv) < 2:
         app_logger.info("No directory provided!")
         # Run tests if no directory provided
         test_parentheses_cleaning()
+        print()
+        test_custom_rename()
     else:
         directory = sys.argv[1]
         rename_files(directory)

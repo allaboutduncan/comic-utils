@@ -811,13 +811,42 @@
             items.forEach(item => {
               let sourcePath = item.path;
               let sourceDir = sourcePath.substring(0, sourcePath.lastIndexOf('/'));
-              if (sourceDir !== targetDir && !dedupedPaths.has(sourcePath)) {
+              
+              // Prevent moving a directory into itself or its subdirectories
+              let isValidMove = true;
+              if (item.type === "directory") {
+                // Check if target is the same as source or a subdirectory of source
+                if (targetDir === sourcePath || targetDir.startsWith(sourcePath + '/')) {
+                  isValidMove = false;
+                  console.log(`Preventing move: Cannot move directory "${sourcePath}" into itself or its subdirectories`);
+                }
+              } else {
+                // For files, just check if source directory is different from target
+                if (sourceDir === targetDir) {
+                  isValidMove = false;
+                }
+              }
+              
+              if (isValidMove && !dedupedPaths.has(sourcePath)) {
                 dedupedPaths.add(sourcePath);
               }
             });
 
             const paths = [...dedupedPaths];
-            if (paths.length === 0) return;
+            if (paths.length === 0) {
+              // Show user-friendly message for invalid moves
+              const hasInvalidDirectoryMoves = items.some(item => {
+                if (item.type === "directory") {
+                  return targetDir === item.path || targetDir.startsWith(item.path + '/');
+                }
+                return false;
+              });
+              
+              if (hasInvalidDirectoryMoves) {
+                showToast('Invalid Move', 'Cannot move a directory into itself or its subdirectories', 'warning');
+              }
+              return;
+            }
 
             if (paths.length === 1 && items[0].type === "file") {
               moveSingleItem(paths[0], targetDir);
@@ -1251,14 +1280,41 @@
         }
         let targetPath = panel === 'source' ? currentSourcePath : currentDestinationPath;
         
-        // Filter out items whose source folder is the same as the target folder.
+        // Filter out items whose source folder is the same as the target folder or would create invalid moves.
         let validItems = items.filter(item => {
           let sourcePath = item.path;
           let sourceDir = sourcePath.substring(0, sourcePath.lastIndexOf('/'));
-          return sourceDir !== targetPath;
+          
+          // Prevent moving a directory into itself or its subdirectories
+          if (item.type === "directory") {
+            // Check if target is the same as source or a subdirectory of source
+            if (targetPath === sourcePath || targetPath.startsWith(sourcePath + '/')) {
+              console.log(`Preventing move: Cannot move directory "${sourcePath}" into itself or its subdirectories`);
+              return false;
+            }
+          } else {
+            // For files, just check if source directory is different from target
+            if (sourceDir === targetPath) {
+              return false;
+            }
+          }
+          
+          return true;
         });
         if (validItems.length === 0) {
-          console.log("All items dropped are in the same directory. Move cancelled.");
+          // Show user-friendly message for invalid moves
+          const hasInvalidDirectoryMoves = items.some(item => {
+            if (item.type === "directory") {
+              return targetPath === item.path || targetPath.startsWith(item.path + '/');
+            }
+            return false;
+          });
+          
+          if (hasInvalidDirectoryMoves) {
+            showToast('Invalid Move', 'Cannot move a directory into itself or its subdirectories', 'warning');
+          } else {
+            console.log("All items dropped are in the same directory. Move cancelled.");
+          }
           return;
         }
         

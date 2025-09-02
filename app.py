@@ -823,6 +823,18 @@ def move():
         app_logger.error(f"Attempted to move to critical folder location: {destination}")
         return jsonify({"success": False, "error": get_critical_path_error_message(destination, "move to")}), 403
 
+    # Prevent moving a directory into itself or its subdirectories
+    if os.path.isdir(source):
+        # Normalize paths for comparison
+        source_normalized = os.path.normpath(source)
+        destination_normalized = os.path.normpath(destination)
+        
+        # Check if destination is the same as source or a subdirectory of source
+        if (destination_normalized == source_normalized or 
+            destination_normalized.startswith(source_normalized + os.sep)):
+            app_logger.error(f"Attempted to move directory into itself: {source} -> {destination}")
+            return jsonify({"success": False, "error": "Cannot move a directory into itself or its subdirectories"}), 400
+
     if stream:
         app_logger.info(f"Starting streaming move operation")
         # Streaming move for both files and directories
@@ -1542,6 +1554,8 @@ def config_page():
         config["SETTINGS"]["OPERATION_TIMEOUT"] = request.form.get("operationTimeout", "3600")
         config["SETTINGS"]["LARGE_FILE_THRESHOLD"] = request.form.get("largeFileThreshold", "500")
         config["SETTINGS"]["PIXELDRAIN_API_KEY"] = request.form.get("pixeldrainApiKey", "")
+        config["SETTINGS"]["ENABLE_CUSTOM_RENAME"] = str(request.form.get("enableCustomRename") == "on")
+        config["SETTINGS"]["CUSTOM_RENAME_PATTERN"] = request.form.get("customRenamePattern", "")
 
         write_config()  # Save changes to config.ini
         load_flask_config(app)  # Reload into Flask config
@@ -1574,6 +1588,8 @@ def config_page():
         operationTimeout=settings.get("OPERATION_TIMEOUT", "3600"),
         largeFileThreshold=settings.get("LARGE_FILE_THRESHOLD", "500"),
         pixeldrainApiKey=settings.get("PIXELDRAIN_API_KEY", ""),
+        enableCustomRename=settings.get("ENABLE_CUSTOM_RENAME", "False") == "True",
+        customRenamePattern=settings.get("CUSTOM_RENAME_PATTERN", ""),
         config=settings,  # Pass full settings dictionary
     )
 
