@@ -33,3 +33,16 @@
 2025-09-01 10:00:27,859 - INFO - Attempting to rename filename: Mister Miracle 1990-09-18 ( 21) (digital) (Glorith-Novus-HD).cbz
 2025-09-01 10:00:27,860 - INFO - Custom rename pattern disabled or not configured, using default logic
 2025-09-01 10:00:27,860 - INFO - Matched SERIES_YEAR_MONTH_DAY_ISSUE_PATTERN for: Mister Miracle 1990-09-18 ( 21) (digital) (Glorith-Novus-HD).cbz
+2025-09-04 23:21:45,715 - INFO - Attempting to rename filename: JLA Classified, 2005 003 (Digital) (AnHeroGold-Empire).cbz
+2025-09-04 23:21:45,715 - INFO - Custom rename pattern disabled or not configured, using default logic
+2025-09-04 23:21:45,715 - INFO - Matched ISSUE_PATTERN for: JLA Classified, 2005 003.cbz
+2025-09-04 23:22:13,747 - INFO - Attempting to rename filename: JLA Classified, 2005 003 (Digital) (AnHeroGold-Empire).cbz
+2025-09-04 23:22:13,748 - INFO - Custom rename pattern disabled or not configured, using default logic
+2025-09-04 23:22:13,748 - INFO - Matched ISSUE_PATTERN for: JLA Classified, 2005 003.cbz
+2025-09-04 23:22:32,583 - INFO - Attempting to rename filename: JLA Classified, 2005 003 (Digital) (AnHeroGold-Empire).cbz
+2025-09-04 23:33:20,797 - INFO - Attempting to rename filename: JLA Classified, 2005-07-00 (_10) (digital) (Glorith-Novus-HD).cbz
+2025-09-04 23:33:56,951 - INFO - Attempting to rename filename: JLA Classified, 2005-07-00 (_10) (digital) (Glorith-Novus-HD).cbz
+2025-09-04 23:35:58,628 - INFO - Attempting to rename filename: JLA Classified, 2005-07-00 (_10) (digital) (Glorith-Novus-HD).cbz
+2025-09-04 23:36:21,792 - INFO - Attempting to rename filename: JLA Classified, 2005-07-00 (_10) (digital) (Glorith-Novus-HD).cbz
+2025-09-04 23:37:08,730 - INFO - Attempting to rename filename: JLA Classified, 2005 003 (Digital) (AnHeroGold-Empire).cbz
+2025-09-04 23:37:08,730 - INFO - Attempting to rename filename: JLA Classified, 2005-07-00 (_10) (digital) (Glorith-Novus-HD).cbz

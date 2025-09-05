@@ -273,8 +273,9 @@ def try_rule_engine(filename: str, cfg_path="/config/rename_rules.ini"):
                 g["year"] = ym_digits[:4]
 
         new_name = _format_from_groups(outfmt, g)
-        if not new_name.endswith(g.get("ext", "")):
-            new_name += g.get("ext", "")
+        ext = g.get("ext", "")
+        if ext and not new_name.endswith(ext):
+            new_name += ext
         return new_name
 
     return None
@@ -638,7 +639,7 @@ def get_renamed_filename(filename):
     app_logger.info(f"Attempting to rename filename: {filename}")
 
     # Try declarative rule engine first (hot-patchable via /config/rename_rules.ini)
-    rule_name = try_rule_engine(filename)
+    rule_name = try_rule_engine(filename, "config/rename_rules.ini")
     if rule_name:
         return rule_name    
     # ==========================================================
