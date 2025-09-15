@@ -200,6 +200,42 @@ def rebuild_single_cbz_file(cbz_path, directory):
         app_logger.info(f"Successfully rebuilt: {filename}")
         return True
         
+    except zipfile.BadZipFile as e:
+        # Handle the case where a .cbz file is actually a RAR file
+        if "File is not a zip file" in str(e) or "BadZipFile" in str(e):
+            app_logger.warning(f"Detected that {filename} is not a valid ZIP file. Attempting to rename to .rar and retry...")
+            
+            # Rename the file back to .rar
+            rar_file = os.path.join(directory, base_name + ".rar")
+            if os.path.exists(new_zip_file):
+                os.rename(new_zip_file, rar_file)
+            elif os.path.exists(cbz_path):
+                os.rename(cbz_path, rar_file)
+            
+            # Clean up any partial extraction folder
+            if os.path.exists(folder_path):
+                shutil.rmtree(folder_path)
+            
+            # Try to convert as RAR file
+            temp_extraction_dir = os.path.join(directory, f"temp_{base_name}")
+            zip_path = os.path.join(directory, base_name + '.cbz')
+            
+            app_logger.info(f"Attempting to convert {base_name}.rar as RAR file...")
+            success = convert_single_rar_file(rar_file, zip_path, temp_extraction_dir)
+            
+            if success:
+                # Delete the original RAR file
+                os.remove(rar_file)
+                # Clean up temp directory
+                if os.path.exists(temp_extraction_dir):
+                    shutil.rmtree(temp_extraction_dir)
+                return True
+            else:
+                app_logger.error(f"Failed to convert {base_name}.rar after renaming from {filename}")
+                return False
+        else:
+            app_logger.error(f"Failed to rebuild {filename}: {e}")
+            return False
     except Exception as e:
         app_logger.error(f"Failed to rebuild {filename}: {e}")
         return False
@@ -269,22 +305,33 @@ def rebuild_task(directory):
 
     app_logger.info(f"Rebuilding project in directory: {directory}...")
 
+    # Get CBZ files, but also check for any files that might have been renamed during processing
     cbz_files = [f for f in os.listdir(directory) if f.lower().endswith(".cbz")]
     total_files = len(cbz_files)
     app_logger.info(f"Total .cbz files to process: {total_files}")
 
-    for i, filename in enumerate(cbz_files, 1):
+    i = 1
+    while i <= total_files:
+        # Re-scan directory in case files were renamed during processing
+        current_cbz_files = [f for f in os.listdir(directory) if f.lower().endswith(".cbz")]
+        
+        if i > len(current_cbz_files):
+            break
+            
+        filename = current_cbz_files[i-1]
         base_name, original_ext = os.path.splitext(filename)
 
         # Skip files that were just converted
         if base_name in converted_files:
             app_logger.info(f"Skipping rebuild for recently converted file: {filename}")
+            i += 1
             continue
 
         file_path = os.path.join(directory, filename)
         # Double-check if the file is hidden.
         if is_hidden(file_path):
             app_logger.info(f"Skipping hidden file: {file_path}")
+            i += 1
             continue
 
         app_logger.info(f"Processing file: {filename} ({i}/{total_files})")
@@ -293,6 +340,8 @@ def rebuild_task(directory):
         
         if not success:
             app_logger.error(f"Failed to rebuild {filename}, continuing with next file...")
+        
+        i += 1
 
     app_logger.info(f"Rebuild completed in {directory}!")
 
