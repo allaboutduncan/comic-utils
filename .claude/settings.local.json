@@ -4,7 +4,8 @@
       "WebSearch",
       "WebFetch(domain:pypi.org)",
       "WebFetch(domain:docs.comics.org)",
-      "WebFetch(domain:github.com)"
+      "WebFetch(domain:github.com)",
+      "Bash(node:*)"
     ],
     "deny": [],
     "ask": []

@@ -43,6 +43,7 @@ function formatSize(bytes) {
         e.preventDefault();
         e.stopPropagation();
         dropTargetItem.classList.remove("folder-hover");
+        clearAllDropHoverStates();
         let dataStr = e.dataTransfer.getData("text/plain");
         let items;
         try {
@@ -473,6 +474,7 @@ function formatSize(bytes) {
             e.preventDefault();
             e.stopPropagation();
             li.classList.remove("folder-hover");
+            clearAllDropHoverStates();
 
             let dataStr = e.dataTransfer.getData("text/plain");
             let items;
@@ -547,6 +549,13 @@ function formatSize(bytes) {
           // Add dragging class for visual feedback
           li.classList.add("dragging");
           setTimeout(() => li.classList.remove("dragging"), 50);
+        });
+
+        li.addEventListener("dragend", function(e) {
+          // Clean up any hover states when drag ends (whether successful or not)
+          setTimeout(() => {
+            clearAllDropHoverStates();
+          }, 100);
         });
       }
 
@@ -795,8 +804,33 @@ function loadDownloads(path, panel) {
         });
     }
   
+// Test function for debugging toast
+function testToast() {
+  console.log('testToast() called');
+  showToast('Test Toast', 'This is a test message', 'success');
+}
+
+// Function to clear all drop hover states
+function clearAllDropHoverStates() {
+  // Remove all hover-related classes from all elements
+  document.querySelectorAll('.hover, .folder-hover, .drag-hover').forEach(element => {
+    element.classList.remove('hover', 'folder-hover', 'drag-hover');
+  });
+
+  // Stop any auto-scroll that might be running
+  if (typeof stopAutoScroll === 'function') {
+    stopAutoScroll();
+  }
+}
+
+// Make functions available globally for debugging
+window.testToast = testToast;
+window.clearAllDropHoverStates = clearAllDropHoverStates;
+
 // Initialize when DOM is loaded
 document.addEventListener('DOMContentLoaded', function() {
+  console.log('DOM loaded, initializing files.js');
+
   // Initialize rename rows as hidden
   document.getElementById('source-directory-rename-row').style.display = 'none';
   document.getElementById('destination-directory-rename-row').style.display = 'none';
@@ -808,6 +842,7 @@ document.addEventListener('DOMContentLoaded', function() {
   // Attach drop events.
   setupDropEvents(document.getElementById("source-list"), 'source');
   setupDropEvents(document.getElementById("destination-list"), 'destination');
+
 });
   
     // Function to move an item.
@@ -856,9 +891,11 @@ document.addEventListener('DOMContentLoaded', function() {
             hideMovingModal();
 
             // Show success toast notification
+            console.log('Single file move completed, showing toast for:', fileName);
             showToast('Move Successful', `Successfully moved ${fileName}`, 'success');
 
             setTimeout(() => {
+              clearAllDropHoverStates(); // Clean up any lingering hover states
               loadDirectories(currentSourcePath, 'source');
               loadDirectories(currentDestinationPath, 'destination');
             }, 300);
@@ -948,6 +985,7 @@ document.addEventListener('DOMContentLoaded', function() {
         e.preventDefault();
         element.classList.remove("hover");
         stopAutoScroll();
+        clearAllDropHoverStates();
         let dataStr = e.dataTransfer.getData("text/plain");
         let items;
         try {
@@ -1261,12 +1299,14 @@ function openCreateFolderModal() {
           hideMovingModal();
 
           // Show success toast notification
+          console.log('Multiple file move completed, totalCount:', totalCount);
           if (totalCount === 1) {
             showToast('Move Successful', `Successfully moved 1 item`, 'success');
           } else {
             showToast('Move Successful', `Successfully moved ${totalCount} items`, 'success');
           }
 
+          clearAllDropHoverStates(); // Clean up any lingering hover states
           loadDirectories(currentSourcePath, 'source');
           loadDirectories(currentDestinationPath, 'destination');
           return;
@@ -2271,16 +2311,21 @@ function performSearch() {
 
     // Helper function to show toast notifications
     function showToast(title, message, type = 'info') {
+      console.log('showToast called:', { title, message, type });
+      console.log('Bootstrap available:', typeof bootstrap !== 'undefined');
+
       // Wait for Bootstrap to be fully loaded
       const waitForBootstrap = () => {
         if (typeof bootstrap !== 'undefined' && bootstrap.Toast && typeof bootstrap.Toast === 'function') {
+          console.log('Bootstrap Toast available, calling showToastInternal');
           showToastInternal(title, message, type);
         } else {
+          console.log('Bootstrap not ready, retrying in 100ms');
           // Wait a bit more for Bootstrap to load
           setTimeout(waitForBootstrap, 100);
         }
       };
-      
+
       // Start waiting for Bootstrap
       waitForBootstrap();
     }

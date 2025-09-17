@@ -190,6 +190,24 @@ SERIES_YEAR_MONTH_DAY_ISSUE_PATTERN = re.compile(
     re.IGNORECASE
 )
 
+# Pattern: "Series (YYYY-MM) ### (...)" → extract series, year, issue
+SERIES_YEAR_MONTH_SIMPLE_PATTERN = re.compile(
+    r'^(.*?)\s*\((\d{4})-\d{2}\)\s+(\d{1,4})(.*)(\.\w+)$',
+    re.IGNORECASE
+)
+
+# Pattern: "Series International/Annual v# ### (YYYY)" → extract series, volume, year, issue
+SERIES_INTERNATIONAL_ANNUAL_PATTERN = re.compile(
+    r'^(.*?(?:International|Annual).*?)\s+(v\d+\s+)?(Annual\s+)?(\d{1,4})\s*\((\d{4})\)(.*)(\.\w+)$',
+    re.IGNORECASE
+)
+
+# Pattern: "Series # ### (YYYY)" → extract series with number, year, issue
+SERIES_NUMBER_ISSUE_YEAR_PATTERN = re.compile(
+    r'^(.*\s+\d+)(?!\s+v\d)\s+(\d{1,4})\s*\((\d{4})\)(.*)(\.\w+)$',
+    re.IGNORECASE
+)
+
 # ====== BEGIN: Rule Engine Helpers ======
 def _apply_filters(val: str, filters: list[str]) -> str:
     for f in filters:
@@ -325,11 +343,32 @@ def extract_comic_values(filename):
         'issue_number': ''
     }
     
-    # First, try to match the new YYYYMM Series Name v# ### format
+    # First, try to match International/Annual patterns (highest priority)
+    international_annual_match = SERIES_INTERNATIONAL_ANNUAL_PATTERN.match(filename)
+    if international_annual_match:
+        series_name, volume, annual, issue_num, year, extra, extension = international_annual_match.groups()
+
+        values['series_name'] = series_name.replace('_', ' ').strip()
+        values['volume_number'] = (volume or '').strip()
+        values['year'] = year
+        values['issue_number'] = f"{int(issue_num):03d}"  # Zero-pad to 3 digits
+        return values
+
+    # Try to match Series # ### (YYYY) format (e.g., "Lady Killer 2 001 (2016)")
+    series_number_issue_year_match = SERIES_NUMBER_ISSUE_YEAR_PATTERN.match(filename)
+    if series_number_issue_year_match:
+        series_name, issue_num, year, extra, extension = series_number_issue_year_match.groups()
+
+        values['series_name'] = series_name.replace('_', ' ').strip()
+        values['year'] = year
+        values['issue_number'] = f"{int(issue_num):03d}"  # Zero-pad to 3 digits
+        return values
+
+    # Try to match the new YYYYMM Series Name v# ### format
     year_month_series_volume_issue_match = YEAR_MONTH_SERIES_VOLUME_ISSUE_PATTERN.match(filename)
     if year_month_series_volume_issue_match:
         year_month, series_name, volume, issue_num, extension = year_month_series_volume_issue_match.groups()
-        
+
         # Extract year from the first 4 digits of year_month
         values['year'] = year_month[:4]
         values['series_name'] = series_name.replace('_', ' ').strip()
@@ -351,7 +390,17 @@ def extract_comic_values(filename):
     series_year_month_day_issue_match = SERIES_YEAR_MONTH_DAY_ISSUE_PATTERN.match(filename)
     if series_year_month_day_issue_match:
         series_name, year, issue_num, extra, extension = series_year_month_day_issue_match.groups()
-        
+
+        values['series_name'] = series_name.replace('_', ' ').strip()
+        values['year'] = year
+        values['issue_number'] = f"{int(issue_num):03d}"  # Zero-pad to 3 digits
+        return values
+
+    # Try to match the Series (YYYY-MM) ### format
+    series_year_month_simple_match = SERIES_YEAR_MONTH_SIMPLE_PATTERN.match(filename)
+    if series_year_month_simple_match:
+        series_name, year, issue_num, extra, extension = series_year_month_simple_match.groups()
+
         values['series_name'] = series_name.replace('_', ' ').strip()
         values['year'] = year
         values['issue_number'] = f"{int(issue_num):03d}"  # Zero-pad to 3 digits
@@ -1142,6 +1191,23 @@ def test_custom_rename():
     Test function to verify the custom rename functionality works correctly
     """
     print("Testing custom rename functionality:")
+    print("=" * 50)
+
+    # Test the new patterns first
+    test_files = [
+        "Justice League (1987-09) 05 (DobisP.R.-Novus-HD).cbz",
+        "Justice League (1987-06) 02 (DobisP.R.-Novus-HD).cbz",
+        "Justice League International v1 Annual 001 (1987) (FBScan).cbr"
+    ]
+
+    print("Testing value extraction for new patterns:")
+    for filename in test_files:
+        values = extract_comic_values(filename)
+        print(f"File: {filename}")
+        print(f"  Extracted: {values}")
+        print()
+
+    print("Testing custom pattern application:")
     print("=" * 50)
     
     # Test custom pattern application

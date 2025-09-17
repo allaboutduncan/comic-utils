@@ -19,35 +19,10 @@
           border: none;
           border-bottom: 1px solid #ccc;
         }
+        /* Basic drag styles - detailed styles in files.css */
         .draggable {
           cursor: move;
           transition: all 0.2s ease;
-        }
-        .drop-target {
-          transition: all 0.3s ease;
-          border: 2px solid transparent;
-        }
-        .drop-target.hover {
-          background-color: #f0f0f0;
-        }
-        .drag-hover {
-          background: linear-gradient(45deg, #e3f2fd, #f3e5f5) !important;
-          border: 2px dashed #2196f3 !important;
-          transform: scale(1.02) !important;
-          box-shadow: 0 4px 15px rgba(33, 150, 243, 0.3) !important;
-        }
-        .drag-invalid {
-          background: linear-gradient(45deg, #ffebee, #fce4ec) !important;
-          border: 2px dashed #f44336 !important;
-          opacity: 0.6 !important;
-          cursor: not-allowed !important;
-        }
-        .dragging {
-          opacity: 0.7 !important;
-          transform: rotate(3deg) scale(1.02) !important;
-          z-index: 1000 !important;
-          position: relative !important;
-          box-shadow: 0 8px 25px rgba(0,0,0,0.3) !important;
         }
         .selected {
           background-color: #c5e1fe;
