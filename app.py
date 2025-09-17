@@ -72,48 +72,76 @@ def get_critical_path_error_message(path, operation="modify"):
 #     Cache System      #
 #########################
 
-# Global cache for directory listings
-directory_cache = {}
+import threading
+from collections import OrderedDict
+
+# Global cache for directory listings with thread safety
+cache_lock = threading.RLock()
+directory_cache = OrderedDict()  # Use OrderedDict for LRU behavior
 cache_timestamps = {}
+cache_stats = {
+    'hits': 0,
+    'misses': 0,
+    'evictions': 0,
+    'invalidations': 0
+}
 CACHE_DURATION = 5  # Cache for 5 seconds
-MAX_CACHE_SIZE = 100  # Maximum number of cached directories
+MAX_CACHE_SIZE = 500  # Increased maximum number of cached directories
 CACHE_REBUILD_INTERVAL = 6 * 60 * 60  # 6 hours in seconds
 last_cache_rebuild = time.time()
 last_cache_invalidation = None  # Track when cache was last invalidated
 
 def get_directory_hash(path):
-    """Generate a hash for directory contents to detect changes."""
+    """Generate a more robust hash for directory contents to detect changes."""
     try:
         stat = os.stat(path)
-        # Use modification time and size as a simple change detector
-        return f"{stat.st_mtime}_{stat.st_size}"
-    except:
+        # Include inode and creation time for better change detection
+        inode = getattr(stat, 'st_ino', 0)
+        ctime = getattr(stat, 'st_ctime', 0)
+        # Use modification time, size, inode, and creation time
+        return f"{stat.st_mtime}_{stat.st_size}_{inode}_{ctime}"
+    except Exception as e:
+        app_logger.debug(f"Error generating hash for {path}: {e}")
         return "error"
 
 def is_cache_valid(path):
-    """Check if cached data is still valid."""
-    if path not in cache_timestamps:
-        return False
-    
-    # Check if cache has expired
-    if time.time() - cache_timestamps[path] > CACHE_DURATION:
-        return False
-    
-    # Check if directory has changed
-    current_hash = get_directory_hash(path)
-    cached_hash = directory_cache.get(path, {}).get('hash')
-    return current_hash == cached_hash
+    """Check if cached data is still valid with thread safety."""
+    with cache_lock:
+        if path not in cache_timestamps:
+            return False
+
+        # Check if cache has expired
+        if time.time() - cache_timestamps[path] > CACHE_DURATION:
+            return False
+
+        # Check if directory has changed
+        current_hash = get_directory_hash(path)
+        cached_data = directory_cache.get(path, {})
+        cached_hash = cached_data.get('hash') if isinstance(cached_data, dict) else None
+        return current_hash == cached_hash
 
 def cleanup_cache():
-    """Remove expired entries from cache."""
-    current_time = time.time()
-    expired_paths = [
-        path for path, timestamp in cache_timestamps.items()
-        if current_time - timestamp > CACHE_DURATION
-    ]
-    for path in expired_paths:
-        directory_cache.pop(path, None)
-        cache_timestamps.pop(path, None)
+    """Remove expired entries from cache with improved LRU management."""
+    with cache_lock:
+        current_time = time.time()
+        expired_paths = [
+            path for path, timestamp in cache_timestamps.items()
+            if current_time - timestamp > CACHE_DURATION
+        ]
+
+        for path in expired_paths:
+            if path in directory_cache:
+                directory_cache.pop(path, None)
+                cache_timestamps.pop(path, None)
+                cache_stats['evictions'] += 1
+
+        # Enforce size limit with LRU eviction
+        while len(directory_cache) > MAX_CACHE_SIZE:
+            # Remove oldest item (first in OrderedDict)
+            oldest_path = next(iter(directory_cache))
+            directory_cache.pop(oldest_path, None)
+            cache_timestamps.pop(oldest_path, None)
+            cache_stats['evictions'] += 1
 
 # LRU cache for search results (cache last 100 searches)
 @lru_cache(maxsize=100)
@@ -218,8 +246,22 @@ def filesystem_search(query):
 
 
 def get_directory_listing(path):
-    """Get directory listing with optimized file system operations."""
+    """Get directory listing with optimized file system operations and memory awareness."""
     try:
+        # Check memory before operation and adjust cache size if needed
+        monitor = get_global_monitor()
+        memory_usage = monitor.get_memory_usage()
+
+        # Reduce cache size if memory is high
+        if memory_usage > 800:  # 800MB threshold
+            with cache_lock:
+                target_size = max(50, MAX_CACHE_SIZE // 2)
+                while len(directory_cache) > target_size:
+                    oldest_path = next(iter(directory_cache))
+                    directory_cache.pop(oldest_path, None)
+                    cache_timestamps.pop(oldest_path, None)
+                    cache_stats['evictions'] += 1
+
         with memory_context("list_directories"):
             entries = os.listdir(path)
             
@@ -262,53 +304,128 @@ def get_directory_listing(path):
         raise
 
 def invalidate_cache_for_path(path):
-    """Invalidate cache for a specific path and its parent."""
+    """Invalidate cache for a specific path and its parent with improved tracking."""
     global last_cache_invalidation, _data_dir_stats_last_update
-    
+
     # Skip cache invalidation for WATCH and TARGET directories
     if is_critical_path(path):
         app_logger.debug(f"Skipping cache invalidation for critical path: {path}")
         return
-    
-    if path in directory_cache:
-        del directory_cache[path]
-        del cache_timestamps[path]
-    
-    # Also invalidate parent directory cache
-    parent = os.path.dirname(path)
-    if parent in directory_cache:
-        del directory_cache[parent]
-        del cache_timestamps[parent]
-    
+
+    with cache_lock:
+        invalidated_count = 0
+
+        # Invalidate the specific path
+        if path in directory_cache:
+            directory_cache.pop(path, None)
+            cache_timestamps.pop(path, None)
+            invalidated_count += 1
+
+        # Also invalidate parent directory cache
+        parent = os.path.dirname(path)
+        if parent and parent in directory_cache:
+            directory_cache.pop(parent, None)
+            cache_timestamps.pop(parent, None)
+            invalidated_count += 1
+
+        # Invalidate any child directory caches
+        paths_to_invalidate = []
+        for cached_path in directory_cache.keys():
+            if cached_path.startswith(path + os.sep):
+                paths_to_invalidate.append(cached_path)
+
+        for cached_path in paths_to_invalidate:
+            directory_cache.pop(cached_path, None)
+            cache_timestamps.pop(cached_path, None)
+            invalidated_count += 1
+
+        cache_stats['invalidations'] += invalidated_count
+
     # Also invalidate directory stats cache when files change
     _data_dir_stats_last_update = 0
-    
+
     # Track when cache invalidation occurred
     last_cache_invalidation = time.time()
+
+    if invalidated_count > 0:
+        app_logger.debug(f"Invalidated {invalidated_count} cache entries for path: {path}")
 
 def rebuild_entire_cache():
     """Rebuild the entire directory cache and search index."""
     global directory_cache, cache_timestamps, last_cache_rebuild, last_cache_invalidation
-    
+
     app_logger.info("🔄 Starting scheduled cache rebuild...")
     start_time = time.time()
-    
-    # Clear all caches
-    directory_cache.clear()
-    cache_timestamps.clear()
-    
+
+    with cache_lock:
+        cleared_count = len(directory_cache)
+        # Clear all caches
+        directory_cache.clear()
+        cache_timestamps.clear()
+        # Keep performance stats but mark rebuild
+        cache_stats['evictions'] += cleared_count
+
     # Rebuild search index
     invalidate_file_index()
     build_file_index()
-    
+
     # Update rebuild timestamp and reset invalidation
     last_cache_rebuild = time.time()
     last_cache_invalidation = None  # Reset invalidation tracking after rebuild
-    
+
     rebuild_time = time.time() - start_time
-    app_logger.info(f"✅ Cache rebuild completed in {rebuild_time:.2f} seconds")
-    
+    app_logger.info(f"✅ Cache rebuild completed in {rebuild_time:.2f} seconds ({cleared_count} entries cleared)")
+
+    # Warm up cache with frequently accessed directories
+    warmup_cache()
+
     return rebuild_time
+
+def warmup_cache():
+    """Proactively cache frequently accessed directories."""
+    warmup_paths = [DATA_DIR, TARGET_DIR]
+
+    # Add common subdirectories
+    for base_path in [DATA_DIR, TARGET_DIR]:
+        try:
+            if os.path.exists(base_path):
+                subdirs = [d for d in os.listdir(base_path)
+                          if os.path.isdir(os.path.join(base_path, d)) and not d.startswith('.') and not d.startswith('_')]
+                # Add first few subdirectories to warmup
+                for subdir in subdirs[:5]:
+                    warmup_paths.append(os.path.join(base_path, subdir))
+        except (OSError, IOError):
+            continue
+
+    # Pre-cache these directories
+    warmed_count = 0
+    for path in warmup_paths:
+        try:
+            if os.path.exists(path) and path not in directory_cache:
+                listing_data = get_directory_listing(path)
+                with cache_lock:
+                    directory_cache[path] = listing_data
+                    cache_timestamps[path] = time.time()
+                warmed_count += 1
+
+                # Don't warm up too many at once
+                if warmed_count >= 10:
+                    break
+        except Exception as e:
+            app_logger.debug(f"Failed to warm up cache for {path}: {e}")
+
+    if warmed_count > 0:
+        app_logger.info(f"🔥 Warmed up cache with {warmed_count} frequently accessed directories")
+
+@app.route('/warmup-cache', methods=['POST'])
+def warmup_cache_endpoint():
+    """Manually trigger cache warmup."""
+    try:
+        warmup_cache()
+        return jsonify({"success": True, "message": "Cache warmup completed"})
+    except Exception as e:
+        app_logger.error(f"Error during cache warmup: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
 
 def should_rebuild_cache():
     """Check if it's time to rebuild the cache based on the interval."""
@@ -319,12 +436,21 @@ def should_rebuild_cache():
 def clear_cache():
     """Manually clear the directory cache."""
     global directory_cache, cache_timestamps, last_cache_invalidation, _data_dir_stats_last_update
-    directory_cache.clear()
-    cache_timestamps.clear()
+
+    with cache_lock:
+        cleared_count = len(directory_cache)
+        directory_cache.clear()
+        cache_timestamps.clear()
+        # Reset stats
+        cache_stats['hits'] = 0
+        cache_stats['misses'] = 0
+        cache_stats['evictions'] = 0
+        cache_stats['invalidations'] = 0
+
     last_cache_invalidation = time.time()
     _data_dir_stats_last_update = 0  # Also invalidate directory stats cache
-    app_logger.info("Directory cache cleared manually")
-    return jsonify({"success": True, "message": "Cache cleared"})
+    app_logger.info(f"Directory cache cleared manually ({cleared_count} entries)")
+    return jsonify({"success": True, "message": f"Cache cleared ({cleared_count} entries)"})
 
 @app.route('/rebuild-search-index', methods=['POST'])
 def rebuild_search_index():
@@ -393,6 +519,10 @@ def get_cache_status():
     response_time = time.time() - start_time
     app_logger.debug(f"Full cache status request completed in {response_time:.3f}s")
     
+    # Calculate cache hit rate
+    total_requests = cache_stats['hits'] + cache_stats['misses']
+    hit_rate = (cache_stats['hits'] / total_requests * 100) if total_requests > 0 else 0
+
     return jsonify({
         "last_rebuild": last_cache_rebuild,
         "time_since_rebuild": time_since_rebuild,
@@ -406,6 +536,13 @@ def get_cache_status():
         "cache_invalidated": cache_recently_invalidated,
         "cache_duration": CACHE_DURATION,
         "max_cache_size": MAX_CACHE_SIZE,
+        "cache_stats": {
+            "hits": cache_stats['hits'],
+            "misses": cache_stats['misses'],
+            "hit_rate": round(hit_rate, 2),
+            "evictions": cache_stats['evictions'],
+            "invalidations": cache_stats['invalidations']
+        },
         "response_time": round(response_time, 3)
     })
 
@@ -436,6 +573,10 @@ def get_cache_status_light():
     
     app_logger.debug(f"Light cache status request - cache size: {len(directory_cache)}, index built: {index_built}")
     
+    # Calculate cache hit rate for light status
+    total_requests = cache_stats['hits'] + cache_stats['misses']
+    hit_rate = (cache_stats['hits'] / total_requests * 100) if total_requests > 0 else 0
+
     return jsonify({
         "last_rebuild": last_cache_rebuild,
         "time_since_rebuild": time_since_rebuild,
@@ -446,25 +587,30 @@ def get_cache_status_light():
         "index_built": index_built,
         "cache_invalidated": cache_recently_invalidated,
         "cache_duration": CACHE_DURATION,
-        "max_cache_size": MAX_CACHE_SIZE
+        "max_cache_size": MAX_CACHE_SIZE,
+        "hit_rate": round(hit_rate, 2)
     })
 
 @app.route('/cache-debug', methods=['GET'])
 def get_cache_debug():
     """Debug endpoint to show current cache state and performance metrics."""
     global directory_cache, cache_timestamps, last_cache_rebuild, last_cache_invalidation
-    
+
     current_time = time.time()
-    
-    # Get some sample cache entries
-    sample_cache = {}
-    for i, (path, timestamp) in enumerate(list(cache_timestamps.items())[:5]):
-        age = current_time - timestamp
-        sample_cache[path] = {
-            "age_seconds": round(age, 2),
-            "cached_data": bool(path in directory_cache)
-        }
-    
+
+    with cache_lock:
+        # Get some sample cache entries
+        sample_cache = {}
+        for i, (path, timestamp) in enumerate(list(cache_timestamps.items())[:5]):
+            age = current_time - timestamp
+            sample_cache[path] = {
+                "age_seconds": round(age, 2),
+                "cached_data": bool(path in directory_cache)
+            }
+
+        # Calculate memory usage more accurately
+        cache_memory_mb = round(sys.getsizeof(directory_cache) / (1024 * 1024), 2)
+
     return jsonify({
         "current_time": current_time,
         "cache_size": len(directory_cache),
@@ -472,7 +618,14 @@ def get_cache_debug():
         "last_rebuild": last_cache_rebuild,
         "last_invalidation": last_cache_invalidation,
         "sample_cache_entries": sample_cache,
-        "memory_usage_mb": round(len(str(directory_cache)) / (1024 * 1024), 2)
+        "memory_usage_mb": cache_memory_mb,
+        "cache_performance": {
+            "hits": cache_stats['hits'],
+            "misses": cache_stats['misses'],
+            "hit_rate_percent": round((cache_stats['hits'] / max(1, cache_stats['hits'] + cache_stats['misses'])) * 100, 2),
+            "evictions": cache_stats['evictions'],
+            "invalidations": cache_stats['invalidations']
+        }
     })
 
 # Cache for directory statistics to avoid repeated filesystem walks
@@ -705,18 +858,17 @@ def list_directories():
         
         # Get fresh directory listing
         listing_data = get_directory_listing(current_path)
-        
-        # Cache the result
-        directory_cache[current_path] = listing_data
-        cache_timestamps[current_path] = time.time()
-        
-        # Limit cache size
-        if len(directory_cache) > MAX_CACHE_SIZE:
-            # Remove oldest entries
-            oldest_path = min(cache_timestamps.keys(), key=lambda k: cache_timestamps[k])
-            directory_cache.pop(oldest_path, None)
-            cache_timestamps.pop(oldest_path, None)
-        
+
+        # Cache the result with thread safety
+        with cache_lock:
+            cache_stats['misses'] += 1
+            directory_cache[current_path] = listing_data
+            cache_timestamps[current_path] = time.time()
+
+            # LRU eviction is handled by cleanup_cache()
+            if len(directory_cache) > MAX_CACHE_SIZE:
+                cleanup_cache()
+
         parent_dir = os.path.dirname(current_path) if current_path != DATA_DIR else None
 
         return jsonify({
@@ -762,18 +914,17 @@ def list_downloads():
         
         # Get fresh directory listing
         listing_data = get_directory_listing(current_path)
-        
-        # Cache the result
-        directory_cache[current_path] = listing_data
-        cache_timestamps[current_path] = time.time()
-        
-        # Limit cache size
-        if len(directory_cache) > MAX_CACHE_SIZE:
-            # Remove oldest entries
-            oldest_path = min(cache_timestamps.keys(), key=lambda k: cache_timestamps[k])
-            directory_cache.pop(oldest_path, None)
-            cache_timestamps.pop(oldest_path, None)
-        
+
+        # Cache the result with thread safety
+        with cache_lock:
+            cache_stats['misses'] += 1
+            directory_cache[current_path] = listing_data
+            cache_timestamps[current_path] = time.time()
+
+            # LRU eviction is handled by cleanup_cache()
+            if len(directory_cache) > MAX_CACHE_SIZE:
+                cleanup_cache()
+
         parent_dir = os.path.dirname(current_path) if current_path != TARGET_DIR else None
 
         return jsonify({
@@ -1981,6 +2132,88 @@ def watch_count():
                 continue
             total += 1
     return jsonify({"total_files": total})
+
+@app.route('/health')
+def health_check():
+    """Health check endpoint for Docker health check"""
+    try:
+        # Simple health check - verify app is responding
+        return jsonify({
+            "status": "healthy",
+            "message": "CLU is running",
+            "version": "1.0"
+        }), 200
+    except Exception as e:
+        return jsonify({
+            "status": "unhealthy",
+            "error": str(e)
+        }), 500
+
+@app.route('/gcd-status')
+def gcd_status():
+    """Check GCD data status"""
+    try:
+        gcd_data_dir = "/app/gcd_data"
+        metadata_file = os.path.join(gcd_data_dir, "metadata.txt")
+
+        status = {
+            "gcd_enabled": os.environ.get('GCD_ENABLED', 'false').lower() == 'true',
+            "database_configured": bool(os.environ.get('DATABASE_URL')),
+            "metadata_exists": os.path.exists(metadata_file),
+            "gcd_data_dir": gcd_data_dir
+        }
+
+        if status["metadata_exists"]:
+            with open(metadata_file, 'r') as f:
+                status["metadata"] = f.read()
+
+        # Check for GCD data files
+        if os.path.exists(gcd_data_dir):
+            gcd_files = []
+            for filename in os.listdir(gcd_data_dir):
+                if any(pattern in filename.lower() for pattern in ['gcd', 'comics']):
+                    if filename.endswith(('.sql', '.sql.gz', '.zip')):
+                        file_path = os.path.join(gcd_data_dir, filename)
+                        gcd_files.append({
+                            "name": filename,
+                            "size": os.path.getsize(file_path),
+                            "modified": datetime.fromtimestamp(os.path.getmtime(file_path)).isoformat()
+                        })
+            status["gcd_files"] = gcd_files
+
+        return jsonify(status)
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/gcd-import', methods=['POST'])
+def trigger_gcd_import():
+    """Trigger GCD data import"""
+    try:
+        import subprocess
+
+        # Run the import script
+        result = subprocess.run([
+            'python3', '/app/scripts/download_gcd.py', '--import'
+        ], capture_output=True, text=True, timeout=3600)  # 1 hour timeout
+
+        return jsonify({
+            "success": result.returncode == 0,
+            "stdout": result.stdout,
+            "stderr": result.stderr,
+            "returncode": result.returncode
+        })
+
+    except subprocess.TimeoutExpired:
+        return jsonify({
+            "success": False,
+            "error": "Import operation timed out (1 hour limit)"
+        }), 408
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
 
 #########################
 #   Application Start   #

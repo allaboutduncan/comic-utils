@@ -455,10 +455,60 @@
 {% block scripts %}
 {{ super() }}
 <script>
+    // Toast notification system for config.html
+    function showToast(message, type = 'info', duration = 5000) {
+        // Create toast container if it doesn't exist
+        let container = document.getElementById('toast-container');
+        if (!container) {
+            container = document.createElement('div');
+            container.id = 'toast-container';
+            container.className = 'toast-container position-fixed top-0 end-0 p-3';
+            container.style.zIndex = '9999';
+            document.body.appendChild(container);
+        }
+
+        const toastId = 'toast-' + Date.now();
+        const iconMap = {
+            'success': 'bi-check-circle-fill text-success',
+            'error': 'bi-exclamation-triangle-fill text-danger',
+            'warning': 'bi-exclamation-triangle-fill text-warning',
+            'info': 'bi-info-circle-fill text-info'
+        };
+
+        const toastHtml = `
+            <div id="${toastId}" class="toast bg-white border-0 shadow" role="alert" aria-live="assertive" aria-atomic="true">
+                <div class="toast-header">
+                    <i class="bi ${iconMap[type]} me-2"></i>
+                    <strong class="me-auto">${type.charAt(0).toUpperCase() + type.slice(1)}</strong>
+                    <button type="button" class="btn-close" data-bs-dismiss="toast" aria-label="Close"></button>
+                </div>
+                <div class="toast-body">
+                    ${message}
+                </div>
+            </div>
+        `;
+
+        container.insertAdjacentHTML('beforeend', toastHtml);
+        const toastElement = document.getElementById(toastId);
+        const toast = new bootstrap.Toast(toastElement, {
+            delay: duration,
+            autohide: duration > 0
+        });
+
+        toast.show();
+
+        // Remove from DOM after hiding
+        toastElement.addEventListener('hidden.bs.toast', () => {
+            toastElement.remove();
+        });
+
+        return toast;
+    }
+
     function restartApp() {
         fetch('/restart', { method: 'POST' })
         .then(response => response.json())
-        .then(data => alert(data.message))
+        .then(data => showToast(data.message, 'success'))
         .catch(error => console.error('Error:', error));
     }
     

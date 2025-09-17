@@ -45,3 +45,59 @@
     .grid-filter-buttons {
         grid-template-columns: repeat(auto-fill, minmax(50px, 1fr));
     }
+
+    /* Drag and drop hover effects */
+    .folder-hover {
+        background-color: #e3f2fd !important;
+        border-color: #2196f3 !important;
+        transform: scale(1.02);
+        transition: all 0.2s ease;
+        box-shadow: 0 4px 8px rgba(33, 150, 243, 0.3);
+    }
+
+    .hover {
+        background-color: #f0f8ff !important;
+        border: 2px dashed #2196f3 !important;
+        transition: all 0.2s ease;
+    }
+
+    /* Selected file highlighting */
+    .list-group-item.selected {
+        background-color: #e3f2fd;
+        border-color: #2196f3;
+    }
+
+    /* Draggable items cursor */
+    .draggable {
+        cursor: grab;
+    }
+
+    .draggable:active {
+        cursor: grabbing;
+    }
+
+    .dragging {
+        opacity: 0.5;
+        transform: rotate(2deg);
+        transition: all 0.2s ease;
+    }
+
+    /* Drop target visual feedback */
+    .drop-target {
+        position: relative;
+    }
+
+    .drop-target.hover::before {
+        content: "Drop files here";
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        background: rgba(33, 150, 243, 0.9);
+        color: white;
+        padding: 1rem 2rem;
+        border-radius: 0.5rem;
+        font-weight: bold;
+        z-index: 1000;
+        pointer-events: none;
+    }

@@ -625,7 +625,7 @@ function runScript(scriptType) {
 function executeScript(scriptType) {
     const directoryInput = document.getElementById('selected-directory').value.trim();
     if (!directoryInput) {
-        alert("Please select a directory or file first.");
+        showToast("Please select a directory or file first.", "warning");
         return;
     }
     if (currentEventSource) {
@@ -920,12 +920,12 @@ document.addEventListener('DOMContentLoaded', () => {
                     }
                     window.location.href = '/';
                 } else {
-                    alert("Error: " + data.error);
+                    showToast("Error: " + data.error, "error");
                 }
             })
             .catch(error => {
                 console.error(error);
-                alert("An error occurred during processing.");
+                showToast("An error occurred during processing.", "error");
             });
         });
     }
@@ -957,12 +957,12 @@ document.addEventListener('DOMContentLoaded', () => {
                     document.getElementById('edit').classList.add('collapse');
                     document.getElementById('single').classList.remove('collapse');
                 } else {
-                    alert("Error: " + data.error);
+                    showToast("Error: " + data.error, "error");
                 }
             })
             .catch(error => {
                 console.error(error);
-                alert("An error occurred during processing.");
+                showToast("An error occurred during processing.", "error");
             });
         });
     }
@@ -1072,12 +1072,12 @@ function performRename(input) {
             // After updating the filename, re-sort the inline edit cards.
             sortInlineEditCards();
         } else {
-            alert('Error renaming file: ' + data.error);
+            showToast('Error renaming file: ' + data.error, "error");
         }
     })
     .catch(error => {
         console.error('Error:', error);
-        alert('An error occurred while renaming the file.');
+        showToast('An error occurred while renaming the file.', "error");
     });
 }
 
@@ -1113,12 +1113,12 @@ function deleteCardImage(buttonElement) {
                 colElement.remove();
             }, 300);
         } else {
-            alert("Error deleting image: " + data.error);
+            showToast("Error deleting image: " + data.error, "error");
         }
     })
     .catch(error => {
         console.error("Error:", error);
-        alert("An error occurred while deleting the image.");
+        showToast("An error occurred while deleting the image.", "error");
     });
 }
 
@@ -1189,12 +1189,12 @@ function processCropImage(buttonElement, cropType) {
             sortInlineEditCards();
 
         } else {
-            alert("Error cropping image: " + data.error);
+            showToast("Error cropping image: " + data.error, "error");
         }
     })
     .catch(error => {
         console.error("Error:", error);
-        alert("An error occurred while cropping the image.");
+        showToast("An error occurred while cropping the image.", "error");
     });
 }
 
@@ -1248,6 +1248,56 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 });
+
+// Toast notification system for index.html
+function showToast(message, type = 'info', duration = 5000) {
+    // Create toast container if it doesn't exist
+    let container = document.getElementById('toast-container');
+    if (!container) {
+        container = document.createElement('div');
+        container.id = 'toast-container';
+        container.className = 'toast-container position-fixed top-0 end-0 p-3';
+        container.style.zIndex = '9999';
+        document.body.appendChild(container);
+    }
+
+    const toastId = 'toast-' + Date.now();
+    const iconMap = {
+        'success': 'bi-check-circle-fill text-success',
+        'error': 'bi-exclamation-triangle-fill text-danger',
+        'warning': 'bi-exclamation-triangle-fill text-warning',
+        'info': 'bi-info-circle-fill text-info'
+    };
+
+    const toastHtml = `
+        <div id="${toastId}" class="toast bg-white border-0 shadow" role="alert" aria-live="assertive" aria-atomic="true">
+            <div class="toast-header">
+                <i class="bi ${iconMap[type]} me-2"></i>
+                <strong class="me-auto">${type.charAt(0).toUpperCase() + type.slice(1)}</strong>
+                <button type="button" class="btn-close" data-bs-dismiss="toast" aria-label="Close"></button>
+            </div>
+            <div class="toast-body">
+                ${message}
+            </div>
+        </div>
+    `;
+
+    container.insertAdjacentHTML('beforeend', toastHtml);
+    const toastElement = document.getElementById(toastId);
+    const toast = new bootstrap.Toast(toastElement, {
+        delay: duration,
+        autohide: duration > 0
+    });
+
+    toast.show();
+
+    // Remove from DOM after hiding
+    toastElement.addEventListener('hidden.bs.toast', () => {
+        toastElement.remove();
+    });
+
+    return toast;
+}
 
 </script>
 

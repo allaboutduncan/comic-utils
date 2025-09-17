@@ -1,0 +1,2447 @@
+// Global variables to track current navigation paths.
+let currentSourcePath = '/data';
+let currentDestinationPath = '/data';
+// Global variables for deletion.
+let deleteTarget = "";
+let deletePanel = ""; // 'source' or 'destination'
+// Global variable to hold selected file paths.
+let selectedFiles = new Set();
+// Global variable to track the last clicked file element (for SHIFT selection).
+let lastClickedFile = null;
+
+// Store raw data for each panel.
+let sourceDirectoriesData = null;
+let destinationDirectoriesData = null;
+
+// Track current filter (default is 'all') per panel.
+let currentFilter = { source: 'all', destination: 'all' };
+
+// Format file size helper function
+function formatSize(bytes) {
+      const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+      if (bytes === 0) return '0 B';
+      const i = parseInt(Math.floor(Math.log(bytes) / Math.log(1024)));
+      return (bytes / Math.pow(1024, i)).toFixed(1) + ' ' + sizes[i];
+    }
+
+    // Helper function to create drop target item
+    function createDropTargetItem(container, currentPath, panel) {
+      let dropTargetItem = document.createElement("li");
+      dropTargetItem.className = "list-group-item text-center drop-target-item";
+      dropTargetItem.textContent = "... Drop Files Here";
+      
+      dropTargetItem.addEventListener("dragover", function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        dropTargetItem.classList.add("folder-hover");
+      });
+      dropTargetItem.addEventListener("dragleave", function(e) {
+        e.stopPropagation();
+        dropTargetItem.classList.remove("folder-hover");
+      });
+      dropTargetItem.addEventListener("drop", function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        dropTargetItem.classList.remove("folder-hover");
+        let dataStr = e.dataTransfer.getData("text/plain");
+        let items;
+        try {
+          items = JSON.parse(dataStr);
+          if (!Array.isArray(items)) {
+            items = [items];
+          }
+        } catch (err) {
+          items = [{ path: dataStr, type: "unknown" }];
+        }
+        let paths = items.map(item => item.path);
+        moveMultipleItems(paths, currentPath, panel);
+        selectedFiles.clear();
+      });
+      
+      container.appendChild(dropTargetItem);
+    }
+
+    // Normalize file object (handles both {name, size} or string)
+    function normalizeFile(file) {
+      if (typeof file === 'object' && file.name) return file;
+      return { name: file, size: null };
+    }
+  
+    // Function to send a rename request.
+    function renameItem(oldPath, newName, panel) {
+      if (typeof oldPath !== "string" || typeof newName !== "string") {
+        console.error("Invalid oldPath or newName:", { oldPath, newName });
+        alert("Rename failed: Internal path error (non-string input)");
+        return;
+      }
+
+      const trimmedName = newName.trim();
+      if (!trimmedName) {
+        alert("Filename cannot be empty.");
+        return;
+      }
+
+      let pathParts = oldPath.split('/');
+      pathParts[pathParts.length - 1] = trimmedName;
+      const newPath = pathParts.join('/');
+
+      console.log("renameItem called:");
+      console.log("  oldPath:", oldPath);
+      console.log("  newName:", newName);
+      console.log("  newPath:", newPath);
+
+      fetch('/rename', {
+        method: 'POST',
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ old: oldPath, new: newPath })
+      })
+      .then(response => response.json())
+      .then(result => {
+        if (result.success) {
+          if (panel === 'source') {
+            loadDirectories(currentSourcePath, 'source');
+          } else {
+            loadDirectories(currentDestinationPath, 'destination');
+          }
+        } else {
+          alert("Error renaming item: " + result.error);
+        }
+      })
+      .catch(error => {
+        console.error("Error in rename request:", error);
+        alert("Rename failed due to a network or server error.");
+      });
+    }
+  
+    // Function to send a delete request.
+    function deleteItem(target, panel) {
+      // Find the list item element to remove from UI
+      let container = panel === 'source' ? document.getElementById("source-list") : document.getElementById("destination-list");
+      let itemToRemove = container.querySelector(`li[data-fullpath="${target}"]`);
+      
+      if (!itemToRemove) {
+        console.warn("Could not find item to remove from UI:", target);
+        // Fallback to refreshing the directory listing
+        if(panel === 'source') {
+          loadDirectories(currentSourcePath, 'source');
+        } else {
+          loadDirectories(currentDestinationPath, 'destination');
+        }
+        return;
+      }
+      
+      // Prevent multiple delete operations on the same item
+      if (itemToRemove.classList.contains('deleting')) {
+        console.warn("Item is already being deleted:", target);
+        return;
+      }
+      
+      // Add fade-out animation before removing
+      itemToRemove.classList.add('deleting');
+      
+      // Also remove from selectedFiles if it was selected
+      if (selectedFiles.has(target)) {
+        selectedFiles.delete(target);
+      }
+      
+      // Remove the item from UI after animation completes
+      setTimeout(() => {
+        // Check if the item is still in the DOM before removing
+        if (itemToRemove && itemToRemove.parentNode) {
+          itemToRemove.remove();
+          
+          // After removal, check if we need to show the drop target in destination panel
+          if (panel === 'destination') {
+            let container = document.getElementById("destination-list");
+            let remainingItems = container.querySelectorAll("li:not(.drop-target-item)");
+            
+            // If no items left (excluding drop target), add the drop target
+            if (remainingItems.length === 0) {
+              createDropTargetItem(container, currentDestinationPath, panel);
+            }
+          }
+        }
+      }, 200); // Match the CSS transition duration
+      
+      // Send delete request to server
+      fetch('/delete', {
+        method: 'POST',
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({ target: target })
+      })
+      .then(response => response.json())
+      .then(result => {
+        if(result.success) {
+          // Item already removed from UI, no need to refresh
+          console.log("Item deleted successfully:", target);
+        } else {
+          // If deletion failed, restore the item to UI
+          console.error("Delete failed, restoring item to UI:", result.error);
+          if (itemToRemove && container && itemToRemove.parentNode === null) {
+            // Remove the deleting class and restore the item only if it's not already in the DOM
+            itemToRemove.classList.remove('deleting');
+            container.appendChild(itemToRemove);
+          }
+          alert("Error deleting item: " + result.error);
+        }
+      })
+      .catch(error => {
+        console.error("Error in delete request:", error);
+        // If network error, restore the item to UI
+        if (itemToRemove && container && itemToRemove.parentNode === null) {
+          // Remove the deleting class and restore the item only if it's not already in the DOM
+          itemToRemove.classList.remove('deleting');
+          container.appendChild(itemToRemove);
+        }
+        alert("Delete failed due to a network or server error.");
+      });
+    }
+  
+    // Function to create a list item with edit and delete functionality.
+    function createListItem(itemName, fullPath, type, panel, isDraggable) {
+      let li = document.createElement("li");
+      li.className = "list-group-item d-flex align-items-center justify-content-between";
+      li.dataset.fullpath = fullPath;
+
+      let fileData = typeof itemName === "object" ? itemName : { name: itemName, size: null };
+
+      let leftContainer = document.createElement("div");
+      leftContainer.className = "d-flex align-items-center";
+      
+      // Create icon container early to avoid undefined reference
+      let iconContainer = document.createElement("div");
+      iconContainer.className = "btn-group";
+      iconContainer.setAttribute("role", "group");
+      iconContainer.setAttribute("aria-label", "File actions");
+
+      if (fileData.name.toLowerCase() !== "parent") {
+        let icon = document.createElement("i");
+        icon.className = (type === "directory") ? "bi bi-folder me-2" : "bi bi-file-earmark-zip me-2";
+        if (type === "directory") icon.style.color = "#bf9300";
+        leftContainer.appendChild(icon);
+        
+        // Track file additions for rename button visibility (only actual files, not directories)
+        console.log(`createListItem: type=${type}, name=${fileData.name}, panel=${panel}`);
+        if (type === "file") {
+          trackFileForRename(panel);
+        }
+      }
+
+      let nameSpan = document.createElement("span");
+      if (type === "file" && fileData.size != null) {
+        nameSpan.innerHTML = `${fileData.name} <span class="text-info-emphasis small ms-2">(${formatSize(fileData.size)})</span>`;
+      } else {
+        nameSpan.textContent = fileData.name;
+      }
+      leftContainer.appendChild(nameSpan);
+      
+      // Add CBZ info functionality
+      if (type === "file" && fileData.name.toLowerCase().endsWith('.cbz')) {
+        // Add info button for detailed CBZ information
+        const infoBtn = document.createElement("button");
+        infoBtn.className = "btn btn-sm btn-outline-secondary";
+        infoBtn.innerHTML = '<i class="bi bi-eye"></i>';
+        infoBtn.title = "CBZ Information";
+        infoBtn.setAttribute("type", "button");
+        infoBtn.onclick = function(e) {
+          e.stopPropagation();
+          showCBZInfo(fullPath, fileData.name);
+        };
+        iconContainer.appendChild(infoBtn);
+      }
+
+      if (type === "directory") {
+        const infoWrapper = document.createElement("span");
+        infoWrapper.className = "me-2";
+
+        const infoIcon = document.createElement("button");
+        infoIcon.className = "btn btn-sm btn-outline-info";
+        infoIcon.innerHTML = '<i class="bi bi-info-circle"></i>';
+        infoIcon.title = "Show folder information";
+        infoIcon.setAttribute("type", "button");
+
+        const sizeDisplay = document.createElement("span");
+        sizeDisplay.className = "text-info-emphasis small ms-2";
+
+        infoIcon.onclick = function (e) {
+          e.stopPropagation();
+          infoIcon.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
+
+          fetch(`/folder-size?path=${encodeURIComponent(fullPath)}`)
+            .then(res => res.json())
+            .then(data => {
+              if (data.size != null) {
+                let displayText = formatSize(data.size);
+                const parts = [];
+
+                if (data.comic_count && data.comic_count > 0) {
+                  parts.push(`${data.comic_count} comic${data.comic_count !== 1 ? 's' : ''}`);
+                }
+
+                if (data.magazine_count && data.magazine_count > 0) {
+                  parts.push(`${data.magazine_count} magazine${data.magazine_count !== 1 ? 's' : ''}`);
+                }
+
+                if (parts.length > 0) {
+                  displayText += " – " + parts.join(" – ");
+                }
+
+                sizeDisplay.textContent = `(${displayText})`;
+              } else {
+                sizeDisplay.textContent = "(error)";
+              }
+
+              // Remove the icon after success
+              infoWrapper.removeChild(infoIcon);
+            })
+            .catch(err => {
+              console.error("Error calculating folder size:", err);
+              sizeDisplay.textContent = "(error)";
+              infoIcon.innerHTML = '<i class="bi bi-info-circle"></i>'; // restore fallback
+            });
+        };
+
+        infoWrapper.appendChild(infoIcon);
+        infoWrapper.appendChild(sizeDisplay);
+        iconContainer.appendChild(infoWrapper);
+        
+        // Add rename button for directories (but not for Parent directory)
+        if (fileData.name !== "Parent") {
+          const renameBtn = document.createElement("button");
+          renameBtn.className = "btn btn-sm btn-outline-primary";
+          renameBtn.innerHTML = '<i class="bi bi-input-cursor-text"></i>';
+          renameBtn.title = "Rename files in this directory";
+          renameBtn.setAttribute("type", "button");
+          renameBtn.addEventListener("click", function(e) {
+            if (e) e.stopPropagation();
+            console.log('Rename button clicked for directory:', fullPath);
+            // Call the rename_files function from rename.py
+            fetch('/rename-directory', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ directory: fullPath })
+            })
+            .then(response => {
+              console.log('Rename response status:', response.status);
+              return response.json();
+            })
+            .then(result => {
+              console.log('Rename result:', result);
+              if (result.success) {
+                // Show success message using the enhanced showToast function
+                showToast('Rename Successful', `Successfully renamed files in ${fileData.name}`, 'success');
+                // Refresh the current directory listing
+                if (panel === 'source') {
+                  loadDirectories(currentSourcePath, 'source');
+                } else {
+                  loadDirectories(currentDestinationPath, 'destination');
+                }
+              } else {
+                // Show error message
+                if (window.bootstrap && document.getElementById("moveErrorToast")) {
+                  document.getElementById("moveErrorToastBody").textContent = `RENAME ERROR: ${result.error}`;
+                  bootstrap.Toast.getOrCreateInstance(document.getElementById("moveErrorToast")).show();
+                } else {
+                  alert(`RENAME ERROR: ${result.error}`);
+                }
+              }
+            })
+            .catch(error => {
+              console.error("Error calling rename function:", error);
+              if (window.bootstrap && document.getElementById("moveErrorToast")) {
+                document.getElementById("moveErrorToastBody").textContent = `RENAME ERROR: ${error.message}`;
+                bootstrap.Toast.getOrCreateInstance(document.getElementById("moveErrorToast")).show();
+              } else {
+                alert(`RENAME ERROR: ${error.message}`);
+              }
+            });
+          });
+          iconContainer.appendChild(renameBtn);
+        }
+      }
+
+      if (fileData.name !== "Parent") {
+        let pencil = document.createElement("button");
+        pencil.className = "btn btn-sm btn-outline-secondary";
+        pencil.innerHTML = '<i class="bi bi-pencil"></i>';
+        pencil.title = "Edit filename";
+        pencil.setAttribute("type", "button");
+
+        pencil.addEventListener("click", e => {
+          e.stopPropagation();
+          const liElem = e.currentTarget.closest("li");
+          const oldPath = liElem.dataset.fullpath;
+          const nameSpanElem = liElem.querySelector("span");
+
+          const input = document.createElement("input");
+          input.type = "text";
+          input.className = "form-control form-control-sm edit-input";
+          input.value = typeof fileData === "object" ? fileData.name : fileData;
+          input.addEventListener("click", ev => ev.stopPropagation());
+
+          input.addEventListener("keypress", ev => {
+            if (ev.key === "Enter") {
+              const newName = input.value.trim();
+              if (!newName) return alert("Filename cannot be empty.");
+              renameItem(oldPath, newName, panel);
+            }
+          });
+
+          input.addEventListener("blur", () => {
+            liElem.replaceChild(leftContainer, input);
+          });
+
+          liElem.replaceChild(input, leftContainer);
+          input.focus();
+        });
+
+        let trash = document.createElement("button");
+        trash.className = "btn btn-sm btn-outline-danger";
+        trash.innerHTML = '<i class="bi bi-trash"></i>';
+        trash.title = "Delete file";
+        trash.setAttribute("type", "button");
+        trash.onclick = function(e) {
+          e.stopPropagation();
+          deleteTarget = fullPath;
+          deletePanel = panel;
+          document.getElementById("deleteItemName").textContent = fileData.name;
+          new bootstrap.Modal(document.getElementById("deleteModal")).show();
+        };
+
+        iconContainer.appendChild(pencil);
+        iconContainer.appendChild(trash);
+      }
+
+      li.appendChild(leftContainer);
+      li.appendChild(iconContainer);
+
+      if (type === "file") {
+        li.setAttribute("data-fullpath", fullPath);
+        li.addEventListener("click", function(e) {
+          if (e.ctrlKey || e.metaKey) {
+            e.preventDefault();
+            if (selectedFiles.has(fullPath)) {
+              selectedFiles.delete(fullPath);
+              li.classList.remove("selected");
+            } else {
+              selectedFiles.add(fullPath);
+              li.classList.add("selected");
+            }
+            lastClickedFile = li;
+          } else if (e.shiftKey) {
+            let container = li.parentNode;
+            let fileItems = Array.from(container.querySelectorAll("li.list-group-item"))
+              .filter(item => item.getAttribute("data-fullpath"));
+            if (!lastClickedFile) lastClickedFile = li;
+            let startIndex = fileItems.indexOf(lastClickedFile);
+            let endIndex = fileItems.indexOf(li);
+            if (startIndex === -1) startIndex = 0;
+            if (endIndex === -1) endIndex = 0;
+            let [minIndex, maxIndex] = startIndex < endIndex ? [startIndex, endIndex] : [endIndex, startIndex];
+            for (let i = minIndex; i <= maxIndex; i++) {
+              let item = fileItems[i];
+              selectedFiles.add(item.getAttribute("data-fullpath"));
+              item.classList.add("selected");
+            }
+          } else {
+            selectedFiles.clear();
+            document.querySelectorAll("li.list-group-item.selected").forEach(item => {
+              item.classList.remove("selected");
+            });
+            selectedFiles.add(fullPath);
+            li.classList.add("selected");
+            lastClickedFile = li;
+          }
+          e.stopPropagation();
+        });
+
+        li.addEventListener("contextmenu", e => e.preventDefault());
+      }
+
+      if (type === "directory") {
+        // Set data-fullpath for directories so they can be found during deletion
+        li.setAttribute("data-fullpath", fullPath);
+        
+        li.onclick = function() {
+          currentFilter[panel] = 'all';
+          loadDirectories(fullPath, panel);
+        };
+        if (fileData.name.toLowerCase() !== "parent") {
+          li.addEventListener("dragover", e => { e.preventDefault(); li.classList.add("folder-hover"); });
+          li.addEventListener("dragleave", e => { li.classList.remove("folder-hover"); });
+          li.addEventListener("drop", function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            li.classList.remove("folder-hover");
+
+            let dataStr = e.dataTransfer.getData("text/plain");
+            let items;
+            try {
+              items = JSON.parse(dataStr);
+              if (!Array.isArray(items)) items = [items];
+            } catch {
+              items = [{ path: dataStr, type: "unknown" }];
+            }
+            
+            let targetDir = fullPath;
+            let dedupedPaths = new Set();
+
+            items.forEach(item => {
+              let sourcePath = item.path;
+              let sourceDir = sourcePath.substring(0, sourcePath.lastIndexOf('/'));
+              if (sourceDir !== targetDir && !dedupedPaths.has(sourcePath)) {
+                dedupedPaths.add(sourcePath);
+              }
+            });
+
+            const paths = [...dedupedPaths];
+            if (paths.length === 0) return;
+
+            if (paths.length === 1 && items[0].type === "file") {
+              moveSingleItem(paths[0], targetDir);
+            } else {
+              // Pass item types for better progress tracking
+              moveMultipleItems(paths, targetDir, panel, items);
+            } 
+            selectedFiles.clear();
+          });
+        }
+      } else {
+        li.onclick = e => e.stopPropagation();
+      }
+
+      if (isDraggable) {
+        li.classList.add("draggable");
+        li.setAttribute("draggable", "true");
+        li.addEventListener("dragstart", function(e) {
+          if (type === "file") {
+            if (selectedFiles.has(fullPath)) {
+              e.dataTransfer.setData("text/plain", JSON.stringify([...selectedFiles].map(path => ({ path, type: "file" }))));
+              // Set drag image for multiple files
+              e.dataTransfer.effectAllowed = "move";
+
+              // Create custom drag image showing count
+              const dragCount = selectedFiles.size;
+              if (dragCount > 1) {
+                const dragImage = document.createElement('div');
+                dragImage.className = 'drag-preview';
+                dragImage.textContent = `${dragCount} files`;
+                dragImage.style.cssText = 'position: absolute; top: -1000px; background: #2196f3; color: white; padding: 0.5rem; border-radius: 0.25rem; font-weight: bold;';
+                document.body.appendChild(dragImage);
+                e.dataTransfer.setDragImage(dragImage, 50, 25);
+                setTimeout(() => document.body.removeChild(dragImage), 0);
+              }
+            } else {
+              selectedFiles.clear();
+              document.querySelectorAll("li.list-group-item.selected").forEach(item => item.classList.remove("selected"));
+              selectedFiles.add(fullPath);
+              li.classList.add("selected");
+              e.dataTransfer.setData("text/plain", JSON.stringify([{ path: fullPath, type: "file" }]));
+              e.dataTransfer.effectAllowed = "move";
+            }
+          } else {
+            e.dataTransfer.setData("text/plain", JSON.stringify([{ path: fullPath, type: "directory" }]));
+            e.dataTransfer.effectAllowed = "move";
+          }
+
+          // Add dragging class for visual feedback
+          li.classList.add("dragging");
+          setTimeout(() => li.classList.remove("dragging"), 50);
+        });
+      }
+
+      return li;
+    }
+  
+    // Function to dynamically build the filter bar.
+    function updateFilterBar(panel, directories) {
+      const outerContainer = document.getElementById(`${panel}-directory-filter`);
+      if (!outerContainer) return;
+      const btnGroup = outerContainer.querySelector('.btn-group');
+      if (!btnGroup) return;
+
+      let availableLetters = new Set();
+      let hasNonAlpha = false;
+  
+      directories.forEach(dir => {
+        const firstChar = dir.charAt(0).toUpperCase();
+        if (firstChar >= 'A' && firstChar <= 'Z') {
+          availableLetters.add(firstChar);
+        } else {
+          hasNonAlpha = true;
+        }
+      });
+  
+      let buttonsHtml = '';
+      buttonsHtml += `<button type="button" class="btn btn-outline-secondary ${currentFilter[panel] === 'all' ? 'active' : ''}" onclick="filterDirectories('all', '${panel}')">All</button>`;
+      
+      if (hasNonAlpha) {
+        buttonsHtml += `<button type="button" class="btn btn-outline-secondary ${currentFilter[panel] === '#' ? 'active' : ''}" onclick="filterDirectories('#', '${panel}')">#</button>`;
+      }
+      
+      for (let i = 65; i <= 90; i++) {
+        const letter = String.fromCharCode(i);
+        if (availableLetters.has(letter)) {
+          buttonsHtml += `<button type="button" class="btn btn-outline-secondary ${currentFilter[panel] === letter ? 'active' : ''}" onclick="filterDirectories('${letter}', '${panel}')">${letter}</button>`;
+        }
+      }
+      btnGroup.innerHTML = buttonsHtml;
+      // --- SEARCH BOX LOGIC (destination only, >25 dirs) ---
+      if (panel === 'destination') {
+        const searchRow = document.getElementById('destination-directory-search-row');
+        if (directories.length > 25) {
+          searchRow.innerHTML = `<input type="text" id="destination-directory-search" class="form-control mb-2" placeholder="Type to filter directories..." oninput="onDestinationDirectorySearch(this.value)">`;
+        } else {
+          searchRow.innerHTML = '';
+        }
+      }
+    }
+    
+    // --- SEARCH STATE FOR DESTINATION PANEL ---
+    let destinationSearchTerm = '';
+    function onDestinationDirectorySearch(val) {
+      destinationSearchTerm = val.trim().toLowerCase();
+      if (destinationDirectoriesData) {
+        renderDirectoryListing(destinationDirectoriesData, 'destination');
+      }
+    }
+    // Updated loadDirectories function.
+function loadDirectories(path, panel) {
+      console.log("loadDirectories called with path:", path, "panel:", panel);
+      document.getElementById('btnDirectories').classList.add('active');
+      document.getElementById('btnDownloads').classList.remove('active');
+      window.scrollTo({ top: 0, behavior: "smooth" });
+      let container = panel === 'source' ? document.getElementById("source-list")
+                                         : document.getElementById("destination-list");
+      if (!container) {
+        console.error("Container not found for panel:", panel);
+        return;
+      }
+      container.innerHTML = `<div class="d-flex justify-content-center my-3">
+                                <button class="btn btn-primary" type="button" disabled>
+                                  <span class="spinner-grow spinner-grow-sm" role="status" aria-hidden="true"></span>
+                                  Loading...
+                                </button>
+                              </div>`;
+      fetch(`/list-directories?path=${encodeURIComponent(path)}`)
+        .then(response => response.json())
+        .then(data => {
+          console.log("Received data:", data);
+          
+          // Reset file tracking for this panel
+          resetFileTracking(panel, data.current_path);
+          
+          if (panel === 'source') {
+            currentSourcePath = data.current_path;
+            updateBreadcrumb('source', data.current_path);
+            sourceDirectoriesData = data;
+            updateFilterBar('source', data.directories);
+            renderDirectoryListing(data, 'source');
+          } else {
+            currentDestinationPath = data.current_path;
+            updateBreadcrumb('destination', data.current_path);
+            destinationDirectoriesData = data;
+            // Reset search filter and input on navigation
+            destinationSearchTerm = '';
+            const searchInput = document.getElementById('destination-directory-search');
+            if (searchInput) searchInput.value = '';
+            updateFilterBar('destination', data.directories);
+            renderDirectoryListing(data, 'destination');
+          }
+        })
+        .catch(error => {
+          console.error("Error loading directories:", error);
+          container.innerHTML = `<div class="alert alert-danger" role="alert">
+                                    Error loading directory.
+                                  </div>`;
+        });
+    }
+  
+    // Function to render the directory listing.
+    function renderDirectoryListing(data, panel) {
+      let container = panel === 'source' ? document.getElementById("source-list")
+                                        : document.getElementById("destination-list");
+      container.innerHTML = "";
+      
+      if (data.parent) {
+        let parentItem = createListItem("Parent", data.parent, "directory", panel, false);
+        parentItem.querySelector("span").innerHTML = `<i class="bi bi-arrow-left-square me-2"></i> Parent`;
+        // Ensure Parent directory has data-fullpath for consistency
+        parentItem.setAttribute("data-fullpath", data.parent);
+        container.appendChild(parentItem);
+      }
+      
+      let filter = currentFilter[panel];
+      let directoriesToShow = data.directories.filter(dir => {
+        // --- SEARCH FILTER FOR DESTINATION PANEL ---
+        if (panel === 'destination' && destinationSearchTerm) {
+          if (!dir.toLowerCase().includes(destinationSearchTerm)) return false;
+        }
+        // --- END SEARCH FILTER ---
+        if (filter === 'all') return true;
+        if (filter === '#') return !/^[A-Za-z]/.test(dir.charAt(0));
+        return dir.charAt(0).toUpperCase() === filter;
+      });
+      
+      directoriesToShow.forEach(dir => {
+        let fullPath = data.current_path + "/" + dir;
+        let item = createListItem(dir, fullPath, "directory", panel, true);
+        container.appendChild(item);
+      });
+      
+      if (filter === 'all') {
+        data.files.forEach(file => {
+          const fileData = normalizeFile(file);
+          const fullPath = data.current_path + "/" + fileData.name;
+          let fileItem = createListItem(fileData, fullPath, "file", panel, true);
+          container.appendChild(fileItem);
+        });
+      }
+      
+      // For the destination panel, only add the drop target if the directory is truly empty.
+      if (panel === 'destination' && data.directories.length === 0 && data.files.length === 0) {
+        createDropTargetItem(container, data.current_path, panel);
+      }
+    }
+  
+    // Function to filter directories based on the selected letter.
+function filterDirectories(letter, panel) {
+      if (currentFilter[panel] === letter) {
+        currentFilter[panel] = 'all';
+      } else {
+        currentFilter[panel] = letter;
+      }
+      let filterContainer = document.getElementById(panel + "-directory-filter");
+      if (filterContainer) {
+        let btnGroup = filterContainer.querySelector('.btn-group');
+        if (btnGroup) {
+          let buttons = btnGroup.querySelectorAll("button");
+          buttons.forEach(btn => {
+            let btnText = btn.textContent.trim();
+            if ((currentFilter[panel] === 'all' && btnText === 'All') || btnText === currentFilter[panel]) {
+              btn.classList.add("active");
+            } else {
+              btn.classList.remove("active");
+            }
+          });
+        }
+      }
+      if (panel === 'source' && sourceDirectoriesData) {
+        renderDirectoryListing(sourceDirectoriesData, panel);
+      } else if (panel === 'destination' && destinationDirectoriesData) {
+        renderDirectoryListing(destinationDirectoriesData, panel);
+      }
+    }
+  
+    // New loadDownloads function to fetch downloads data.
+function loadDownloads(path, panel) {
+      console.log("loadDownloads called with path:", path, "panel:", panel);
+      document.getElementById('btnDownloads').classList.add('active');
+      document.getElementById('btnDirectories').classList.remove('active');
+      window.scrollTo({ top: 0, behavior: "smooth" });
+      let container = panel === 'source' ? document.getElementById("source-list")
+                                         : document.getElementById("destination-list");
+      if (!container) {
+        console.error("Container not found for panel:", panel);
+        return;
+      }
+      container.innerHTML = `<div class="d-flex justify-content-center my-3">
+                                <button class="btn btn-primary" type="button" disabled>
+                                  <span class="spinner-grow spinner-grow-sm" role="status" aria-hidden="true"></span>
+                                  Loading...
+                                </button>
+                              </div>`;
+      fetch(`/list-downloads?path=${encodeURIComponent(path)}`)
+        .then(response => response.json())
+        .then(data => {
+          console.log("Received data:", data);
+          container.innerHTML = "";
+          
+          // Reset file tracking for this panel
+          resetFileTracking(panel, data.current_path);
+          
+          if (panel === 'source') {
+            currentSourcePath = data.current_path;
+            updateBreadcrumb('source', data.current_path);
+          } else {
+            currentDestinationPath = data.current_path;
+            updateBreadcrumb('destination', data.current_path);
+          }
+          if (data.parent) {
+            let parentItem = createListItem("Parent", data.parent, "directory", panel, false);
+            parentItem.querySelector("span").innerHTML = `<i class="bi bi-arrow-left-square me-2"></i> Parent`;
+            // Ensure Parent directory has data-fullpath for consistency
+            parentItem.setAttribute("data-fullpath", data.parent);
+            container.appendChild(parentItem);
+          }
+          data.directories.forEach(dir => {
+            const dirData = normalizeFile(dir);
+            const fullPath = data.current_path + "/" + dirData.name;
+            const item = createListItem(dirData, fullPath, "directory", panel, true);
+            container.appendChild(item);
+          });
+          data.files.forEach(file => {
+            const fileData = normalizeFile(file);
+            const fullPath = data.current_path + "/" + fileData.name;
+            let fileItem = createListItem(fileData, fullPath, "file", panel, true);
+            container.appendChild(fileItem);
+          });
+        })
+        .catch(error => {
+          console.error("Error loading downloads:", error);
+          container.innerHTML = `<div class="alert alert-danger" role="alert">
+                                    Error loading downloads.
+                                  </div>`;
+        });
+    }
+  
+// Initialize when DOM is loaded
+document.addEventListener('DOMContentLoaded', function() {
+  // Initialize rename rows as hidden
+  document.getElementById('source-directory-rename-row').style.display = 'none';
+  document.getElementById('destination-directory-rename-row').style.display = 'none';
+
+  // Initial load for both panels.
+  loadDirectories(currentSourcePath, 'source');
+  loadDirectories(currentDestinationPath, 'destination');
+
+  // Attach drop events.
+  setupDropEvents(document.getElementById("source-list"), 'source');
+  setupDropEvents(document.getElementById("destination-list"), 'destination');
+});
+  
+    // Function to move an item.
+    function moveItem(source, destination) {
+      fetch('/move', {
+        method: 'POST',
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({ source: source, destination: destination })
+      })
+      .then(response => response.json())
+      .then(result => {
+        if(result.success) {
+          loadDirectories(currentSourcePath, 'source');
+          loadDirectories(currentDestinationPath, 'destination');
+        } else {
+          alert("Error moving file: " + result.error);
+        }
+      })
+      .catch(error => {
+        console.error("Error in move request:", error);
+      });
+    }
+
+    // Patch moveSingleItem to tolerate file objects
+    function moveSingleItem(sourcePath, targetFolder) {
+      let actualPath = typeof sourcePath === 'object' ? sourcePath.path || sourcePath.name : sourcePath;
+      showMovingModal();
+      let fileName = actualPath.split('/').pop();
+      setMovingStatus(`Moving ${fileName}`);
+      updateMovingProgress(0);
+
+      const xhr = new XMLHttpRequest();
+      xhr.open("POST", "/move", true);
+      xhr.setRequestHeader("Content-Type", "application/json");
+      xhr.setRequestHeader("X-Stream", "true");
+
+      let finished = false;
+      let lastResponseLength = 0;
+
+      function completeMove() {
+        if (!finished) {
+          finished = true;
+          xhr.onprogress = xhr.onreadystatechange = xhr.onerror = null;
+          updateMovingProgress(100);
+          setTimeout(() => {
+            hideMovingModal();
+
+            // Show success toast notification
+            showToast('Move Successful', `Successfully moved ${fileName}`, 'success');
+
+            setTimeout(() => {
+              loadDirectories(currentSourcePath, 'source');
+              loadDirectories(currentDestinationPath, 'destination');
+            }, 300);
+          }, 200);
+        }
+      }
+
+      xhr.onprogress = function(e) {
+        let newData = xhr.responseText.substring(lastResponseLength);
+        lastResponseLength = xhr.responseText.length;
+        let events = newData.split("\n\n");
+        events.forEach(event => {
+          if (event.startsWith("data: ")) {
+            let progressData = event.slice(6).trim();
+            if (progressData === "done") {
+              completeMove();
+            } else if (progressData.startsWith("error:")) {
+              console.error("Error:", progressData);
+            } else {
+              let percentComplete = parseInt(progressData);
+              updateMovingProgress(percentComplete);
+            }
+          }
+        });
+      };
+
+      xhr.onreadystatechange = function() {
+        if (xhr.readyState === XMLHttpRequest.DONE && !finished) {
+          completeMove();
+        }
+      };
+
+      xhr.onerror = function() {
+        alert("Error moving file: " + xhr.statusText);
+        hideMovingModal();
+      };
+
+      const payload = {
+        source: actualPath,
+        destination: targetFolder + "/" + fileName
+      };
+
+      xhr.send(JSON.stringify(payload));
+    }
+
+    // Set up drop events for a given panel element.
+    function setupDropEvents(element, panel) {
+      let autoScrollInterval = null;
+      function startAutoScroll(direction) {
+        if (autoScrollInterval !== null) return;
+        autoScrollInterval = setInterval(() => {
+          if (direction === "up") {
+            element.scrollTop -= 5;
+          } else if (direction === "down") {
+            element.scrollTop += 5;
+          }
+        }, 50);
+      }
+      function stopAutoScroll() {
+        if (autoScrollInterval !== null) {
+          clearInterval(autoScrollInterval);
+          autoScrollInterval = null;
+        }
+      }
+      element.addEventListener("dragover", function(e) {
+        e.preventDefault();
+        element.classList.add("hover");
+        let rect = element.getBoundingClientRect();
+        let threshold = 50;
+        let scrollDirection = null;
+        if (e.clientY - rect.top < threshold) {
+          scrollDirection = "up";
+        } else if (rect.bottom - e.clientY < threshold) {
+          scrollDirection = "down";
+        }
+        if (scrollDirection) {
+          startAutoScroll(scrollDirection);
+        } else {
+          stopAutoScroll();
+        }
+      });
+      element.addEventListener("dragleave", function(e) {
+        element.classList.remove("hover");
+        stopAutoScroll();
+      });
+      element.addEventListener("drop", function(e) {
+        e.preventDefault();
+        element.classList.remove("hover");
+        stopAutoScroll();
+        let dataStr = e.dataTransfer.getData("text/plain");
+        let items;
+        try {
+          items = JSON.parse(dataStr);
+          if (!Array.isArray(items)) {
+            items = [items];
+          }
+        } catch (err) {
+          items = [{ path: dataStr, type: "unknown" }];
+        }
+        let targetPath = panel === 'source' ? currentSourcePath : currentDestinationPath;
+        
+        // Filter out items whose source folder is the same as the target folder.
+        let validItems = items.filter(item => {
+          let sourcePath = item.path;
+          let sourceDir = sourcePath.substring(0, sourcePath.lastIndexOf('/'));
+          return sourceDir !== targetPath;
+        });
+        if (validItems.length === 0) {
+          console.log("All items dropped are in the same directory. Move cancelled.");
+          return;
+        }
+        
+        // If only one valid file item is being moved, call moveSingleItem for progress.
+        const paths = validItems.map(item => item.path);
+
+        // If *only one item is selected*, and no other selections exist, use moveSingleItem
+        if (paths.length === 1 && selectedFiles.size <= 1 && validItems[0].type === "file") {
+          moveSingleItem(paths[0], targetPath);
+        } else {
+          // Pass item types for better progress tracking
+          const itemsWithTypes = validItems.map(item => ({
+            path: item.path,
+            type: item.type
+          }));
+          moveMultipleItems(paths, targetPath, panel, itemsWithTypes);
+        }
+        selectedFiles.clear();
+      });
+    }
+  
+    // Update the breadcrumb display for source or destination panel.
+    function updateBreadcrumb(panel, fullPath) {
+      let breadcrumbEl;
+      if (panel === 'source') {
+        breadcrumbEl = document.getElementById("source-path-display");
+      } else if (panel === 'destination') {
+        breadcrumbEl = document.getElementById("destination-path-display");
+      } else {
+        console.error("Invalid panel:", panel);
+        return;
+      }
+      breadcrumbEl.innerHTML = "";
+      let parts = fullPath.split('/').filter(Boolean);
+      let pathSoFar = "";
+      parts.forEach((part, index) => {
+        pathSoFar += "/" + part;
+        let currentPartPath = pathSoFar;
+        const li = document.createElement("li");
+        li.className = "breadcrumb-item";
+        if (index === parts.length - 1) {
+          li.classList.add("active");
+          li.setAttribute("aria-current", "page");
+          li.textContent = part;
+        } else {
+          const a = document.createElement("a");
+          a.href = "#";
+          a.textContent = part;
+          a.onclick = function(e) {
+            e.preventDefault();
+            console.log("Breadcrumb clicked:", currentPartPath, "Panel:", panel);
+            loadDirectories(currentPartPath, panel);
+          };
+          li.appendChild(a);
+        }
+        breadcrumbEl.appendChild(li);
+      });
+    }
+  
+  
+    // Create Folder Modal functionality.
+    let createFolderModalEl = document.getElementById('createFolderModal');
+    let createFolderNameInput = document.getElementById('createFolderName');
+    let confirmCreateFolderBtn = document.getElementById('confirmCreateFolderBtn');
+
+    // Focus input when modal opens
+    createFolderModalEl.addEventListener('shown.bs.modal', function () {
+      createFolderNameInput.focus();
+    });
+
+    // Open modal function
+function openCreateFolderModal() {
+      document.getElementById('createFolderName').value = '';
+      let createFolderModal = new bootstrap.Modal(createFolderModalEl);
+      createFolderModal.show();
+    }
+
+    // Function to create folder
+    function createFolder() {
+      let folderName = createFolderNameInput.value.trim();
+      if (!folderName) {
+        alert('Folder name cannot be empty.');
+        createFolderNameInput.focus();
+        return;
+      }
+      
+      let fullPath = currentDestinationPath + '/' + folderName;
+      
+      fetch('/create-folder', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path: fullPath })
+      })
+      .then(response => response.json())
+      .then(data => {
+        if (data.success) {
+          let createFolderModal = bootstrap.Modal.getInstance(createFolderModalEl);
+          createFolderModal.hide();
+          currentFilter['destination'] = 'all';
+          loadDirectories(currentDestinationPath, 'destination');
+        } else {
+          alert(data.error || 'Error creating folder.');
+        }
+      })
+      .catch(err => {
+        console.error('Error creating folder:', err);
+        alert('An unexpected error occurred.');
+      });
+    }
+
+    // Click event for "Create" button
+    confirmCreateFolderBtn.addEventListener('click', createFolder);
+
+    // Listen for "Enter" keypress inside input field
+    createFolderNameInput.addEventListener('keypress', function(event) {
+      if (event.key === 'Enter') {
+        event.preventDefault(); // Prevent form submission if inside a form
+        createFolder();
+      }
+    });
+  
+    // Moving Status Modal Functions.
+    let movingModalEl = document.getElementById('movingModal');
+    let movingStatusText = document.getElementById('movingStatusText');
+    let movingProgressBar = document.getElementById('movingProgressBar');
+    let movingModal = new bootstrap.Modal(movingModalEl, {
+      backdrop: 'static',
+      keyboard: false
+    });
+    function showMovingModal() {
+      movingStatusText.textContent = "Preparing to move items...";
+      movingProgressBar.style.width = "0%";
+      movingProgressBar.setAttribute('aria-valuenow', 0);
+      movingModal.show();
+    }
+    function hideMovingModal() {
+      movingModal.hide();
+    }
+    function setMovingStatus(message) {
+      movingStatusText.textContent = message;
+    }
+    function updateMovingProgress(percentage) {
+      movingProgressBar.style.width = percentage + "%";
+      movingProgressBar.setAttribute('aria-valuenow', percentage);
+    }
+    // Handle streaming directory move with size-based progress
+    function handleStreamingDirectoryMove(response, fileName, sourcePath, targetFolder) {
+      return new Promise((resolve, reject) => {
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+        
+        function processStream() {
+          reader.read().then(({ done, value }) => {
+            if (done) {
+              // Stream complete
+              resolve({ success: true });
+              return;
+            }
+            
+            // Decode the chunk and add to buffer
+            buffer += decoder.decode(value, { stream: true });
+            
+            // Process complete lines
+            const lines = buffer.split('\n');
+            buffer = lines.pop(); // Keep incomplete line in buffer
+            
+            for (const line of lines) {
+              if (line.startsWith('data: ')) {
+                const data = line.slice(6); // Remove 'data: ' prefix
+                
+                if (data === 'done') {
+                  // Operation complete
+                  resolve({ success: true });
+                  return;
+                } else if (data.startsWith('error:')) {
+                  // Operation failed
+                  const error = data.slice(7); // Remove 'error: ' prefix
+                  reject(new Error(error));
+                  return;
+                } else if (data.startsWith('keepalive:')) {
+                  // Keepalive message, update status
+                  const status = data.slice(11); // Remove 'keepalive: ' prefix
+                  setMovingStatus(`Moving directory ${fileName}: ${status}`);
+                } else if (!isNaN(data)) {
+                  // Progress percentage
+                  const progress = parseInt(data);
+                  updateMovingProgress(progress);
+                  
+                  // Update status with progress
+                  if (progress < 100) {
+                    setMovingStatus(`Moving directory ${fileName}: ${progress}% complete`);
+                  } else {
+                    setMovingStatus(`Finalizing directory move: ${fileName}`);
+                  }
+                }
+              }
+            }
+            
+            // Continue reading
+            processStream();
+          }).catch(reject);
+        }
+        
+        processStream();
+      });
+    }
+
+    // Enhanced moveMultipleItems with better directory progress
+    function moveMultipleItems(filePaths, targetFolder, panel, itemsWithTypes = null) {
+      showMovingModal();
+      let totalCount = filePaths.length;
+      let currentIndex = 0;
+      let totalFilesToMove = 0;
+      let filesMoved = 0;
+      let hasPendingOperations = false;
+      
+      // Add timeout protection to prevent modal from staying open indefinitely
+      const operationTimeout = setTimeout(() => {
+        console.warn("Move operation timed out, closing modal");
+        hideMovingModal();
+        if (window.bootstrap && document.getElementById("moveErrorToast")) {
+          document.getElementById("moveErrorToastBody").textContent = "Move operation timed out. Please check the server logs for details.";
+          bootstrap.Toast.getOrCreateInstance(document.getElementById("moveErrorToast")).show();
+        }
+      }, 300000); // 5 minutes timeout
+      
+      // First, count files in directories to get accurate progress
+      function countFilesInDirectories() {
+        let directoriesToCount = [];
+        
+        if (itemsWithTypes) {
+          // Use the provided type information
+          directoriesToCount = itemsWithTypes
+            .filter(item => item.type === "directory")
+            .map(item => item.path);
+        } else {
+          // Fallback: check all paths
+          directoriesToCount = filePaths;
+        }
+        
+        if (directoriesToCount.length === 0) {
+          // No directories, proceed with normal counting
+          totalFilesToMove = filePaths.length;
+          startMoving();
+          return;
+        }
+        
+        let countPromises = [];
+        directoriesToCount.forEach(path => {
+          countPromises.push(
+            fetch(`/count-files?path=${encodeURIComponent(path)}`)
+              .then(res => res.json())
+              .then(data => ({ path, fileCount: data.file_count || 0 }))
+              .catch(err => ({ path, fileCount: 0 }))
+          );
+        });
+        
+        Promise.all(countPromises).then(results => {
+          // Calculate total files to move
+          totalFilesToMove = results.reduce((sum, result) => sum + result.fileCount, 0);
+          // Add individual files (non-directories)
+          const fileItems = itemsWithTypes ? 
+            itemsWithTypes.filter(item => item.type === "file").length : 
+            filePaths.length - directoriesToCount.length;
+          totalFilesToMove += fileItems;
+          
+          if (totalFilesToMove === 0) {
+            totalFilesToMove = filePaths.length; // Fallback to item count
+          }
+          
+          startMoving();
+        });
+      }
+      
+      function startMoving() {
+        moveNext();
+      }
+      
+      function moveNext() {
+        if (currentIndex >= totalCount) {
+                  // Check if there are any pending operations before closing
+        if (hasPendingOperations) {
+          console.log("Waiting for pending operations to complete...");
+          setMovingStatus("Finalizing move operation...");
+          setTimeout(moveNext, 100); // Wait a bit and check again
+          return;
+        }
+          
+          clearTimeout(operationTimeout); // Clear the timeout
+          hideMovingModal();
+
+          // Show success toast notification
+          if (totalCount === 1) {
+            showToast('Move Successful', `Successfully moved 1 item`, 'success');
+          } else {
+            showToast('Move Successful', `Successfully moved ${totalCount} items`, 'success');
+          }
+
+          loadDirectories(currentSourcePath, 'source');
+          loadDirectories(currentDestinationPath, 'destination');
+          return;
+        }
+        
+        let fileObj = normalizeFile(filePaths[currentIndex]);
+        let sourcePath = typeof fileObj === 'string' ? fileObj : fileObj.path || fileObj.name;
+        let fileName = sourcePath.split('/').pop();
+        
+        // Determine if this is a directory based on item type or by checking filesystem
+        const currentItem = itemsWithTypes ? itemsWithTypes[currentIndex] : null;
+        const isDirectory = currentItem ? currentItem.type === "directory" : null;
+        
+        let movePromise;
+        
+        if (isDirectory !== null) {
+          // We have type information, use it
+          if (isDirectory) {
+            // For directories, use streaming mode to get size-based progress
+            setMovingStatus(`Preparing to move directory ${fileName}...`);
+            
+            // Initialize progress at 0 for directories
+            updateMovingProgress(0);
+            
+            hasPendingOperations = true;
+            
+            // Get directory size information for better status display
+            const sizePromise = fetch(`/folder-size?path=${encodeURIComponent(sourcePath)}`)
+              .then(res => res.json())
+              .then(data => data.size || 0)
+              .catch(err => 0);
+            
+            // For directories, use streaming mode to get size-based progress
+            movePromise = Promise.all([
+              sizePromise,
+              fetch('/move', {
+                method: 'POST',
+                headers: { 
+                  'Content-Type': 'application/json',
+                  'X-Stream': 'true'
+                },
+                body: JSON.stringify({
+                  source: sourcePath,
+                  destination: targetFolder + '/' + fileName
+                })
+              })
+            ]).then(([dirSize, moveResponse]) => {
+              // Update status with directory size information
+              if (dirSize > 0) {
+                setMovingStatus(`Moving directory ${fileName} (${formatFileSize(dirSize)}) - Starting...`);
+              }
+              return moveResponse;
+            });
+          } else {
+            // For files, use file-based progress
+            setMovingStatus(`Moving file ${fileName} (${filesMoved + 1} of ${totalFilesToMove} files)`);
+            
+            let percentage;
+            if (totalFilesToMove > 0) {
+              percentage = Math.floor((filesMoved / totalFilesToMove) * 100);
+            } else {
+              percentage = Math.floor((currentIndex / totalCount) * 100);
+            }
+            updateMovingProgress(percentage);
+            
+            hasPendingOperations = true;
+            movePromise = fetch('/move', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                source: sourcePath,
+                destination: targetFolder + '/' + fileName
+              })
+            });
+          }
+        } else {
+          // Fallback: check filesystem
+          movePromise = fetch(`/count-files?path=${encodeURIComponent(sourcePath)}`)
+            .then(res => res.json())
+            .then(data => {
+              const isDirectory = data.file_count !== undefined;
+              const fileCount = data.file_count || 0;
+              
+              if (isDirectory && fileCount > 0) {
+                // This is a directory with files - use streaming mode for size-based progress
+                setMovingStatus(`Preparing to move directory ${fileName}...`);
+                updateMovingProgress(0);
+                
+                hasPendingOperations = true;
+                
+                // Get directory size information for better status display
+                const sizePromise = fetch(`/folder-size?path=${encodeURIComponent(sourcePath)}`)
+                  .then(res => res.json())
+                  .then(data => data.size || 0)
+                  .catch(err => 0);
+                
+                return Promise.all([
+                  sizePromise,
+                  fetch('/move', {
+                    method: 'POST',
+                    headers: { 
+                      'Content-Type': 'application/json',
+                      'X-Stream': 'true'
+                    },
+                    body: JSON.stringify({
+                      source: sourcePath,
+                      destination: targetFolder + '/' + fileName
+                    })
+                  })
+                ]).then(([dirSize, moveResponse]) => {
+                  // Update status with directory size information
+                  if (dirSize > 0) {
+                    setMovingStatus(`Moving directory ${fileName} (${formatFileSize(dirSize)}) - Starting...`);
+                  }
+                  return moveResponse;
+                });
+              } else {
+                // This is a file or empty directory
+                setMovingStatus(`Moving ${fileName} (${currentIndex + 1} of ${totalCount} items)`);
+                
+                let percentage = Math.floor((currentIndex / totalCount) * 100);
+                updateMovingProgress(percentage);
+                
+                hasPendingOperations = true;
+                return fetch('/move', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    source: sourcePath,
+                    destination: targetFolder + '/' + fileName
+                  })
+                });
+              }
+            });
+        }
+        
+        movePromise
+          .then(res => {
+            // Check if this is a streaming response (for directories)
+            const currentItem = itemsWithTypes ? itemsWithTypes[currentIndex] : null;
+            const isDirectory = currentItem ? currentItem.type === "directory" : null;
+            
+            if (isDirectory && res.headers.get('content-type')?.includes('text/event-stream')) {
+              // Handle streaming response for directories
+              return handleStreamingDirectoryMove(res, fileName, sourcePath, targetFolder);
+            } else {
+              // Handle regular JSON response for files
+              return res.json();
+            }
+          })
+          .then(data => {
+            if (!data.success) {
+              console.error("Move reported error:", data.error);
+              
+              // For directory moves, this is a critical error that should stop the operation
+              const currentItem = itemsWithTypes ? itemsWithTypes[currentIndex] : null;
+              const isDirectory = currentItem ? currentItem.type === "directory" : null;
+              
+              if (isDirectory) {
+                const fileName = filePaths[currentIndex].split('/').pop();
+                const detailMessage = `Failed to move directory "${fileName}" → "${targetFolder}": ${data.error}`;
+                
+                console.error("Directory move failed:", {
+                  directory: fileName,
+                  source: filePaths[currentIndex],
+                  destination: targetFolder + '/' + fileName,
+                  error: data.error
+                });
+
+                if (window.bootstrap && document.getElementById("moveErrorToast")) {
+                  document.getElementById("moveErrorToastBody").textContent = detailMessage;
+                  bootstrap.Toast.getOrCreateInstance(document.getElementById("moveErrorToast")).show();
+                } else {
+                  alert(detailMessage);
+                }
+                
+                // Hide the modal and stop the operation for directory failures
+                clearTimeout(operationTimeout); // Clear the timeout
+                hideMovingModal();
+                return;
+              } else {
+                // For files, show warning but continue
+                console.warn("File move reported error, but continuing:", data.error);
+              }
+            }
+            
+            // Update progress counters
+            const currentItem = itemsWithTypes ? itemsWithTypes[currentIndex] : null;
+            const isDirectory = currentItem ? currentItem.type === "directory" : null;
+            
+            if (isDirectory) {
+              // For directories, we can't track individual files, so just increment item counter
+              // The progress bar will update based on currentIndex/totalCount
+              console.log(`Directory move completed: ${fileName}`);
+            } else {
+              // For files, increment file counter for file-based progress
+              if (totalFilesToMove > 0) {
+                filesMoved += 1;
+              }
+              console.log(`File move completed: ${fileName}`);
+            }
+            
+            hasPendingOperations = false; // Clear pending operations flag
+            currentIndex++;
+            moveNext();
+          })
+          .catch(err => {
+            const fileName = filePaths[currentIndex].split('/').pop();
+            const detailMessage = `Failed to move "${fileName}" → "${targetFolder}": ${err.message || err}`;
+            
+            console.error("Move failed:", {
+              file: fileName,
+              source: filePaths[currentIndex],
+              destination: targetFolder + '/' + fileName,
+              error: err
+            });
+
+            // Check if this is a directory move failure
+            const currentItem = itemsWithTypes ? itemsWithTypes[currentIndex] : null;
+            const isDirectory = currentItem ? currentItem.type === "directory" : null;
+            
+            if (isDirectory) {
+              // For directory failures, show error and stop the operation
+              if (window.bootstrap && document.getElementById("moveErrorToast")) {
+                document.getElementById("moveErrorToastBody").textContent = detailMessage;
+                bootstrap.Toast.getOrCreateInstance(document.getElementById("moveErrorToast")).show();
+              } else {
+                alert(detailMessage);
+              }
+              
+              // Hide the modal and stop the operation for directory failures
+              clearTimeout(operationTimeout); // Clear the timeout
+              hasPendingOperations = false; // Clear pending operations flag
+              hideMovingModal();
+              return;
+            } else {
+              // For file failures, show error but continue
+              if (window.bootstrap && document.getElementById("moveErrorToast")) {
+                document.getElementById("moveErrorToastBody").textContent = detailMessage;
+                bootstrap.Toast.getOrCreateInstance(document.getElementById("moveErrorToast")).show();
+              } else {
+                alert(detailMessage);
+              }
+            }
+
+            hasPendingOperations = false; // Clear pending operations flag
+            currentIndex++;
+            moveNext();
+          });
+      }
+      
+      // Start the process
+      countFilesInDirectories();
+    }
+  
+
+
+    // Format file size for display
+    function formatFileSize(bytes) {
+      if (bytes === 0) return '0 B';
+      const k = 1024;
+      const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+      const i = Math.floor(Math.log(bytes) / Math.log(k));
+      return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+    }
+
+    // Function to show detailed CBZ information
+function showCBZInfo(filePath, fileName) {
+      const modal = new bootstrap.Modal(document.getElementById('cbzInfoModal'));
+      const content = document.getElementById('cbzInfoContent');
+      
+      // Reset content
+      content.innerHTML = `
+        <div class="text-center">
+          <div class="spinner-border" role="status">
+            <span class="visually-hidden">Loading...</span>
+          </div>
+          <p class="mt-2">Loading CBZ information...</p>
+        </div>
+      `;
+      
+      modal.show();
+      
+      // Load metadata
+      fetch(`/cbz-metadata?path=${encodeURIComponent(filePath)}`)
+        .then(res => res.json())
+        .then(data => {
+          console.log('CBZ metadata response:', data);
+          if (data.comicinfo) {
+            console.log('ComicInfo data:', data.comicinfo);
+          }
+          
+          let html = `
+            <div class="row">
+              <div class="col-md-6">
+          `;
+          
+          // Add ComicInfo section if available
+          if (data.comicinfo) {
+            html += `
+                <h6>Comic Information</h6>
+                <div class="card">
+                  <div class="card-body">
+                    <div class="row">
+            `;
+            
+            const comicInfo = data.comicinfo;
+            console.log('Processing comicInfo:', comicInfo);
+            
+            // Define field groups for better organization
+            const fieldGroups = [
+              {
+                title: "Basic Information",
+                fields: [
+                  { key: 'Title', label: 'Title' },
+                  { key: 'Series', label: 'Series' },
+                  { key: 'Number', label: 'Number' },
+                  { key: 'Count', label: 'Count' },
+                  { key: 'Volume', label: 'Volume' },
+                  { key: 'AlternateSeries', label: 'Alternate Series' },
+                  { key: 'AlternateNumber', label: 'Alternate Number' },
+                  { key: 'AlternateCount', label: 'Alternate Count' }
+                ]
+              },
+              {
+                title: "Publication Details",
+                fields: [
+                  { key: 'Year', label: 'Year' },
+                  { key: 'Month', label: 'Month' },
+                  { key: 'Day', label: 'Day' },
+                  { key: 'Publisher', label: 'Publisher' },
+                  { key: 'Imprint', label: 'Imprint' },
+                  { key: 'Format', label: 'Format' },
+                  { key: 'PageCount', label: 'Page Count' },
+                  { key: 'LanguageISO', label: 'Language' }
+                ]
+              },
+              {
+                title: "Creative Team",
+                fields: [
+                  { key: 'Writer', label: 'Writer' },
+                  { key: 'Penciller', label: 'Penciller' },
+                  { key: 'Inker', label: 'Inker' },
+                  { key: 'Colorist', label: 'Colorist' },
+                  { key: 'Letterer', label: 'Letterer' },
+                  { key: 'CoverArtist', label: 'Cover Artist' },
+                  { key: 'Editor', label: 'Editor' }
+                ]
+              },
+              {
+                title: "Content Details",
+                fields: [
+                  { key: 'Genre', label: 'Genre' },
+                  { key: 'Characters', label: 'Characters' },
+                  { key: 'Teams', label: 'Teams' },
+                  { key: 'Locations', label: 'Locations' },
+                  { key: 'StoryArc', label: 'Story Arc' },
+                  { key: 'SeriesGroup', label: 'Series Group' },
+                  { key: 'MainCharacterOrTeam', label: 'Main Character/Team' },
+                  { key: 'AgeRating', label: 'Age Rating' }
+                ]
+              },
+              {
+                title: "Additional Information",
+                fields: [
+                  { key: 'Summary', label: 'Summary' },
+                  { key: 'Notes', label: 'Notes' },
+                  { key: 'Web', label: 'Web' },
+                  { key: 'ScanInformation', label: 'Scan Information' },
+                  { key: 'Review', label: 'Review' },
+                  { key: 'CommunityRating', label: 'Community Rating' },
+                  { key: 'BlackAndWhite', label: 'Black & White' },
+                  { key: 'Manga', label: 'Manga' }
+                ],
+                fullWidth: true
+              }
+            ];
+            
+            // Generate HTML for each field group
+            fieldGroups.forEach(group => {
+              const hasFields = group.fields.some(field => comicInfo[field.key]);
+              console.log(`Group "${group.title}" has fields:`, hasFields);
+              if (hasFields) {
+                const colClass = group.fullWidth ? 'col-md-12' : 'col-md-6';
+                html += `
+                  <div class="${colClass} mb-3">
+                    <h6 class="text-muted small">${group.title}</h6>
+                    <ul class="list-unstyled small">
+                `;
+                
+                group.fields.forEach(field => {
+                  if (comicInfo[field.key] && comicInfo[field.key] !== '' && comicInfo[field.key] !== -1) {
+                    let value = comicInfo[field.key];
+                    
+                    // Format special values
+                    if (field.key === 'BlackAndWhite' || field.key === 'Manga') {
+                      if (value === 'Yes') value = 'Yes';
+                      else if (value === 'No') value = 'No';
+                      else if (value === 'YesAndRightToLeft') value = 'Yes (Right to Left)';
+                      else value = 'Unknown';
+                    }
+                    
+                    if (field.key === 'CommunityRating' && value > 0) {
+                      value = `${value}/5`;
+                    }
+                    
+                    html += `<li><strong>${field.label}:</strong> ${value}</li>`;
+                  }
+                });
+                
+                html += `
+                    </ul>
+                  </div>
+                `;
+              }
+            });
+            
+            html += `
+                      </div>
+                    </div>
+                  </div>
+            `;
+          } else {
+            html += `<p class="text-muted">No ComicInfo.xml found</p>`;
+          }
+          
+          html += `
+              </div>
+              <div class="col-md-6">
+                <h6>Preview</h6>
+                <div id="cbzPreviewContainer" class="text-center">
+                  <div class="spinner-border spinner-border-sm" role="status">
+                    <span class="visually-hidden">Loading...</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          `;
+          
+          // Add File Information and First Files below the columns
+          html += `
+            <div class="row mt-4">
+              <div class="col-12">
+                <h6>File Information</h6>
+                <ul class="list-unstyled">
+                  <li><strong>Name:</strong> ${fileName}</li>
+                  <li><strong>Size:</strong> ${formatSize(data.file_size)}</li>
+                  <li><strong>Total Files:</strong> ${data.total_files}</li>
+                  <li><strong>Image Files:</strong> ${data.image_files}</li>
+                </ul>
+                
+                <h6 class="mt-4">First Files</h6>
+                <ul class="list-unstyled small">
+          `;
+          
+          // Add file list
+          if (data.file_list && data.file_list.length > 0) {
+            data.file_list.forEach(file => {
+              html += `<li><code>${file}</code></li>`;
+            });
+          }
+          
+          html += `
+                </ul>
+              </div>
+            </div>
+          `;
+          
+          content.innerHTML = html;
+          
+          // Load preview
+          fetch(`/cbz-preview?path=${encodeURIComponent(filePath)}&size=large`)
+            .then(res => res.json())
+            .then(previewData => {
+              const previewContainer = document.getElementById('cbzPreviewContainer');
+              if (previewData.success) {
+                previewContainer.innerHTML = `
+                  <img src="${previewData.preview}" class="img-fluid" style="max-width: 100%; max-height: 600px;" alt="CBZ Preview">
+                  <p class="small text-muted mt-2">${previewData.file_name}</p>
+                  <small class="text-muted">Images: ${previewData.total_images} | Original: ${previewData.original_size.width}×${previewData.original_size.height} | Display: ${previewData.display_size.width}×${previewData.display_size.height}</small>
+                `;
+              } else {
+                previewContainer.innerHTML = '<p class="text-muted">Preview not available</p>';
+              }
+            })
+            .catch(err => {
+              document.getElementById('cbzPreviewContainer').innerHTML = '<p class="text-danger">Error loading preview</p>';
+            });
+        })
+        .catch(err => {
+          content.innerHTML = `
+            <div class="alert alert-danger">
+              Error loading CBZ information: ${err.message}
+            </div>
+          `;
+        });
+    }
+
+    // Delete confirmation handler.
+    document.getElementById("confirmDeleteBtn").addEventListener("click", function() {
+      let deleteModalEl = document.getElementById("deleteModal");
+      let deleteModal = bootstrap.Modal.getInstance(deleteModalEl);
+      deleteModal.hide();
+      deleteItem(deleteTarget, deletePanel);
+    });
+
+    // Add keyboard support for delete modal (Enter key to confirm)
+    document.getElementById("deleteModal").addEventListener("keydown", function(event) {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        // Trigger the delete confirmation
+        document.getElementById("confirmDeleteBtn").click();
+      }
+    });
+
+    // Track file counts and current paths for rename button
+    let fileTracking = {
+      source: { fileCount: 0, currentPath: '' },
+      destination: { fileCount: 0, currentPath: '' }
+    };
+
+    // Function to track file additions and update rename button
+    function trackFileForRename(panel) {
+      fileTracking[panel].fileCount++;
+      console.log(`File tracked for ${panel}: count now ${fileTracking[panel].fileCount}`);
+      updateRenameButtonVisibility(panel);
+    }
+
+    // Function to reset file tracking for a panel
+    function resetFileTracking(panel, currentPath) {
+      fileTracking[panel].fileCount = 0;
+      fileTracking[panel].currentPath = currentPath;
+      console.log(`Reset file tracking for ${panel}: path=${currentPath}`);
+      updateRenameButtonVisibility(panel);
+    }
+
+    // Function to update rename button visibility and functionality
+    function updateRenameButtonVisibility(panel) {
+      const renameRowId = panel === 'source' ? 'source-directory-rename-row' : 'destination-directory-rename-row';
+      const renameRow = document.getElementById(renameRowId);
+      
+      if (!renameRow) {
+        console.log('Rename row not found:', renameRowId);
+        return;
+      }
+
+      const hasFiles = fileTracking[panel].fileCount > 0;
+      // Use the global path variables instead of file tracking
+      const currentPath = panel === 'source' ? currentSourcePath : currentDestinationPath;
+      const isNotRoot = currentPath !== '/data';
+
+      console.log('updateRenameButtonVisibility:', panel, 'hasFiles=', hasFiles, 'currentPath=', currentPath, 'isNotRoot=', isNotRoot);
+
+      // Show button if there are files and we're not at root level
+      if (hasFiles && isNotRoot) {
+        console.log('Showing rename button:', panel, 'files=', fileTracking[panel].fileCount, 'path=', currentPath);
+        
+        // Create or update the rename button
+        let renameButton = renameRow.querySelector('.rename-files-btn');
+        if (!renameButton) {
+          renameButton = document.createElement('button');
+          renameButton.className = 'btn btn-outline-primary btn-sm rename-files-btn';
+          renameButton.innerHTML = '<i class="bi bi-input-cursor-text me-2"></i>Remove Text from Filenames';
+          renameButton.title = 'Remove text from all filenames in this directory';
+          renameRow.appendChild(renameButton);
+        }
+        
+        // Store the current path as a data attribute
+        renameButton.dataset.currentPath = currentPath;
+        renameButton.dataset.currentPanel = panel;
+        
+        // Update button click handler with current context
+        renameButton.onclick = function(e) {
+          e.preventDefault();
+          const pathFromData = e.target.dataset.currentPath;
+          const panelFromData = e.target.dataset.currentPanel;
+          console.log('Button clicked, path from data:', pathFromData, 'panel:', panelFromData);
+          openCustomRenameModal(pathFromData, panelFromData);
+        };
+        
+        renameRow.style.display = 'block';
+      } else {
+        console.log('Hiding rename button:', panel, 'hasFiles=', hasFiles, 'isNotRoot=', isNotRoot, 'path=', currentPath);
+        renameRow.style.display = 'none';
+        
+        // Reset file count to 0 when hiding the button (no files in current directory)
+        if (fileTracking[panel].fileCount > 0) {
+          console.log(`Resetting file count for ${panel} from ${fileTracking[panel].fileCount} to 0 (no files in current directory)`);
+          fileTracking[panel].fileCount = 0;
+        }
+      }
+    }
+
+    // Custom Rename Modal functionality
+    let customRenameModal;
+    let currentRenameDirectory = '';
+    let currentRenamePanel = '';
+    let fileList = [];
+
+    function openCustomRenameModal(directoryPath, panel) {
+      console.log('openCustomRenameModal called with:', directoryPath, panel);
+      currentRenameDirectory = directoryPath;
+      currentRenamePanel = panel;
+      
+      // Validate that we have a valid directory path
+      if (!directoryPath || directoryPath === '') {
+        console.error('Invalid directory path provided to openCustomRenameModal:', directoryPath);
+        alert('Error: No directory path provided for rename operation.');
+        return;
+      }
+      
+      // Reset modal state
+      document.getElementById('textToRemove').value = '';
+      document.getElementById('renamePreview').style.display = 'none';
+      document.getElementById('previewRenameBtn').style.display = 'inline-block';
+      document.getElementById('executeRenameBtn').style.display = 'none';
+      
+      // Show modal
+      const modalEl = document.getElementById('customRenameModal');
+      customRenameModal = new bootstrap.Modal(modalEl);
+      customRenameModal.show();
+      
+      // Focus on input when modal opens
+      modalEl.addEventListener('shown.bs.modal', function () {
+        document.getElementById('textToRemove').focus();
+      }, { once: true });
+    }
+
+function previewCustomRename() {
+      const textToRemove = document.getElementById('textToRemove').value;
+      
+      console.log('previewCustomRename called');
+      console.log('currentRenameDirectory:', currentRenameDirectory);
+      console.log('currentRenamePanel:', currentRenamePanel);
+      console.log('textToRemove:', textToRemove);
+      
+      if (!textToRemove.trim()) {
+        alert('Please enter text to remove from filenames.');
+        return;
+      }
+
+      if (!currentRenameDirectory || currentRenameDirectory === '') {
+        alert('Error: No directory selected for rename operation.');
+        console.error('currentRenameDirectory is empty');
+        return;
+      }
+
+      // Fetch files in the directory
+      const url = `/list-directories?path=${encodeURIComponent(currentRenameDirectory)}`;
+      console.log('Fetching URL:', url);
+      fetch(url)
+        .then(response => response.json())
+        .then(data => {
+          if (data.error) {
+            throw new Error(data.error);
+          }
+          
+          fileList = [];
+          const previewList = document.getElementById('renamePreviewList');
+          previewList.innerHTML = '';
+          
+          // Filter only files (not directories) that contain the text to remove
+          const filesToRename = data.files.filter(file => {
+            const fileData = normalizeFile(file);
+            const nameWithoutExtension = fileData.name.substring(0, fileData.name.lastIndexOf('.')) || fileData.name;
+            return nameWithoutExtension.includes(textToRemove);
+          });
+          
+          if (filesToRename.length === 0) {
+            previewList.innerHTML = '<div class="text-warning">No files found containing the specified text.</div>';
+          } else {
+            filesToRename.forEach(file => {
+              const fileData = normalizeFile(file);
+              const nameWithoutExtension = fileData.name.substring(0, fileData.name.lastIndexOf('.')) || fileData.name;
+              const extension = fileData.name.substring(fileData.name.lastIndexOf('.')) || '';
+              const newNameWithoutExtension = nameWithoutExtension.replace(new RegExp(escapeRegExp(textToRemove), 'g'), '');
+              const newName = newNameWithoutExtension + extension;
+              
+              fileList.push({
+                oldPath: `${currentRenameDirectory}/${fileData.name}`,
+                newName: newName,
+                oldName: fileData.name
+              });
+              
+              const previewItem = document.createElement('div');
+              previewItem.className = 'mb-2 p-2 border rounded';
+              previewItem.innerHTML = `
+                <div><strong>Old:</strong> <code>${fileData.name}</code></div>
+                <div><strong>New:</strong> <code>${newName}</code></div>
+              `;
+              previewList.appendChild(previewItem);
+            });
+          }
+          
+          // Show preview and execute button
+          document.getElementById('renamePreview').style.display = 'block';
+          if (filesToRename.length > 0) {
+            document.getElementById('executeRenameBtn').style.display = 'inline-block';
+          }
+        })
+        .catch(error => {
+          console.error('Error fetching directory contents:', error);
+          alert('Error fetching directory contents: ' + error.message);
+        });
+    }
+
+function executeCustomRename() {
+      if (fileList.length === 0) {
+        alert('No files to rename.');
+        return;
+      }
+
+      // Disable buttons during execution
+      document.getElementById('previewRenameBtn').disabled = true;
+      document.getElementById('executeRenameBtn').disabled = true;
+      document.getElementById('executeRenameBtn').textContent = 'Renaming...';
+
+      // Execute renames
+      const renamePromises = fileList.map(file => {
+        const newPath = `${currentRenameDirectory}/${file.newName}`;
+        return fetch('/custom-rename', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            old: file.oldPath,
+            new: newPath
+          })
+        });
+      });
+
+      Promise.all(renamePromises)
+        .then(responses => {
+          const errors = [];
+          responses.forEach((response, index) => {
+            if (!response.ok) {
+              errors.push(`Failed to rename ${fileList[index].oldName}`);
+            }
+          });
+
+          if (errors.length > 0) {
+            alert('Some files could not be renamed:\n' + errors.join('\n'));
+          } else {
+            // Show success message in modal before closing
+            const renamePreviewList = document.getElementById('renamePreviewList');
+            renamePreviewList.innerHTML = `
+              <div class="alert alert-success text-center">
+                <i class="bi bi-check-circle-fill me-2"></i>
+                <strong>Success!</strong> Renamed ${fileList.length} files.
+              </div>
+            `;
+            document.getElementById('previewRenameBtn').style.display = 'none';
+            document.getElementById('executeRenameBtn').style.display = 'none';
+            
+            // Auto-close modal after 2 seconds
+            setTimeout(() => {
+              customRenameModal.hide();
+            }, 2000);
+          }
+
+          // Refresh directory listing - use loadDownloads since that's what shows files
+          loadDownloads(currentRenameDirectory, currentRenamePanel);
+        })
+        .catch(error => {
+          console.error('Error during rename operation:', error);
+          alert('Error during rename operation: ' + error.message);
+        })
+        .finally(() => {
+          // Re-enable buttons
+          document.getElementById('previewRenameBtn').disabled = false;
+          document.getElementById('executeRenameBtn').disabled = false;
+          document.getElementById('executeRenameBtn').textContent = 'Execute Rename';
+        });
+    }
+
+    // Helper function to escape special regex characters
+    function escapeRegExp(string) {
+      return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    }
+
+    // Add Enter key support for the text input
+    document.getElementById('textToRemove').addEventListener('keypress', function(e) {
+      if (e.key === 'Enter') {
+        previewCustomRename();
+      }
+    });
+
+    // Search functionality
+    let searchModal;
+    let currentSearchController = null; // AbortController for current search
+
+function openSearchModal() {
+      searchModal = new bootstrap.Modal(document.getElementById('searchModal'));
+      searchModal.show();
+      
+      // Clear previous search and focus on search input
+      document.getElementById('searchQuery').value = '';
+      document.getElementById('searchResults').style.display = 'none';
+      document.getElementById('currentSearchTerm').textContent = '';
+      
+      // Cancel any ongoing search when modal opens
+      cancelCurrentSearch();
+      
+      // Clear any pending search timeout
+      if (searchTimeout) {
+        clearTimeout(searchTimeout);
+        searchTimeout = null;
+      }
+      
+      // Focus on search input
+      setTimeout(() => {
+        document.getElementById('searchQuery').focus();
+      }, 500);
+    }
+
+    function cancelCurrentSearch() {
+      if (currentSearchController) {
+        currentSearchController.abort();
+        currentSearchController = null;
+        console.log('Search cancelled');
+      }
+    }
+
+function performSearch() {
+      const query = document.getElementById('searchQuery').value.trim();
+      
+      if (!query) {
+        alert('Please enter a search term.');
+        return;
+      }
+      
+      if (query.length < 2) {
+        alert('Search term must be at least 2 characters.');
+        return;
+      }
+      
+      // Cancel any ongoing search before starting a new one
+      cancelCurrentSearch();
+      
+      // Create new AbortController for this search
+      currentSearchController = new AbortController();
+      
+      // Show loading and update search term immediately
+      document.getElementById('searchLoading').style.display = 'block';
+      document.getElementById('searchResults').style.display = 'block';
+      document.getElementById('currentSearchTerm').textContent = query;
+      
+      // Perform search with abort signal
+      fetch(`/search-files?query=${encodeURIComponent(query)}`, {
+        signal: currentSearchController.signal
+      })
+        .then(response => {
+          // Check if the request was aborted
+          if (response.ok) {
+            return response.json();
+          } else {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+          }
+        })
+        .then(data => {
+          // Only process results if this is still the current search
+          if (currentSearchController) {
+            document.getElementById('searchLoading').style.display = 'none';
+            
+            if (data.error) {
+              throw new Error(data.error);
+            }
+            
+            // Check for timeout message
+            if (data.timeout) {
+              alert(`Search timeout: ${data.message}`);
+            }
+            
+            displaySearchResults(data.results, query);
+          }
+        })
+        .catch(error => {
+          // Only show error if it's not an abort error
+          if (error.name !== 'AbortError') {
+            document.getElementById('searchLoading').style.display = 'none';
+            console.error('Search error:', error);
+            alert('Search error: ' + error.message);
+          }
+        });
+    }
+
+    function displaySearchResults(results, query) {
+      const resultsContainer = document.getElementById('searchResultsList');
+      const resultsDiv = document.getElementById('searchResults');
+      
+      resultsContainer.innerHTML = '';
+      
+      // Always show the results container with the search term
+      resultsDiv.style.display = 'block';
+      
+      if (results.length === 0) {
+        resultsContainer.innerHTML = `
+          <div class="text-center text-muted p-3">
+            <i class="bi bi-search me-2"></i>
+            No results found for "${query}"
+          </div>
+        `;
+      } else {
+        results.forEach(item => {
+          const resultItem = document.createElement('div');
+          resultItem.className = 'list-group-item list-group-item-action d-flex align-items-center justify-content-between';
+          
+          const icon = item.type === 'directory' ? 'bi-folder' : 'bi-file-earmark-zip';
+          const size = item.type === 'file' ? formatSize(item.size) : '';
+          
+          resultItem.innerHTML = `
+            <div class="d-flex align-items-center">
+              <i class="bi ${icon} me-2"></i>
+              <span>${item.name}</span>
+              ${size ? `<span class="text-info-emphasis small ms-2">(${size})</span>` : ''}
+            </div>
+            <div class="text-muted small">
+              ${item.parent}
+            </div>
+          `;
+          
+          // Add click handler to navigate to the item
+          resultItem.addEventListener('click', () => {
+            navigateToSearchResult(item);
+          });
+          
+          resultsContainer.appendChild(resultItem);
+        });
+      }
+    }
+
+    function navigateToSearchResult(item) {
+      // Close search modal
+      searchModal.hide();
+      
+      // Navigate to the parent directory in the destination panel
+      loadDirectories(item.parent, 'destination');
+      
+      // Highlight the item (optional - could add a visual indicator)
+      setTimeout(() => {
+        // You could add highlighting logic here if needed
+        console.log('Navigated to:', item.parent, 'for item:', item.name);
+      }, 500);
+    }
+
+    // Debounced search functionality
+    let searchTimeout = null;
+    
+    // Add input event listener for debounced search
+    document.getElementById('searchQuery').addEventListener('input', function(e) {
+      const query = e.target.value.trim();
+      
+      // Clear existing timeout
+      if (searchTimeout) {
+        clearTimeout(searchTimeout);
+      }
+      
+      // Cancel current search if there is one
+      cancelCurrentSearch();
+      
+      // Hide loading and results for new input
+      document.getElementById('searchLoading').style.display = 'none';
+      document.getElementById('searchResults').style.display = 'none';
+      
+      // Only search if query is at least 2 characters
+      if (query.length >= 2) {
+        searchTimeout = setTimeout(() => {
+          performSearch();
+        }, 500); // 500ms delay
+      }
+    });
+
+    // Add Enter key support for search input
+    document.getElementById('searchQuery').addEventListener('keypress', function(e) {
+      if (e.key === 'Enter') {
+        // Clear the timeout and perform immediate search
+        if (searchTimeout) {
+          clearTimeout(searchTimeout);
+          searchTimeout = null;
+        }
+        performSearch();
+      }
+    });
+
+    // Cancel search when modal is closed
+    document.getElementById('searchModal').addEventListener('hidden.bs.modal', function() {
+      cancelCurrentSearch();
+      // Clear any pending search timeout
+      if (searchTimeout) {
+        clearTimeout(searchTimeout);
+        searchTimeout = null;
+      }
+      // Hide loading and results when modal is closed
+      document.getElementById('searchLoading').style.display = 'none';
+      document.getElementById('searchResults').style.display = 'none';
+    });
+
+
+
+
+
+    // Helper function to show toast notifications
+    function showToast(title, message, type = 'info') {
+      // Wait for Bootstrap to be fully loaded
+      const waitForBootstrap = () => {
+        if (typeof bootstrap !== 'undefined' && bootstrap.Toast && typeof bootstrap.Toast === 'function') {
+          showToastInternal(title, message, type);
+        } else {
+          // Wait a bit more for Bootstrap to load
+          setTimeout(waitForBootstrap, 100);
+        }
+      };
+      
+      // Start waiting for Bootstrap
+      waitForBootstrap();
+    }
+    
+    // Internal function to actually show the toast
+    function showToastInternal(title, message, type) {
+      try {
+        // Check if Bootstrap is available and fully loaded
+        if (typeof bootstrap === 'undefined' || !bootstrap.Toast || typeof bootstrap.Toast !== 'function') {
+          console.warn('Bootstrap Toast not available, falling back to alert');
+          alert(`${title}: ${message}`);
+          return;
+        }
+        
+        // Check if toast container exists
+        const toastContainer = document.querySelector('.toast-container');
+        if (!toastContainer) {
+          console.warn('Toast container not found, falling back to alert');
+          alert(`${title}: ${message}`);
+          return;
+        }
+        
+        // Create toast element
+        const toastHtml = `
+          <div class="toast bg-${type === 'error' ? 'danger' : type === 'success' ? 'success' : 'info'} text-white" role="alert" aria-live="assertive" aria-atomic="true">
+            <div class="toast-header bg-${type === 'error' ? 'danger' : type === 'success' ? 'success' : 'info'} text-white">
+              <strong class="me-auto">${title}</strong>
+              <button type="button" class="btn-close btn-close-white" data-bs-dismiss="toast" aria-label="Close"></button>
+            </div>
+            <div class="toast-body">
+              ${message}
+            </div>
+          </div>
+        `;
+        
+        const toastElement = document.createElement('div');
+        toastElement.innerHTML = toastHtml;
+        const actualToastElement = toastElement.firstElementChild;
+        
+        // Ensure the element is valid
+        if (!actualToastElement) {
+          console.warn('Failed to create toast element, falling back to alert');
+          alert(`${title}: ${message}`);
+          return;
+        }
+        
+        toastContainer.appendChild(actualToastElement);
+        
+        // Show the toast with error handling
+        try {
+          // Double-check Bootstrap availability before creating toast
+          if (typeof bootstrap === 'undefined' || !bootstrap.Toast) {
+            throw new Error('Bootstrap not available during toast creation');
+          }
+          
+          const toast = new bootstrap.Toast(actualToastElement);
+          if (toast && typeof toast.show === 'function') {
+            toast.show();
+          } else {
+            throw new Error('Invalid toast object');
+          }
+        } catch (toastError) {
+          console.error('Error creating/showing toast:', toastError);
+          // Remove the element we added and fallback to alert
+          if (actualToastElement.parentNode === toastContainer) {
+            toastContainer.removeChild(actualToastElement);
+          }
+          alert(`${title}: ${message}`);
+          return;
+        }
+        
+        // Remove toast element after it's hidden
+        actualToastElement.addEventListener('hidden.bs.toast', function() {
+          if (toastContainer && actualToastElement.parentNode === toastContainer) {
+            toastContainer.removeChild(actualToastElement);
+          }
+        });
+        
+      } catch (error) {
+        console.error('Error in showToast function:', error);
+        // Final fallback to alert
+        alert(`${title}: ${message}`);
+      }
+    }
+
+    // Function to cleanup orphan files in the watch directory
+function cleanupOrphanFiles() {
+      if (!confirm('This will remove all temporary download files (like .crdownload, .tmp, .part) from the downloads folder. Continue?')) {
+        return;
+      }
+      
+      // Show loading state
+      const cleanupBtn = event.target;
+      const originalText = cleanupBtn.innerHTML;
+      cleanupBtn.disabled = true;
+      cleanupBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Cleaning...';
+      
+      fetch('/cleanup-orphan-files', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      })
+      .then(response => response.json())
+      .then(data => {
+        if (data.success) {
+          // Update last cleanup status
+          updateLastCleanupStatus();
+          
+          if (data.cleaned_count > 0) {
+            // Show detailed results
+            let message = `Cleaned up ${data.cleaned_count} orphan files, freed ${data.total_size_cleaned}`;
+            if (data.cleaned_files && data.cleaned_files.length > 0) {
+              message += '\n\nCleaned files:\n' + data.cleaned_files.map(f => `• ${f.file} (${f.size})`).join('\n');
+            }
+            showToast('Cleanup Complete', message, 'success');
+          } else {
+            showToast('Cleanup Complete', 'No orphan files found', 'info');
+          }
+          
+          // Refresh the destination directory listing
+          loadDirectories(currentDestinationPath, 'destination');
+        } else {
+          showToast('Cleanup Failed', data.error || 'Unknown error occurred', 'error');
+        }
+      })
+      .catch(error => {
+        console.error('Error during cleanup:', error);
+        showToast('Cleanup Failed', 'Network or server error occurred', 'error');
+      })
+      .finally(() => {
+        // Restore button state
+        cleanupBtn.disabled = false;
+        cleanupBtn.innerHTML = originalText;
+      });
+    }
+
+    // Function to update the last cleanup status
+    function updateLastCleanupStatus() {
+      const now = new Date();
+      const statusElement = document.getElementById('lastCleanupStatus');
+      if (statusElement) {
+        statusElement.textContent = formatTimestamp(now);
+      }
+    }
+
+    // Function to format timestamp in a user-friendly way
+    function formatTimestamp(date) {
+      const now = new Date();
+      const diffMs = now - date;
+      const diffMins = Math.floor(diffMs / 60000);
+      const diffHours = Math.floor(diffMs / 3600000);
+      const diffDays = Math.floor(diffMs / 86400000);
+      
+      if (diffMins < 1) {
+        return 'Just now';
+      } else if (diffMins < 60) {
+        return `${diffMins} minute${diffMins !== 1 ? 's' : ''} ago`;
+      } else if (diffHours < 24) {
+        return `${diffHours} hour${diffHours !== 1 ? 's' : ''} ago`;
+      } else if (diffDays < 7) {
+        return `${diffDays} day${diffDays !== 1 ? 's' : ''} ago`;
+      } else {
+        return date.toLocaleDateString() + ' ' + date.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+      }
+    }

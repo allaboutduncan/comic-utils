@@ -1,0 +1,64 @@
+version: '3.9'
+services:
+    comic-utils:
+        image: allaboutduncan/comic-utils-web:sql
+        container_name: clu
+        restart: always
+        # user: "0:0"
+        ports:
+            - '5577:5577'
+        volumes:
+            - 'F:/Comics:/data' #path to comics/library - needs to map to /data
+            - 'F:/downloads:/downloads' #additional path for monitoring - source and mapping can be anything
+            - 'config-volume:/config' #stores config on a docker volume to persist settings
+            # NEW: GCD data persistence
+            - 'gcd-data:/app/gcd_data'
+            - 'gcd-db:/app/gcd_database' 
+            - 'app-logs:/app/logs'
+        environment:
+          - PUID=1000         # typical Windows/WSL uid; adjust if needed
+          - PGID=1000
+          - UMASK=022
+          - TZ=America/Chicago
+          - MONITOR=yes
+          - FLASK_ENV=development
+
+          # Database connection
+          - DB_HOST=postgres
+          - DB_NAME=comic_utils
+          - DB_USER=comic_utils
+          - DB_PASSWORD=password
+          - DB_PORT=5432
+          
+          # GCD Configuration
+          - GCD_AUTO_UPDATE=true
+          - GCD_UPDATE_INTERVAL=weekly  # daily, weekly, monthly
+          - GCD_DOWNLOAD_TIMEOUT=600    # 10 minutes for large downloads
+          - GCD_MAX_RETRIES=3
+          - DATABASE_URL=postgresql://gcduser:gcdpassword@postgres:5432/comic_utils
+          - GCD_ENABLED=true
+          - GCD_REQUIRED=false
+
+    postgres:
+      image: postgres:15-alpine
+      container_name: comic-utils-db
+      restart: always
+      volumes:
+        - 'postgres-data:/var/lib/postgresql/data'
+      environment:
+        - POSTGRES_DB=comic_utils
+        - POSTGRES_USER=comic_utils
+        - POSTGRES_PASSWORD=password
+        - POSTGRES_INIT_SCRIPTS=/docker-entrypoint-initdb.d/
+      ports:
+        - "5444:5432"
+
+volumes:
+  config-volume:
+  app-logs:
+  gcd-data:
+    driver: local
+  gcd-db:
+    driver: local
+  postgres-data:
+    driver: local
