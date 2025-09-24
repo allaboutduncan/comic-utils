@@ -2,11 +2,19 @@ import os
 import sys
 import zipfile
 import shutil
-from PIL import Image, ImageFilter
+from PIL import Image, ImageFilter, features
 from app_logging import app_logger
 
 # Define supported image extensions
-SUPPORTED_IMAGE_EXTENSIONS = ['.jpg', '.jpeg', '.bmp', '.gif', '.png']
+SUPPORTED_IMAGE_EXTENSIONS = ['.jpg', '.jpeg', '.bmp', '.gif', '.png', '.webp']
+
+def check_webp_support():
+    """Log WebP support status"""
+    webp_supported = features.check('webp')
+    app_logger.info(f"WebP support available: {webp_supported}")
+    if not webp_supported:
+        app_logger.warning("WebP support not available in PIL. Install libwebp-dev and reinstall pillow.")
+    return webp_supported
 
 def handle_cbz_file(file_path):
     """
@@ -16,6 +24,9 @@ def handle_cbz_file(file_path):
     :return: None
     """
     app_logger.info(f"********************// Remove First Image //********************")
+    
+    # Check WebP support at startup
+    check_webp_support()
     
     if not file_path.lower().endswith('.cbz'):
         app_logger.info("Provided file is not a CBZ file.")
@@ -54,10 +65,22 @@ def handle_cbz_file(file_path):
             for root, _, files in os.walk(folder_name):
                 for file in files:
                     file_ext = os.path.splitext(file)[1].lower()
+                    app_logger.info(f"Processing file: {file} (extension: {file_ext})")
+                    
                     if file_ext in SUPPORTED_IMAGE_EXTENSIONS:
                         file_path_in_folder = os.path.join(root, file)
+                        
+                        # Test if we can actually open the image
+                        try:
+                            with Image.open(file_path_in_folder) as img:
+                                app_logger.info(f"Successfully verified image: {file} (format: {img.format})")
+                        except Exception as e:
+                            app_logger.warning(f"Cannot open image {file} with PIL: {e}")
+                            continue
+                        
                         arcname = os.path.relpath(file_path_in_folder, folder_name)
                         zf.write(file_path_in_folder, arcname)
+                        app_logger.info(f"Added to archive: {file}")
                     else:
                         app_logger.info(f"Skipping unsupported file type: {file}")
 
@@ -92,9 +115,18 @@ def remove_first_image_file(dir_path):
     for root, dirs, files in os.walk(dir_path):
         for file in files:
             file_ext = os.path.splitext(file)[1].lower()
+            app_logger.info(f"Found file: {file} (extension: {file_ext})")
+            
             if file_ext in SUPPORTED_IMAGE_EXTENSIONS:
                 file_path = os.path.join(root, file)
-                image_files.append(file_path)
+                
+                # Verify we can open the image before adding to list
+                try:
+                    with Image.open(file_path) as img:
+                        image_files.append(file_path)
+                        app_logger.info(f"Added to processing list: {file}")
+                except Exception as e:
+                    app_logger.warning(f"Cannot open {file} with PIL, skipping: {e}")
     
     if not image_files:
         app_logger.info(f"No supported image files found in {dir_path} or its subdirectories.")

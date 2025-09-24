@@ -5,7 +5,13 @@
       "WebFetch(domain:pypi.org)",
       "WebFetch(domain:docs.comics.org)",
       "WebFetch(domain:github.com)",
-      "Bash(node:*)"
+      "Bash(node:*)",
+      "Bash(python:*)",
+      "WebFetch(domain:www.comics.org)",
+      "Bash(dir C:downloads)",
+      "Bash(start test_series_rename.html)",
+      "Bash(del test_series_rename.html test_rename.js)",
+      "Bash(del test_rename.py test_season_regex.py)"
     ],
     "deny": [],
     "ask": []

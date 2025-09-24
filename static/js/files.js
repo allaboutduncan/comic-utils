@@ -8,6 +8,11 @@ let deletePanel = ""; // 'source' or 'destination'
 let selectedFiles = new Set();
 // Global variable to track the last clicked file element (for SHIFT selection).
 let lastClickedFile = null;
+// Global variables to store series data for sorting in GCD modal
+let currentSeriesData = [];
+let currentFilePath = '';
+let currentFileName = '';
+let currentIssueNumber = '';
 
 // Store raw data for each panel.
 let sourceDirectoriesData = null;
@@ -16,6 +21,9 @@ let destinationDirectoriesData = null;
 // Track current filter (default is 'all') per panel.
 let currentFilter = { source: 'all', destination: 'all' };
 
+// Global variable to track GCD MySQL availability
+let gcdMysqlAvailable = false;
+
 // Format file size helper function
 function formatSize(bytes) {
       const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
@@ -23,6 +31,20 @@ function formatSize(bytes) {
       const i = parseInt(Math.floor(Math.log(bytes) / Math.log(1024)));
       return (bytes / Math.pow(1024, i)).toFixed(1) + ' ' + sizes[i];
     }
+
+// Function to check GCD MySQL availability
+function checkGCDAvailability() {
+    fetch('/gcd-mysql-status')
+        .then(response => response.json())
+        .then(data => {
+            gcdMysqlAvailable = data.gcd_mysql_available || false;
+            console.log('GCD MySQL availability checked:', gcdMysqlAvailable);
+        })
+        .catch(error => {
+            console.warn('Error checking GCD availability:', error);
+            gcdMysqlAvailable = false;
+        });
+}
 
     // Helper function to create drop target item
     function createDropTargetItem(container, currentPath, panel) {
@@ -235,9 +257,18 @@ function formatSize(bytes) {
         nameSpan.textContent = fileData.name;
       }
       leftContainer.appendChild(nameSpan);
-      
+
+      console.log('Checking CBZ condition:', {
+        type: type,
+        filename: fileData.name,
+        lowercaseEnds: fileData.name.toLowerCase().endsWith('.cbz'),
+        lowercase: fileData.name.toLowerCase()
+      });
+
       // Add CBZ info functionality
       if (type === "file" && fileData.name.toLowerCase().endsWith('.cbz')) {
+        console.log('Creating CBZ buttons for:', fileData.name);
+
         // Add info button for detailed CBZ information
         const infoBtn = document.createElement("button");
         infoBtn.className = "btn btn-sm btn-outline-secondary";
@@ -249,6 +280,24 @@ function formatSize(bytes) {
           showCBZInfo(fullPath, fileData.name);
         };
         iconContainer.appendChild(infoBtn);
+        console.log('Info button added');
+
+        // Add GCD search button for metadata retrieval (only if GCD is available)
+        if (gcdMysqlAvailable) {
+          const gcdBtn = document.createElement("button");
+          gcdBtn.className = "btn btn-sm btn-outline-warning";
+          gcdBtn.innerHTML = '<i class="bi bi-cloud-download"></i>';
+          gcdBtn.title = "Search GCD for Metadata";
+          gcdBtn.setAttribute("type", "button");
+          gcdBtn.onclick = function(e) {
+            e.stopPropagation();
+            searchGCDMetadata(fullPath, fileData.name);
+          };
+          iconContainer.appendChild(gcdBtn);
+          console.log('GCD button added');
+        } else {
+          console.log('GCD button skipped - GCD MySQL not available');
+        }
       }
 
       if (type === "directory") {
@@ -305,7 +354,21 @@ function formatSize(bytes) {
         infoWrapper.appendChild(infoIcon);
         infoWrapper.appendChild(sizeDisplay);
         iconContainer.appendChild(infoWrapper);
-        
+
+        // Add GCD search button for directories (but not for Parent directory, and only if GCD is available)
+        if (fileData.name !== "Parent" && gcdMysqlAvailable) {
+          const gcdDirBtn = document.createElement("button");
+          gcdDirBtn.className = "btn btn-sm btn-outline-primary";
+          gcdDirBtn.innerHTML = '<i class="bi bi-cloud-download"></i>';
+          gcdDirBtn.title = "Search GCD for All Comics in Directory";
+          gcdDirBtn.setAttribute("type", "button");
+          gcdDirBtn.onclick = function(e) {
+            e.stopPropagation();
+            searchGCDMetadataForDirectory(fullPath, fileData.name);
+          };
+          iconContainer.appendChild(gcdDirBtn);
+        }
+
         // Add rename button for directories (but not for Parent directory)
         if (fileData.name !== "Parent") {
           const renameBtn = document.createElement("button");
@@ -569,9 +632,18 @@ function formatSize(bytes) {
       const btnGroup = outerContainer.querySelector('.btn-group');
       if (!btnGroup) return;
 
+      // Handle undefined or null directories - provide empty array as fallback
+      if (!directories) {
+        directories = [];
+      }
+      if (!Array.isArray(directories)) {
+        console.warn("directories is not an array in updateFilterBar:", directories);
+        directories = [];
+      }
+
       let availableLetters = new Set();
       let hasNonAlpha = false;
-  
+
       directories.forEach(dir => {
         const firstChar = dir.charAt(0).toUpperCase();
         if (firstChar >= 'A' && firstChar <= 'Z') {
@@ -635,8 +707,13 @@ function loadDirectories(path, panel) {
       fetch(`/list-directories?path=${encodeURIComponent(path)}`)
         .then(response => response.json())
         .then(data => {
-          console.log("Received data:", data);
-          
+          console.log("Received data for panel", panel, ":", data);
+
+          // Check for server errors
+          if (data.error) {
+            throw new Error(data.error);
+          }
+
           // Reset file tracking for this panel
           resetFileTracking(panel, data.current_path);
           
@@ -671,7 +748,7 @@ function loadDirectories(path, panel) {
       let container = panel === 'source' ? document.getElementById("source-list")
                                         : document.getElementById("destination-list");
       container.innerHTML = "";
-      
+
       if (data.parent) {
         let parentItem = createListItem("Parent", data.parent, "directory", panel, false);
         parentItem.querySelector("span").innerHTML = `<i class="bi bi-arrow-left-square me-2"></i> Parent`;
@@ -679,7 +756,16 @@ function loadDirectories(path, panel) {
         parentItem.setAttribute("data-fullpath", data.parent);
         container.appendChild(parentItem);
       }
-      
+
+      // Handle undefined or null directories - provide empty array as fallback
+      if (!data.directories) {
+        data.directories = [];
+      }
+      if (!Array.isArray(data.directories)) {
+        console.warn("data.directories is not an array:", data.directories);
+        data.directories = [];
+      }
+
       let filter = currentFilter[panel];
       let directoriesToShow = data.directories.filter(dir => {
         // --- SEARCH FILTER FOR DESTINATION PANEL ---
@@ -697,8 +783,17 @@ function loadDirectories(path, panel) {
         let item = createListItem(dir, fullPath, "directory", panel, true);
         container.appendChild(item);
       });
-      
+
       if (filter === 'all') {
+        // Handle undefined or null files - provide empty array as fallback
+        if (!data.files) {
+          data.files = [];
+        }
+        if (!Array.isArray(data.files)) {
+          console.warn("data.files is not an array:", data.files);
+          data.files = [];
+        }
+
         data.files.forEach(file => {
           const fileData = normalizeFile(file);
           const fullPath = data.current_path + "/" + fileData.name;
@@ -708,7 +803,9 @@ function loadDirectories(path, panel) {
       }
       
       // For the destination panel, only add the drop target if the directory is truly empty.
-      if (panel === 'destination' && data.directories.length === 0 && data.files.length === 0) {
+      if (panel === 'destination' &&
+          (!data.directories || data.directories.length === 0) &&
+          (!data.files || data.files.length === 0)) {
         createDropTargetItem(container, data.current_path, panel);
       }
     }
@@ -783,18 +880,22 @@ function loadDownloads(path, panel) {
             parentItem.setAttribute("data-fullpath", data.parent);
             container.appendChild(parentItem);
           }
-          data.directories.forEach(dir => {
-            const dirData = normalizeFile(dir);
-            const fullPath = data.current_path + "/" + dirData.name;
-            const item = createListItem(dirData, fullPath, "directory", panel, true);
-            container.appendChild(item);
-          });
-          data.files.forEach(file => {
-            const fileData = normalizeFile(file);
-            const fullPath = data.current_path + "/" + fileData.name;
-            let fileItem = createListItem(fileData, fullPath, "file", panel, true);
-            container.appendChild(fileItem);
-          });
+          if (data.directories && Array.isArray(data.directories)) {
+            data.directories.forEach(dir => {
+              const dirData = normalizeFile(dir);
+              const fullPath = data.current_path + "/" + dirData.name;
+              const item = createListItem(dirData, fullPath, "directory", panel, true);
+              container.appendChild(item);
+            });
+          }
+          if (data.files && Array.isArray(data.files)) {
+            data.files.forEach(file => {
+              const fileData = normalizeFile(file);
+              const fullPath = data.current_path + "/" + fileData.name;
+              let fileItem = createListItem(fileData, fullPath, "file", panel, true);
+              container.appendChild(fileItem);
+            });
+          }
         })
         .catch(error => {
           console.error("Error loading downloads:", error);
@@ -830,6 +931,9 @@ window.clearAllDropHoverStates = clearAllDropHoverStates;
 // Initialize when DOM is loaded
 document.addEventListener('DOMContentLoaded', function() {
   console.log('DOM loaded, initializing files.js');
+
+  // Check GCD MySQL availability
+  checkGCDAvailability();
 
   // Initialize rename rows as hidden
   document.getElementById('source-directory-rename-row').style.display = 'none';
@@ -1038,6 +1142,13 @@ document.addEventListener('DOMContentLoaded', function() {
         console.error("Invalid panel:", panel);
         return;
       }
+
+      // Handle undefined or null fullPath
+      if (!fullPath) {
+        breadcrumbEl.innerHTML = "";
+        return;
+      }
+
       breadcrumbEl.innerHTML = "";
       let parts = fullPath.split('/').filter(Boolean);
       let pathSoFar = "";
@@ -1601,7 +1712,7 @@ function showCBZInfo(filePath, fileName) {
           
           let html = `
             <div class="row">
-              <div class="col-md-6">
+              <div class="col-md-7">
           `;
           
           // Add ComicInfo section if available
@@ -1690,7 +1801,7 @@ function showCBZInfo(filePath, fileName) {
               const hasFields = group.fields.some(field => comicInfo[field.key]);
               console.log(`Group "${group.title}" has fields:`, hasFields);
               if (hasFields) {
-                const colClass = group.fullWidth ? 'col-md-12' : 'col-md-6';
+                const colClass = group.fullWidth ? 'col-md-12' : 'col-md-9';
                 html += `
                   <div class="${colClass} mb-3">
                     <h6 class="text-muted small">${group.title}</h6>
@@ -1702,6 +1813,11 @@ function showCBZInfo(filePath, fileName) {
                     let value = comicInfo[field.key];
                     
                     // Format special values
+                    if (field.key === 'PageCount') {
+                      // Remove decimals and zeros for Page Count
+                      value = parseInt(value);
+                    }
+
                     if (field.key === 'BlackAndWhite' || field.key === 'Manga') {
                       if (value === 'Yes') value = 'Yes';
                       else if (value === 'No') value = 'No';
@@ -1735,7 +1851,7 @@ function showCBZInfo(filePath, fileName) {
           
           html += `
               </div>
-              <div class="col-md-6">
+              <div class="col-md-5">
                 <h6>Preview</h6>
                 <div id="cbzPreviewContainer" class="text-center">
                   <div class="spinner-border spinner-border-sm" role="status">
@@ -1856,7 +1972,8 @@ function showCBZInfo(filePath, fileName) {
       const hasFiles = fileTracking[panel].fileCount > 0;
       // Use the global path variables instead of file tracking
       const currentPath = panel === 'source' ? currentSourcePath : currentDestinationPath;
-      const isNotRoot = currentPath !== '/data';
+      const rootPath = panel === 'source' ? '/temp' : '/processed';
+      const isNotRoot = currentPath !== rootPath;
 
       console.log('updateRenameButtonVisibility:', panel, 'hasFiles=', hasFiles, 'currentPath=', currentPath, 'isNotRoot=', isNotRoot);
 
@@ -1864,27 +1981,50 @@ function showCBZInfo(filePath, fileName) {
       if (hasFiles && isNotRoot) {
         console.log('Showing rename button:', panel, 'files=', fileTracking[panel].fileCount, 'path=', currentPath);
         
-        // Create or update the rename button
+        // Create or update the rename text button
         let renameButton = renameRow.querySelector('.rename-files-btn');
         if (!renameButton) {
           renameButton = document.createElement('button');
-          renameButton.className = 'btn btn-outline-primary btn-sm rename-files-btn';
-          renameButton.innerHTML = '<i class="bi bi-input-cursor-text me-2"></i>Remove Text from Filenames';
+          renameButton.className = 'btn btn-outline-primary btn-sm rename-files-btn me-2';
+          renameButton.innerHTML = '<i class="bi bi-input-cursor-text me-2"></i>Remove Text';
           renameButton.title = 'Remove text from all filenames in this directory';
           renameRow.appendChild(renameButton);
         }
-        
+
         // Store the current path as a data attribute
         renameButton.dataset.currentPath = currentPath;
         renameButton.dataset.currentPanel = panel;
-        
+
         // Update button click handler with current context
         renameButton.onclick = function(e) {
           e.preventDefault();
           const pathFromData = e.target.dataset.currentPath;
           const panelFromData = e.target.dataset.currentPanel;
-          console.log('Button clicked, path from data:', pathFromData, 'panel:', panelFromData);
+          console.log('Remove text button clicked, path from data:', pathFromData, 'panel:', panelFromData);
           openCustomRenameModal(pathFromData, panelFromData);
+        };
+
+        // Create or update the series rename button
+        let seriesRenameButton = renameRow.querySelector('.series-rename-btn');
+        if (!seriesRenameButton) {
+          seriesRenameButton = document.createElement('button');
+          seriesRenameButton.className = 'btn btn-outline-success btn-sm series-rename-btn';
+          seriesRenameButton.innerHTML = '<i class="bi bi-pencil-square me-2"></i>Rename Series';
+          seriesRenameButton.title = 'Replace series name while preserving issue numbers and years';
+          renameRow.appendChild(seriesRenameButton);
+        }
+
+        // Store the current path as a data attribute
+        seriesRenameButton.dataset.currentPath = currentPath;
+        seriesRenameButton.dataset.currentPanel = panel;
+
+        // Update button click handler with current context
+        seriesRenameButton.onclick = function(e) {
+          e.preventDefault();
+          const pathFromData = e.target.dataset.currentPath;
+          const panelFromData = e.target.dataset.currentPanel;
+          console.log('Series rename button clicked, path from data:', pathFromData, 'panel:', panelFromData);
+          openRenameFilesModal(pathFromData, panelFromData);
         };
         
         renameRow.style.display = 'block';
@@ -1969,7 +2109,7 @@ function previewCustomRename() {
           previewList.innerHTML = '';
           
           // Filter only files (not directories) that contain the text to remove
-          const filesToRename = data.files.filter(file => {
+          const filesToRename = (data.files || []).filter(file => {
             const fileData = normalizeFile(file);
             const nameWithoutExtension = fileData.name.substring(0, fileData.name.lastIndexOf('.')) || fileData.name;
             return nameWithoutExtension.includes(textToRemove);
@@ -2092,6 +2232,253 @@ function executeCustomRename() {
     document.getElementById('textToRemove').addEventListener('keypress', function(e) {
       if (e.key === 'Enter') {
         previewCustomRename();
+      }
+    });
+
+    // ============================================================================
+    // Series Rename Modal functionality
+    // ============================================================================
+    let renameFilesModal;
+    let currentSeriesRenameDirectory = '';
+    let currentSeriesRenamePanel = '';
+    let seriesFileList = [];
+
+    function openRenameFilesModal(directoryPath, panel) {
+      console.log('openRenameFilesModal called with:', directoryPath, panel);
+      currentSeriesRenameDirectory = directoryPath;
+      currentSeriesRenamePanel = panel;
+
+      // Validate that we have a valid directory path
+      if (!directoryPath || directoryPath === '') {
+        console.error('Invalid directory path provided to openRenameFilesModal:', directoryPath);
+        showToast('Path Error', 'No directory path provided for series rename operation.', 'error');
+        return;
+      }
+
+      // Reset modal state
+      document.getElementById('newSeriesName').value = '';
+      document.getElementById('renameFilesPreview').style.display = 'none';
+      document.getElementById('previewRenameFilesBtn').style.display = 'inline-block';
+      document.getElementById('executeRenameFilesBtn').style.display = 'none';
+      document.getElementById('renameFilesPreviewList').innerHTML = '';
+
+      // Initialize modal
+      if (!renameFilesModal) {
+        renameFilesModal = new bootstrap.Modal(document.getElementById('renameFilesModal'));
+      }
+
+      // Show modal
+      renameFilesModal.show();
+
+      // Focus on input field
+      setTimeout(() => {
+        document.getElementById('newSeriesName').focus();
+      }, 300);
+    }
+
+    function previewRenameFiles() {
+      const newSeriesName = document.getElementById('newSeriesName').value.trim();
+
+      if (!newSeriesName) {
+        showToast('Input Required', 'Please enter a new series name.', 'warning');
+        return;
+      }
+
+      console.log('previewRenameFiles called with series name:', newSeriesName);
+
+      // Fetch file list from the directory using the correct endpoint
+      fetch(`/list-directories?path=${encodeURIComponent(currentSeriesRenameDirectory)}`)
+      .then(response => response.json())
+      .then(data => {
+        console.log('Directory listing response:', data);
+
+        if (data.error) {
+          showToast('Directory Error', data.error, 'error');
+          return;
+        }
+
+        if (!data.files || data.files.length === 0) {
+          showToast('No Files Found', 'No files found in the directory.', 'warning');
+          return;
+        }
+
+        // Filter only comic files
+        const comicFiles = data.files.filter(file => {
+          const fileData = typeof file === 'object' ? file : { name: file };
+          return fileData.name.toLowerCase().endsWith('.cbz') || fileData.name.toLowerCase().endsWith('.cbr');
+        });
+
+        if (comicFiles.length === 0) {
+          showToast('No Comic Files', 'No comic files (.cbz/.cbr) found in the directory.', 'warning');
+          return;
+        }
+
+        // Generate preview of renamed files
+        seriesFileList = comicFiles.map(file => {
+          const originalName = file.name;
+          const newName = generateSeriesRename(originalName, newSeriesName);
+
+          return {
+            oldPath: `${currentSeriesRenameDirectory}/${originalName}`,
+            originalName: originalName,
+            newName: newName
+          };
+        });
+
+        // Display preview
+        displaySeriesRenamePreview(seriesFileList);
+
+        // Show preview and enable execute button
+        document.getElementById('renameFilesPreview').style.display = 'block';
+        document.getElementById('executeRenameFilesBtn').style.display = 'inline-block';
+      })
+      .catch(error => {
+        console.error('Error fetching directory listing:', error);
+        showToast('Fetch Error', 'Error fetching file list: ' + error.message, 'error');
+      });
+    }
+
+    function generateSeriesRename(originalName, newSeriesName) {
+      // Extract issue number and year patterns from the filename
+      // Common patterns: "Series Name 001 (1985).cbz", "Series Name #1 (1985).cbz", etc.
+
+      // Try to extract issue and year information
+      const patterns = [
+        // "Series Name 001 (1985).cbz" or "Series Name #001 (1985).cbz"
+        /^.*?(\s+#?\d{1,4})\s*\((\d{4})\)(\.\w+)$/,
+        // "Series Name 001.cbz" (no year)
+        /^.*?(\s+#?\d{1,4})(\.\w+)$/,
+        // "Series Name (1985).cbz" (no issue)
+        /^.*?\s*\((\d{4})\)(\.\w+)$/,
+        // Just extension (fallback)
+        /^.*?(\.\w+)$/
+      ];
+
+      for (let pattern of patterns) {
+        const match = originalName.match(pattern);
+        if (match) {
+          if (match.length === 4) {
+            // Issue and year found
+            const issue = match[1];
+            const year = match[2];
+            const ext = match[3];
+            return `${newSeriesName}${issue} (${year})${ext}`;
+          } else if (match.length === 3) {
+            // Check if it's issue + ext or year + ext
+            if (match[1].includes('#') || /^\s+\d/.test(match[1])) {
+              // Issue number found, no year
+              const issue = match[1];
+              const ext = match[2];
+              return `${newSeriesName}${issue}${ext}`;
+            } else {
+              // Year found, no issue
+              const year = match[1];
+              const ext = match[2];
+              return `${newSeriesName} (${year})${ext}`;
+            }
+          } else if (match.length === 2) {
+            // Just extension
+            const ext = match[1];
+            return `${newSeriesName}${ext}`;
+          }
+        }
+      }
+
+      // Fallback: just replace everything before the extension
+      const ext = originalName.substring(originalName.lastIndexOf('.'));
+      return `${newSeriesName}${ext}`;
+    }
+
+    function displaySeriesRenamePreview(fileList) {
+      const previewContainer = document.getElementById('renameFilesPreviewList');
+      previewContainer.innerHTML = '';
+
+      if (fileList.length === 0) {
+        previewContainer.innerHTML = '<p class="text-muted">No files to rename.</p>';
+        return;
+      }
+
+      fileList.forEach(file => {
+        const div = document.createElement('div');
+        div.className = 'mb-2 p-2 border rounded';
+        div.innerHTML = `
+          <div><strong>Original:</strong> <code>${file.originalName}</code></div>
+          <div><strong>New:</strong> <code class="text-success">${file.newName}</code></div>
+        `;
+        previewContainer.appendChild(div);
+      });
+    }
+
+    function executeRenameFiles() {
+      if (seriesFileList.length === 0) {
+        showToast('No Files', 'No files to rename.', 'warning');
+        return;
+      }
+
+      // Disable buttons during execution
+      document.getElementById('previewRenameFilesBtn').disabled = true;
+      document.getElementById('executeRenameFilesBtn').disabled = true;
+      document.getElementById('executeRenameFilesBtn').textContent = 'Renaming...';
+
+      // Execute renames
+      const renamePromises = seriesFileList.map(file => {
+        const newPath = `${currentSeriesRenameDirectory}/${file.newName}`;
+        return fetch('/custom-rename', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            old: file.oldPath,
+            new: newPath
+          })
+        })
+        .then(response => response.json())
+        .then(data => {
+          if (!data.success) {
+            throw new Error(`Failed to rename ${file.originalName}: ${data.error}`);
+          }
+          return data;
+        });
+      });
+
+      Promise.all(renamePromises)
+        .then(results => {
+          console.log('All series renames completed:', results);
+
+          // Check if all renames were successful
+          const failedRenames = results.filter(result => !result.success);
+
+          if (failedRenames.length > 0) {
+            showToast('Partial Success', `Some files could not be renamed. ${failedRenames.length} failures.`, 'warning');
+          } else {
+            showToast('Rename Complete', `Successfully renamed ${results.length} files with new series name.`, 'success');
+
+            // Auto-close modal after 2 seconds
+            setTimeout(() => {
+              renameFilesModal.hide();
+            }, 2000);
+          }
+
+          // Refresh directory listing
+          loadDownloads(currentSeriesRenameDirectory, currentSeriesRenamePanel);
+        })
+        .catch(error => {
+          console.error('Error during series rename operation:', error);
+          showToast('Rename Error', 'Error during series rename operation: ' + error.message, 'error');
+        })
+        .finally(() => {
+          // Re-enable buttons
+          document.getElementById('previewRenameFilesBtn').disabled = false;
+          document.getElementById('executeRenameFilesBtn').disabled = false;
+          document.getElementById('executeRenameFilesBtn').textContent = 'Execute Rename';
+        });
+    }
+
+    // Add Enter key support for the series name input
+    document.getElementById('newSeriesName').addEventListener('keypress', function(e) {
+      if (e.key === 'Enter') {
+        previewRenameFiles();
       }
     });
 
@@ -2489,4 +2876,909 @@ function cleanupOrphanFiles() {
       } else {
         return date.toLocaleDateString() + ' ' + date.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
       }
+    }
+
+    // Function to search GCD for metadata and add to CBZ
+    function searchGCDMetadata(filePath, fileName) {
+      console.log('GCD Search Called with:', { filePath, fileName });
+
+      // Validate inputs
+      if (!filePath || !fileName) {
+        console.error('Invalid parameters:', { filePath, fileName });
+        showToast('GCD Search Error', 'Missing file path or name', 'error');
+        return;
+      }
+
+      if (!fileName.toLowerCase().match(/\.(cbz|cbr)$/)) {
+        console.error('Invalid file type:', fileName);
+        showToast('GCD Search Error', 'File must be CBZ or CBR format', 'error');
+        return;
+      }
+
+      // Parse series name and issue from filename
+      const nameWithoutExt = fileName.replace(/\.(cbz|cbr)$/i, '');
+
+      // Auto-search without confirmation
+
+      // Show a simple loading indicator
+      const loadingToast = document.createElement('div');
+      loadingToast.className = 'toast show position-fixed bottom-0 end-0 m-3';
+      loadingToast.style.zIndex = '1200';
+      loadingToast.innerHTML = `
+        <div class="toast-header bg-primary text-white">
+          <strong class="me-auto">GCD Search</strong>
+          <small>Searching...</small>
+        </div>
+        <div class="toast-body">
+          <div class="d-flex align-items-center">
+            <div class="spinner-border spinner-border-sm me-2" role="status">
+              <span class="visually-hidden">Loading...</span>
+            </div>
+            Searching GCD database for "${nameWithoutExt}"...
+          </div>
+        </div>
+      `;
+      document.body.appendChild(loadingToast);
+
+      // Make request to backend
+      const requestData = {
+        file_path: filePath,
+        file_name: fileName
+      };
+      console.log('GCD Search Request Data:', requestData);
+
+      fetch('/search-gcd-metadata', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(requestData)
+      })
+      .then(response => {
+        console.log('GCD Search Response Status:', response.status);
+        if (!response.ok) {
+          // For HTTP errors, get the error data and handle appropriately
+          return response.json().then(errorData => {
+            // Handle 404 as expected "not found" rather than error
+            if (response.status === 404) {
+              return { success: false, notFound: true, error: errorData.error || 'Issue not found in database' };
+            }
+            // For other HTTP errors, throw as before
+            throw new Error(`HTTP ${response.status}: ${errorData.error || response.statusText}`);
+          }).catch((jsonError) => {
+            // If JSON parsing fails, throw the original HTTP error
+            if (response.status === 404) {
+              return { success: false, notFound: true, error: 'Issue not found in database' };
+            }
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+          });
+        }
+        return response.json();
+      })
+      .then(data => {
+        console.log('GCD Search Response Data:', data);
+        document.body.removeChild(loadingToast);
+
+        if (data.success) {
+          // Show success message
+          const successToast = document.createElement('div');
+          successToast.className = 'toast show position-fixed bottom-0 end-0 m-3';
+          successToast.style.zIndex = '1200';
+          successToast.innerHTML = `
+            <div class="toast-header bg-success text-white">
+              <strong class="me-auto">GCD Search</strong>
+              <button type="button" class="btn-close btn-close-white" onclick="this.closest('.toast').remove()"></button>
+            </div>
+            <div class="toast-body">
+              Successfully added metadata to "${fileName}"<br>
+              <small class="text-muted">Series: ${data.metadata?.series || 'Unknown'}<br>
+              Issue: ${data.metadata?.issue || 'Unknown'}<br>
+              Found ${data.matches_found || 0} potential matches</small>
+            </div>
+          `;
+          document.body.appendChild(successToast);
+
+          // Auto-remove after 5 seconds
+          setTimeout(() => {
+            if (document.body.contains(successToast)) {
+              document.body.removeChild(successToast);
+            }
+          }, 5000);
+        } else if (data.requires_selection) {
+          // Show series selection modal
+          showGCDSeriesSelectionModal(data, filePath, fileName);
+        } else if (data.notFound) {
+          // Show not found message as warning (not error)
+          const warningToast = document.createElement('div');
+          warningToast.className = 'toast show position-fixed bottom-0 end-0 m-3';
+          warningToast.style.zIndex = '1200';
+          warningToast.innerHTML = `
+            <div class="toast-header bg-warning text-white">
+              <strong class="me-auto">GCD Search</strong>
+              <button type="button" class="btn-close btn-close-white" onclick="this.closest('.toast').remove()"></button>
+            </div>
+            <div class="toast-body">
+              ${data.error || 'Issue not found in GCD database'}
+            </div>
+          `;
+          document.body.appendChild(warningToast);
+
+          // Auto-remove after 5 seconds
+          setTimeout(() => {
+            if (document.body.contains(warningToast)) {
+              document.body.removeChild(warningToast);
+            }
+          }, 5000);
+        } else {
+          // Show error message
+          const errorToast = document.createElement('div');
+          errorToast.className = 'toast show position-fixed bottom-0 end-0 m-3';
+          errorToast.style.zIndex = '1200';
+          errorToast.innerHTML = `
+            <div class="toast-header bg-danger text-white">
+              <strong class="me-auto">GCD Search Error</strong>
+              <button type="button" class="btn-close btn-close-white" onclick="this.closest('.toast').remove()"></button>
+            </div>
+            <div class="toast-body">
+              Failed to add metadata: ${data.error || data.message || 'Server returned no error message'}
+            </div>
+          `;
+          document.body.appendChild(errorToast);
+
+          // Auto-remove after 8 seconds for errors
+          setTimeout(() => {
+            if (document.body.contains(errorToast)) {
+              document.body.removeChild(errorToast);
+            }
+          }, 8000);
+        }
+      })
+      .catch(error => {
+        console.error('GCD Search Network Error:', error);
+        document.body.removeChild(loadingToast);
+
+        const errorToast = document.createElement('div');
+        errorToast.className = 'toast show position-fixed bottom-0 end-0 m-3';
+        errorToast.style.zIndex = '1200';
+        errorToast.innerHTML = `
+          <div class="toast-header bg-danger text-white">
+            <strong class="me-auto">Network Error</strong>
+            <button type="button" class="btn-close btn-close-white" onclick="this.closest('.toast').remove()"></button>
+          </div>
+          <div class="toast-body">
+            Network error: ${error.message}
+          </div>
+        `;
+        document.body.appendChild(errorToast);
+
+        setTimeout(() => {
+          if (document.body.contains(errorToast)) {
+            document.body.removeChild(errorToast);
+          }
+        }, 8000);
+      });
+    }
+
+
+    // Function to sort GCD series results
+    function sortGCDSeries(sortBy) {
+      // Update button states
+      document.querySelectorAll('#sortBySeries, #sortByYear').forEach(btn => {
+        btn.classList.remove('btn-secondary');
+        btn.classList.add('btn-outline-secondary');
+      });
+
+      const activeButton = sortBy === 'series' ? document.getElementById('sortBySeries') : document.getElementById('sortByYear');
+      activeButton.classList.remove('btn-outline-secondary');
+      activeButton.classList.add('btn-secondary');
+
+      // Sort the data
+      let sortedData = [...currentSeriesData];
+
+      if (sortBy === 'series') {
+        sortedData.sort((a, b) => a.name.localeCompare(b.name));
+      } else if (sortBy === 'year') {
+        sortedData.sort((a, b) => {
+          const yearA = a.year_began || 9999; // Put unknown years at the end
+          const yearB = b.year_began || 9999;
+          return yearA - yearB;
+        });
+      }
+
+      // Re-render the series list - detect if this is directory mode or single file mode
+      if (Array.isArray(currentIssueNumber)) {
+        // Directory mode - currentIssueNumber contains the comicFiles array
+        renderDirectorySeriesList(sortedData, currentFilePath, currentFileName, currentIssueNumber);
+      } else {
+        // Single file mode - currentIssueNumber is a number
+        renderSeriesList(sortedData);
+      }
+    }
+
+    // Function to render the series list
+    function renderSeriesList(seriesData) {
+      const seriesList = document.getElementById('gcdSeriesList');
+      seriesList.innerHTML = '';
+
+      seriesData.forEach(series => {
+        const seriesItem = document.createElement('div');
+        seriesItem.className = 'list-group-item list-group-item-action d-flex justify-content-between align-items-start';
+        seriesItem.style.cursor = 'pointer';
+
+        const yearRange = series.year_began
+          ? (series.year_ended ? `${series.year_began}-${series.year_ended}` : `${series.year_began}-ongoing`)
+          : 'Unknown';
+
+        seriesItem.innerHTML = `
+          <div class="ms-2 me-auto">
+            <div class="fw-bold">${series.name}</div>
+            <small class="text-muted">Publisher: ${series.publisher_name || 'Unknown'}</small>
+          </div>
+          <span class="badge bg-primary rounded-pill">${yearRange}</span>
+        `;
+
+        seriesItem.addEventListener('click', () => {
+          // Highlight selected item
+          seriesList.querySelectorAll('.list-group-item').forEach(item => {
+            item.classList.remove('active');
+          });
+          seriesItem.classList.add('active');
+
+          // Call the backend with the selected series
+          selectGCDSeries(currentFilePath, currentFileName, series.id, currentIssueNumber);
+        });
+
+        seriesList.appendChild(seriesItem);
+      });
+    }
+
+    // Function to search GCD for all comics in a directory
+    function searchGCDMetadataForDirectory(directoryPath, directoryName) {
+      // Auto-search without confirmation
+
+      // Show loading indicator
+      const loadingToast = document.createElement('div');
+      loadingToast.className = 'toast show position-fixed bottom-0 end-0 m-3';
+      loadingToast.style.zIndex = '1200';
+      loadingToast.innerHTML = `
+        <div class="toast-header bg-primary text-white">
+          <strong class="me-auto">GCD Directory Search</strong>
+          <small>Scanning...</small>
+        </div>
+        <div class="toast-body">
+          <div class="d-flex align-items-center">
+            <div class="spinner-border spinner-border-sm me-2" role="status">
+              <span class="visually-hidden">Loading...</span>
+            </div>
+            Scanning directory for comic files...
+          </div>
+        </div>
+      `;
+      document.body.appendChild(loadingToast);
+
+      // Get list of files in the directory
+      fetch(`/list-directories?path=${encodeURIComponent(directoryPath)}`)
+        .then(response => response.json())
+        .then(data => {
+          document.body.removeChild(loadingToast);
+
+          if (data.error) {
+            throw new Error(data.error);
+          }
+
+          // Filter for CBZ/CBR files
+          const comicFiles = (data.files || []).filter(file => {
+            const fileData = typeof file === 'object' ? file : { name: file };
+            return fileData.name.toLowerCase().endsWith('.cbz') || fileData.name.toLowerCase().endsWith('.cbr');
+          });
+
+          if (comicFiles.length === 0) {
+            showToast('No Comics Found', `No comic files (.cbz/.cbr) found in "${directoryName}"`, 'warning');
+            return;
+          }
+
+          // Try to parse the series name from the directory name
+          let seriesName = directoryName;
+
+          // Clean up common directory naming patterns
+          seriesName = seriesName.replace(/\s*\(\d{4}\).*$/, ''); // Remove (1994) and everything after
+          seriesName = seriesName.replace(/\s*v\d+.*$/, ''); // Remove v1, v2 etc
+          seriesName = seriesName.replace(/\s*-\s*complete.*$/i, ''); // Remove "- Complete" etc
+          seriesName = seriesName.replace(/\s*\.INFO.*$/i, ''); // Remove .INFO
+
+          // Start the GCD search for the directory
+          searchGCDForDirectorySeries(directoryPath, directoryName, seriesName, comicFiles);
+        })
+        .catch(error => {
+          document.body.removeChild(loadingToast);
+          showToast('Directory Scan Error', `Error scanning directory: ${error.message}`, 'error');
+        });
+    }
+
+    // Function to search GCD for directory series and show selection modal
+    function searchGCDForDirectorySeries(directoryPath, directoryName, seriesName, comicFiles) {
+      // Use first comic file for the search, but flag it as directory search
+      const firstFile = comicFiles[0];
+      const firstFileName = firstFile.name || firstFile;
+      const firstFilePath = directoryPath + '/' + firstFileName;
+
+      fetch('/search-gcd-metadata', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          file_path: firstFilePath,
+          file_name: firstFileName,
+          is_directory_search: true,
+          directory_path: directoryPath,
+          directory_name: directoryName,
+          total_files: comicFiles.length
+        })
+      })
+      .then(response => response.json())
+      .then(data => {
+        if (data.success) {
+          // For directory search with exact match, proceed with bulk processing
+          if (data.series_id) {
+            showToast('Exact Match Found', `Found exact match for "${seriesName}". Processing all files in directory...`, 'success');
+            // Start bulk processing immediately with the found series
+            processBulkGCDMetadata(directoryPath, directoryName, data.series_id, comicFiles);
+          } else {
+            showToast('Direct Match Found', `Found exact match for "${seriesName}". Consider using individual file search instead.`, 'info');
+          }
+        } else if (data.requires_selection) {
+          // Show series selection modal for directory processing
+          // Use the directory information from the server response if available
+          const actualDirectoryPath = data.directory_path || directoryPath;
+          const actualDirectoryName = data.directory_name || directoryName;
+          showGCDDirectorySeriesSelectionModal(data, actualDirectoryPath, actualDirectoryName, comicFiles);
+        } else {
+          // Show error or no results
+          showToast('No Series Found', data.error || `No series found matching "${seriesName}" in GCD database`, 'error');
+        }
+      })
+      .catch(error => {
+        showToast('Search Error', `Error searching GCD database: ${error.message}`, 'error');
+      });
+    }
+
+    // Function to render series list for directory processing
+    function renderDirectorySeriesList(seriesData, directoryPath, directoryName, comicFiles) {
+      const seriesList = document.getElementById('gcdSeriesList');
+      seriesList.innerHTML = '';
+
+      seriesData.forEach(series => {
+        const seriesItem = document.createElement('div');
+        seriesItem.className = 'list-group-item list-group-item-action d-flex justify-content-between align-items-start';
+        seriesItem.style.cursor = 'pointer';
+
+        const yearRange = series.year_began
+          ? (series.year_ended ? `${series.year_began}-${series.year_ended}` : `${series.year_began}-ongoing`)
+          : 'Unknown';
+
+        seriesItem.innerHTML = `
+          <div class="ms-2 me-auto">
+            <div class="fw-bold">${series.name}</div>
+            <small class="text-muted">Publisher: ${series.publisher_name || 'Unknown'}</small>
+          </div>
+          <span class="badge bg-primary rounded-pill">${yearRange}</span>
+        `;
+
+        seriesItem.addEventListener('click', () => {
+          // Highlight selected item
+          seriesList.querySelectorAll('.list-group-item').forEach(item => {
+            item.classList.remove('active');
+          });
+          seriesItem.classList.add('active');
+
+          // Call the bulk processing function for directory
+          processBulkGCDMetadata(directoryPath, directoryName, series.id, comicFiles);
+        });
+
+        seriesList.appendChild(seriesItem);
+      });
+    }
+
+    // Function to show GCD series selection modal for directory processing
+    function showGCDDirectorySeriesSelectionModal(data, directoryPath, directoryName, comicFiles) {
+      // Populate the parsed filename information (using directory name)
+      document.getElementById('gcdParsedSeries').textContent = data.parsed_filename.series_name;
+      document.getElementById('gcdParsedIssue').textContent = `Directory (${comicFiles.length} files)`;
+      document.getElementById('gcdParsedYear').textContent = data.parsed_filename.year || 'Unknown';
+
+      // Store the data globally for sorting
+      currentSeriesData = data.possible_matches;
+      // Store directory-specific data in global variables for custom rendering
+      currentFilePath = directoryPath;
+      currentFileName = directoryName;
+      currentIssueNumber = comicFiles;
+
+      // Reset sort buttons
+      document.querySelectorAll('#sortBySeries, #sortByYear').forEach(btn => {
+        btn.classList.remove('btn-secondary');
+        btn.classList.add('btn-outline-secondary');
+      });
+
+      // Render the series list with initial order (directory mode)
+      renderDirectorySeriesList(currentSeriesData, directoryPath, directoryName, comicFiles);
+
+      // Update modal title for directory processing
+      document.getElementById('gcdSeriesModalLabel').textContent = `Select Series for Directory: ${directoryName}`;
+
+      // Show the modal
+      const modal = new bootstrap.Modal(document.getElementById('gcdSeriesModal'));
+      modal.show();
+    }
+
+    // Function to process bulk GCD metadata for a directory
+    function processBulkGCDMetadata(directoryPath, directoryName, seriesId, comicFiles) {
+      const modal = bootstrap.Modal.getInstance(document.getElementById('gcdSeriesModal'));
+      if (modal) {
+        modal.hide();
+      }
+
+      // Create progress modal
+      const progressModal = document.createElement('div');
+      progressModal.className = 'modal fade';
+      progressModal.setAttribute('data-bs-backdrop', 'static');
+      progressModal.innerHTML = `
+        <div class="modal-dialog">
+          <div class="modal-content">
+            <div class="modal-header">
+              <h5 class="modal-title">Processing Directory: ${directoryName}</h5>
+            </div>
+            <div class="modal-body">
+              <div class="mb-3">
+                <div class="d-flex justify-content-between">
+                  <span>Progress:</span>
+                  <span id="bulkProgressText">0 / ${comicFiles.length}</span>
+                </div>
+                <div class="progress">
+                  <div id="bulkProgressBar" class="progress-bar progress-bar-striped progress-bar-animated"
+                       style="width: 0%" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100"></div>
+                </div>
+              </div>
+              <div id="bulkCurrentFile" class="text-muted small">Preparing...</div>
+              <div id="bulkResults" class="mt-3 small" style="max-height: 200px; overflow-y: auto;">
+                <!-- Results will be added here -->
+              </div>
+            </div>
+            <div class="modal-footer">
+              <button type="button" id="bulkCloseBtn" class="btn btn-secondary" disabled>Close</button>
+              <button type="button" id="bulkCancelBtn" class="btn btn-danger">Cancel</button>
+            </div>
+          </div>
+        </div>
+      `;
+      document.body.appendChild(progressModal);
+
+      const bulkModal = new bootstrap.Modal(progressModal);
+      bulkModal.show();
+
+      // Start processing files
+      let processedCount = 0;
+      let successCount = 0;
+      let errorCount = 0;
+      let cancelled = false;
+      let failedFiles = []; // Track files that failed to get metadata
+
+      document.getElementById('bulkCancelBtn').onclick = () => {
+        cancelled = true;
+        document.getElementById('bulkCancelBtn').disabled = true;
+        document.getElementById('bulkCurrentFile').textContent = 'Cancelling...';
+      };
+
+      // Add close button functionality
+      document.getElementById('bulkCloseBtn').onclick = () => {
+        bulkModal.hide();
+      };
+
+      async function processNextFile(index) {
+        if (cancelled || index >= comicFiles.length) {
+          // Initial processing complete - check for failed files
+          if (!cancelled && failedFiles.length > 0) {
+            document.getElementById('bulkCurrentFile').textContent = `Searching for unmatched files using filenames...`;
+            // Start secondary search for failed files
+            await processFailedFiles();
+          } else {
+            // Processing complete or cancelled
+            document.getElementById('bulkCloseBtn').disabled = false;
+            document.getElementById('bulkCancelBtn').style.display = 'none';
+            document.getElementById('bulkCurrentFile').textContent = cancelled
+              ? `Cancelled after ${processedCount} files`
+              : `Complete! Processed ${processedCount} files (${successCount} success, ${errorCount} errors)`;
+          }
+          return;
+        }
+
+        const file = comicFiles[index];
+        const fileName = file.name || file;
+        const filePath = directoryPath + '/' + fileName;
+
+        // Update progress - show current processing
+        document.getElementById('bulkCurrentFile').textContent = `Processing: ${fileName}`;
+        document.getElementById('bulkProgressText').textContent = `${processedCount} / ${comicFiles.length}`;
+
+        const progressPercent = Math.floor((processedCount / comicFiles.length) * 100);
+        document.getElementById('bulkProgressBar').style.width = progressPercent + '%';
+        document.getElementById('bulkProgressBar').setAttribute('aria-valuenow', progressPercent);
+
+        try {
+          // Parse issue number from filename
+          const issueMatch = fileName.match(/(\d{1,4})(?:\s*\(|\s*$)/);
+          const issueNumber = issueMatch ? parseInt(issueMatch[1]) : index + 1;
+
+          const response = await fetch('/search-gcd-metadata-with-selection', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              file_path: filePath,
+              file_name: fileName,
+              series_id: seriesId,
+              issue_number: issueNumber
+            })
+          });
+
+          const result = await response.json();
+
+          const resultsDiv = document.getElementById('bulkResults');
+          const resultItem = document.createElement('div');
+
+          if (result.success) {
+            successCount++;
+            resultItem.className = 'text-success';
+            resultItem.innerHTML = `✓ ${fileName} - Issue #${result.metadata.issue}`;
+          } else {
+            errorCount++;
+            resultItem.className = 'text-danger';
+            resultItem.innerHTML = `✗ ${fileName} - ${result.error}`;
+            // Track failed file for secondary search
+            failedFiles.push({ fileName, filePath, error: result.error });
+          }
+
+          resultsDiv.appendChild(resultItem);
+          resultsDiv.scrollTop = resultsDiv.scrollHeight;
+
+        } catch (error) {
+          errorCount++;
+          const resultsDiv = document.getElementById('bulkResults');
+          const resultItem = document.createElement('div');
+          resultItem.className = 'text-danger';
+          resultItem.innerHTML = `✗ ${fileName} - Network error`;
+          resultsDiv.appendChild(resultItem);
+          // Track failed file for secondary search
+          failedFiles.push({ fileName, filePath, error: 'Network error' });
+        }
+
+        processedCount++;
+
+        // Update progress after completing the file
+        document.getElementById('bulkProgressText').textContent = `${processedCount} / ${comicFiles.length}`;
+        const newProgressPercent = Math.floor((processedCount / comicFiles.length) * 100);
+        document.getElementById('bulkProgressBar').style.width = newProgressPercent + '%';
+        document.getElementById('bulkProgressBar').setAttribute('aria-valuenow', newProgressPercent);
+
+        // Process next file after a short delay
+        setTimeout(() => processNextFile(index + 1), 100);
+      }
+
+      // Function to process failed files using filename-based search
+      async function processFailedFiles() {
+        let secondarySuccessCount = 0;
+        let secondaryProcessedCount = 0;
+        const totalFailed = failedFiles.length;
+
+        document.getElementById('bulkCurrentFile').innerHTML = `
+          <div class="mb-2">Secondary search phase: Using filename-based search for unmatched files</div>
+          <div class="text-muted small">Processing ${totalFailed} unmatched files...</div>
+        `;
+
+        // Add a separator in results
+        const resultsDiv = document.getElementById('bulkResults');
+        const separator = document.createElement('div');
+        separator.className = 'border-top mt-2 pt-2 mb-2 text-muted small';
+        separator.innerHTML = '<strong>Secondary Search (by filename):</strong>';
+        resultsDiv.appendChild(separator);
+
+        for (let i = 0; i < failedFiles.length && !cancelled; i++) {
+          const failedFile = failedFiles[i];
+
+          document.getElementById('bulkCurrentFile').innerHTML = `
+            <div class="mb-2">Secondary search phase: Using filename-based search</div>
+            <div class="text-muted small">Processing: ${failedFile.fileName} (${i + 1}/${totalFailed})</div>
+          `;
+
+          try {
+            // Search using just the filename (not tied to the original series)
+            const response = await fetch('/search-gcd-metadata', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                file_path: failedFile.filePath,
+                file_name: failedFile.fileName
+              })
+            });
+
+            const result = await response.json();
+            const resultItem = document.createElement('div');
+
+            if (result.success && result.requires_selection) {
+              // Found potential matches - show as warning and let user handle manually
+              resultItem.className = 'text-warning';
+              resultItem.innerHTML = `⚠ ${failedFile.fileName} - Found ${result.possible_matches?.length || 0} potential matches, requires manual selection`;
+            } else if (result.success && result.series_id) {
+              // Direct match found
+              secondarySuccessCount++;
+              resultItem.className = 'text-success';
+              resultItem.innerHTML = `✓ ${failedFile.fileName} - Found direct match: ${result.parsed_filename?.series_name || 'Unknown Series'}`;
+            } else {
+              // Still no match
+              resultItem.className = 'text-danger';
+              resultItem.innerHTML = `✗ ${failedFile.fileName} - No match found in secondary search`;
+            }
+
+            resultsDiv.appendChild(resultItem);
+            resultsDiv.scrollTop = resultsDiv.scrollHeight;
+
+          } catch (error) {
+            const resultItem = document.createElement('div');
+            resultItem.className = 'text-danger';
+            resultItem.innerHTML = `✗ ${failedFile.fileName} - Secondary search network error`;
+            resultsDiv.appendChild(resultItem);
+          }
+
+          secondaryProcessedCount++;
+
+          // Small delay to prevent overwhelming the server
+          await new Promise(resolve => setTimeout(resolve, 200));
+        }
+
+        // Final completion
+        document.getElementById('bulkCloseBtn').disabled = false;
+        document.getElementById('bulkCancelBtn').style.display = 'none';
+
+        const totalSuccessCount = successCount + secondarySuccessCount;
+        const totalErrorCount = errorCount - secondarySuccessCount; // Adjust error count for secondary successes
+
+        document.getElementById('bulkCurrentFile').innerHTML = `
+          <div><strong>Complete!</strong> Processed ${processedCount} files</div>
+          <div class="text-muted small">
+            Primary: ${successCount} success, ${errorCount} failed<br>
+            Secondary: ${secondarySuccessCount} additional matches found<br>
+            <strong>Total: ${totalSuccessCount} success, ${Math.max(0, totalErrorCount)} still unmatched</strong>
+          </div>
+        `;
+      }
+
+      // Start processing
+      processNextFile(0);
+
+      // Clean up modal when closed
+      progressModal.addEventListener('hidden.bs.modal', () => {
+        document.body.removeChild(progressModal);
+      });
+    }
+
+    // Function to show GCD series selection modal
+    function showGCDSeriesSelectionModal(data, filePath, fileName) {
+      // Populate the parsed filename information
+      document.getElementById('gcdParsedSeries').textContent = data.parsed_filename.series_name;
+      document.getElementById('gcdParsedIssue').textContent = data.parsed_filename.issue_number;
+      document.getElementById('gcdParsedYear').textContent = data.parsed_filename.year || 'Unknown';
+
+      // Store the data globally for sorting
+      currentSeriesData = data.possible_matches;
+      currentFilePath = filePath;
+      currentFileName = fileName;
+      currentIssueNumber = data.parsed_filename.issue_number;
+
+      // Reset sort buttons
+      document.querySelectorAll('#sortBySeries, #sortByYear').forEach(btn => {
+        btn.classList.remove('btn-secondary');
+        btn.classList.add('btn-outline-secondary');
+      });
+
+      // Render the series list with initial order
+      renderSeriesList(currentSeriesData);
+
+      // Show the modal
+      const modal = new bootstrap.Modal(document.getElementById('gcdSeriesModal'));
+      modal.show();
+    }
+
+    // Function to handle series selection
+    function selectGCDSeries(filePath, fileName, seriesId, issueNumber) {
+      // Show loading indicator
+      const modal = bootstrap.Modal.getInstance(document.getElementById('gcdSeriesModal'));
+
+      // Create loading toast
+      const loadingToast = document.createElement('div');
+      loadingToast.className = 'toast show position-fixed bottom-0 end-0 m-3';
+      loadingToast.style.zIndex = '1200';
+      loadingToast.innerHTML = `
+        <div class="toast-header bg-primary text-white">
+          <strong class="me-auto">GCD Search</strong>
+          <small>Processing...</small>
+        </div>
+        <div class="toast-body">
+          <div class="d-flex align-items-center">
+            <div class="spinner-border spinner-border-sm me-2" role="status">
+              <span class="visually-hidden">Loading...</span>
+            </div>
+            Adding metadata from selected series...
+          </div>
+        </div>
+      `;
+      document.body.appendChild(loadingToast);
+
+      // Close the modal (if it exists)
+      if (modal) {
+        modal.hide();
+      }
+
+      // Call the backend endpoint
+      fetch('/search-gcd-metadata-with-selection', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          file_path: filePath,
+          file_name: fileName,
+          series_id: seriesId,
+          issue_number: issueNumber
+        })
+      })
+      .then(response => response.json())
+      .then(data => {
+        document.body.removeChild(loadingToast);
+
+        if (data.success) {
+          // Show success message
+          const successToast = document.createElement('div');
+          successToast.className = 'toast show position-fixed bottom-0 end-0 m-3';
+          successToast.style.zIndex = '1200';
+          successToast.innerHTML = `
+            <div class="toast-header bg-success text-white">
+              <strong class="me-auto">GCD Search Success</strong>
+              <button type="button" class="btn-close btn-close-white" onclick="this.closest('.toast').remove()"></button>
+            </div>
+            <div class="toast-body">
+              Successfully added metadata to "${fileName}"<br>
+              <small class="text-muted">Series: ${data.metadata?.series || 'Unknown'}<br>
+              Issue: ${data.metadata?.issue || 'Unknown'}<br>
+              Title: ${data.metadata?.title || 'Unknown'}<br>
+              Publisher: ${data.metadata?.publisher || 'Unknown'}</small>
+            </div>
+          `;
+          document.body.appendChild(successToast);
+
+          // Auto-remove after 5 seconds
+          setTimeout(() => {
+            if (document.body.contains(successToast)) {
+              document.body.removeChild(successToast);
+            }
+          }, 5000);
+        } else {
+          // Show error message
+          const errorToast = document.createElement('div');
+          errorToast.className = 'toast show position-fixed bottom-0 end-0 m-3';
+          errorToast.style.zIndex = '1200';
+          errorToast.innerHTML = `
+            <div class="toast-header bg-danger text-white">
+              <strong class="me-auto">GCD Search Error</strong>
+              <button type="button" class="btn-close btn-close-white" onclick="this.closest('.toast').remove()"></button>
+            </div>
+            <div class="toast-body">
+              Failed to add metadata: ${data.error || data.message || 'Server returned no error message'}
+            </div>
+          `;
+          document.body.appendChild(errorToast);
+
+          // Auto-remove after 8 seconds for errors
+          setTimeout(() => {
+            if (document.body.contains(errorToast)) {
+              document.body.removeChild(errorToast);
+            }
+          }, 8000);
+        }
+      })
+      .catch(error => {
+        console.error('GCD Search Network Error:', error);
+        document.body.removeChild(loadingToast);
+
+        const errorToast = document.createElement('div');
+        errorToast.className = 'toast show position-fixed bottom-0 end-0 m-3';
+        errorToast.style.zIndex = '1200';
+        errorToast.innerHTML = `
+          <div class="toast-header bg-danger text-white">
+            <strong class="me-auto">Network Error</strong>
+            <button type="button" class="btn-close btn-close-white" onclick="this.closest('.toast').remove()"></button>
+          </div>
+          <div class="toast-body">
+            Network error: ${error.message}
+          </div>
+        `;
+        document.body.appendChild(errorToast);
+
+        setTimeout(() => {
+          if (document.body.contains(errorToast)) {
+            document.body.removeChild(errorToast);
+          }
+        }, 8000);
+      });
+    }
+
+
+    // Function to sort GCD series results
+    function sortGCDSeries(sortBy) {
+      // Update button states
+      document.querySelectorAll('#sortBySeries, #sortByYear').forEach(btn => {
+        btn.classList.remove('btn-secondary');
+        btn.classList.add('btn-outline-secondary');
+      });
+
+      const activeButton = sortBy === 'series' ? document.getElementById('sortBySeries') : document.getElementById('sortByYear');
+      activeButton.classList.remove('btn-outline-secondary');
+      activeButton.classList.add('btn-secondary');
+
+      // Sort the data
+      let sortedData = [...currentSeriesData];
+
+      if (sortBy === 'series') {
+        sortedData.sort((a, b) => a.name.localeCompare(b.name));
+      } else if (sortBy === 'year') {
+        sortedData.sort((a, b) => {
+          const yearA = a.year_began || 9999; // Put unknown years at the end
+          const yearB = b.year_began || 9999;
+          return yearA - yearB;
+        });
+      }
+
+      // Re-render the series list - detect if this is directory mode or single file mode
+      if (Array.isArray(currentIssueNumber)) {
+        // Directory mode - currentIssueNumber contains the comicFiles array
+        renderDirectorySeriesList(sortedData, currentFilePath, currentFileName, currentIssueNumber);
+      } else {
+        // Single file mode - currentIssueNumber is a number
+        renderSeriesList(sortedData);
+      }
+    }
+
+    // Function to render the series list
+    function renderSeriesList(seriesData) {
+      const seriesList = document.getElementById('gcdSeriesList');
+      seriesList.innerHTML = '';
+
+      seriesData.forEach(series => {
+        const seriesItem = document.createElement('div');
+        seriesItem.className = 'list-group-item list-group-item-action d-flex justify-content-between align-items-start';
+        seriesItem.style.cursor = 'pointer';
+
+        const yearRange = series.year_began
+          ? (series.year_ended ? `${series.year_began}-${series.year_ended}` : `${series.year_began}-ongoing`)
+          : 'Unknown';
+
+        seriesItem.innerHTML = `
+          <div class="ms-2 me-auto">
+            <div class="fw-bold">${series.name}</div>
+            <small class="text-muted">Publisher: ${series.publisher_name || 'Unknown'}</small>
+          </div>
+          <span class="badge bg-primary rounded-pill">${yearRange}</span>
+        `;
+
+        seriesItem.addEventListener('click', () => {
+          // Highlight selected item
+          seriesList.querySelectorAll('.list-group-item').forEach(item => {
+            item.classList.remove('active');
+          });
+          seriesItem.classList.add('active');
+
+          // Call the backend with the selected series
+          selectGCDSeries(currentFilePath, currentFileName, series.id, currentIssueNumber);
+        });
+
+        seriesList.appendChild(seriesItem);
+      });
     }

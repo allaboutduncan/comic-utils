@@ -18,3 +18,8 @@ __pycache__
 test_large_file_convert.py
 test_large_file_rebuild.py
 test_large_file_single.py
+.venv
+logs/app.log
+logs/monitor.log
+logs/app.log
+*.log

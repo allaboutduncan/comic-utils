@@ -306,9 +306,51 @@
 </div>
 <!-- End of Search Files Modal -->
 
+<!-- GCD Series Selection Modal -->
+<div class="modal fade" id="gcdSeriesModal" tabindex="-1" aria-labelledby="gcdSeriesModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="gcdSeriesModalLabel">Select Correct Series</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <div class="mb-3">
+          <p><strong>Parsed from filename:</strong></p>
+          <ul class="list-unstyled">
+            <li><strong>Series:</strong> <span id="gcdParsedSeries"></span></li>
+            <li><strong>Issue:</strong> <span id="gcdParsedIssue"></span></li>
+            <li><strong>Year:</strong> <span id="gcdParsedYear"></span></li>
+          </ul>
+        </div>
+        <div class="mb-3">
+          <div class="d-flex justify-content-between align-items-center mb-2">
+            <p class="mb-0"><strong>Please select the correct series from the GCD database:</strong></p>
+            <div class="btn-group" role="group" aria-label="Sort options">
+              <button type="button" class="btn btn-outline-secondary btn-sm" id="sortBySeries" onclick="sortGCDSeries('series')">
+                <i class="bi bi-sort-alpha-down me-1"></i>Series
+              </button>
+              <button type="button" class="btn btn-outline-secondary btn-sm" id="sortByYear" onclick="sortGCDSeries('year')">
+                <i class="bi bi-sort-numeric-down me-1"></i>Year
+              </button>
+            </div>
+          </div>
+          <div id="gcdSeriesList" class="list-group" style="max-height: 400px; overflow-y: auto;">
+            <!-- Series options will be populated here -->
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+      </div>
+    </div>
+  </div>
+</div>
+<!-- End of GCD Series Selection Modal -->
+
 {% endblock %}
 
 {% block scripts %}
   {{ super() }}
-  <script src="{{ url_for('static', filename='js/files.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/files.js') }}?v={{ range(1000, 9999) | random }}&t=202502"></script>
 {% endblock %}

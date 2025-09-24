@@ -267,12 +267,13 @@ def try_rule_engine(filename: str, cfg_path="/config/rename_rules.ini"):
                 continue
             rules.append((prio, name, rx, output))
 
-    rules.sort()  # smallest prio first
+    rules.sort(reverse=True)  # highest prio first
 
-    for _, _, rx, outfmt in rules:
+    for prio, name, rx, outfmt in rules:
         m = rx.match(filename) or rx.match(base)
         if not m:
             continue
+        app_logger.info(f"Rule {name} (priority {prio}) matched: {filename}")
         g = m.groupdict()
 
         # ensure ext available

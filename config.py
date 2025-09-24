@@ -4,7 +4,7 @@ import os
 import time
 from app_logging import app_logger
 
-CONFIG_FILE = "/config/config.ini"
+CONFIG_FILE = os.path.join(os.getcwd(), "config.ini")
 config = configparser.ConfigParser()
 config.optionxform = str  # Preserve case sensitivity
 
