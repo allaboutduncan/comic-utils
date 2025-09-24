@@ -11,15 +11,25 @@ import logging
 import signal
 import psutil
 import select
-import pwd
+try:
+    import pwd
+except ImportError:
+    pwd = None
 from functools import lru_cache
 from collections import defaultdict
 import hashlib
-from api import app 
+import re
+import xml.etree.ElementTree as ET
+from datetime import datetime
+import zipfile
+import tempfile
+from api import app
 from config import config, load_flask_config, write_config, load_config
 from edit import get_edit_modal, save_cbz, cropCenter, cropLeft, cropRight, get_image_data_url, modal_body_template
 from memory_utils import initialize_memory_management, cleanup_on_exit, memory_context, get_global_monitor
 from helpers import is_hidden
+import threading
+from collections import OrderedDict
 
 load_config()
 
@@ -27,6 +37,77 @@ load_config()
 
 DATA_DIR = "/data"  # Directory to browse
 TARGET_DIR = config.get("SETTINGS", "TARGET", fallback="/processed")
+
+#########################
+#   GCD Search Helpers  #
+#########################
+
+STOPWORDS = {"the", "a", "an", "of", "and", "vol", "volume", "season", "series"}
+
+def normalize_title(s: str) -> str:
+    """Normalize a title string for better matching."""
+    s = s.lower()
+    s = re.sub(r"[^a-z0-9]+", " ", s)   # remove punctuation/hyphens
+    s = " ".join(s.split())              # collapse spaces
+    return s
+
+def tokens_for_all_match(s: str):
+    """Normalize and drop stopwords for 'all tokens present' matching."""
+    norm = normalize_title(s)
+    toks = [t for t in norm.split() if t not in STOPWORDS]
+    return norm, toks
+
+def lookahead_regex(toks):
+    """Build ^(?=.*\bsuperman\b)(?=.*\bsecret\b)(?=.*\byears\b).*$
+    Works with MySQL REGEXP and is case-insensitive when we pass 'i' or pre-lowercase."""
+    if not toks:
+        return r".*"          # match-all fallback
+    parts = [rf"(?=.*\\b{re.escape(t)}\\b)" for t in toks]
+    return "^" + "".join(parts) + ".*$"
+
+def generate_search_variations(series_name: str, year: str = None):
+    """Generate progressive search variations for a comic title."""
+    variations = []
+
+    # Original exact search (current behavior)
+    variations.append(("exact", f"%{series_name}%"))
+
+    # Remove issue number pattern from title for broader search
+    clean_title = re.sub(r'\s+\d{3}\s*$', '', series_name)  # Remove trailing issue numbers like "001"
+    clean_title = re.sub(r'\s+#\d+\s*$', '', clean_title)   # Remove trailing issue numbers like "#1"
+
+    if clean_title != series_name:
+        variations.append(("no_issue", f"%{clean_title}%"))
+
+    # Remove year from title if present
+    title_no_year = re.sub(r'\s*\(\d{4}\)\s*', '', clean_title)
+    title_no_year = re.sub(r'\s+\d{4}\s*$', '', title_no_year)
+
+    if title_no_year != clean_title:
+        variations.append(("no_year", f"%{title_no_year}%"))
+
+    # Normalize and tokenize for advanced matching
+    norm, tokens = tokens_for_all_match(title_no_year)
+
+    # Remove hyphens/dashes for matching (Superman - The Secret Years -> Superman The Secret Years)
+    no_dash_title = re.sub(r'\s*-+\s*', ' ', title_no_year).strip()
+    if no_dash_title != title_no_year:
+        variations.append(("no_dash", f"%{no_dash_title}%"))
+
+    # Remove articles and common words for broader matching
+    if len(tokens) > 1:
+        regex_pattern = lookahead_regex(tokens)
+        variations.append(("tokenized", regex_pattern))
+
+    # Just the main character/franchise name (first significant word)
+    if len(tokens) > 0:
+        main_word = tokens[0]
+        if year:
+            variations.append(("main_with_year", f"%{main_word}%"))
+        else:
+            variations.append(("main_only", f"%{main_word}%"))
+
+    return variations
 
 #########################
 #   Critical Path Check #
@@ -71,9 +152,6 @@ def get_critical_path_error_message(path, operation="modify"):
 #########################
 #     Cache System      #
 #########################
-
-import threading
-from collections import OrderedDict
 
 # Global cache for directory listings with thread safety
 cache_lock = threading.RLock()
@@ -1409,7 +1487,7 @@ def rename():
     old_path = data.get('old')
     new_path = data.get('new')
     
-    app_logger.info("Renaming:", old_path, "to", new_path)  
+    app_logger.info(f"Renaming: {old_path} to {new_path}")  
 
     # Validate input
     if not old_path or not new_path:
@@ -2186,6 +2264,24 @@ def gcd_status():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+@app.route('/gcd-mysql-status')
+def gcd_mysql_status():
+    """Check if GCD MySQL database is configured"""
+    try:
+        gcd_host = os.environ.get('GCD_MYSQL_HOST')
+        gcd_available = bool(gcd_host and gcd_host.strip())
+
+        return jsonify({
+            "gcd_mysql_available": gcd_available,
+            "gcd_host_configured": gcd_available
+        })
+    except Exception as e:
+        return jsonify({
+            "gcd_mysql_available": False,
+            "gcd_host_configured": False,
+            "error": str(e)
+        }), 500
+
 @app.route('/gcd-import', methods=['POST'])
 def trigger_gcd_import():
     """Trigger GCD data import"""
@@ -2213,6 +2309,1117 @@ def trigger_gcd_import():
         return jsonify({
             "success": False,
             "error": str(e)
+        }), 500
+
+@app.route('/search-gcd-metadata', methods=['POST'])
+def search_gcd_metadata():
+    """Search GCD database for comic metadata and add to CBZ file"""
+    try:
+        import mysql.connector
+        from datetime import datetime
+        import tempfile
+        import zipfile
+
+        print(f"DEBUG: GCD search started")
+        data = request.get_json()
+        print(f"DEBUG: Request data: {data}")
+        file_path = data.get('file_path')
+        file_name = data.get('file_name')
+        is_directory_search = data.get('is_directory_search', False)
+        directory_path = data.get('directory_path')
+        directory_name = data.get('directory_name')
+        total_files = data.get('total_files', 1)
+        print(f"DEBUG: file_path={file_path}, file_name={file_name}, is_directory_search={is_directory_search}")
+        print(f"DEBUG: directory_path={directory_path}, directory_name={directory_name}")
+
+        if not file_path or not file_name:
+            return jsonify({
+                "success": False,
+                "error": "Missing file_path or file_name"
+            }), 400
+
+        # For directory search, prefer directory name parsing, fallback to file name
+        if is_directory_search and directory_name:
+            name_without_ext = directory_name
+            print(f"DEBUG: Using directory name for parsing: {name_without_ext}")
+        else:
+            # Parse series name and issue from filename
+            name_without_ext = file_name.replace('.cbz', '').replace('.cbr', '')
+            print(f"DEBUG: Using file name for parsing: {name_without_ext}")
+
+        # Try to parse series and issue from common formats
+        series_name = None
+        issue_number = None
+        year = None
+
+        if is_directory_search:
+            # For directory search, parse directory name for series and year
+            directory_patterns = [
+                r'^(.+?)\s+\((\d{4})\)',  # "Series Name (2020)"
+                r'^(.+?)\s+(\d{4})',      # "Series Name 2020"
+                r'^(.+?)\s+v\d+\s+\((\d{4})\)', # "Series v1 (2020)"
+            ]
+
+            for pattern in directory_patterns:
+                match = re.match(pattern, name_without_ext, re.IGNORECASE)
+                if match:
+                    series_name = match.group(1).strip()
+                    year = int(match.group(2)) if len(match.groups()) >= 2 else None
+                    issue_number = 1  # Default for directory search
+                    print(f"DEBUG: Directory parsed - series_name={series_name}, year={year}")
+                    break
+
+            # If no year pattern matched, just use the whole directory name as series
+            if not series_name:
+                series_name = name_without_ext.strip()
+                issue_number = 1
+                print(f"DEBUG: Directory fallback - series_name={series_name}")
+        else:
+            # Pattern matching for common comic filename formats
+            patterns = [
+                r'^(.+?)\s+(\d{3,4})\s+\((\d{4})\)',  # "Series 001 (2020)"
+                r'^(.+?)\s+#?(\d{1,4})\s*\((\d{4})\)', # "Series #1 (2020)" or "Series 1 (2020)"
+                r'^(.+?)\s+v\d+\s+(\d{1,4})\s*\((\d{4})\)', # "Series v1 001 (2020)"
+                r'^(.+?)\s+(\d{1,4})\s+\(of\s+\d+\)\s+\((\d{4})\)', # "Series 05 (of 12) (2020)"
+                r'^(.+?)\s+#?(\d{1,4})$',  # "Series 169" or "Series #169" (no year)
+            ]
+
+            for pattern in patterns:
+                match = re.match(pattern, name_without_ext, re.IGNORECASE)
+                if match:
+                    series_name = match.group(1).strip()
+                    issue_number = int(match.group(2))
+                    year = int(match.group(3)) if len(match.groups()) >= 3 else None
+                    print(f"DEBUG: File parsed - series_name={series_name}, issue_number={issue_number}, year={year}")
+                    break
+
+        if not series_name or (not is_directory_search and issue_number is None):
+            print(f"DEBUG: Failed to parse: {name_without_ext}")
+            return jsonify({
+                "success": False,
+                "error": f"Could not parse series name from: {name_without_ext}"
+            }), 400
+
+        print(f"DEBUG: About to connect to database...")
+        # Connect to GCD MySQL database
+        try:
+            # Get database connection details from environment variables
+            gcd_host = os.environ.get('GCD_MYSQL_HOST')
+            gcd_port = int(os.environ.get('GCD_MYSQL_PORT'))
+            gcd_database = os.environ.get('GCD_MYSQL_DATABASE')
+            gcd_user = os.environ.get('GCD_MYSQL_USER')
+            gcd_password = os.environ.get('GCD_MYSQL_PASSWORD')
+
+            print(f"DEBUG: Attempting to connect to MySQL: host={gcd_host}, port={gcd_port}, database={gcd_database}, user={gcd_user}")
+
+            connection = mysql.connector.connect(
+                host=gcd_host,
+                port=gcd_port,
+                database=gcd_database,
+                user=gcd_user,
+                password=gcd_password,
+                charset='utf8mb4'
+            )
+            print(f"DEBUG: Database connection successful!")
+            cursor = connection.cursor(dictionary=True)
+
+            # Helper: build safe IN (...) placeholder list + params
+            def build_in_clause(ids):
+                ids = list(ids or [])
+                if not ids:
+                    return 'NULL', []            # produces "IN (NULL)" -> matches nothing
+                return ','.join(['%s'] * len(ids)), ids
+
+            # Progressive search strategy for GCD database
+            print(f"DEBUG: Starting progressive search for series: '{series_name}' with year: {year}")
+
+            # Generate search variations
+            search_variations = generate_search_variations(series_name, year)
+            print(f"DEBUG: Generated {len(search_variations)} search variations")
+
+            series_results = []
+            search_success_method = None
+
+            # Language filter (fill with your confirmed English IDs)
+            english_ids = [25]  # add more if needed (e.g., [25, 34])
+            in_clause, in_params = build_in_clause(english_ids)
+
+            # Base queries for LIKE and REGEXP matching
+            like_query = f"""
+                SELECT s.id, s.name, s.year_began, s.year_ended, s.publisher_id,
+                    p.name AS publisher_name
+                FROM gcd_series s
+                LEFT JOIN gcd_publisher p ON s.publisher_id = p.id
+                WHERE s.name LIKE %s
+                AND s.language_id IN ({in_clause})
+                ORDER BY s.year_began DESC
+            """
+
+            like_query_with_year = f"""
+                SELECT s.id, s.name, s.year_began, s.year_ended, s.publisher_id,
+                    p.name AS publisher_name
+                FROM gcd_series s
+                LEFT JOIN gcd_publisher p ON s.publisher_id = p.id
+                WHERE s.name LIKE %s
+                AND s.year_began <= %s
+                AND (s.year_ended IS NULL OR s.year_ended >= %s)
+                AND s.language_id IN ({in_clause})
+                ORDER BY s.year_began DESC
+            """
+
+            regexp_query = f"""
+                SELECT s.id, s.name, s.year_began, s.year_ended, s.publisher_id,
+                    p.name AS publisher_name
+                FROM gcd_series s
+                LEFT JOIN gcd_publisher p ON s.publisher_id = p.id
+                WHERE LOWER(s.name) REGEXP %s
+                AND s.language_id IN ({in_clause})
+                ORDER BY s.year_began DESC
+            """
+
+            # Try each search variation progressively
+            for search_type, search_pattern in search_variations:
+                print(f"DEBUG: Trying {search_type} search with pattern: {search_pattern}")
+
+                try:
+                    if search_type == "tokenized":
+                        # Use REGEXP for tokenized search (pattern should be lowercase for LOWER(s.name))
+                        cursor.execute(regexp_query, (search_pattern.lower(), *in_params))
+
+                    elif year and search_type in ["exact", "no_issue", "no_year", "no_dash"]:
+                        # Year-constrained search when year is available
+                        cursor.execute(like_query_with_year, (search_pattern, year, year, *in_params))
+
+                    else:
+                        # Regular LIKE search
+                        cursor.execute(like_query, (search_pattern, *in_params))
+
+                    current_results = cursor.fetchall()
+                    print(f"DEBUG: {search_type} search found {len(current_results)} results")
+
+                    if current_results:
+                        series_results = current_results
+                        search_success_method = search_type
+                        print(f"DEBUG: Success with {search_type} search method!")
+                        break
+
+                except Exception as e:
+                    print(f"DEBUG: Error in {search_type} search: {str(e)}")
+                    continue
+
+            # If we still have no results, collect all partial matches for user selection
+            if not series_results:
+                print(f"DEBUG: No matches found with any search method, collecting partial matches...")
+                alternative_matches = []
+
+                # Try broader word-based search as final fallback
+                words = series_name.split()
+                for word in words:
+                    if len(word) > 3 and word.lower() not in STOPWORDS:
+                        try:
+                            alt_search = f"%{word}%"
+                            print(f"DEBUG: Trying fallback word search: {alt_search}")
+                            cursor.execute(like_query, (alt_search, *in_params))
+                            alt_results = cursor.fetchall()
+                            if alt_results:
+                                alternative_matches.extend(alt_results)
+                        except Exception as e:
+                            print(f"DEBUG: Error in fallback search for '{word}': {str(e)}")
+
+                # Remove duplicates and sort
+                seen_ids = set()
+                unique_matches = []
+                for match in alternative_matches:
+                    if match['id'] not in seen_ids:
+                        unique_matches.append(match)
+                        seen_ids.add(match['id'])
+
+                unique_matches.sort(key=lambda x: x['year_began'] or 0, reverse=True)
+
+                if unique_matches:
+                    print(f"DEBUG: Found {len(unique_matches)} fallback matches")
+                    response_data = {
+                        "success": False,
+                        "requires_selection": True,
+                        "parsed_filename": {
+                            "series_name": series_name,
+                            "issue_number": issue_number,
+                            "year": year
+                        },
+                        "possible_matches": unique_matches,
+                        "message": "Multiple series found. Please select the correct one."
+                    }
+
+                    if is_directory_search:
+                        response_data["is_directory_search"] = True
+                        response_data["directory_path"] = directory_path
+                        response_data["directory_name"] = directory_name
+                        response_data["total_files"] = total_files
+
+                    return jsonify(response_data), 200
+
+                return jsonify({
+                    "success": False,
+                    "error": f"No series found matching '{series_name}' in GCD database"
+                }), 404
+
+            # Analyze the search results and decide whether to auto-select or prompt user
+            print(f"DEBUG: Analyzing {len(series_results)} series results for matching...")
+            print(f"DEBUG: Search successful using method: {search_success_method}")
+
+            if len(series_results) == 1:
+                # Only one series found - auto-select it
+                best_series = series_results[0]
+                print(f"DEBUG: Single series match found: {best_series['name']} (ID: {best_series['id']}) using {search_success_method} search")
+            elif len(series_results) > 1:
+                # Multiple series found - always prompt user to select
+                print(f"DEBUG: Multiple series found, showing options for user selection")
+                response_data = {
+                    "success": False,
+                    "requires_selection": True,
+                    "parsed_filename": {
+                        "series_name": series_name,
+                        "issue_number": issue_number,
+                        "year": year
+                    },
+                    "possible_matches": series_results,
+                    "search_method": search_success_method,
+                    "message": f"Multiple series found for '{series_name}' using {search_success_method} search. Please select the correct one."
+                }
+
+                # Add directory info for directory searches
+                if is_directory_search:
+                    response_data["is_directory_search"] = True
+                    response_data["directory_path"] = directory_path
+                    response_data["directory_name"] = directory_name
+                    response_data["total_files"] = total_files
+
+                return jsonify(response_data), 200
+            else:
+                # This shouldn't happen since we already checked for no results above
+                print(f"DEBUG: No series results found (unexpected)")
+                return jsonify({
+                    "success": False,
+                    "error": f"No series found matching '{series_name}' in GCD database"
+                }), 404
+
+            # Search for the specific issue using comprehensive query
+            issue_query = """
+                SELECT
+                  i.id,
+                  COALESCE(
+                    NULLIF(TRIM(i.title), ''),
+                    (
+                      SELECT NULLIF(TRIM(s.title), '')
+                      FROM gcd_story s
+                      WHERE s.issue_id = i.id AND (s.sequence_number IS NULL OR s.sequence_number <> 0)
+                      ORDER BY s.sequence_number
+                      LIMIT 1
+                    )
+                  )                                                   AS Title,
+                  sr.name                                             AS Series,
+                  i.number                                            AS Number,
+                  (
+                    SELECT COUNT(*)
+                    FROM gcd_issue i2
+                    WHERE i2.series_id = i.series_id AND i2.deleted = 0
+                  )                                                   AS `Count`,
+                  i.volume                                            AS Volume,
+                  (
+                    SELECT COALESCE(
+                      NULLIF(TRIM(s.synopsis), ''),
+                      NULLIF(TRIM(s.notes), ''),
+                      NULLIF(TRIM(s.title), '')
+                    )
+                    FROM gcd_story s
+                    WHERE s.issue_id = i.id
+                      AND COALESCE(
+                        NULLIF(TRIM(s.synopsis), ''),
+                        NULLIF(TRIM(s.notes), ''),
+                        NULLIF(TRIM(s.title), '')
+                      ) IS NOT NULL
+                    ORDER BY
+                      CASE WHEN s.sequence_number = 0 THEN 1 ELSE 0 END,
+                      CASE WHEN NULLIF(TRIM(s.synopsis), '') IS NOT NULL THEN 0 ELSE 1 END,
+                      CASE WHEN NULLIF(TRIM(s.notes), '') IS NOT NULL THEN 0 ELSE 1 END,
+                      s.sequence_number
+                    LIMIT 1
+                  )                                                   AS Summary,
+                  CASE
+                    WHEN COALESCE(i.key_date, i.on_sale_date) IS NOT NULL
+                         AND LENGTH(COALESCE(i.key_date, i.on_sale_date)) >= 4
+                      THEN CAST(SUBSTRING(COALESCE(i.key_date, i.on_sale_date), 1, 4) AS UNSIGNED)
+                  END AS `Year`,
+                  CASE
+                    WHEN COALESCE(i.key_date, i.on_sale_date) IS NOT NULL
+                         AND LENGTH(COALESCE(i.key_date, i.on_sale_date)) >= 7
+                      THEN CAST(SUBSTRING(COALESCE(i.key_date, i.on_sale_date), 6, 2) AS UNSIGNED)
+                  END AS `Month`,
+                  (
+                    SELECT GROUP_CONCAT(DISTINCT name ORDER BY name SEPARATOR ', ')
+                    FROM (
+                      SELECT TRIM(COALESCE(NULLIF(sc.credited_as,''), NULLIF(sc.credit_name,''), c.gcd_official_name)) AS name
+                      FROM gcd_story s
+                      JOIN gcd_story_credit sc ON sc.story_id = s.id
+                      JOIN gcd_credit_type ct   ON ct.id = sc.credit_type_id
+                      LEFT JOIN gcd_creator c   ON c.id = sc.creator_id
+                      WHERE s.issue_id = i.id
+                        AND (s.sequence_number IS NULL OR s.sequence_number <> 0)
+                        AND (ct.name LIKE 'script%' OR ct.name LIKE 'writer%' OR ct.name LIKE 'plot%')
+                        AND (sc.deleted = 0 OR sc.deleted IS NULL)
+                      UNION
+                      SELECT TRIM(COALESCE(NULLIF(ic.credited_as,''), NULLIF(ic.credit_name,''), c.gcd_official_name)) AS name
+                      FROM gcd_issue_credit ic
+                      JOIN gcd_credit_type ct ON ct.id = ic.credit_type_id
+                      LEFT JOIN gcd_creator c ON c.id = ic.creator_id
+                      WHERE ic.issue_id = i.id
+                        AND (ct.name LIKE 'script%' OR ct.name LIKE 'writer%' OR ct.name LIKE 'plot%')
+                        AND (ic.deleted = 0 OR ic.deleted IS NULL)
+                    ) x
+                    WHERE NULLIF(name,'') IS NOT NULL
+                  )                                                   AS Writer,
+                  (
+                    SELECT GROUP_CONCAT(DISTINCT name ORDER BY name SEPARATOR ', ')
+                    FROM (
+                      SELECT TRIM(COALESCE(NULLIF(sc.credited_as,''), NULLIF(sc.credit_name,''), c.gcd_official_name)) AS name
+                      FROM gcd_story s
+                      JOIN gcd_story_credit sc ON sc.story_id = s.id
+                      JOIN gcd_credit_type ct   ON ct.id = sc.credit_type_id
+                      LEFT JOIN gcd_creator c   ON c.id = sc.creator_id
+                      WHERE s.issue_id = i.id
+                        AND (s.sequence_number IS NULL OR s.sequence_number <> 0)
+                        AND (ct.name LIKE 'pencil%' OR ct.name LIKE 'penc%')
+                        AND (sc.deleted = 0 OR sc.deleted IS NULL)
+                      UNION
+                      SELECT TRIM(COALESCE(NULLIF(ic.credited_as,''), NULLIF(ic.credit_name,''), c.gcd_official_name)) AS name
+                      FROM gcd_issue_credit ic
+                      JOIN gcd_credit_type ct ON ct.id = ic.credit_type_id
+                      LEFT JOIN gcd_creator c ON c.id = ic.creator_id
+                      WHERE ic.issue_id = i.id
+                        AND (ct.name LIKE 'pencil%' OR ct.name LIKE 'penc%')
+                        AND (ic.deleted = 0 OR ic.deleted IS NULL)
+                    ) x
+                    WHERE NULLIF(name,'') IS NOT NULL
+                  )                                                   AS Penciller,
+                  (
+                    SELECT GROUP_CONCAT(DISTINCT name ORDER BY name SEPARATOR ', ')
+                    FROM (
+                      SELECT TRIM(COALESCE(NULLIF(sc.credited_as,''), NULLIF(sc.credit_name,''), c.gcd_official_name)) AS name
+                      FROM gcd_story s
+                      JOIN gcd_story_credit sc ON sc.story_id = s.id
+                      JOIN gcd_credit_type ct   ON ct.id = sc.credit_type_id
+                      LEFT JOIN gcd_creator c   ON c.id = sc.creator_id
+                      WHERE s.issue_id = i.id
+                        AND (s.sequence_number IS NULL OR s.sequence_number <> 0)
+                        AND (ct.name LIKE 'ink%')
+                        AND (sc.deleted = 0 OR sc.deleted IS NULL)
+                      UNION
+                      SELECT TRIM(COALESCE(NULLIF(ic.credited_as,''), NULLIF(ic.credit_name,''), c.gcd_official_name)) AS name
+                      FROM gcd_issue_credit ic
+                      JOIN gcd_credit_type ct ON ct.id = ic.credit_type_id
+                      LEFT JOIN gcd_creator c ON c.id = ic.creator_id
+                      WHERE ic.issue_id = i.id
+                        AND (ct.name LIKE 'ink%')
+                        AND (ic.deleted = 0 OR ic.deleted IS NULL)
+                    ) x
+                    WHERE NULLIF(name,'') IS NOT NULL
+                  )                                                   AS Inker,
+                  (
+                    SELECT GROUP_CONCAT(DISTINCT name ORDER BY name SEPARATOR ', ')
+                    FROM (
+                      SELECT TRIM(COALESCE(NULLIF(sc.credited_as,''), NULLIF(sc.credit_name,''), c.gcd_official_name)) AS name
+                      FROM gcd_story s
+                      JOIN gcd_story_credit sc ON sc.story_id = s.id
+                      JOIN gcd_credit_type ct   ON ct.id = sc.credit_type_id
+                      LEFT JOIN gcd_creator c   ON c.id = sc.creator_id
+                      WHERE s.issue_id = i.id
+                        AND (s.sequence_number IS NULL OR s.sequence_number <> 0)
+                        AND (ct.name LIKE 'color%' OR ct.name LIKE 'colour%')
+                        AND (sc.deleted = 0 OR sc.deleted IS NULL)
+                      UNION
+                      SELECT TRIM(COALESCE(NULLIF(ic.credited_as,''), NULLIF(ic.credit_name,''), c.gcd_official_name)) AS name
+                      FROM gcd_issue_credit ic
+                      JOIN gcd_credit_type ct ON ct.id = ic.credit_type_id
+                      LEFT JOIN gcd_creator c ON c.id = ic.creator_id
+                      WHERE ic.issue_id = i.id
+                        AND (ct.name LIKE 'color%' OR ct.name LIKE 'colour%')
+                        AND (ic.deleted = 0 OR ic.deleted IS NULL)
+                    ) x
+                    WHERE NULLIF(name,'') IS NOT NULL
+                  )                                                   AS Colorist,
+                  (
+                    SELECT GROUP_CONCAT(DISTINCT name ORDER BY name SEPARATOR ', ')
+                    FROM (
+                      SELECT TRIM(COALESCE(NULLIF(sc.credited_as,''), NULLIF(sc.credit_name,''), c.gcd_official_name)) AS name
+                      FROM gcd_story s
+                      JOIN gcd_story_credit sc ON sc.story_id = s.id
+                      JOIN gcd_credit_type ct   ON ct.id = sc.credit_type_id
+                      LEFT JOIN gcd_creator c   ON c.id = sc.creator_id
+                      WHERE s.issue_id = i.id
+                        AND (s.sequence_number IS NULL OR s.sequence_number <> 0)
+                        AND (ct.name LIKE 'letter%')
+                        AND (sc.deleted = 0 OR sc.deleted IS NULL)
+                      UNION
+                      SELECT TRIM(COALESCE(NULLIF(ic.credited_as,''), NULLIF(ic.credit_name,''), c.gcd_official_name)) AS name
+                      FROM gcd_issue_credit ic
+                      JOIN gcd_credit_type ct ON ct.id = ic.credit_type_id
+                      LEFT JOIN gcd_creator c ON c.id = ic.creator_id
+                      WHERE ic.issue_id = i.id
+                        AND (ct.name LIKE 'letter%')
+                        AND (ic.deleted = 0 OR ic.deleted IS NULL)
+                    ) x
+                    WHERE NULLIF(name,'') IS NOT NULL
+                  )                                                   AS Letterer,
+                  (
+                    SELECT GROUP_CONCAT(DISTINCT name ORDER BY name SEPARATOR ', ')
+                    FROM (
+                      SELECT TRIM(COALESCE(NULLIF(sc.credited_as,''), NULLIF(sc.credit_name,''), c.gcd_official_name)) AS name
+                      FROM gcd_story s
+                      JOIN gcd_story_credit sc ON sc.story_id = s.id
+                      JOIN gcd_credit_type ct   ON ct.id = sc.credit_type_id
+                      LEFT JOIN gcd_creator c   ON c.id = sc.creator_id
+                      WHERE s.issue_id = i.id
+                        AND (s.sequence_number = 0 OR ct.name LIKE 'cover%')
+                        AND (ct.name LIKE 'pencil%' OR ct.name LIKE 'penc%' OR ct.name LIKE 'ink%' OR ct.name LIKE 'art%' OR ct.name LIKE 'cover%')
+                        AND (sc.deleted = 0 OR sc.deleted IS NULL)
+                      UNION
+                      SELECT TRIM(COALESCE(NULLIF(ic.credited_as,''), NULLIF(ic.credit_name,''), c.gcd_official_name)) AS name
+                      FROM gcd_issue_credit ic
+                      JOIN gcd_credit_type ct ON ct.id = ic.credit_type_id
+                      LEFT JOIN gcd_creator c ON c.id = ic.creator_id
+                      WHERE ic.issue_id = i.id
+                        AND (ct.name LIKE 'cover%')
+                        AND (ic.deleted = 0 OR ic.deleted IS NULL)
+                    ) z
+                    WHERE NULLIF(name,'') IS NOT NULL
+                  )                                                   AS CoverArtist,
+                  COALESCE(ip.name, p.name)                           AS Publisher,
+                  (
+                    SELECT TRIM(BOTH ', ' FROM
+                           REPLACE(
+                             GROUP_CONCAT(DISTINCT NULLIF(TRIM(s.genre), '') SEPARATOR ', '),
+                             ';', ','
+                           ))
+                    FROM gcd_story s
+                    WHERE s.issue_id = i.id
+                  )                                                   AS Genre,
+                  COALESCE(
+                    (
+                      SELECT NULLIF(GROUP_CONCAT(DISTINCT c.name SEPARATOR ', '), '')
+                      FROM gcd_story s
+                      LEFT JOIN gcd_story_character sc ON sc.story_id = s.id
+                      LEFT JOIN gcd_character c ON c.id = sc.character_id
+                      WHERE s.issue_id = i.id
+                    ),
+                    (
+                      SELECT TRIM(BOTH ', ' FROM
+                             REPLACE(
+                               GROUP_CONCAT(DISTINCT NULLIF(TRIM(s.characters), '') SEPARATOR ', '),
+                               ';', ','
+                             ))
+                      FROM gcd_story s
+                      WHERE s.issue_id = i.id
+                    )
+                  )                                                   AS Characters,
+                  i.rating                                            AS AgeRating,
+                  'en'                                                AS LanguageISO,
+
+                  /* PageCount: prefer certain issue value; else sum story page counts */
+                  COALESCE(
+                    CASE
+                      WHEN i.page_count IS NOT NULL
+                           AND i.page_count > 0
+                           AND COALESCE(i.page_count_uncertain, 0) = 0
+                      THEN i.page_count
+                      ELSE NULL
+                    END,
+                    (
+                      SELECT ROUND(SUM(CAST(s.page_count AS DECIMAL(10,3))), 0)
+                      FROM gcd_story s
+                      WHERE s.issue_id = i.id
+                        AND s.page_count IS NOT NULL
+                    )
+                  )                                                   AS PageCount
+
+                FROM gcd_issue i
+                JOIN gcd_series sr                 ON sr.id = i.series_id
+                LEFT JOIN gcd_publisher p          ON p.id = sr.publisher_id
+                LEFT JOIN gcd_indicia_publisher ip ON ip.id = i.indicia_publisher_id
+                WHERE i.series_id = %s AND i.number = %s
+                LIMIT 1
+            """
+
+            print(f"DEBUG: Searching for issue #{issue_number} in series ID {best_series['id']}...")
+
+            # First, test a simple query to see if the issue exists at all
+            simple_test_query = "SELECT id, title, number FROM gcd_issue WHERE series_id = %s AND number = %s LIMIT 1"
+            cursor.execute(simple_test_query, (best_series['id'], str(issue_number)))
+            simple_result = cursor.fetchone()
+            print(f"DEBUG: Simple issue test: {dict(simple_result) if simple_result else 'No issue found'}")
+
+            cursor.execute(issue_query, (best_series['id'], str(issue_number)))
+            issue_result = cursor.fetchone()
+            print(f"DEBUG: Issue search result: {'Found' if issue_result else 'Not found'}")
+            if issue_result:
+                print(f"DEBUG: Issue result keys: {list(issue_result.keys())}")
+                print(f"DEBUG: Issue result values: {dict(issue_result)}")
+                print(f"DEBUG: Writer value: '{issue_result.get('Writer')}'")
+                print(f"DEBUG: Summary value: '{issue_result.get('Summary')}'")
+                print(f"DEBUG: Characters value: '{issue_result.get('Characters')}'")
+
+            matches_found = len(series_results)
+
+            if issue_result:
+                print(f"DEBUG: Issue found! Title: {issue_result.get('title', 'N/A')}")
+                # Generate ComicInfo.xml content
+                print(f"DEBUG: Generating ComicInfo.xml...")
+                try:
+                    comicinfo_xml = generate_comicinfo_xml(issue_result, best_series)
+                    print(f"DEBUG: ComicInfo.xml generated successfully (length: {len(comicinfo_xml)} chars)")
+                except Exception as xml_error:
+                    print(f"DEBUG: Error generating ComicInfo.xml: {str(xml_error)}")
+                    import traceback
+                    print(f"DEBUG: XML Error Traceback: {traceback.format_exc()}")
+                    return jsonify({
+                        "success": False,
+                        "error": f"Failed to generate metadata: {str(xml_error)}"
+                    }), 500
+
+                # Add ComicInfo.xml to the CBZ file
+                print(f"DEBUG: Adding ComicInfo.xml to CBZ file: {file_path}")
+                try:
+                    add_comicinfo_to_cbz(file_path, comicinfo_xml)
+                    print(f"DEBUG: Successfully added ComicInfo.xml!")
+                except Exception as cbz_error:
+                    print(f"DEBUG: Error adding ComicInfo.xml: {str(cbz_error)}")
+                    import traceback
+                    print(f"DEBUG: CBZ Error Traceback: {traceback.format_exc()}")
+                    return jsonify({
+                        "success": False,
+                        "error": f"Failed to add metadata to CBZ file: {str(cbz_error)}"
+                    }), 500
+
+                print(f"DEBUG: Returning success response...")
+                response_data = {
+                    "success": True,
+                    "metadata": {
+                        "series": issue_result['Series'],
+                        "issue": issue_result['Number'],
+                        "title": issue_result['Title'],
+                        "publisher": issue_result['Publisher'],
+                        "year": issue_result['Year'],
+                        "month": issue_result['Month'],
+                        "page_count": issue_result['PageCount'],
+                        "writer": issue_result.get('Writer'),
+                        "artist": issue_result.get('Penciller'),
+                        "genre": issue_result.get('Genre'),
+                        "characters": issue_result.get('Characters')
+                    },
+                    "matches_found": matches_found
+                }
+
+                # Add series_id for directory searches to enable bulk processing
+                if is_directory_search:
+                    response_data["series_id"] = best_series['id']
+                    response_data["is_directory_search"] = True
+                    response_data["directory_path"] = directory_path
+                    response_data["directory_name"] = directory_name
+                    response_data["total_files"] = total_files
+
+                return jsonify(response_data)
+            else:
+                print(f"DEBUG: Issue #{issue_number} not found for series '{best_series['name']}'")
+                print(f"DEBUG: Returning 404 response...")
+                return jsonify({
+                    "success": False,
+                    "error": f"Issue #{issue_number} not found for series '{best_series['name']}' in GCD database",
+                    "series_found": best_series['name'],
+                    "matches_found": matches_found
+                }), 404
+
+        except mysql.connector.Error as db_error:
+            import traceback
+            print(f"MySQL Error: {str(db_error)}")
+            print(f"MySQL Error Traceback: {traceback.format_exc()}")
+            return jsonify({
+                "success": False,
+                "error": f"Database connection error: {str(db_error)}"
+            }), 500
+        finally:
+            if 'connection' in locals() and connection.is_connected():
+                cursor.close()
+                connection.close()
+
+    except Exception as e:
+        import traceback
+        print(f"General Error: {str(e)}")
+        print(f"Full Traceback: {traceback.format_exc()}")
+        return jsonify({
+            "success": False,
+            "error": f"Server error: {str(e)}"
+        }), 500
+
+def generate_comicinfo_xml(issue_data, series_data):
+    """Generate ComicInfo.xml content from comprehensive GCD data"""
+    root = ET.Element("ComicInfo")
+    root.set("xmlns:xsd", "http://www.w3.org/2001/XMLSchema")
+    root.set("xmlns:xsi", "http://www.w3.org/2001/XMLSchema-instance")
+
+    # Basic information (all fields now come from issue_data)
+    if issue_data.get('Title'):
+        ET.SubElement(root, "Title").text = issue_data['Title']
+
+    if issue_data.get('Series'):
+        ET.SubElement(root, "Series").text = issue_data['Series']
+
+    if issue_data.get('Number'):
+        ET.SubElement(root, "Number").text = str(issue_data['Number'])
+
+    if issue_data.get('Count'):
+        ET.SubElement(root, "Count").text = str(issue_data['Count'])
+
+    if issue_data.get('Volume'):
+        ET.SubElement(root, "Volume").text = str(issue_data['Volume'])
+
+    if issue_data.get('Summary'):
+        ET.SubElement(root, "Summary").text = issue_data['Summary']
+
+    # Date information (now from comprehensive query)
+    if issue_data.get('Year'):
+        ET.SubElement(root, "Year").text = str(issue_data['Year'])
+
+    if issue_data.get('Month'):
+        ET.SubElement(root, "Month").text = str(issue_data['Month'])
+
+    # Credits
+    if issue_data.get('Writer'):
+        ET.SubElement(root, "Writer").text = issue_data['Writer']
+
+    if issue_data.get('Penciller'):
+        ET.SubElement(root, "Penciller").text = issue_data['Penciller']
+
+    if issue_data.get('Inker'):
+        ET.SubElement(root, "Inker").text = issue_data['Inker']
+
+    if issue_data.get('Colorist'):
+        ET.SubElement(root, "Colorist").text = issue_data['Colorist']
+
+    if issue_data.get('Letterer'):
+        ET.SubElement(root, "Letterer").text = issue_data['Letterer']
+
+    if issue_data.get('CoverArtist'):
+        ET.SubElement(root, "CoverArtist").text = issue_data['CoverArtist']
+
+    # Publisher
+    if issue_data.get('Publisher'):
+        ET.SubElement(root, "Publisher").text = issue_data['Publisher']
+
+    # Genre and Characters
+    if issue_data.get('Genre'):
+        ET.SubElement(root, "Genre").text = issue_data['Genre']
+
+    # Characters
+    if issue_data.get('Characters'):
+        ET.SubElement(root, "Characters").text = issue_data['Characters']
+
+    # Age rating and language
+    if issue_data.get('AgeRating'):
+        ET.SubElement(root, "AgeRating").text = issue_data['AgeRating']
+
+    # Default to English as no language table in this dump
+    ET.SubElement(root, "LanguageISO").text = "en"
+
+    # Page count
+    if issue_data.get('PageCount'):
+        ET.SubElement(root, "PageCount").text = str(issue_data['PageCount'])
+
+    # Manga flag (default to No for comics)
+    ET.SubElement(root, "Manga").text = "No"
+
+    # Add metadata about the source
+    ET.SubElement(root, "Notes").text = f"Metadata from Grand Comic Database (GCD). Issue ID: {issue_data.get('id', 'Unknown')}. Retrieved on {datetime.now().strftime('%Y-%m-%d')}"
+
+    # Format the XML with proper indentation
+    ET.indent(root)
+    return ET.tostring(root, encoding='unicode', xml_declaration=True)
+
+def add_comicinfo_to_cbz(file_path, comicinfo_xml):
+    """Add ComicInfo.xml to an existing CBZ file"""
+    import tempfile
+    import shutil
+
+    # Create a temporary file for the new CBZ
+    with tempfile.NamedTemporaryFile(delete=False, suffix='.cbz') as temp_file:
+        temp_path = temp_file.name
+
+    try:
+        # Read the existing CBZ and create a new one with ComicInfo.xml
+        with zipfile.ZipFile(file_path, 'r') as source_zip:
+            with zipfile.ZipFile(temp_path, 'w', zipfile.ZIP_DEFLATED) as target_zip:
+                # Copy all existing files except any existing ComicInfo.xml
+                for item in source_zip.infolist():
+                    if item.filename.lower() != 'comicinfo.xml':
+                        data = source_zip.read(item.filename)
+                        target_zip.writestr(item, data)
+
+                # Add the new ComicInfo.xml
+                target_zip.writestr('ComicInfo.xml', comicinfo_xml)
+
+        # Replace the original file with the updated one
+        shutil.move(temp_path, file_path)
+
+    except Exception as e:
+        # Clean up temp file if something goes wrong
+        if os.path.exists(temp_path):
+            os.unlink(temp_path)
+        raise e
+
+@app.route('/search-gcd-metadata-with-selection', methods=['POST'])
+def search_gcd_metadata_with_selection():
+    """Search GCD database for comic metadata using user-selected series"""
+    try:
+        import mysql.connector
+        from datetime import datetime
+        import tempfile
+        import zipfile
+
+        data = request.get_json()
+        file_path = data.get('file_path')
+        file_name = data.get('file_name')
+        series_id = data.get('series_id')
+        issue_number = data.get('issue_number')
+
+        if not all([file_path, file_name, series_id, issue_number]):
+            return jsonify({
+                "success": False,
+                "error": "Missing required parameters"
+            }), 400
+
+        # Connect to GCD MySQL database
+        try:
+            gcd_host = os.environ.get('GCD_MYSQL_HOST')
+            gcd_port = int(os.environ.get('GCD_MYSQL_PORT'))
+            gcd_database = os.environ.get('GCD_MYSQL_DATABASE')
+            gcd_user = os.environ.get('GCD_MYSQL_USER')
+            gcd_password = os.environ.get('GCD_MYSQL_PASSWORD')
+
+            connection = mysql.connector.connect(
+                host=gcd_host,
+                port=gcd_port,
+                database=gcd_database,
+                user=gcd_user,
+                password=gcd_password,
+                charset='utf8mb4'
+            )
+            cursor = connection.cursor(dictionary=True)
+
+            # Get series information
+            series_query = """
+                SELECT s.id, s.name, s.year_began, s.year_ended, s.publisher_id,
+                       p.name as publisher_name
+                FROM gcd_series s
+                LEFT JOIN gcd_publisher p ON s.publisher_id = p.id
+                WHERE s.id = %s
+            """
+            cursor.execute(series_query, (series_id,))
+            series_result = cursor.fetchone()
+
+            if not series_result:
+                return jsonify({
+                    "success": False,
+                    "error": f"Series with ID {series_id} not found"
+                }), 404
+
+            # Search for the specific issue using comprehensive query
+            issue_query = """
+                SELECT
+                  i.id,
+                  COALESCE(
+                    NULLIF(TRIM(i.title), ''),
+                    (
+                      SELECT NULLIF(TRIM(s.title), '')
+                      FROM gcd_story s
+                      WHERE s.issue_id = i.id AND (s.sequence_number IS NULL OR s.sequence_number <> 0)
+                      ORDER BY s.sequence_number
+                      LIMIT 1
+                    )
+                  )                                                   AS Title,
+                  sr.name                                             AS Series,
+                  i.number                                            AS Number,
+                  (
+                    SELECT COUNT(*)
+                    FROM gcd_issue i2
+                    WHERE i2.series_id = i.series_id AND i2.deleted = 0
+                  )                                                   AS `Count`,
+                  i.volume                                            AS Volume,
+                  (
+                    SELECT COALESCE(
+                      NULLIF(TRIM(s.synopsis), ''),
+                      NULLIF(TRIM(s.notes), ''),
+                      NULLIF(TRIM(s.title), '')
+                    )
+                    FROM gcd_story s
+                    WHERE s.issue_id = i.id
+                      AND COALESCE(
+                        NULLIF(TRIM(s.synopsis), ''),
+                        NULLIF(TRIM(s.notes), ''),
+                        NULLIF(TRIM(s.title), '')
+                      ) IS NOT NULL
+                    ORDER BY
+                      CASE WHEN s.sequence_number = 0 THEN 1 ELSE 0 END,
+                      CASE WHEN NULLIF(TRIM(s.synopsis), '') IS NOT NULL THEN 0 ELSE 1 END,
+                      CASE WHEN NULLIF(TRIM(s.notes), '') IS NOT NULL THEN 0 ELSE 1 END,
+                      s.sequence_number
+                    LIMIT 1
+                  )                                                   AS Summary,
+                  CASE
+                    WHEN COALESCE(i.key_date, i.on_sale_date) IS NOT NULL
+                         AND LENGTH(COALESCE(i.key_date, i.on_sale_date)) >= 4
+                      THEN CAST(SUBSTRING(COALESCE(i.key_date, i.on_sale_date), 1, 4) AS UNSIGNED)
+                  END AS `Year`,
+                  CASE
+                    WHEN COALESCE(i.key_date, i.on_sale_date) IS NOT NULL
+                         AND LENGTH(COALESCE(i.key_date, i.on_sale_date)) >= 7
+                      THEN CAST(SUBSTRING(COALESCE(i.key_date, i.on_sale_date), 6, 2) AS UNSIGNED)
+                  END AS `Month`,
+                  (
+                    SELECT GROUP_CONCAT(DISTINCT name ORDER BY name SEPARATOR ', ')
+                    FROM (
+                      SELECT TRIM(COALESCE(NULLIF(sc.credited_as,''), NULLIF(sc.credit_name,''), c.gcd_official_name)) AS name
+                      FROM gcd_story s
+                      JOIN gcd_story_credit sc ON sc.story_id = s.id
+                      JOIN gcd_credit_type ct   ON ct.id = sc.credit_type_id
+                      LEFT JOIN gcd_creator c   ON c.id = sc.creator_id
+                      WHERE s.issue_id = i.id
+                        AND (s.sequence_number IS NULL OR s.sequence_number <> 0)
+                        AND (ct.name LIKE 'script%' OR ct.name LIKE 'writer%' OR ct.name LIKE 'plot%')
+                        AND (sc.deleted = 0 OR sc.deleted IS NULL)
+                      UNION
+                      SELECT TRIM(COALESCE(NULLIF(ic.credited_as,''), NULLIF(ic.credit_name,''), c.gcd_official_name)) AS name
+                      FROM gcd_issue_credit ic
+                      JOIN gcd_credit_type ct ON ct.id = ic.credit_type_id
+                      LEFT JOIN gcd_creator c ON c.id = ic.creator_id
+                      WHERE ic.issue_id = i.id
+                        AND (ct.name LIKE 'script%' OR ct.name LIKE 'writer%' OR ct.name LIKE 'plot%')
+                        AND (ic.deleted = 0 OR ic.deleted IS NULL)
+                    ) x
+                    WHERE NULLIF(name,'') IS NOT NULL
+                  )                                                   AS Writer,
+                  (
+                    SELECT GROUP_CONCAT(DISTINCT name ORDER BY name SEPARATOR ', ')
+                    FROM (
+                      SELECT TRIM(COALESCE(NULLIF(sc.credited_as,''), NULLIF(sc.credit_name,''), c.gcd_official_name)) AS name
+                      FROM gcd_story s
+                      JOIN gcd_story_credit sc ON sc.story_id = s.id
+                      JOIN gcd_credit_type ct   ON ct.id = sc.credit_type_id
+                      LEFT JOIN gcd_creator c   ON c.id = sc.creator_id
+                      WHERE s.issue_id = i.id
+                        AND (s.sequence_number IS NULL OR s.sequence_number <> 0)
+                        AND (ct.name LIKE 'pencil%' OR ct.name LIKE 'penc%')
+                        AND (sc.deleted = 0 OR sc.deleted IS NULL)
+                      UNION
+                      SELECT TRIM(COALESCE(NULLIF(ic.credited_as,''), NULLIF(ic.credit_name,''), c.gcd_official_name)) AS name
+                      FROM gcd_issue_credit ic
+                      JOIN gcd_credit_type ct ON ct.id = ic.credit_type_id
+                      LEFT JOIN gcd_creator c ON c.id = ic.creator_id
+                      WHERE ic.issue_id = i.id
+                        AND (ct.name LIKE 'pencil%' OR ct.name LIKE 'penc%')
+                        AND (ic.deleted = 0 OR ic.deleted IS NULL)
+                    ) x
+                    WHERE NULLIF(name,'') IS NOT NULL
+                  )                                                   AS Penciller,
+                  (
+                    SELECT GROUP_CONCAT(DISTINCT name ORDER BY name SEPARATOR ', ')
+                    FROM (
+                      SELECT TRIM(COALESCE(NULLIF(sc.credited_as,''), NULLIF(sc.credit_name,''), c.gcd_official_name)) AS name
+                      FROM gcd_story s
+                      JOIN gcd_story_credit sc ON sc.story_id = s.id
+                      JOIN gcd_credit_type ct   ON ct.id = sc.credit_type_id
+                      LEFT JOIN gcd_creator c   ON c.id = sc.creator_id
+                      WHERE s.issue_id = i.id
+                        AND (s.sequence_number IS NULL OR s.sequence_number <> 0)
+                        AND (ct.name LIKE 'ink%')
+                        AND (sc.deleted = 0 OR sc.deleted IS NULL)
+                      UNION
+                      SELECT TRIM(COALESCE(NULLIF(ic.credited_as,''), NULLIF(ic.credit_name,''), c.gcd_official_name)) AS name
+                      FROM gcd_issue_credit ic
+                      JOIN gcd_credit_type ct ON ct.id = ic.credit_type_id
+                      LEFT JOIN gcd_creator c ON c.id = ic.creator_id
+                      WHERE ic.issue_id = i.id
+                        AND (ct.name LIKE 'ink%')
+                        AND (ic.deleted = 0 OR ic.deleted IS NULL)
+                    ) x
+                    WHERE NULLIF(name,'') IS NOT NULL
+                  )                                                   AS Inker,
+                  (
+                    SELECT GROUP_CONCAT(DISTINCT name ORDER BY name SEPARATOR ', ')
+                    FROM (
+                      SELECT TRIM(COALESCE(NULLIF(sc.credited_as,''), NULLIF(sc.credit_name,''), c.gcd_official_name)) AS name
+                      FROM gcd_story s
+                      JOIN gcd_story_credit sc ON sc.story_id = s.id
+                      JOIN gcd_credit_type ct   ON ct.id = sc.credit_type_id
+                      LEFT JOIN gcd_creator c   ON c.id = sc.creator_id
+                      WHERE s.issue_id = i.id
+                        AND (s.sequence_number IS NULL OR s.sequence_number <> 0)
+                        AND (ct.name LIKE 'color%' OR ct.name LIKE 'colour%')
+                        AND (sc.deleted = 0 OR sc.deleted IS NULL)
+                      UNION
+                      SELECT TRIM(COALESCE(NULLIF(ic.credited_as,''), NULLIF(ic.credit_name,''), c.gcd_official_name)) AS name
+                      FROM gcd_issue_credit ic
+                      JOIN gcd_credit_type ct ON ct.id = ic.credit_type_id
+                      LEFT JOIN gcd_creator c ON c.id = ic.creator_id
+                      WHERE ic.issue_id = i.id
+                        AND (ct.name LIKE 'color%' OR ct.name LIKE 'colour%')
+                        AND (ic.deleted = 0 OR ic.deleted IS NULL)
+                    ) x
+                    WHERE NULLIF(name,'') IS NOT NULL
+                  )                                                   AS Colorist,
+                  (
+                    SELECT GROUP_CONCAT(DISTINCT name ORDER BY name SEPARATOR ', ')
+                    FROM (
+                      SELECT TRIM(COALESCE(NULLIF(sc.credited_as,''), NULLIF(sc.credit_name,''), c.gcd_official_name)) AS name
+                      FROM gcd_story s
+                      JOIN gcd_story_credit sc ON sc.story_id = s.id
+                      JOIN gcd_credit_type ct   ON ct.id = sc.credit_type_id
+                      LEFT JOIN gcd_creator c   ON c.id = sc.creator_id
+                      WHERE s.issue_id = i.id
+                        AND (s.sequence_number IS NULL OR s.sequence_number <> 0)
+                        AND (ct.name LIKE 'letter%')
+                        AND (sc.deleted = 0 OR sc.deleted IS NULL)
+                      UNION
+                      SELECT TRIM(COALESCE(NULLIF(ic.credited_as,''), NULLIF(ic.credit_name,''), c.gcd_official_name)) AS name
+                      FROM gcd_issue_credit ic
+                      JOIN gcd_credit_type ct ON ct.id = ic.credit_type_id
+                      LEFT JOIN gcd_creator c ON c.id = ic.creator_id
+                      WHERE ic.issue_id = i.id
+                        AND (ct.name LIKE 'letter%')
+                        AND (ic.deleted = 0 OR ic.deleted IS NULL)
+                    ) x
+                    WHERE NULLIF(name,'') IS NOT NULL
+                  )                                                   AS Letterer,
+                  (
+                    SELECT GROUP_CONCAT(DISTINCT name ORDER BY name SEPARATOR ', ')
+                    FROM (
+                      SELECT TRIM(COALESCE(NULLIF(sc.credited_as,''), NULLIF(sc.credit_name,''), c.gcd_official_name)) AS name
+                      FROM gcd_story s
+                      JOIN gcd_story_credit sc ON sc.story_id = s.id
+                      JOIN gcd_credit_type ct   ON ct.id = sc.credit_type_id
+                      LEFT JOIN gcd_creator c   ON c.id = sc.creator_id
+                      WHERE s.issue_id = i.id
+                        AND (s.sequence_number = 0 OR ct.name LIKE 'cover%')
+                        AND (ct.name LIKE 'pencil%' OR ct.name LIKE 'penc%' OR ct.name LIKE 'ink%' OR ct.name LIKE 'art%' OR ct.name LIKE 'cover%')
+                        AND (sc.deleted = 0 OR sc.deleted IS NULL)
+                      UNION
+                      SELECT TRIM(COALESCE(NULLIF(ic.credited_as,''), NULLIF(ic.credit_name,''), c.gcd_official_name)) AS name
+                      FROM gcd_issue_credit ic
+                      JOIN gcd_credit_type ct ON ct.id = ic.credit_type_id
+                      LEFT JOIN gcd_creator c ON c.id = ic.creator_id
+                      WHERE ic.issue_id = i.id
+                        AND (ct.name LIKE 'cover%')
+                        AND (ic.deleted = 0 OR ic.deleted IS NULL)
+                    ) z
+                    WHERE NULLIF(name,'') IS NOT NULL
+                  )                                                   AS CoverArtist,
+                  COALESCE(ip.name, p.name)                           AS Publisher,
+                  (
+                    SELECT TRIM(BOTH ', ' FROM
+                           REPLACE(
+                             GROUP_CONCAT(DISTINCT NULLIF(TRIM(s.genre), '') SEPARATOR ', '),
+                             ';', ','
+                           ))
+                    FROM gcd_story s
+                    WHERE s.issue_id = i.id
+                  )                                                   AS Genre,
+                  COALESCE(
+                    (
+                      SELECT NULLIF(GROUP_CONCAT(DISTINCT c.name SEPARATOR ', '), '')
+                      FROM gcd_story s
+                      LEFT JOIN gcd_story_character sc ON sc.story_id = s.id
+                      LEFT JOIN gcd_character c ON c.id = sc.character_id
+                      WHERE s.issue_id = i.id
+                    ),
+                    (
+                      SELECT TRIM(BOTH ', ' FROM
+                             REPLACE(
+                               GROUP_CONCAT(DISTINCT NULLIF(TRIM(s.characters), '') SEPARATOR ', '),
+                               ';', ','
+                             ))
+                      FROM gcd_story s
+                      WHERE s.issue_id = i.id
+                    )
+                  )                                                   AS Characters,
+                  i.rating                                            AS AgeRating,
+                  'en'                                                AS LanguageISO,
+                  i.page_count                                        AS PageCount
+                FROM gcd_issue i
+                JOIN gcd_series sr                 ON sr.id = i.series_id
+                LEFT JOIN gcd_publisher p          ON p.id = sr.publisher_id
+                LEFT JOIN gcd_indicia_publisher ip ON ip.id = i.indicia_publisher_id
+                WHERE i.series_id = %s AND i.number = %s
+                LIMIT 1
+            """
+
+            cursor.execute(issue_query, (series_id, str(issue_number)))
+            issue_result = cursor.fetchone()
+
+            print(f"DEBUG: Issue search result for series {series_id}, issue {issue_number}: {'Found' if issue_result else 'Not found'}")
+            if issue_result:
+                print(f"DEBUG: Issue result keys: {list(issue_result.keys())}")
+                print(f"DEBUG: Issue result values: {dict(issue_result)}")
+
+            if issue_result:
+                # Generate ComicInfo.xml content
+                comicinfo_xml = generate_comicinfo_xml(issue_result, series_result)
+
+                # Add ComicInfo.xml to the CBZ file
+                add_comicinfo_to_cbz(file_path, comicinfo_xml)
+
+                return jsonify({
+                    "success": True,
+                    "metadata": {
+                        "series": issue_result['Series'],
+                        "issue": issue_result['Number'],
+                        "title": issue_result['Title'],
+                        "publisher": issue_result['Publisher'],
+                        "year": issue_result['Year'],
+                        "writer": issue_result['Writer'],
+                        "penciller": issue_result['Penciller'],
+                        "inker": issue_result['Inker'],
+                        "colorist": issue_result['Colorist'],
+                        "letterer": issue_result['Letterer'],
+                        "cover_artist": issue_result['CoverArtist'],
+                        "genre": issue_result['Genre'],
+                        "characters": issue_result['Characters'],
+                        "summary": issue_result['Summary'],
+                        "age_rating": issue_result['AgeRating']
+                    }
+                })
+            else:
+                return jsonify({
+                    "success": False,
+                    "error": f"Issue #{issue_number} not found for series '{series_result['name']}'"
+                }), 404
+
+        except mysql.connector.Error as db_error:
+            import traceback
+            print(f"MySQL Error: {str(db_error)}")
+            print(f"MySQL Error Traceback: {traceback.format_exc()}")
+            return jsonify({
+                "success": False,
+                "error": f"Database connection error: {str(db_error)}"
+            }), 500
+        finally:
+            if 'connection' in locals() and connection.is_connected():
+                cursor.close()
+                connection.close()
+
+    except Exception as e:
+        import traceback
+        print(f"General Error: {str(e)}")
+        print(f"Full Traceback: {traceback.format_exc()}")
+        return jsonify({
+            "success": False,
+            "error": f"Server error: {str(e)}"
         }), 500
 
 #########################
@@ -2253,7 +3460,10 @@ if __name__ == '__main__':
         app_logger.info("MONITOR=yes detected. Starting monitor.py...")
         threading.Thread(target=run_monitor, daemon=True).start()
 
-    user_name = pwd.getpwuid(os.geteuid()).pw_name
+    if pwd is not None:
+        user_name = pwd.getpwuid(os.geteuid()).pw_name
+    else:
+        user_name = os.getenv('USERNAME', 'unknown')
     app_logger.info(f"Running as user: {user_name}")
         
     app.run(debug=True, use_reloader=False, threaded=True, host='0.0.0.0', port=5577)
