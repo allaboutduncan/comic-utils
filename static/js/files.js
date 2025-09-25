@@ -3112,7 +3112,7 @@ function cleanupOrphanFiles() {
         seriesItem.innerHTML = `
           <div class="ms-2 me-auto">
             <div class="fw-bold">${series.name}</div>
-            <small class="text-muted">Publisher: ${series.publisher_name || 'Unknown'}</small>
+            <small class="text-muted">Publisher: ${series.publisher_name || 'Unknown'}<br>Issue Count: ${series.issue_count || 'Unknown'}</small>
           </div>
           <span class="badge bg-primary rounded-pill">${yearRange}</span>
         `;
@@ -3260,7 +3260,7 @@ function cleanupOrphanFiles() {
         seriesItem.innerHTML = `
           <div class="ms-2 me-auto">
             <div class="fw-bold">${series.name}</div>
-            <small class="text-muted">Publisher: ${series.publisher_name || 'Unknown'}</small>
+            <small class="text-muted">Publisher: ${series.publisher_name || 'Unknown'}<br>Issue Count: ${series.issue_count || 'Unknown'}</small>
           </div>
           <span class="badge bg-primary rounded-pill">${yearRange}</span>
         `;
@@ -3763,7 +3763,7 @@ function cleanupOrphanFiles() {
         seriesItem.innerHTML = `
           <div class="ms-2 me-auto">
             <div class="fw-bold">${series.name}</div>
-            <small class="text-muted">Publisher: ${series.publisher_name || 'Unknown'}</small>
+            <small class="text-muted">Publisher: ${series.publisher_name || 'Unknown'}<br>Issue Count: ${series.issue_count || 'Unknown'}</small>
           </div>
           <span class="badge bg-primary rounded-pill">${yearRange}</span>
         `;

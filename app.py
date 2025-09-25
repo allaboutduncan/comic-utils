@@ -2446,8 +2446,14 @@ def search_gcd_metadata():
 
             # Base queries for LIKE and REGEXP matching
             like_query = f"""
-                SELECT s.id, s.name, s.year_began, s.year_ended, s.publisher_id,
-                    p.name AS publisher_name
+                SELECT
+                s.id,
+                s.name,
+                s.year_began,
+                s.year_ended,
+                s.publisher_id,
+                p.name AS publisher_name,
+                (SELECT COUNT(*) FROM gcd_issue i WHERE i.series_id = s.id) AS issue_count
                 FROM gcd_series s
                 LEFT JOIN gcd_publisher p ON s.publisher_id = p.id
                 WHERE s.name LIKE %s
@@ -2456,8 +2462,14 @@ def search_gcd_metadata():
             """
 
             like_query_with_year = f"""
-                SELECT s.id, s.name, s.year_began, s.year_ended, s.publisher_id,
-                    p.name AS publisher_name
+                SELECT
+                s.id,
+                s.name,
+                s.year_began,
+                s.year_ended,
+                s.publisher_id,
+                p.name AS publisher_name,
+                (SELECT COUNT(*) FROM gcd_issue i WHERE i.series_id = s.id) AS issue_count
                 FROM gcd_series s
                 LEFT JOIN gcd_publisher p ON s.publisher_id = p.id
                 WHERE s.name LIKE %s
@@ -2468,8 +2480,14 @@ def search_gcd_metadata():
             """
 
             regexp_query = f"""
-                SELECT s.id, s.name, s.year_began, s.year_ended, s.publisher_id,
-                    p.name AS publisher_name
+                SELECT
+                s.id,
+                s.name,
+                s.year_began,
+                s.year_ended,
+                s.publisher_id,
+                p.name AS publisher_name,
+                (SELECT COUNT(*) FROM gcd_issue i WHERE i.series_id = s.id) AS issue_count
                 FROM gcd_series s
                 LEFT JOIN gcd_publisher p ON s.publisher_id = p.id
                 WHERE LOWER(s.name) REGEXP %s
