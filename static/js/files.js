@@ -3172,27 +3172,279 @@ function cleanupOrphanFiles() {
             return fileData.name.toLowerCase().endsWith('.cbz') || fileData.name.toLowerCase().endsWith('.cbr');
           });
 
+          // Check for nested volume directories (e.g., v2015, v2016)
+          const volumeDirectories = (data.directories || []).filter(dir => {
+            const dirData = typeof dir === 'object' ? dir : { name: dir };
+            return /^v\d{4}$/i.test(dirData.name); // Match v2015, v2016, etc.
+          });
+
+          // Approach 1: If current directory has no comics but has volume subdirectories, process all volumes
+          if (comicFiles.length === 0 && volumeDirectories.length > 0) {
+            showToast('Processing Volume Directories', `Found ${volumeDirectories.length} volume directories. Processing each separately...`, 'info');
+            processNestedVolumeDirectories(directoryPath, directoryName, volumeDirectories);
+            return;
+          }
+
+          // Approach 2: If current directory has comics, process normally
           if (comicFiles.length === 0) {
             showToast('No Comics Found', `No comic files (.cbz/.cbr) found in "${directoryName}"`, 'warning');
             return;
           }
 
-          // Try to parse the series name from the directory name
-          let seriesName = directoryName;
+          // Check if this is a volume directory (e.g., v2015) - Approach 2
+          const volumeMatch = directoryName.match(/^v(\d{4})$/i);
 
-          // Clean up common directory naming patterns
-          seriesName = seriesName.replace(/\s*\(\d{4}\).*$/, ''); // Remove (1994) and everything after
-          seriesName = seriesName.replace(/\s*v\d+.*$/, ''); // Remove v1, v2 etc
-          seriesName = seriesName.replace(/\s*-\s*complete.*$/i, ''); // Remove "- Complete" etc
-          seriesName = seriesName.replace(/\s*\.INFO.*$/i, ''); // Remove .INFO
+          if (volumeMatch) {
+            // This is a volume directory, get parent series name
+            const pathParts = directoryPath.split('/');
+            const parentDirectoryName = pathParts[pathParts.length - 2] || 'Unknown';
+            const year = volumeMatch[1];
 
-          // Start the GCD search for the directory
-          searchGCDForDirectorySeries(directoryPath, directoryName, seriesName, comicFiles);
+            showToast('Volume Directory Detected', `Processing volume ${directoryName} with parent series "${parentDirectoryName}"`, 'info');
+
+            // Use parent directory name as series and pass volume info
+            searchGCDForVolumeDirectory(directoryPath, directoryName, parentDirectoryName, year, comicFiles);
+          } else {
+            // Standard directory processing
+            let seriesName = directoryName;
+
+            // Clean up common directory naming patterns
+            seriesName = seriesName.replace(/\s*\(\d{4}\).*$/, ''); // Remove (1994) and everything after
+            seriesName = seriesName.replace(/\s*v\d+.*$/, ''); // Remove v1, v2 etc
+            seriesName = seriesName.replace(/\s*-\s*complete.*$/i, ''); // Remove "- Complete" etc
+            seriesName = seriesName.replace(/\s*\.INFO.*$/i, ''); // Remove .INFO
+
+            // Start the GCD search for the directory
+            searchGCDForDirectorySeries(directoryPath, directoryName, seriesName, comicFiles);
+          }
         })
         .catch(error => {
           document.body.removeChild(loadingToast);
           showToast('Directory Scan Error', `Error scanning directory: ${error.message}`, 'error');
         });
+    }
+
+    // Function to process nested volume directories (e.g., Lady Killer/v2015, Lady Killer/v2016)
+    async function processNestedVolumeDirectories(parentPath, parentName, volumeDirectories) {
+      // Extract series name from parent directory
+      const seriesName = parentName;
+
+      // Create progress modal for processing multiple volumes
+      const progressModal = document.createElement('div');
+      progressModal.className = 'modal fade';
+      progressModal.setAttribute('data-bs-backdrop', 'static');
+      progressModal.innerHTML = `
+        <div class="modal-dialog">
+          <div class="modal-content">
+            <div class="modal-header">
+              <h5 class="modal-title">Processing Volume Directories: ${seriesName}</h5>
+            </div>
+            <div class="modal-body">
+              <div class="mb-3">
+                <div class="d-flex justify-content-between">
+                  <span>Progress:</span>
+                  <span id="volumeProgressText">0 / ${volumeDirectories.length}</span>
+                </div>
+                <div class="progress">
+                  <div id="volumeProgressBar" class="progress-bar progress-bar-striped progress-bar-animated"
+                       style="width: 0%" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100"></div>
+                </div>
+              </div>
+              <div id="volumeCurrentDir" class="text-muted small">Preparing...</div>
+              <div id="volumeResults" class="mt-3 small" style="max-height: 200px; overflow-y: auto;">
+                <!-- Results will be added here -->
+              </div>
+            </div>
+            <div class="modal-footer">
+              <button type="button" id="volumeCloseBtn" class="btn btn-secondary" disabled>Close</button>
+              <button type="button" id="volumeCancelBtn" class="btn btn-danger">Cancel</button>
+            </div>
+          </div>
+        </div>
+      `;
+      document.body.appendChild(progressModal);
+
+      const volumeModal = new bootstrap.Modal(progressModal);
+      volumeModal.show();
+
+      let processedCount = 0;
+      let successCount = 0;
+      let errorCount = 0;
+      let cancelled = false;
+
+      document.getElementById('volumeCancelBtn').onclick = () => {
+        cancelled = true;
+        document.getElementById('volumeCancelBtn').disabled = true;
+        document.getElementById('volumeCurrentDir').textContent = 'Cancelling...';
+      };
+
+      document.getElementById('volumeCloseBtn').onclick = () => {
+        volumeModal.hide();
+        document.body.removeChild(progressModal);
+      };
+
+      // Process each volume directory
+      for (let i = 0; i < volumeDirectories.length && !cancelled; i++) {
+        const volumeDir = volumeDirectories[i];
+        const volumeName = volumeDir.name || volumeDir;
+        const volumePath = parentPath + '/' + volumeName;
+
+        // Extract year from volume directory name (e.g., v2015 -> 2015)
+        const yearMatch = volumeName.match(/^v(\d{4})$/i);
+        const year = yearMatch ? yearMatch[1] : null;
+
+        document.getElementById('volumeCurrentDir').textContent = `Processing: ${volumeName}`;
+
+        try {
+          // Get files in this volume directory
+          const response = await fetch(`/list-directories?path=${encodeURIComponent(volumePath)}`);
+          const data = await response.json();
+
+          if (data.error) {
+            throw new Error(data.error);
+          }
+
+          const comicFiles = (data.files || []).filter(file => {
+            const fileData = typeof file === 'object' ? file : { name: file };
+            return fileData.name.toLowerCase().endsWith('.cbz') || fileData.name.toLowerCase().endsWith('.cbr');
+          });
+
+          if (comicFiles.length === 0) {
+            throw new Error(`No comic files found in ${volumeName}`);
+          }
+
+          // Search for this specific year's series
+          const searchSeriesName = year ? `${seriesName} (${year})` : seriesName;
+
+          // Process this volume directory
+          await processVolumeDirectory(volumePath, volumeName, searchSeriesName, comicFiles, year);
+
+          successCount++;
+          const resultsDiv = document.getElementById('volumeResults');
+          const resultItem = document.createElement('div');
+          resultItem.className = 'text-success';
+          resultItem.innerHTML = `✓ ${volumeName} - ${comicFiles.length} files processed`;
+          resultsDiv.appendChild(resultItem);
+
+        } catch (error) {
+          errorCount++;
+          const resultsDiv = document.getElementById('volumeResults');
+          const resultItem = document.createElement('div');
+          resultItem.className = 'text-danger';
+          resultItem.innerHTML = `✗ ${volumeName} - ${error.message}`;
+          resultsDiv.appendChild(resultItem);
+        }
+
+        processedCount++;
+
+        // Update progress
+        document.getElementById('volumeProgressText').textContent = `${processedCount} / ${volumeDirectories.length}`;
+        const progressPercent = Math.floor((processedCount / volumeDirectories.length) * 100);
+        document.getElementById('volumeProgressBar').style.width = progressPercent + '%';
+        document.getElementById('volumeProgressBar').setAttribute('aria-valuenow', progressPercent);
+
+        // Scroll results to bottom
+        const resultsDiv = document.getElementById('volumeResults');
+        resultsDiv.scrollTop = resultsDiv.scrollHeight;
+      }
+
+      // Finished processing
+      document.getElementById('volumeCloseBtn').disabled = false;
+      document.getElementById('volumeCancelBtn').style.display = 'none';
+      document.getElementById('volumeCurrentDir').textContent = cancelled
+        ? `Cancelled after ${processedCount} volumes`
+        : `Complete! Processed ${processedCount} volumes (${successCount} success, ${errorCount} errors)`;
+    }
+
+    // Function to process a single volume directory
+    async function processVolumeDirectory(volumePath, volumeName, seriesName, comicFiles, year) {
+      return new Promise((resolve, reject) => {
+        // Use the first file for the search
+        const firstFile = comicFiles[0];
+        const firstFileName = firstFile.name || firstFile;
+        const firstFilePath = volumePath + '/' + firstFileName;
+
+        fetch('/search-gcd-metadata', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            file_path: firstFilePath,
+            file_name: firstFileName,
+            is_directory_search: true,
+            directory_path: volumePath,
+            directory_name: volumeName,
+            total_files: comicFiles.length,
+            parent_series_name: seriesName,
+            volume_year: year
+          })
+        })
+        .then(response => response.json())
+        .then(data => {
+          if (data.success) {
+            if (data.series_id) {
+              // Auto-process with found series
+              processBulkGCDMetadata(volumePath, volumeName, data.series_id, comicFiles);
+              resolve();
+            } else {
+              reject(new Error('No series ID returned'));
+            }
+          } else {
+            reject(new Error(data.error || 'Search failed'));
+          }
+        })
+        .catch(error => {
+          reject(error);
+        });
+      });
+    }
+
+    // Function to search GCD for a volume directory using parent series name
+    function searchGCDForVolumeDirectory(directoryPath, directoryName, parentSeriesName, year, comicFiles) {
+      // Use first comic file for the search, but flag it as volume directory search
+      const firstFile = comicFiles[0];
+      const firstFileName = firstFile.name || firstFile;
+      const firstFilePath = directoryPath + '/' + firstFileName;
+
+      fetch('/search-gcd-metadata', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          file_path: firstFilePath,
+          file_name: firstFileName,
+          is_directory_search: true,
+          directory_path: directoryPath,
+          directory_name: directoryName,
+          total_files: comicFiles.length,
+          parent_series_name: parentSeriesName,
+          volume_year: year
+        })
+      })
+      .then(response => response.json())
+      .then(data => {
+        if (data.success) {
+          // For volume directory search with exact match, proceed with bulk processing
+          if (data.series_id) {
+            showToast('Exact Match Found', `Found exact match for "${parentSeriesName} (${year})". Processing all files in volume...`, 'success');
+            // Start bulk processing immediately with the found series
+            processBulkGCDMetadata(directoryPath, directoryName, data.series_id, comicFiles);
+          } else {
+            showToast('Direct Match Found', `Found exact match for "${parentSeriesName} (${year})". Consider using individual file search instead.`, 'info');
+          }
+        } else if (data.requires_selection) {
+          // Show series selection modal for volume processing
+          showGCDDirectorySeriesSelectionModal(data, directoryPath, directoryName, comicFiles);
+        } else {
+          // Show error or no results
+          showToast('No Series Found', data.error || `No series found matching "${parentSeriesName} (${year})" in GCD database`, 'error');
+        }
+      })
+      .catch(error => {
+        showToast('Search Error', `Error searching GCD database: ${error.message}`, 'error');
+      });
     }
 
     // Function to search GCD for directory series and show selection modal
@@ -3405,9 +3657,45 @@ function cleanupOrphanFiles() {
         document.getElementById('bulkProgressBar').setAttribute('aria-valuenow', progressPercent);
 
         try {
-          // Parse issue number from filename
-          const issueMatch = fileName.match(/(\d{1,4})(?:\s*\(|\s*$)/);
-          const issueNumber = issueMatch ? parseInt(issueMatch[1]) : index + 1;
+          // Parse issue number from filename - look for common patterns
+          let issueNumber = null;
+
+          // Try multiple patterns to extract issue number
+          const patterns = [
+            /(?:^|\s)(\d{1,4})(?:\s*\(|\s*$|\s*\.)/,     // Standard: "Series 123 (year)" or "Series 123.cbz"
+            /(?:^|\s)#(\d{1,4})(?:\s|$)/,                 // Hash prefix: "Series #123"
+            /(?:issue\s*)(\d{1,4})/i,                     // Issue prefix: "Series Issue 123"
+            /(?:no\.?\s*)(\d{1,4})/i,                     // No. prefix: "Series No. 123"
+            /(?:vol\.\s*\d+\s+)(\d{1,4})/i                // Volume and issue: "Series Vol. 1 123"
+          ];
+
+          for (const pattern of patterns) {
+            const match = fileName.match(pattern);
+            if (match) {
+              issueNumber = parseInt(match[1]);
+              break;
+            }
+          }
+
+          // If no issue number found, skip this file with a clear error
+          if (issueNumber === null) {
+            throw new Error(`Could not parse issue number from filename: ${fileName}`);
+          }
+
+          // First validate that this issue number exists in the series
+          const validationResponse = await fetch('/validate-gcd-issue', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              series_id: seriesId,
+              issue_number: issueNumber
+            })
+          });
+
+          const validationResult = await validationResponse.json();
+          if (!validationResult.success) {
+            throw new Error(`Issue #${issueNumber} not found in series (parsed from filename)`);
+          }
 
           const response = await fetch('/search-gcd-metadata-with-selection', {
             method: 'POST',

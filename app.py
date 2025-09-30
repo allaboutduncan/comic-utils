@@ -1,5 +1,6 @@
 from flask import Flask, render_template, request, Response, send_from_directory, redirect, jsonify, url_for, stream_with_context, render_template_string
 import subprocess
+import io
 import os
 import shutil
 import uuid
@@ -2329,8 +2330,11 @@ def search_gcd_metadata():
         directory_path = data.get('directory_path')
         directory_name = data.get('directory_name')
         total_files = data.get('total_files', 1)
+        parent_series_name = data.get('parent_series_name')  # For nested volume processing
+        volume_year = data.get('volume_year')  # For volume year parsing
         print(f"DEBUG: file_path={file_path}, file_name={file_name}, is_directory_search={is_directory_search}")
         print(f"DEBUG: directory_path={directory_path}, directory_name={directory_name}")
+        print(f"DEBUG: parent_series_name={parent_series_name}, volume_year={volume_year}")
 
         if not file_path or not file_name:
             return jsonify({
@@ -2353,27 +2357,63 @@ def search_gcd_metadata():
         year = None
 
         if is_directory_search:
-            # For directory search, parse directory name for series and year
-            directory_patterns = [
-                r'^(.+?)\s+\((\d{4})\)',  # "Series Name (2020)"
-                r'^(.+?)\s+(\d{4})',      # "Series Name 2020"
-                r'^(.+?)\s+v\d+\s+\((\d{4})\)', # "Series v1 (2020)"
+            # Check if this is a volume directory (e.g., v2015) that needs parent series name
+            volume_directory_match = re.match(r'^v(\d{4})$', name_without_ext, re.IGNORECASE)
+
+            if volume_directory_match and parent_series_name:
+                # Approach 2: Volume directory getting series name from parent
+                series_name = parent_series_name
+                year = int(volume_directory_match.group(1))
+                print(f"DEBUG: Volume directory detected - using parent series '{series_name}' with year {year}")
+            elif parent_series_name and volume_year:
+                # Approach 1: Nested volume processing with explicit parent name and year
+                series_name = parent_series_name
+                year = int(volume_year)
+                print(f"DEBUG: Nested volume processing - series='{series_name}', year={year}")
+            else:
+                # Standard directory processing
+                directory_patterns = [
+                    r'^(.+?)\s+\((\d{4})\)',  # "Series Name (2020)"
+                    r'^(.+?)\s+(\d{4})',      # "Series Name 2020"
+                    r'^(.+?)\s+v\d+\s+\((\d{4})\)', # "Series v1 (2020)"
+                ]
+
+                for pattern in directory_patterns:
+                    match = re.match(pattern, name_without_ext, re.IGNORECASE)
+                    if match:
+                        series_name = match.group(1).strip()
+                        year = int(match.group(2)) if len(match.groups()) >= 2 else None
+                        print(f"DEBUG: Directory parsed - series_name={series_name}, year={year}")
+                        break
+
+                # If no year pattern matched, just use the whole directory name as series
+                if not series_name:
+                    series_name = name_without_ext.strip()
+                    print(f"DEBUG: Directory fallback - series_name={series_name}")
+
+            # For directory search, parse issue number from the first file name
+            file_name_without_ext = file_name.replace('.cbz', '').replace('.cbr', '')
+            print(f"DEBUG: Parsing issue number from first file: {file_name_without_ext}")
+
+            # Try multiple patterns to extract issue number from the first file
+            issue_patterns = [
+                r'(?:^|\s)(\d{1,4})(?:\s*\(|\s*$|\s*\.)',     # Standard: "Series 123 (year)" or "Series 123.cbz"
+                r'(?:^|\s)#(\d{1,4})(?:\s|$)',                 # Hash prefix: "Series #123"
+                r'(?:issue\s*)(\d{1,4})',                      # Issue prefix: "Series Issue 123"
+                r'(?:no\.?\s*)(\d{1,4})',                      # No. prefix: "Series No. 123"
+                r'(?:vol\.\s*\d+\s+)(\d{1,4})',                # Volume and issue: "Series Vol. 1 123"
             ]
 
-            for pattern in directory_patterns:
-                match = re.match(pattern, name_without_ext, re.IGNORECASE)
+            for pattern in issue_patterns:
+                match = re.search(pattern, file_name_without_ext, re.IGNORECASE)
                 if match:
-                    series_name = match.group(1).strip()
-                    year = int(match.group(2)) if len(match.groups()) >= 2 else None
-                    issue_number = 1  # Default for directory search
-                    print(f"DEBUG: Directory parsed - series_name={series_name}, year={year}")
+                    issue_number = int(match.group(1))
+                    print(f"DEBUG: Extracted issue number {issue_number} from filename using pattern: {pattern}")
                     break
 
-            # If no year pattern matched, just use the whole directory name as series
-            if not series_name:
-                series_name = name_without_ext.strip()
-                issue_number = 1
-                print(f"DEBUG: Directory fallback - series_name={series_name}")
+            if issue_number is None:
+                issue_number = 1  # Ultimate fallback
+                print(f"DEBUG: Could not parse issue number from filename, defaulting to 1")
         else:
             # Pattern matching for common comic filename formats
             patterns = [
@@ -2447,51 +2487,51 @@ def search_gcd_metadata():
             # Base queries for LIKE and REGEXP matching
             like_query = f"""
                 SELECT
-                s.id,
-                s.name,
-                s.year_began,
-                s.year_ended,
-                s.publisher_id,
-                p.name AS publisher_name,
-                (SELECT COUNT(*) FROM gcd_issue i WHERE i.series_id = s.id) AS issue_count
+                    s.id,
+                    s.name,
+                    s.year_began,
+                    s.year_ended,
+                    s.publisher_id,
+                    p.name AS publisher_name,
+                    (SELECT COUNT(*) FROM gcd_issue i WHERE i.series_id = s.id) AS issue_count
                 FROM gcd_series s
                 LEFT JOIN gcd_publisher p ON s.publisher_id = p.id
                 WHERE s.name LIKE %s
-                AND s.language_id IN ({in_clause})
+                    AND s.language_id IN ({in_clause})
                 ORDER BY s.year_began DESC
             """
 
             like_query_with_year = f"""
                 SELECT
-                s.id,
-                s.name,
-                s.year_began,
-                s.year_ended,
-                s.publisher_id,
-                p.name AS publisher_name,
-                (SELECT COUNT(*) FROM gcd_issue i WHERE i.series_id = s.id) AS issue_count
+                    s.id,
+                    s.name,
+                    s.year_began,
+                    s.year_ended,
+                    s.publisher_id,
+                    p.name AS publisher_name,
+                    (SELECT COUNT(*) FROM gcd_issue i WHERE i.series_id = s.id) AS issue_count
                 FROM gcd_series s
                 LEFT JOIN gcd_publisher p ON s.publisher_id = p.id
                 WHERE s.name LIKE %s
-                AND s.year_began <= %s
-                AND (s.year_ended IS NULL OR s.year_ended >= %s)
-                AND s.language_id IN ({in_clause})
+                    AND s.year_began <= %s
+                    AND (s.year_ended IS NULL OR s.year_ended >= %s)
+                    AND s.language_id IN ({in_clause})
                 ORDER BY s.year_began DESC
             """
 
             regexp_query = f"""
                 SELECT
-                s.id,
-                s.name,
-                s.year_began,
-                s.year_ended,
-                s.publisher_id,
-                p.name AS publisher_name,
-                (SELECT COUNT(*) FROM gcd_issue i WHERE i.series_id = s.id) AS issue_count
+                    s.id,
+                    s.name,
+                    s.year_began,
+                    s.year_ended,
+                    s.publisher_id,
+                    p.name AS publisher_name,
+                    (SELECT COUNT(*) FROM gcd_issue i WHERE i.series_id = s.id) AS issue_count
                 FROM gcd_series s
                 LEFT JOIN gcd_publisher p ON s.publisher_id = p.id
                 WHERE LOWER(s.name) REGEXP %s
-                AND s.language_id IN ({in_clause})
+                    AND s.language_id IN ({in_clause})
                 ORDER BY s.year_began DESC
             """
 
@@ -2625,16 +2665,31 @@ def search_gcd_metadata():
             issue_query = """
                 SELECT
                   i.id,
-                  COALESCE(
+                    COALESCE(
                     NULLIF(TRIM(i.title), ''),
                     (
-                      SELECT NULLIF(TRIM(s.title), '')
-                      FROM gcd_story s
-                      WHERE s.issue_id = i.id AND (s.sequence_number IS NULL OR s.sequence_number <> 0)
-                      ORDER BY s.sequence_number
-                      LIMIT 1
+                        SELECT NULLIF(TRIM(s.title), '')
+                        FROM gcd_story s
+                        LEFT JOIN gcd_story_type st ON st.id = s.type_id
+                        WHERE s.issue_id = i.id
+                        AND NULLIF(TRIM(s.title), '') IS NOT NULL
+                        ORDER BY
+                        CASE WHEN s.sequence_number = 0 THEN 1 ELSE 0 END,
+                        CASE
+                            WHEN LOWER(st.name) IN ('comic story','story') THEN 0
+                            WHEN LOWER(st.name) IN ('text story','text')   THEN 1
+                            WHEN LOWER(st.name) LIKE '%preview%'           THEN 5
+                            WHEN LOWER(st.name) IN (
+                            'letters','editorial','interview','article','feature',
+                            'promo','advertisement','ad','back cover','inside back cover',
+                            'inside front cover','foreword','afterword'
+                            ) THEN 6
+                            ELSE 3
+                        END,
+                        s.sequence_number
+                        LIMIT 1
                     )
-                  )                                                   AS Title,
+                    ) AS Title,
                   sr.name                                             AS Series,
                   i.number                                            AS Number,
                   (
@@ -2643,26 +2698,63 @@ def search_gcd_metadata():
                     WHERE i2.series_id = i.series_id AND i2.deleted = 0
                   )                                                   AS `Count`,
                   i.volume                                            AS Volume,
-                  (
-                    SELECT COALESCE(
-                      NULLIF(TRIM(s.synopsis), ''),
-                      NULLIF(TRIM(s.notes), ''),
-                      NULLIF(TRIM(s.title), '')
-                    )
-                    FROM gcd_story s
-                    WHERE s.issue_id = i.id
-                      AND COALESCE(
+                (
+                SELECT COALESCE(
                         NULLIF(TRIM(s.synopsis), ''),
-                        NULLIF(TRIM(s.notes), ''),
-                        NULLIF(TRIM(s.title), '')
-                      ) IS NOT NULL
-                    ORDER BY
-                      CASE WHEN s.sequence_number = 0 THEN 1 ELSE 0 END,
-                      CASE WHEN NULLIF(TRIM(s.synopsis), '') IS NOT NULL THEN 0 ELSE 1 END,
-                      CASE WHEN NULLIF(TRIM(s.notes), '') IS NOT NULL THEN 0 ELSE 1 END,
-                      s.sequence_number
-                    LIMIT 1
-                  )                                                   AS Summary,
+                        NULLIF(TRIM(s.notes),    ''),
+                        NULLIF(TRIM(s.title),    '')
+                        )
+                FROM gcd_story s
+                LEFT JOIN gcd_story_type st ON st.id = s.type_id
+                WHERE s.issue_id = i.id
+                    /* must have something usable */
+                    AND COALESCE(
+                        NULLIF(TRIM(s.synopsis), ''),
+                        NULLIF(TRIM(s.notes),    ''),
+                        NULLIF(TRIM(s.title),    '')
+                        ) IS NOT NULL
+
+                    /* 1) avoid choosing seq 0 if any non-zero candidate exists */
+                    AND (
+                    (s.sequence_number IS NULL OR s.sequence_number <> 0)
+                    OR NOT EXISTS (
+                        SELECT 1
+                        FROM gcd_story s2
+                        WHERE s2.issue_id = i.id
+                        AND (s2.sequence_number IS NULL OR s2.sequence_number <> 0)
+                        AND COALESCE(
+                                NULLIF(TRIM(s2.synopsis), ''),
+                                NULLIF(TRIM(s2.notes),    ''),
+                                NULLIF(TRIM(s2.title),    '')
+                            ) IS NOT NULL
+                    )
+                    )
+
+                    /* 2) prefer main story types; only consider others if no main-type exists */
+                    AND (
+                    LOWER(COALESCE(st.name,'')) IN ('comic story','story','text story','text')
+                    OR NOT EXISTS (
+                        SELECT 1
+                        FROM gcd_story s3
+                        LEFT JOIN gcd_story_type st3 ON st3.id = s3.type_id
+                        WHERE s3.issue_id = i.id
+                        AND (s3.sequence_number IS NULL OR s3.sequence_number <> 0)
+                        AND COALESCE(
+                                NULLIF(TRIM(s3.synopsis), ''),
+                                NULLIF(TRIM(s3.notes),    ''),
+                                NULLIF(TRIM(s3.title),    '')
+                            ) IS NOT NULL
+                        AND LOWER(COALESCE(st3.name,'')) IN ('comic story','story','text story','text')
+                    )
+                    )
+
+                ORDER BY
+                    /* within allowed set, keep your preferences */
+                    CASE WHEN NULLIF(TRIM(s.synopsis), '') IS NOT NULL THEN 0 ELSE 1 END,
+                    CASE WHEN NULLIF(TRIM(s.notes),    '') IS NOT NULL THEN 0 ELSE 1 END,
+                    s.sequence_number
+                LIMIT 1
+                ) AS Summary,
                   CASE
                     WHEN COALESCE(i.key_date, i.on_sale_date) IS NOT NULL
                          AND LENGTH(COALESCE(i.key_date, i.on_sale_date)) >= 4
@@ -2977,120 +3069,197 @@ def search_gcd_metadata():
             "error": f"Server error: {str(e)}"
         }), 500
 
-def generate_comicinfo_xml(issue_data, series_data):
-    """Generate ComicInfo.xml content from comprehensive GCD data"""
-    root = ET.Element("ComicInfo")
-    root.set("xmlns:xsd", "http://www.w3.org/2001/XMLSchema")
-    root.set("xmlns:xsi", "http://www.w3.org/2001/XMLSchema-instance")
+def _as_text(val):
+    if val is None:
+        return None
+    if isinstance(val, (list, tuple, set)):
+        # ComicInfo expects comma-separated for multi-credits
+        return ", ".join(str(x) for x in val if x is not None and str(x).strip())
+    return str(val)
 
-    # Basic information (all fields now come from issue_data)
-    if issue_data.get('Title'):
-        ET.SubElement(root, "Title").text = issue_data['Title']
+def generate_comicinfo_xml(issue_data, series_data=None):
+    """
+    Generate a ComicInfo.xml that ComicRack will actually read.
+    - No XML namespaces
+    - UTF-8 bytes with XML declaration
+    - Only write elements when we have non-empty values
+    - Ensure numeric fields are integers-as-text
+    """
+    root = ET.Element("ComicInfo")  # IMPORTANT: no xmlns/xsi attributes
 
-    if issue_data.get('Series'):
-        ET.SubElement(root, "Series").text = issue_data['Series']
+    def add(tag, value):
+        val = _as_text(value)
+        if val:
+            ET.SubElement(root, tag).text = val
 
-    if issue_data.get('Number'):
-        ET.SubElement(root, "Number").text = str(issue_data['Number'])
+    # Basic
+    add("Title",   issue_data.get("Title"))
+    add("Series",  issue_data.get("Series"))
+    # Number/Count/Volume should be simple numerics-as-text
+    if issue_data.get("Number") not in (None, ""):
+        add("Number", str(int(float(issue_data["Number"]))) if str(issue_data["Number"]).replace(".","",1).isdigit() else str(issue_data["Number"]))
+    if issue_data.get("Count") not in (None, ""):
+        add("Count", str(int(issue_data["Count"])) )
+    if issue_data.get("Volume") not in (None, ""):
+        add("Volume", str(int(issue_data["Volume"])) )
 
-    if issue_data.get('Count'):
-        ET.SubElement(root, "Count").text = str(issue_data['Count'])
+    add("Summary", issue_data.get("Summary"))
 
-    if issue_data.get('Volume'):
-        ET.SubElement(root, "Volume").text = str(issue_data['Volume'])
-
-    if issue_data.get('Summary'):
-        ET.SubElement(root, "Summary").text = issue_data['Summary']
-
-    # Date information (now from comprehensive query)
-    if issue_data.get('Year'):
-        ET.SubElement(root, "Year").text = str(issue_data['Year'])
-
-    if issue_data.get('Month'):
-        ET.SubElement(root, "Month").text = str(issue_data['Month'])
+    # Dates
+    if issue_data.get("Year") not in (None, ""):
+        add("Year", str(int(issue_data["Year"])))
+    if issue_data.get("Month") not in (None, ""):
+        m = int(issue_data["Month"])
+        if 1 <= m <= 12:
+            add("Month", str(m))
 
     # Credits
-    if issue_data.get('Writer'):
-        ET.SubElement(root, "Writer").text = issue_data['Writer']
+    add("Writer",      issue_data.get("Writer"))
+    add("Penciller",   issue_data.get("Penciller"))
+    add("Inker",       issue_data.get("Inker"))
+    add("Colorist",    issue_data.get("Colorist"))
+    add("Letterer",    issue_data.get("Letterer"))
+    add("CoverArtist", issue_data.get("CoverArtist"))
 
-    if issue_data.get('Penciller'):
-        ET.SubElement(root, "Penciller").text = issue_data['Penciller']
+    # Publisher/Imprint
+    add("Publisher", issue_data.get("Publisher"))
 
-    if issue_data.get('Inker'):
-        ET.SubElement(root, "Inker").text = issue_data['Inker']
+    # Genre/Characters
+    add("Genre",      issue_data.get("Genre"))
+    add("Characters", issue_data.get("Characters"))
 
-    if issue_data.get('Colorist'):
-        ET.SubElement(root, "Colorist").text = issue_data['Colorist']
+    # Language (ComicRack likes LanguageISO, e.g., 'en')
+    add("LanguageISO", issue_data.get("LanguageISO") or "en")
 
-    if issue_data.get('Letterer'):
-        ET.SubElement(root, "Letterer").text = issue_data['Letterer']
+    # Page count (integer)
+    if issue_data.get("PageCount") not in (None, ""):
+        add("PageCount", str(int(issue_data["PageCount"])))
 
-    if issue_data.get('CoverArtist'):
-        ET.SubElement(root, "CoverArtist").text = issue_data['CoverArtist']
+    # Manga flag: ComicRack expects "Yes" or "No"
+    add("Manga", "No")
 
-    # Publisher
-    if issue_data.get('Publisher'):
-        ET.SubElement(root, "Publisher").text = issue_data['Publisher']
+    # Notes
+    notes = f"Metadata from Grand Comic Database (GCD). Issue ID: {issue_data.get('id', 'Unknown')} — retrieved {datetime.now():%Y-%m-%d}."
+    add("Notes", notes)
 
-    # Genre and Characters
-    if issue_data.get('Genre'):
-        ET.SubElement(root, "Genre").text = issue_data['Genre']
+    # Pretty-print and serialize as UTF-8 BYTES (not a Python str)
+    ET.indent(root)  # Python 3.9+
+    tree = ET.ElementTree(root)
+    buf = io.BytesIO()
+    tree.write(buf, encoding="utf-8", xml_declaration=True)
+    return buf.getvalue()  # BYTES
 
-    # Characters
-    if issue_data.get('Characters'):
-        ET.SubElement(root, "Characters").text = issue_data['Characters']
 
-    # Age rating and language
-    if issue_data.get('AgeRating'):
-        ET.SubElement(root, "AgeRating").text = issue_data['AgeRating']
+def add_comicinfo_to_cbz(file_path, comicinfo_xml_bytes):
+    """
+    Writes ComicInfo.xml at the ROOT of the CBZ.
+    - Removes any existing ComicInfo.xml (case-insensitive)
+    - Uses UTF-8 bytes for content
+    - Keeps other entries unchanged
+    """
+    import tempfile, shutil
 
-    # Default to English as no language table in this dump
-    ET.SubElement(root, "LanguageISO").text = "en"
+    # Safety: ensure bytes
+    if isinstance(comicinfo_xml_bytes, str):
+        comicinfo_xml_bytes = comicinfo_xml_bytes.encode("utf-8")
 
-    # Page count
-    if issue_data.get('PageCount'):
-        ET.SubElement(root, "PageCount").text = str(issue_data['PageCount'])
-
-    # Manga flag (default to No for comics)
-    ET.SubElement(root, "Manga").text = "No"
-
-    # Add metadata about the source
-    ET.SubElement(root, "Notes").text = f"Metadata from Grand Comic Database (GCD). Issue ID: {issue_data.get('id', 'Unknown')}. Retrieved on {datetime.now().strftime('%Y-%m-%d')}"
-
-    # Format the XML with proper indentation
-    ET.indent(root)
-    return ET.tostring(root, encoding='unicode', xml_declaration=True)
-
-def add_comicinfo_to_cbz(file_path, comicinfo_xml):
-    """Add ComicInfo.xml to an existing CBZ file"""
-    import tempfile
-    import shutil
-
-    # Create a temporary file for the new CBZ
-    with tempfile.NamedTemporaryFile(delete=False, suffix='.cbz') as temp_file:
-        temp_path = temp_file.name
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".cbz") as tmp:
+        temp_path = tmp.name
 
     try:
-        # Read the existing CBZ and create a new one with ComicInfo.xml
-        with zipfile.ZipFile(file_path, 'r') as source_zip:
-            with zipfile.ZipFile(temp_path, 'w', zipfile.ZIP_DEFLATED) as target_zip:
-                # Copy all existing files except any existing ComicInfo.xml
-                for item in source_zip.infolist():
-                    if item.filename.lower() != 'comicinfo.xml':
-                        data = source_zip.read(item.filename)
-                        target_zip.writestr(item, data)
+        with zipfile.ZipFile(file_path, "r") as src, \
+             zipfile.ZipFile(temp_path, "w", compression=zipfile.ZIP_DEFLATED) as dst:
 
-                # Add the new ComicInfo.xml
-                target_zip.writestr('ComicInfo.xml', comicinfo_xml)
+            for info in src.infolist():
+                # root-level match; also guard against nested paths like "ComicInfo.xml" vs "folder/ComicInfo.xml"
+                if os.path.basename(info.filename).lower() == "comicinfo.xml":
+                    continue
+                dst.writestr(info, src.read(info.filename))
 
-        # Replace the original file with the updated one
+            # Write new ComicInfo.xml at root
+            dst.writestr("ComicInfo.xml", comicinfo_xml_bytes)
+
+        # Replace original
         shutil.move(temp_path, file_path)
 
-    except Exception as e:
-        # Clean up temp file if something goes wrong
+    except Exception:
         if os.path.exists(temp_path):
             os.unlink(temp_path)
-        raise e
+        raise
+
+@app.route('/validate-gcd-issue', methods=['POST'])
+def validate_gcd_issue():
+    """Validate that a specific issue number exists in the given series"""
+    try:
+        import mysql.connector
+
+        data = request.get_json()
+        series_id = data.get('series_id')
+        issue_number = data.get('issue_number')
+
+        if not all([series_id, issue_number]):
+            return jsonify({
+                "success": False,
+                "error": "Missing required parameters"
+            }), 400
+
+        # Connect to GCD MySQL database
+        try:
+            gcd_host = os.environ.get('GCD_MYSQL_HOST')
+            gcd_port = int(os.environ.get('GCD_MYSQL_PORT'))
+            gcd_database = os.environ.get('GCD_MYSQL_DATABASE')
+            gcd_user = os.environ.get('GCD_MYSQL_USER')
+            gcd_password = os.environ.get('GCD_MYSQL_PASSWORD')
+
+            connection = mysql.connector.connect(
+                host=gcd_host,
+                port=gcd_port,
+                database=gcd_database,
+                user=gcd_user,
+                password=gcd_password,
+                charset='utf8mb4'
+            )
+            cursor = connection.cursor(dictionary=True)
+
+            # Simple query to check if issue exists
+            validation_query = "SELECT id, title, number FROM gcd_issue WHERE series_id = %s AND number = %s AND deleted = 0 LIMIT 1"
+            cursor.execute(validation_query, (series_id, str(issue_number)))
+            issue_result = cursor.fetchone()
+
+            cursor.close()
+            connection.close()
+
+            if issue_result:
+                return jsonify({
+                    "success": True,
+                    "issue_id": issue_result['id'],
+                    "issue_number": issue_result['number'],
+                    "issue_title": issue_result['title']
+                })
+            else:
+                return jsonify({
+                    "success": False,
+                    "error": f"Issue #{issue_number} not found in series"
+                })
+
+        except mysql.connector.Error as db_error:
+            print(f"DEBUG: Database error in validate_gcd_issue: {db_error}")
+            return jsonify({
+                "success": False,
+                "error": f"Database error: {str(db_error)}"
+            }), 500
+
+    except ImportError:
+        return jsonify({
+            "success": False,
+            "error": "MySQL connector not available"
+        }), 500
+    except Exception as e:
+        print(f"DEBUG: Error in validate_gcd_issue: {e}")
+        return jsonify({
+            "success": False,
+            "error": f"Validation error: {str(e)}"
+        }), 500
 
 @app.route('/search-gcd-metadata-with-selection', methods=['POST'])
 def search_gcd_metadata_with_selection():
