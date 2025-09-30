@@ -76,6 +76,7 @@ Copy the following and edit the environment variables
 
             container_name: comic-utils
             logging:
+                driver: "json-file"
                 options:
                     max-size: '20m'  # Reduce log size to 20MB
                     max-file: '3'     # Keep only 3 rotated files
