@@ -120,6 +120,25 @@
           .catch(err => console.error("Failed to update download badge:", err));
       }
 
+      function updateScrapeBadge() {
+        fetch('/scrape-status')
+          .then(response => response.json())
+          .then(data => {
+            const badge = document.getElementById('scrape-badge');
+            if (!badge) return;
+
+            if (data.active > 0) {
+              badge.textContent = data.progress + '%';
+              badge.classList.remove('d-none');
+              badge.classList.add('badge-pulse');
+              setTimeout(() => badge.classList.remove('badge-pulse'), 600);
+            } else {
+              badge.classList.add('d-none');
+            }
+          })
+          .catch(err => console.error("Failed to update scrape badge:", err));
+      }
+
       // ✅ Run only after the DOM is ready
       document.addEventListener('DOMContentLoaded', () => {
         updateFileWatchBadge();
@@ -127,6 +146,9 @@
 
         updateDownloadBadge();
         setInterval(updateDownloadBadge, 15000);
+
+        updateScrapeBadge();
+        setInterval(updateScrapeBadge, 5000);  // Update every 5 seconds for more responsive progress
       });
     </script>
     {% endblock %}

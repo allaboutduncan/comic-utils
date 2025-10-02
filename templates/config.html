@@ -395,6 +395,24 @@
             </div>
         </div>
 
+        <!-- Logging & Debugging Configuration -->
+        <div class="container p-4 border rounded shadow-sm mb-4">
+            <h4>Logging & Debugging</h4>
+            <p class="text-muted">Configure application logging settings. Debug logging provides detailed diagnostic information useful for troubleshooting.</p>
+
+            <div class="row">
+                <div class="col-md-6">
+                    <div class="form-check form-switch">
+                        <input class="form-check-input" type="checkbox" role="switch" id="enableDebugLogging" name="enableDebugLogging" {% if enableDebugLogging %}checked{% endif %}>
+                        <label class="form-check-label" for="enableDebugLogging">{% if enableDebugLogging %}Disable{% else %}Enable{% endif %} Debug Logging</label>
+                        <small class="form-text text-muted">
+                            <br />When enabled, detailed debug messages will appear in the <a href="/app-logs" target="_blank">App Logs</a>. This can help with troubleshooting but may increase log file size. Changes take effect after saving.
+                        </small>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <!-- ComicInfo XML editing Configuration -->
         <div class="container p-4 border rounded shadow-sm mb-4">
             <h4>ComicInfo.XML Update Settings</h4>

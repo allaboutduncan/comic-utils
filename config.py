@@ -4,7 +4,12 @@ import os
 import time
 from app_logging import app_logger
 
-CONFIG_FILE = os.path.join(os.getcwd(), "config.ini")
+# Use /config volume if it exists (Docker), otherwise use current directory
+CONFIG_DIR = os.environ.get('CONFIG_DIR', '/config' if os.path.exists('/config') else os.getcwd())
+# Ensure config directory exists
+os.makedirs(CONFIG_DIR, exist_ok=True)
+CONFIG_FILE = os.path.join(CONFIG_DIR, "config.ini")
+
 config = configparser.ConfigParser()
 config.optionxform = str  # Preserve case sensitivity
 
@@ -19,36 +24,60 @@ def load_config():
     Loads or (if missing) creates the config file, ensuring
     that the [SETTINGS] section exists.
     """
+    # Log the config file location
+    app_logger.debug(f"📁 Config file location: {CONFIG_FILE}")
+
+    # Define default settings with all required keys
+    default_settings = {
+        "WATCH": "/temp",
+        "TARGET": "/processed",
+        "IGNORED_TERMS": "Annual",
+        "IGNORED_FILES": "cover.jpg,cvinfo,.DS_Store",
+        "IGNORED_EXTENSIONS": ".crdownload,.torrent,.tmp,.mega,.rar,.bak,.zip",
+        "AUTOCONVERT": "False",
+        "READ_SUBDIRECTORIES": "False",
+        "CONVERT_SUBDIRECTORIES": "False",
+        "XML_YEAR": "False",
+        "XML_MARKDOWN": "False",
+        "XML_LIST": "True",
+        "MOVE_DIRECTORY": "False",
+        "AUTO_UNPACK": "False",
+        "SKIPPED_FILES": ".xml",
+        "DELETED_FILES": ".nfo,.sfv,.db,.DS_Store",
+        "HEADERS": "",
+        "PIXELDRAIN_API_KEY": "",
+        "ENABLE_CUSTOM_RENAME": "False",
+        "CUSTOM_RENAME_PATTERN": "",
+        "ENABLE_DEBUG_LOGGING": "False"
+    }
+
     if not os.path.exists(CONFIG_FILE):
         # Create a default config.ini if none exists
-        config["SETTINGS"] = {
-            "WATCH": "/temp",
-            "TARGET": "/processed",
-            "IGNORED_TERMS": "Annual",
-            "IGNORED_FILES": "cover.jpg,cvinfo,.DS_Store",
-            "IGNORED_EXTENSIONS": ".crdownload,.torrent,.tmp,.mega,.rar,.bak,.zip",
-            "AUTOCONVERT": "False",
-            "READ_SUBDIRECTORIES": "False",
-            "CONVERT_SUBDIRECTORIES": "False",
-            "XML_YEAR": "False",
-            "XML_MARKDOWN": "False",
-            "XML_LIST": "True",
-            "MOVE_DIRECTORY": "False",
-            "AUTO_UNPACK": "False",
-            "SKIPPED_FILES": ".xml",
-            "DELETED_FILES": ".nfo,.sfv,.db,.DS_Store",
-            "HEADERS": "",
-            "PIXELDRAIN_API_KEY": "",
-            "ENABLE_CUSTOM_RENAME": "False",
-            "CUSTOM_RENAME_PATTERN": ""
-        }
+        config["SETTINGS"] = default_settings
         write_config()
     else:
+        # Load existing config
         config.read(CONFIG_FILE)
 
-    # Ensure the SETTINGS section is a dictionary
-    if "SETTINGS" not in config:
-        config["SETTINGS"] = {}
+        # Ensure the SETTINGS section exists
+        if "SETTINGS" not in config:
+            config["SETTINGS"] = {}
+
+        # Migrate/add any missing keys with defaults (preserves existing values)
+        settings_updated = False
+        missing_keys = []
+        for key, default_value in default_settings.items():
+            if key not in config["SETTINGS"]:
+                config["SETTINGS"][key] = default_value
+                settings_updated = True
+                missing_keys.append(key)
+
+        # Save config if new keys were added
+        if settings_updated:
+            app_logger.info(f"🔄 Migrated {len(missing_keys)} new config keys: {', '.join(missing_keys)}")
+            write_config()
+        else:
+            app_logger.debug("✅ Config file loaded successfully (no migration needed)")
 
 
 def load_flask_config(app, logger=None):
@@ -85,6 +114,7 @@ def load_flask_config(app, logger=None):
     app.config["PIXELDRAIN_API_KEY"] = settings.get("PIXELDRAIN_API_KEY", "")
     app.config["ENABLE_CUSTOM_RENAME"] = config.getboolean("SETTINGS", "ENABLE_CUSTOM_RENAME", fallback=False)
     app.config["CUSTOM_RENAME_PATTERN"] = settings.get("CUSTOM_RENAME_PATTERN", "")
+    app.config["ENABLE_DEBUG_LOGGING"] = config.getboolean("SETTINGS", "ENABLE_DEBUG_LOGGING", fallback=False)
 
     if logger:
         logger.info(f"Watching: {app.config['WATCH']}")
@@ -103,7 +133,7 @@ def monitor_config(interval=5):
             if last_mtime is None or current_mtime != last_mtime:  # File is new or changed
                 load_config()
                 last_mtime = current_mtime
-                app_logger.info("Config file reloaded at: ".format(time.ctime(last_mtime)))
+                app_logger.debug("Config file reloaded at: ".format(time.ctime(last_mtime)))
         except FileNotFoundError:
             app_logger.info(f"Warning: {CONFIG_FILE} not found.")
             last_mtime = None  # Reset because file may appear later

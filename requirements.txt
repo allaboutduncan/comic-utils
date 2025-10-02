@@ -12,3 +12,6 @@ mega.py==1.0.8
 pixeldrain==1.1.2
 pycryptodome==3.19.0
 mysql-connector-python==8.2.0
+beautifulsoup4==4.12.2
+playwright==1.40.0
+urllib3==2.1.0

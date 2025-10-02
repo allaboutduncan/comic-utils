@@ -3733,10 +3733,14 @@ function cleanupOrphanFiles() {
           const resultsDiv = document.getElementById('bulkResults');
           const resultItem = document.createElement('div');
           resultItem.className = 'text-danger';
-          resultItem.innerHTML = `✗ ${fileName} - Network error`;
+          // Show actual error message instead of generic "Network error"
+          const errorMsg = error.message || 'Network error';
+          resultItem.innerHTML = `✗ ${fileName} - ${errorMsg}`;
           resultsDiv.appendChild(resultItem);
           // Track failed file for secondary search
-          failedFiles.push({ fileName, filePath, error: 'Network error' });
+          failedFiles.push({ fileName, filePath, error: errorMsg });
+          // Log error to console for debugging
+          console.error(`Error processing ${fileName}:`, error);
         }
 
         processedCount++;

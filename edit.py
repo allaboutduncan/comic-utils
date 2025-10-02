@@ -40,11 +40,14 @@ modal_body_template = '''
                 </p>
                 <div class="d-flex justify-content-end">
                 <div class="btn-group" role="group" aria-label="Basic example">
-                  <button type="button" class="btn btn btn-outline-secondary btn-sm" onclick="cropImageLeft(this)" title="Crop Image Left">
+                  <button type="button" class="btn btn-outline-primary btn-sm" onclick="cropImageFreeForm(this)" title="Free Form Crop">
+                    <i class="bi bi-crop"></i> Free
+                  </button>
+                  <button type="button" class="btn btn-outline-secondary btn-sm" onclick="cropImageLeft(this)" title="Crop Image Left">
                     <i class="bi bi-arrow-bar-left"></i> Left
                   </button>
-                  <button type="button" class="btn btn btn-outline-secondary" onclick="cropImageCenter(this)" title="Crop Image Center">Middle</button>
-                  <button type="button" class="btn btn-outline-secondary btn-sm" onclick="cropImageRight(this)" title="Crom Image Right">
+                  <button type="button" class="btn btn-outline-secondary" onclick="cropImageCenter(this)" title="Crop Image Center">Middle</button>
+                  <button type="button" class="btn btn-outline-secondary btn-sm" onclick="cropImageRight(this)" title="Crop Image Right">
                     Right <i class="bi bi-arrow-bar-right"></i>
                   </button>
                   <button type="button" class="btn btn-outline-danger btn-sm" onclick="deleteCardImage(this)">
@@ -398,6 +401,49 @@ def cropCenter(image_path):
 
     except Exception as e:
         app_logger.error(f"Error processing the image: {e}")
+
+
+def cropFreeForm(image_path, x, y, width, height):
+    """
+    Crop an image using custom coordinates.
+    Saves the original as {filename}-cropped{ext} and keeps the cropped version as original name.
+
+    Args:
+        image_path: Full path to the image file
+        x: X coordinate of top-left corner of crop area
+        y: Y coordinate of top-left corner of crop area
+        width: Width of the crop area
+        height: Height of the crop area
+
+    Returns:
+        Path to the new cropped image
+    """
+    file_name, file_extension = os.path.splitext(image_path)
+
+    try:
+        # Open the image
+        with Image.open(image_path) as img:
+            # Define the crop box (left, upper, right, lower)
+            crop_box = (int(x), int(y), int(x + width), int(y + height))
+
+            # Save the original image with -cropped suffix
+            backup_path = f"{file_name}-cropped{file_extension}"
+            img.save(backup_path)
+
+            # Crop the image
+            cropped_img = img.crop(crop_box)
+
+            # Save the cropped image with the original filename
+            new_image_path = image_path
+            cropped_img.save(new_image_path)
+
+        app_logger.info(f"Free form crop processed: {os.path.basename(image_path)}, original saved as {backup_path}")
+
+        return new_image_path, backup_path
+
+    except Exception as e:
+        app_logger.error(f"Error processing free form crop: {e}")
+        raise
 
 
 def get_image_data_url(image_path):

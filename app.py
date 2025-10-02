@@ -26,8 +26,9 @@ import zipfile
 import tempfile
 from api import app
 from config import config, load_flask_config, write_config, load_config
-from edit import get_edit_modal, save_cbz, cropCenter, cropLeft, cropRight, get_image_data_url, modal_body_template
+from edit import get_edit_modal, save_cbz, cropCenter, cropLeft, cropRight, cropFreeForm, get_image_data_url, modal_body_template
 from memory_utils import initialize_memory_management, cleanup_on_exit, memory_context, get_global_monitor
+from app_logging import app_logger, APP_LOG, MONITOR_LOG
 from helpers import is_hidden
 import threading
 from collections import OrderedDict
@@ -874,34 +875,11 @@ def inject_monitor():
 #     Logging Setup     #
 #########################
 
-# Define log file paths
-MONITOR_LOG = "logs/monitor.log"
-os.makedirs(os.path.dirname(MONITOR_LOG), exist_ok=True)
-if not os.path.exists(MONITOR_LOG):
-    with open(MONITOR_LOG, "w") as f:
-        f.write("")  # Create an empty file
-
-APP_LOG = "logs/app.log"
-os.makedirs(os.path.dirname(APP_LOG), exist_ok=True)
-if not os.path.exists(APP_LOG):
-    with open(APP_LOG, "w") as f:
-        f.write("")  # Create an empty file
-
-# Create a logger for app.py
-app_logger = logging.getLogger("app_logger")
-app_logger.setLevel(logging.INFO)
-
-# Prevent duplicate handlers
-if not app_logger.handlers:
-    app_handler = logging.FileHandler(APP_LOG)
-    app_handler.setFormatter(logging.Formatter("%(asctime)s - %(levelname)s - %(message)s"))
-    app_logger.addHandler(app_handler)
-
-# Optionally disable propagation to avoid duplicate logs from the root logger
-app_logger.propagate = False
-
-# Example usage
-app_logger.info("App started successfully!")
+# app_logger, APP_LOG, and MONITOR_LOG are now imported from app_logging module
+# Set log level from config (default to INFO = debug disabled)
+debug_enabled = config.get("SETTINGS", "ENABLE_DEBUG_LOGGING", fallback="False") == "True"
+app_logger.setLevel(logging.DEBUG if debug_enabled else logging.INFO)
+app_logger.info(f"App started successfully! (Debug logging: {'enabled' if debug_enabled else 'disabled'})")
 
 # Initialize memory management
 initialize_memory_management()
@@ -1633,6 +1611,86 @@ def crop_image():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
+@app.route('/get-image-data', methods=['POST'])
+def get_full_image_data():
+    """Get full-size image data as base64 for display in modal"""
+    try:
+        data = request.json
+        file_path = data.get('target')
+
+        if not file_path:
+            return jsonify({'success': False, 'error': 'Missing file path'}), 400
+
+        if not os.path.exists(file_path):
+            return jsonify({'success': False, 'error': 'File not found'}), 404
+
+        # Read the image and encode as base64
+        from PIL import Image
+        import io
+        import base64
+
+        with Image.open(file_path) as img:
+            # Convert to RGB if necessary
+            if img.mode in ('RGBA', 'LA', 'P'):
+                rgb_img = Image.new('RGB', img.size, (255, 255, 255))
+                if img.mode == 'P':
+                    img = img.convert('RGBA')
+                rgb_img.paste(img, mask=img.split()[-1] if img.mode in ('RGBA', 'LA') else None)
+                img = rgb_img
+
+            # Encode as JPEG
+            buffered = io.BytesIO()
+            img.save(buffered, format="JPEG", quality=95)
+            encoded = base64.b64encode(buffered.getvalue()).decode('utf-8')
+            image_data = f"data:image/jpeg;base64,{encoded}"
+
+        return jsonify({
+            'success': True,
+            'imageData': image_data
+        })
+
+    except Exception as e:
+        app_logger.error(f"Error getting image data: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/crop-freeform', methods=['POST'])
+def crop_image_freeform():
+    """Handle free form crop with custom coordinates"""
+    try:
+        data = request.json
+        file_path = data.get('target')
+        x = data.get('x')
+        y = data.get('y')
+        width = data.get('width')
+        height = data.get('height')
+
+        app_logger.info("********************// Free Form Crop Image //********************")
+        app_logger.info(f"File Path: {file_path}")
+        app_logger.info(f"Crop coords: x={x}, y={y}, width={width}, height={height}")
+
+        # Validate input
+        if not file_path or x is None or y is None or width is None or height is None:
+            return jsonify({'success': False, 'error': 'Missing file path or crop coordinates'}), 400
+
+        # Perform the crop
+        new_image_path, backup_path = cropFreeForm(file_path, x, y, width, height)
+
+        # Return the updated image data and backup image data
+        return jsonify({
+            'success': True,
+            'newImagePath': new_image_path,
+            'newImageData': get_image_data_url(new_image_path),
+            'backupImagePath': backup_path,
+            'backupImageData': get_image_data_url(backup_path),
+            'message': 'Free form crop completed.'
+        })
+
+    except Exception as e:
+        app_logger.error(f"Free form crop error: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 #####################################
 #       Delete Files/Folders        #
 #####################################
@@ -1742,6 +1800,179 @@ def restart():
     return jsonify({"message": "Restarting Flask app..."}), 200
 
 #########################
+#   Scrape Page Routes  #
+#########################
+import uuid
+import threading
+from queue import Queue
+from scrape_readcomiconline import scrape_series
+
+# Store active scrape tasks
+# Each task has: log_queue, progress_queue, status, buffered_logs
+scrape_tasks = {}
+
+@app.route("/scrape")
+def scrape_page():
+    """Render the scrape page"""
+    watch_dir = config.get("SETTINGS", "WATCH_DIR", fallback="/downloads/temp")
+    # Get active tasks for status display
+    active_tasks = []
+    for task_id, task_info in scrape_tasks.items():
+        if task_info["status"] == "running":
+            active_tasks.append({
+                "task_id": task_id,
+                "status": task_info["status"]
+            })
+    return render_template("scrape.html", target_dir=watch_dir, active_tasks=active_tasks)
+
+@app.route("/scrape-readcomiconline", methods=["POST"])
+def scrape_readcomiconline():
+    """Start scraping readcomiconline URLs"""
+    try:
+        data = request.json
+        urls = data.get("urls", [])
+        output_dir = data.get("output_dir", config.get("SETTINGS", "WATCH_DIR", fallback="/downloads/temp"))
+
+        if not urls:
+            return jsonify({"success": False, "error": "No URLs provided"}), 400
+
+        # Create a unique task ID
+        task_id = str(uuid.uuid4())
+
+        # Create a queue for logs and progress
+        log_queue = Queue()
+        progress_queue = Queue()
+
+        # Store task info with buffered logs for reconnection
+        scrape_tasks[task_id] = {
+            "log_queue": log_queue,
+            "progress_queue": progress_queue,
+            "status": "running",
+            "buffered_logs": [],
+            "last_progress": {}
+        }
+
+        # Start scraping in a background thread
+        def scrape_worker():
+            def log_callback(msg):
+                log_queue.put(msg)
+
+            def progress_callback(data):
+                progress_queue.put(data)
+
+            try:
+                for url in urls:
+                    log_queue.put(f"\n{'='*60}")
+                    log_queue.put(f"Processing: {url}")
+                    log_queue.put('='*60)
+
+                    scrape_series(url, output_dir, log_callback, progress_callback)
+
+                log_queue.put("\n=== All URLs processed ===")
+                scrape_tasks[task_id]["status"] = "completed"
+                log_queue.put("__COMPLETED__")  # Signal completion
+
+            except Exception as e:
+                log_queue.put(f"\n=== Error: {str(e)} ===")
+                scrape_tasks[task_id]["status"] = "error"
+                log_queue.put("__ERROR__")  # Signal error
+
+        thread = threading.Thread(target=scrape_worker, daemon=True)
+        thread.start()
+
+        return jsonify({"success": True, "task_id": task_id}), 200
+
+    except Exception as e:
+        app_logger.error(f"Error starting scrape: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+@app.route("/scrape-stream/<task_id>")
+def scrape_stream(task_id):
+    """Server-Sent Events stream for scrape logs and progress"""
+    def generate():
+        if task_id not in scrape_tasks:
+            yield f"data: Task not found\n\n"
+            return
+
+        task = scrape_tasks[task_id]
+        log_queue = task["log_queue"]
+        progress_queue = task["progress_queue"]
+
+        # Send buffered logs first (for reconnections)
+        for buffered_log in task["buffered_logs"]:
+            yield f"data: {buffered_log}\n\n"
+
+        # Send last known progress
+        if task["last_progress"]:
+            import json
+            yield f"event: progress\ndata: {json.dumps(task['last_progress'])}\n\n"
+
+        while True:
+            # Check for log messages
+            if not log_queue.empty():
+                msg = log_queue.get()
+
+                if msg == "__COMPLETED__":
+                    yield f"event: completed\ndata: {{}}\n\n"
+                    break
+                elif msg == "__ERROR__":
+                    yield f"event: error\ndata: {{}}\n\n"
+                    break
+                else:
+                    # Buffer the log for reconnections
+                    task["buffered_logs"].append(msg)
+                    # Keep only last 100 log lines
+                    if len(task["buffered_logs"]) > 100:
+                        task["buffered_logs"].pop(0)
+                    yield f"data: {msg}\n\n"
+
+            # Check for progress updates
+            if not progress_queue.empty():
+                progress_data = progress_queue.get()
+                # Store last progress for reconnections
+                task["last_progress"] = progress_data
+                import json
+                yield f"event: progress\ndata: {json.dumps(progress_data)}\n\n"
+
+            time.sleep(0.1)
+
+        # Clean up task after streaming completes
+        if task_id in scrape_tasks:
+            del scrape_tasks[task_id]
+
+    return Response(generate(), mimetype="text/event-stream")
+
+@app.route("/scrape-status")
+def scrape_status():
+    """Get current scrape status for badge display"""
+    try:
+        # Check if there are any active scrape tasks
+        active_count = 0
+        total_progress = 0
+
+        for task_id, task_info in scrape_tasks.items():
+            if task_info["status"] == "running":
+                active_count += 1
+                # Get last known progress
+                if "last_progress" in task_info and "progress" in task_info["last_progress"]:
+                    total_progress += task_info["last_progress"]["progress"]
+
+        if active_count > 0:
+            avg_progress = int(total_progress / active_count)
+            return jsonify({
+                "active": active_count,
+                "progress": avg_progress
+            })
+        else:
+            return jsonify({
+                "active": 0,
+                "progress": 0
+            })
+    except Exception as e:
+        app_logger.error(f"Error getting scrape status: {e}")
+        return jsonify({"active": 0, "progress": 0})
+
+#########################
 #   Config Page Route   #
 #########################
 @app.route("/config", methods=["GET", "POST"])
@@ -1786,9 +2017,19 @@ def config_page():
         config["SETTINGS"]["PIXELDRAIN_API_KEY"] = request.form.get("pixeldrainApiKey", "")
         config["SETTINGS"]["ENABLE_CUSTOM_RENAME"] = str(request.form.get("enableCustomRename") == "on")
         config["SETTINGS"]["CUSTOM_RENAME_PATTERN"] = request.form.get("customRenamePattern", "")
+        config["SETTINGS"]["ENABLE_DEBUG_LOGGING"] = str(request.form.get("enableDebugLogging") == "on")
 
         write_config()  # Save changes to config.ini
         load_flask_config(app)  # Reload into Flask config
+
+        # Update logger level dynamically
+        import logging
+        if config["SETTINGS"]["ENABLE_DEBUG_LOGGING"] == "True":
+            app_logger.setLevel(logging.DEBUG)
+            app_logger.info("Debug logging enabled")
+        else:
+            app_logger.setLevel(logging.INFO)
+            app_logger.info("Debug logging disabled")
 
         return redirect(url_for("config_page"))
 
@@ -1820,6 +2061,7 @@ def config_page():
         pixeldrainApiKey=settings.get("PIXELDRAIN_API_KEY", ""),
         enableCustomRename=settings.get("ENABLE_CUSTOM_RENAME", "False") == "True",
         customRenamePattern=settings.get("CUSTOM_RENAME_PATTERN", ""),
+        enableDebugLogging=settings.get("ENABLE_DEBUG_LOGGING", "False") == "True",
         config=settings,  # Pass full settings dictionary
     )
 
@@ -2126,7 +2368,6 @@ def stream_app_logs():
     return Response(stream_logs_file(APP_LOG), content_type='text/event-stream')
 
 # Streaming endpoint for monitor logs
-MONITOR_LOG = "logs/monitor.log"
 @app.route('/stream/mon')
 def stream_mon_logs():
     return Response(stream_logs_file(MONITOR_LOG), content_type='text/event-stream')
@@ -2321,9 +2562,9 @@ def search_gcd_metadata():
         import tempfile
         import zipfile
 
-        print(f"DEBUG: GCD search started")
+        app_logger.info(f"🔍 GCD search started")
         data = request.get_json()
-        print(f"DEBUG: Request data: {data}")
+        app_logger.info(f"GCD Request data: {data}")
         file_path = data.get('file_path')
         file_name = data.get('file_name')
         is_directory_search = data.get('is_directory_search', False)
@@ -2332,9 +2573,9 @@ def search_gcd_metadata():
         total_files = data.get('total_files', 1)
         parent_series_name = data.get('parent_series_name')  # For nested volume processing
         volume_year = data.get('volume_year')  # For volume year parsing
-        print(f"DEBUG: file_path={file_path}, file_name={file_name}, is_directory_search={is_directory_search}")
-        print(f"DEBUG: directory_path={directory_path}, directory_name={directory_name}")
-        print(f"DEBUG: parent_series_name={parent_series_name}, volume_year={volume_year}")
+        app_logger.debug(f"DEBUG: file_path={file_path}, file_name={file_name}, is_directory_search={is_directory_search}")
+        app_logger.debug(f"DEBUG: directory_path={directory_path}, directory_name={directory_name}")
+        app_logger.debug(f"DEBUG: parent_series_name={parent_series_name}, volume_year={volume_year}")
 
         if not file_path or not file_name:
             return jsonify({
@@ -2345,11 +2586,11 @@ def search_gcd_metadata():
         # For directory search, prefer directory name parsing, fallback to file name
         if is_directory_search and directory_name:
             name_without_ext = directory_name
-            print(f"DEBUG: Using directory name for parsing: {name_without_ext}")
+            app_logger.debug(f"DEBUG: Using directory name for parsing: {name_without_ext}")
         else:
             # Parse series name and issue from filename
             name_without_ext = file_name.replace('.cbz', '').replace('.cbr', '')
-            print(f"DEBUG: Using file name for parsing: {name_without_ext}")
+            app_logger.debug(f"DEBUG: Using file name for parsing: {name_without_ext}")
 
         # Try to parse series and issue from common formats
         series_name = None
@@ -2364,12 +2605,12 @@ def search_gcd_metadata():
                 # Approach 2: Volume directory getting series name from parent
                 series_name = parent_series_name
                 year = int(volume_directory_match.group(1))
-                print(f"DEBUG: Volume directory detected - using parent series '{series_name}' with year {year}")
+                app_logger.debug(f"DEBUG: Volume directory detected - using parent series '{series_name}' with year {year}")
             elif parent_series_name and volume_year:
                 # Approach 1: Nested volume processing with explicit parent name and year
                 series_name = parent_series_name
                 year = int(volume_year)
-                print(f"DEBUG: Nested volume processing - series='{series_name}', year={year}")
+                app_logger.debug(f"DEBUG: Nested volume processing - series='{series_name}', year={year}")
             else:
                 # Standard directory processing
                 directory_patterns = [
@@ -2383,17 +2624,17 @@ def search_gcd_metadata():
                     if match:
                         series_name = match.group(1).strip()
                         year = int(match.group(2)) if len(match.groups()) >= 2 else None
-                        print(f"DEBUG: Directory parsed - series_name={series_name}, year={year}")
+                        app_logger.debug(f"DEBUG: Directory parsed - series_name={series_name}, year={year}")
                         break
 
                 # If no year pattern matched, just use the whole directory name as series
                 if not series_name:
                     series_name = name_without_ext.strip()
-                    print(f"DEBUG: Directory fallback - series_name={series_name}")
+                    app_logger.debug(f"DEBUG: Directory fallback - series_name={series_name}")
 
             # For directory search, parse issue number from the first file name
             file_name_without_ext = file_name.replace('.cbz', '').replace('.cbr', '')
-            print(f"DEBUG: Parsing issue number from first file: {file_name_without_ext}")
+            app_logger.debug(f"DEBUG: Parsing issue number from first file: {file_name_without_ext}")
 
             # Try multiple patterns to extract issue number from the first file
             issue_patterns = [
@@ -2408,12 +2649,12 @@ def search_gcd_metadata():
                 match = re.search(pattern, file_name_without_ext, re.IGNORECASE)
                 if match:
                     issue_number = int(match.group(1))
-                    print(f"DEBUG: Extracted issue number {issue_number} from filename using pattern: {pattern}")
+                    app_logger.debug(f"DEBUG: Extracted issue number {issue_number} from filename using pattern: {pattern}")
                     break
 
             if issue_number is None:
                 issue_number = 1  # Ultimate fallback
-                print(f"DEBUG: Could not parse issue number from filename, defaulting to 1")
+                app_logger.debug(f"DEBUG: Could not parse issue number from filename, defaulting to 1")
         else:
             # Pattern matching for common comic filename formats
             patterns = [
@@ -2430,17 +2671,17 @@ def search_gcd_metadata():
                     series_name = match.group(1).strip()
                     issue_number = int(match.group(2))
                     year = int(match.group(3)) if len(match.groups()) >= 3 else None
-                    print(f"DEBUG: File parsed - series_name={series_name}, issue_number={issue_number}, year={year}")
+                    app_logger.debug(f"DEBUG: File parsed - series_name={series_name}, issue_number={issue_number}, year={year}")
                     break
 
         if not series_name or (not is_directory_search and issue_number is None):
-            print(f"DEBUG: Failed to parse: {name_without_ext}")
+            app_logger.debug(f"DEBUG: Failed to parse: {name_without_ext}")
             return jsonify({
                 "success": False,
                 "error": f"Could not parse series name from: {name_without_ext}"
             }), 400
 
-        print(f"DEBUG: About to connect to database...")
+        app_logger.debug(f"DEBUG: About to connect to database...")
         # Connect to GCD MySQL database
         try:
             # Get database connection details from environment variables
@@ -2450,18 +2691,20 @@ def search_gcd_metadata():
             gcd_user = os.environ.get('GCD_MYSQL_USER')
             gcd_password = os.environ.get('GCD_MYSQL_PASSWORD')
 
-            print(f"DEBUG: Attempting to connect to MySQL: host={gcd_host}, port={gcd_port}, database={gcd_database}, user={gcd_user}")
-
             connection = mysql.connector.connect(
                 host=gcd_host,
                 port=gcd_port,
                 database=gcd_database,
                 user=gcd_user,
                 password=gcd_password,
-                charset='utf8mb4'
+                charset='utf8mb4',
+                connection_timeout=30,  # 30 second connection timeout
+                autocommit=True
             )
-            print(f"DEBUG: Database connection successful!")
+            app_logger.debug(f"DEBUG: Database connection successful!")
             cursor = connection.cursor(dictionary=True)
+            # Set query timeout to 30 seconds
+            cursor.execute("SET SESSION MAX_EXECUTION_TIME=30000")  # 30000 milliseconds = 30 seconds
 
             # Helper: build safe IN (...) placeholder list + params
             def build_in_clause(ids):
@@ -2471,18 +2714,23 @@ def search_gcd_metadata():
                 return ','.join(['%s'] * len(ids)), ids
 
             # Progressive search strategy for GCD database
-            print(f"DEBUG: Starting progressive search for series: '{series_name}' with year: {year}")
+            app_logger.debug(f"DEBUG: Starting progressive search for series: '{series_name}' with year: {year}")
 
             # Generate search variations
             search_variations = generate_search_variations(series_name, year)
-            print(f"DEBUG: Generated {len(search_variations)} search variations")
+            app_logger.debug(f"DEBUG: Generated {len(search_variations)} search variations")
+            app_logger.debug(f"DEBUG: Checkpoint 1 - About to initialize variables")
 
             series_results = []
             search_success_method = None
+            app_logger.debug(f"DEBUG: Checkpoint 2 - Variables initialized")
 
             # Language filter (fill with your confirmed English IDs)
             english_ids = [25]  # add more if needed (e.g., [25, 34])
+            app_logger.debug(f"DEBUG: Checkpoint 3 - English IDs set")
+            app_logger.debug(f"DEBUG: Building IN clause for language filter with IDs: {english_ids}")
             in_clause, in_params = build_in_clause(english_ids)
+            app_logger.debug(f"DEBUG: IN clause built: {in_clause}, params: {in_params}")
 
             # Base queries for LIKE and REGEXP matching
             like_query = f"""
@@ -2536,8 +2784,9 @@ def search_gcd_metadata():
             """
 
             # Try each search variation progressively
+            app_logger.debug(f"DEBUG: Starting search loop with {len(search_variations)} variations")
             for search_type, search_pattern in search_variations:
-                print(f"DEBUG: Trying {search_type} search with pattern: {search_pattern}")
+                app_logger.debug(f"DEBUG: Trying {search_type} search with pattern: {search_pattern}")
 
                 try:
                     if search_type == "tokenized":
@@ -2553,21 +2802,21 @@ def search_gcd_metadata():
                         cursor.execute(like_query, (search_pattern, *in_params))
 
                     current_results = cursor.fetchall()
-                    print(f"DEBUG: {search_type} search found {len(current_results)} results")
+                    app_logger.debug(f"DEBUG: {search_type} search found {len(current_results)} results")
 
                     if current_results:
                         series_results = current_results
                         search_success_method = search_type
-                        print(f"DEBUG: Success with {search_type} search method!")
+                        app_logger.debug(f"DEBUG: Success with {search_type} search method!")
                         break
 
                 except Exception as e:
-                    print(f"DEBUG: Error in {search_type} search: {str(e)}")
+                    app_logger.debug(f"DEBUG: Error in {search_type} search: {str(e)}")
                     continue
 
             # If we still have no results, collect all partial matches for user selection
             if not series_results:
-                print(f"DEBUG: No matches found with any search method, collecting partial matches...")
+                app_logger.debug(f"DEBUG: No matches found with any search method, collecting partial matches...")
                 alternative_matches = []
 
                 # Try broader word-based search as final fallback
@@ -2576,13 +2825,13 @@ def search_gcd_metadata():
                     if len(word) > 3 and word.lower() not in STOPWORDS:
                         try:
                             alt_search = f"%{word}%"
-                            print(f"DEBUG: Trying fallback word search: {alt_search}")
+                            app_logger.debug(f"DEBUG: Trying fallback word search: {alt_search}")
                             cursor.execute(like_query, (alt_search, *in_params))
                             alt_results = cursor.fetchall()
                             if alt_results:
                                 alternative_matches.extend(alt_results)
                         except Exception as e:
-                            print(f"DEBUG: Error in fallback search for '{word}': {str(e)}")
+                            app_logger.debug(f"DEBUG: Error in fallback search for '{word}': {str(e)}")
 
                 # Remove duplicates and sort
                 seen_ids = set()
@@ -2595,7 +2844,7 @@ def search_gcd_metadata():
                 unique_matches.sort(key=lambda x: x['year_began'] or 0, reverse=True)
 
                 if unique_matches:
-                    print(f"DEBUG: Found {len(unique_matches)} fallback matches")
+                    app_logger.debug(f"DEBUG: Found {len(unique_matches)} fallback matches")
                     response_data = {
                         "success": False,
                         "requires_selection": True,
@@ -2622,16 +2871,16 @@ def search_gcd_metadata():
                 }), 404
 
             # Analyze the search results and decide whether to auto-select or prompt user
-            print(f"DEBUG: Analyzing {len(series_results)} series results for matching...")
-            print(f"DEBUG: Search successful using method: {search_success_method}")
+            app_logger.debug(f"DEBUG: Analyzing {len(series_results)} series results for matching...")
+            app_logger.debug(f"DEBUG: Search successful using method: {search_success_method}")
 
             if len(series_results) == 1:
                 # Only one series found - auto-select it
                 best_series = series_results[0]
-                print(f"DEBUG: Single series match found: {best_series['name']} (ID: {best_series['id']}) using {search_success_method} search")
+                app_logger.debug(f"DEBUG: Single series match found: {best_series['name']} (ID: {best_series['id']}) using {search_success_method} search")
             elif len(series_results) > 1:
                 # Multiple series found - always prompt user to select
-                print(f"DEBUG: Multiple series found, showing options for user selection")
+                app_logger.debug(f"DEBUG: Multiple series found, showing options for user selection")
                 response_data = {
                     "success": False,
                     "requires_selection": True,
@@ -2655,7 +2904,7 @@ def search_gcd_metadata():
                 return jsonify(response_data), 200
             else:
                 # This shouldn't happen since we already checked for no results above
-                print(f"DEBUG: No series results found (unexpected)")
+                app_logger.debug(f"DEBUG: No series results found (unexpected)")
                 return jsonify({
                     "success": False,
                     "error": f"No series found matching '{series_name}' in GCD database"
@@ -2959,57 +3208,75 @@ def search_gcd_metadata():
                 LIMIT 1
             """
 
-            print(f"DEBUG: Searching for issue #{issue_number} in series ID {best_series['id']}...")
+            app_logger.debug(f"DEBUG: Searching for issue #{issue_number} in series ID {best_series['id']}...")
 
             # First, test a simple query to see if the issue exists at all
             simple_test_query = "SELECT id, title, number FROM gcd_issue WHERE series_id = %s AND number = %s LIMIT 1"
             cursor.execute(simple_test_query, (best_series['id'], str(issue_number)))
             simple_result = cursor.fetchone()
-            print(f"DEBUG: Simple issue test: {dict(simple_result) if simple_result else 'No issue found'}")
+            app_logger.debug(f"DEBUG: Simple issue test: {dict(simple_result) if simple_result else 'No issue found'}")
 
             cursor.execute(issue_query, (best_series['id'], str(issue_number)))
             issue_result = cursor.fetchone()
-            print(f"DEBUG: Issue search result: {'Found' if issue_result else 'Not found'}")
+            app_logger.debug(f"DEBUG: Issue search result: {'Found' if issue_result else 'Not found'}")
             if issue_result:
-                print(f"DEBUG: Issue result keys: {list(issue_result.keys())}")
-                print(f"DEBUG: Issue result values: {dict(issue_result)}")
-                print(f"DEBUG: Writer value: '{issue_result.get('Writer')}'")
-                print(f"DEBUG: Summary value: '{issue_result.get('Summary')}'")
-                print(f"DEBUG: Characters value: '{issue_result.get('Characters')}'")
+                #print(f"DEBUG: Issue result keys: {list(issue_result.keys())}")
+                #print(f"DEBUG: Issue result values: {dict(issue_result)}")
+                #print(f"DEBUG: Writer value: '{issue_result.get('Writer')}'")
+                app_logger.debug(f"DEBUG: Summary value: '{issue_result.get('Summary')}'")
+                #print(f"DEBUG: Characters value: '{issue_result.get('Characters')}'")
 
             matches_found = len(series_results)
 
             if issue_result:
-                print(f"DEBUG: Issue found! Title: {issue_result.get('title', 'N/A')}")
+                app_logger.debug(f"DEBUG: Issue found! Title: {issue_result.get('title', 'N/A')}")
+
+                # Check if ComicInfo.xml already exists and has Notes data
+                try:
+                    from comicinfo import read_comicinfo_from_zip
+                    existing_comicinfo = read_comicinfo_from_zip(file_path)
+                    existing_notes = existing_comicinfo.get('Notes', '').strip()
+
+                    if existing_notes:
+                        app_logger.info(f"Skipping ComicInfo.xml generation - file already has Notes data: {existing_notes[:50]}...")
+                        return jsonify({
+                            "success": True,
+                            "skipped": True,
+                            "message": "ComicInfo.xml already exists with Notes data",
+                            "existing_notes": existing_notes
+                        }), 200
+                except Exception as check_error:
+                    app_logger.debug(f"DEBUG: Error checking existing ComicInfo.xml (will proceed with generation): {str(check_error)}")
+
                 # Generate ComicInfo.xml content
-                print(f"DEBUG: Generating ComicInfo.xml...")
+                app_logger.debug(f"DEBUG: Generating ComicInfo.xml...")
                 try:
                     comicinfo_xml = generate_comicinfo_xml(issue_result, best_series)
-                    print(f"DEBUG: ComicInfo.xml generated successfully (length: {len(comicinfo_xml)} chars)")
+                    app_logger.debug(f"DEBUG: ComicInfo.xml generated successfully (length: {len(comicinfo_xml)} chars)")
                 except Exception as xml_error:
-                    print(f"DEBUG: Error generating ComicInfo.xml: {str(xml_error)}")
+                    app_logger.debug(f"DEBUG: Error generating ComicInfo.xml: {str(xml_error)}")
                     import traceback
-                    print(f"DEBUG: XML Error Traceback: {traceback.format_exc()}")
+                    app_logger.debug(f"DEBUG: XML Error Traceback: {traceback.format_exc()}")
                     return jsonify({
                         "success": False,
                         "error": f"Failed to generate metadata: {str(xml_error)}"
                     }), 500
 
                 # Add ComicInfo.xml to the CBZ file
-                print(f"DEBUG: Adding ComicInfo.xml to CBZ file: {file_path}")
+                app_logger.debug(f"DEBUG: Adding ComicInfo.xml to CBZ file: {file_path}")
                 try:
                     add_comicinfo_to_cbz(file_path, comicinfo_xml)
-                    print(f"DEBUG: Successfully added ComicInfo.xml!")
+                    app_logger.debug(f"DEBUG: Successfully added ComicInfo.xml!")
                 except Exception as cbz_error:
-                    print(f"DEBUG: Error adding ComicInfo.xml: {str(cbz_error)}")
+                    app_logger.debug(f"DEBUG: Error adding ComicInfo.xml: {str(cbz_error)}")
                     import traceback
-                    print(f"DEBUG: CBZ Error Traceback: {traceback.format_exc()}")
+                    app_logger.debug(f"DEBUG: CBZ Error Traceback: {traceback.format_exc()}")
                     return jsonify({
                         "success": False,
                         "error": f"Failed to add metadata to CBZ file: {str(cbz_error)}"
                     }), 500
 
-                print(f"DEBUG: Returning success response...")
+                app_logger.debug(f"DEBUG: Returning success response...")
                 response_data = {
                     "success": True,
                     "metadata": {
@@ -3038,8 +3305,8 @@ def search_gcd_metadata():
 
                 return jsonify(response_data)
             else:
-                print(f"DEBUG: Issue #{issue_number} not found for series '{best_series['name']}'")
-                print(f"DEBUG: Returning 404 response...")
+                app_logger.debug(f"DEBUG: Issue #{issue_number} not found for series '{best_series['name']}'")
+                app_logger.debug(f"DEBUG: Returning 404 response...")
                 return jsonify({
                     "success": False,
                     "error": f"Issue #{issue_number} not found for series '{best_series['name']}' in GCD database",
@@ -3049,8 +3316,8 @@ def search_gcd_metadata():
 
         except mysql.connector.Error as db_error:
             import traceback
-            print(f"MySQL Error: {str(db_error)}")
-            print(f"MySQL Error Traceback: {traceback.format_exc()}")
+            app_logger.debug(f"MySQL Error: {str(db_error)}")
+            app_logger.debug(f"MySQL Error Traceback: {traceback.format_exc()}")
             return jsonify({
                 "success": False,
                 "error": f"Database connection error: {str(db_error)}"
@@ -3062,11 +3329,13 @@ def search_gcd_metadata():
 
     except Exception as e:
         import traceback
-        print(f"General Error: {str(e)}")
-        print(f"Full Traceback: {traceback.format_exc()}")
+        error_msg = str(e)
+        error_traceback = traceback.format_exc()
+        app_logger.error(f"ERROR in search_gcd_metadata: {error_msg}")
+        app_logger.debug(f"Full Traceback:\n{error_traceback}")
         return jsonify({
             "success": False,
-            "error": f"Server error: {str(e)}"
+            "error": f"Server error: {error_msg}"
         }), 500
 
 def _as_text(val):
@@ -3197,7 +3466,10 @@ def validate_gcd_issue():
         series_id = data.get('series_id')
         issue_number = data.get('issue_number')
 
+        app_logger.debug(f"DEBUG: validate_gcd_issue called - series_id={series_id}, issue={issue_number}")
+
         if not all([series_id, issue_number]):
+            app_logger.error(f"ERROR: Missing parameters in validate_gcd_issue")
             return jsonify({
                 "success": False,
                 "error": "Missing required parameters"
@@ -3211,23 +3483,28 @@ def validate_gcd_issue():
             gcd_user = os.environ.get('GCD_MYSQL_USER')
             gcd_password = os.environ.get('GCD_MYSQL_PASSWORD')
 
+            app_logger.debug(f"DEBUG: Connecting to database for validation...")
             connection = mysql.connector.connect(
                 host=gcd_host,
                 port=gcd_port,
                 database=gcd_database,
                 user=gcd_user,
                 password=gcd_password,
-                charset='utf8mb4'
+                charset='utf8mb4',
+                connection_timeout=30
             )
             cursor = connection.cursor(dictionary=True)
 
             # Simple query to check if issue exists
             validation_query = "SELECT id, title, number FROM gcd_issue WHERE series_id = %s AND number = %s AND deleted = 0 LIMIT 1"
+            app_logger.debug(f"DEBUG: Executing validation query...")
             cursor.execute(validation_query, (series_id, str(issue_number)))
             issue_result = cursor.fetchone()
 
             cursor.close()
             connection.close()
+
+            app_logger.debug(f"DEBUG: Validation result: {'Found' if issue_result else 'Not found'}")
 
             if issue_result:
                 return jsonify({
@@ -3237,25 +3514,29 @@ def validate_gcd_issue():
                     "issue_title": issue_result['title']
                 })
             else:
+                app_logger.debug(f"DEBUG: Issue #{issue_number} not found in series {series_id}")
                 return jsonify({
                     "success": False,
                     "error": f"Issue #{issue_number} not found in series"
                 })
 
         except mysql.connector.Error as db_error:
-            print(f"DEBUG: Database error in validate_gcd_issue: {db_error}")
+            app_logger.error(f"ERROR: Database error in validate_gcd_issue: {db_error}")
             return jsonify({
                 "success": False,
                 "error": f"Database error: {str(db_error)}"
             }), 500
 
     except ImportError:
+        app_logger.error(f"ERROR: MySQL connector not available in validate_gcd_issue")
         return jsonify({
             "success": False,
             "error": "MySQL connector not available"
         }), 500
     except Exception as e:
-        print(f"DEBUG: Error in validate_gcd_issue: {e}")
+        import traceback
+        app_logger.error(f"ERROR: Exception in validate_gcd_issue: {e}")
+        app_logger.debug(f"Traceback:\n{traceback.format_exc()}")
         return jsonify({
             "success": False,
             "error": f"Validation error: {str(e)}"
@@ -3276,7 +3557,10 @@ def search_gcd_metadata_with_selection():
         series_id = data.get('series_id')
         issue_number = data.get('issue_number')
 
+        app_logger.debug(f"DEBUG: search_gcd_metadata_with_selection called - file={file_name}, series_id={series_id}, issue={issue_number}")
+
         if not all([file_path, file_name, series_id, issue_number]):
+            app_logger.error(f"ERROR: Missing required parameters - file_path={file_path}, file_name={file_name}, series_id={series_id}, issue_number={issue_number}")
             return jsonify({
                 "success": False,
                 "error": "Missing required parameters"
@@ -3546,13 +3830,14 @@ def search_gcd_metadata_with_selection():
                 LIMIT 1
             """
 
+            app_logger.debug(f"DEBUG: Executing issue query for series {series_id}, issue {issue_number}")
             cursor.execute(issue_query, (series_id, str(issue_number)))
             issue_result = cursor.fetchone()
 
-            print(f"DEBUG: Issue search result for series {series_id}, issue {issue_number}: {'Found' if issue_result else 'Not found'}")
+            app_logger.debug(f"DEBUG: Issue search result for series {series_id}, issue {issue_number}: {'Found' if issue_result else 'Not found'}")
             if issue_result:
-                print(f"DEBUG: Issue result keys: {list(issue_result.keys())}")
-                print(f"DEBUG: Issue result values: {dict(issue_result)}")
+                app_logger.debug(f"DEBUG: Issue result keys: {list(issue_result.keys())}")
+                app_logger.debug(f"DEBUG: Issue title: {issue_result.get('Title', 'N/A')}")
 
             if issue_result:
                 # Generate ComicInfo.xml content
@@ -3589,8 +3874,8 @@ def search_gcd_metadata_with_selection():
 
         except mysql.connector.Error as db_error:
             import traceback
-            print(f"MySQL Error: {str(db_error)}")
-            print(f"MySQL Error Traceback: {traceback.format_exc()}")
+            app_logger.error(f"MySQL Error in search_gcd_metadata_with_selection: {str(db_error)}")
+            app_logger.debug(f"MySQL Error Traceback:\n{traceback.format_exc()}")
             return jsonify({
                 "success": False,
                 "error": f"Database connection error: {str(db_error)}"
@@ -3602,8 +3887,8 @@ def search_gcd_metadata_with_selection():
 
     except Exception as e:
         import traceback
-        print(f"General Error: {str(e)}")
-        print(f"Full Traceback: {traceback.format_exc()}")
+        app_logger.error(f"ERROR in search_gcd_metadata_with_selection: {str(e)}")
+        app_logger.debug(f"Full Traceback:\n{traceback.format_exc()}")
         return jsonify({
             "success": False,
             "error": f"Server error: {str(e)}"

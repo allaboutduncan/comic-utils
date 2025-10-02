@@ -1,0 +1,313 @@
+<!-- templates/scrape.html -->
+{% extends 'base.html' %}
+
+{% block title %}Scrape Comics - CLU{% endblock %}
+
+{% block content %}
+<div class="container-lg mt-4">
+    <h2 class="text-primary-emphasis">Comic Scraper</h2>
+    <p class="text-muted">Enter one or more comic URLs to download and convert to CBZ format.</p>
+
+    <div class="row">
+        <div class="col-lg-8">
+            <div class="card shadow-sm">
+                <div class="card-body">
+                    <h5 class="card-title">Enter URLs</h5>
+                    <p class="card-text small">Supported sites: readcomiconline.li</p>
+
+                    <form id="scrapeForm">
+                        <div class="mb-3">
+                            <label for="urlTextarea" class="form-label">Comic URLs (one per line)</label>
+                            <textarea class="form-control" id="urlTextarea" name="urls" rows="8"
+                                placeholder="https://readcomiconline.li/Comic/Batman-2016&#10;https://readcomiconline.li/Comic/Superman-2018"></textarea>
+                            <div class="form-text">Enter series URLs or individual issue URLs</div>
+                        </div>
+
+                        <div class="mb-3">
+                            <label for="outputDir" class="form-label">Watch Directory</label>
+                            <input type="text" class="form-control" id="outputDir" name="output_dir" value="{{ target_dir }}" placeholder="/downloads/temp" readonly>
+                            <div class="form-text">Downloaded CBZ files will be saved here and processed by the file monitor</div>
+                        </div>
+
+                        <div class="d-grid gap-2">
+                            <button type="submit" class="btn btn-primary" id="startScrapeBtn">
+                                <i class="bi bi-download"></i> Start Scraping
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-lg-4">
+            <div class="card shadow-sm">
+                <div class="card-body">
+                    <h5 class="card-title">How to Use</h5>
+                    <ol class="small">
+                        <li>Copy the URL of a comic series from readcomiconline.li</li>
+                        <li>Paste it into the text area (one URL per line)</li>
+                        <li>Click "Start Scraping"</li>
+                        <li>Monitor progress in the log below</li>
+                        <li>CBZ files will be saved to the output directory</li>
+                    </ol>
+                    <hr>
+                    <h6>Example URLs:</h6>
+                    <p class="small mb-1"><code>https://readcomiconline.li/Comic/Batman-2016</code></p>
+                    <p class="small mb-0"><code>https://readcomiconline.li/Comic/Superman-2018/Issue-1</code></p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Progress indicator -->
+    <div class="row mt-4" id="scrape-progress-container" style="display: none;">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h5 class="card-title mb-0">Scraping Progress</h5>
+                    <button type="button" class="btn-close" onclick="hideScrapeProgress()" aria-label="Close"></button>
+                </div>
+                <div class="card-body">
+                    <div class="mb-2">
+                        <strong>Status:</strong> <span id="scrape-status">Initializing...</span>
+                    </div>
+                    <div class="mb-2">
+                        <strong>Current:</strong> <span id="scrape-current">-</span>
+                    </div>
+                    <div class="progress" style="height: 25px;">
+                        <div id="scrape-progress-bar" class="progress-bar progress-bar-striped progress-bar-animated"
+                             role="progressbar" style="width: 0%" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100">
+                            0%
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Logs container -->
+    <div class="row mt-4">
+        <div class="col-12">
+            <div id="scrape-alerts"></div>
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="card-title mb-0">Scrape Log</h5>
+                </div>
+                <div id="scrape-logs" class="card-body bg-dark text-light" style="max-height: 500px; overflow-y: auto; font-family: monospace; font-size: 0.9rem; white-space: pre-wrap;"></div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+{{ super() }}
+<script>
+let currentScrapeEventSource = null;
+
+// Check for active tasks on page load and reconnect
+document.addEventListener('DOMContentLoaded', function() {
+    {% if active_tasks %}
+    {% for task in active_tasks %}
+    // Reconnect to active task
+    reconnectToTask('{{ task.task_id }}');
+    {% endfor %}
+    {% endif %}
+});
+
+function reconnectToTask(taskId) {
+    const scrapeBtn = document.getElementById('startScrapeBtn');
+    const logsContainer = document.getElementById('scrape-logs');
+    const progressContainer = document.getElementById('scrape-progress-container');
+
+    // Show progress container
+    progressContainer.style.display = 'block';
+    document.getElementById('scrape-status').textContent = 'Reconnecting to active task...';
+    document.getElementById('scrape-current').textContent = '-';
+
+    // Disable the start button
+    scrapeBtn.disabled = true;
+
+    // Add reconnection message to logs
+    logsContainer.innerHTML = '=== Reconnected to active scraping task ===\n';
+
+    // Close any existing connection
+    if (currentScrapeEventSource) {
+        currentScrapeEventSource.close();
+    }
+
+    // Connect to the stream
+    const eventSource = new EventSource(`/scrape-stream/${taskId}`);
+    currentScrapeEventSource = eventSource;
+
+    eventSource.onmessage = function(event) {
+        const line = event.data;
+        if (line) {
+            appendLog(line);
+        }
+    };
+
+    eventSource.addEventListener('progress', function(event) {
+        const data = JSON.parse(event.data);
+        updateProgress(data);
+    });
+
+    eventSource.addEventListener('completed', function(event) {
+        appendLog('\n=== Scraping completed ===');
+        document.getElementById('scrape-status').textContent = 'Completed';
+        document.getElementById('scrape-progress-bar').style.width = '100%';
+        document.getElementById('scrape-progress-bar').textContent = '100%';
+        eventSource.close();
+        scrapeBtn.disabled = false;
+        showScrapeAlert('Scraping completed successfully!', 'success');
+    });
+
+    eventSource.addEventListener('error', function(event) {
+        appendLog('\n=== Error occurred or connection lost ===');
+        eventSource.close();
+        scrapeBtn.disabled = false;
+        showScrapeAlert('Connection to scraping task lost', 'warning');
+    });
+}
+
+document.getElementById('scrapeForm').addEventListener('submit', function(e) {
+    e.preventDefault();
+
+    const urls = document.getElementById('urlTextarea').value.trim();
+    const outputDir = document.getElementById('outputDir').value.trim();
+
+    if (!urls) {
+        showScrapeAlert('Please enter at least one URL', 'warning');
+        return;
+    }
+
+    startScraping(urls, outputDir);
+});
+
+function startScraping(urls, outputDir) {
+    const scrapeBtn = document.getElementById('startScrapeBtn');
+    const logsContainer = document.getElementById('scrape-logs');
+    const progressContainer = document.getElementById('scrape-progress-container');
+
+    // Disable button and clear logs
+    scrapeBtn.disabled = true;
+    logsContainer.innerHTML = '';
+
+    // Show progress container
+    progressContainer.style.display = 'block';
+    document.getElementById('scrape-status').textContent = 'Starting...';
+    document.getElementById('scrape-current').textContent = '-';
+    document.getElementById('scrape-progress-bar').style.width = '0%';
+    document.getElementById('scrape-progress-bar').textContent = '0%';
+
+    // Close any existing connection
+    if (currentScrapeEventSource) {
+        currentScrapeEventSource.close();
+    }
+
+    // Send URLs to backend
+    const urlList = urls.split('\n').filter(u => u.trim() && !u.trim().startsWith('#'));
+
+    fetch('/scrape-readcomiconline', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            urls: urlList,
+            output_dir: outputDir
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            // Start listening to the SSE stream
+            const taskId = data.task_id;
+            const eventSource = new EventSource(`/scrape-stream/${taskId}`);
+            currentScrapeEventSource = eventSource;
+
+            eventSource.onmessage = function(event) {
+                const line = event.data;
+                if (line) {
+                    appendLog(line);
+                }
+            };
+
+            eventSource.addEventListener('progress', function(event) {
+                const data = JSON.parse(event.data);
+                updateProgress(data);
+            });
+
+            eventSource.addEventListener('completed', function(event) {
+                appendLog('\n=== Scraping completed ===');
+                document.getElementById('scrape-status').textContent = 'Completed';
+                document.getElementById('scrape-progress-bar').style.width = '100%';
+                document.getElementById('scrape-progress-bar').textContent = '100%';
+                eventSource.close();
+                scrapeBtn.disabled = false;
+                showScrapeAlert('Scraping completed successfully!', 'success');
+            });
+
+            eventSource.addEventListener('error', function(event) {
+                appendLog('\n=== Error occurred ===');
+                eventSource.close();
+                scrapeBtn.disabled = false;
+                showScrapeAlert('An error occurred during scraping', 'danger');
+            });
+
+        } else {
+            scrapeBtn.disabled = false;
+            showScrapeAlert(data.error || 'Failed to start scraping', 'danger');
+        }
+    })
+    .catch(error => {
+        scrapeBtn.disabled = false;
+        showScrapeAlert('Failed to start scraping: ' + error.message, 'danger');
+    });
+}
+
+function appendLog(text) {
+    const logsContainer = document.getElementById('scrape-logs');
+    logsContainer.textContent += text + '\n';
+    logsContainer.scrollTop = logsContainer.scrollHeight;
+}
+
+function updateProgress(data) {
+    if (data.status) {
+        document.getElementById('scrape-status').textContent = data.status;
+    }
+    if (data.current) {
+        document.getElementById('scrape-current').textContent = data.current;
+    }
+    if (data.progress !== undefined) {
+        const percent = Math.round(data.progress);
+        document.getElementById('scrape-progress-bar').style.width = percent + '%';
+        document.getElementById('scrape-progress-bar').textContent = percent + '%';
+        document.getElementById('scrape-progress-bar').setAttribute('aria-valuenow', percent);
+    }
+}
+
+function hideScrapeProgress() {
+    document.getElementById('scrape-progress-container').style.display = 'none';
+}
+
+function showScrapeAlert(message, type) {
+    const alertsContainer = document.getElementById('scrape-alerts');
+    const alertHtml = `
+        <div class="alert alert-${type} alert-dismissible fade show" role="alert">
+            ${message}
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+        </div>
+    `;
+    alertsContainer.innerHTML = alertHtml;
+
+    setTimeout(() => {
+        const alert = alertsContainer.querySelector('.alert');
+        if (alert) {
+            alert.classList.remove('show');
+            setTimeout(() => alert.remove(), 150);
+        }
+    }, 5000);
+}
+</script>
+{% endblock %}

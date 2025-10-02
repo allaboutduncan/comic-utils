@@ -11,6 +11,7 @@ from rename import rename_file, clean_directory_name
 from single_file import convert_to_cbz
 from config import config, load_config
 from helpers import is_hidden
+from app_logging import MONITOR_LOG
 
 load_config()
 
@@ -26,18 +27,14 @@ auto_unpack = config.getboolean("SETTINGS", "AUTO_UNPACK", fallback=False)
 auto_cleanup = config.getboolean("SETTINGS", "AUTO_CLEANUP_ORPHAN_FILES", fallback=True)
 cleanup_interval_hours = config.getint("SETTINGS", "CLEANUP_INTERVAL_HOURS", fallback=1)
 
-# Logging setup
-MONITOR_LOG = "logs/monitor.log"
-os.makedirs(os.path.dirname(MONITOR_LOG), exist_ok=True)
-if not os.path.exists(MONITOR_LOG):
-    with open(MONITOR_LOG, "w") as f:
-        f.write("")  # Create an empty file
-
+# Logging setup - MONITOR_LOG imported from app_logging
 monitor_logger = logging.getLogger("monitor_logger")
 monitor_logger.setLevel(logging.INFO)
-monitor_handler = logging.FileHandler(MONITOR_LOG)
-monitor_handler.setFormatter(logging.Formatter("%(asctime)s - %(levelname)s - %(message)s"))
-monitor_logger.addHandler(monitor_handler)
+# Only add handler if not already added (prevents duplicate handlers)
+if not monitor_logger.handlers:
+    monitor_handler = logging.FileHandler(MONITOR_LOG)
+    monitor_handler.setFormatter(logging.Formatter("%(asctime)s - %(levelname)s - %(message)s"))
+    monitor_logger.addHandler(monitor_handler)
 
 monitor_logger.info("Monitor script started!")
 monitor_logger.info(f"1. Monitoring: {directory}")
