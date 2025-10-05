@@ -50,13 +50,24 @@ def get_issue_links(series_url: str, log_callback=None) -> list[str]:
     return sorted(set(links))
 
 def create_cbz(folder: str, log_callback=None):
-    """Create CBZ file from folder"""
+    """Create CBZ file from folder with unique naming to prevent overwrites"""
     def log(msg):
         if log_callback:
             log_callback(msg)
         app_logger.info(msg)
 
+    # Generate base CBZ path
     cbz = f"{folder}.cbz"
+
+    # Check if file already exists and add counter if needed
+    if os.path.exists(cbz):
+        base_path = folder
+        counter = 1
+        while os.path.exists(cbz):
+            cbz = f"{base_path}_({counter}).cbz"
+            counter += 1
+        log(f"File already exists, using unique name: {os.path.basename(cbz)}")
+
     with zipfile.ZipFile(cbz, "w", zipfile.ZIP_DEFLATED) as z:
         for fname in sorted(os.listdir(folder)):
             z.write(os.path.join(folder, fname), arcname=fname)
@@ -90,6 +101,23 @@ def download_image_via_requests(url, output_path, referer, log_callback=None):
         log(f"    Request failed: {str(e)[:60]}")
         return False
 
+def cleanup_empty_folder(folder_path, log_callback=None):
+    """Remove folder if it exists and is empty or only contains temp files"""
+    def log(msg):
+        if log_callback:
+            log_callback(msg)
+        app_logger.info(msg)
+
+    try:
+        if os.path.exists(folder_path) and os.path.isdir(folder_path):
+            # Check if folder is empty or only contains hidden/temp files
+            files = [f for f in os.listdir(folder_path) if not f.startswith('.')]
+            if len(files) == 0:
+                shutil.rmtree(folder_path, ignore_errors=True)
+                log(f"  -> Cleaned up empty folder: {os.path.basename(folder_path)}")
+    except Exception as e:
+        app_logger.warning(f"Could not cleanup folder {folder_path}: {e}")
+
 def scrape_issue_with_browser(pw, issue_url: str, output_dir: str = None, log_callback=None, progress_callback=None):
     """Scrape a single issue using Playwright browser"""
     def log(msg):
@@ -116,6 +144,7 @@ def scrape_issue_with_browser(pw, issue_url: str, output_dir: str = None, log_ca
 
     img_urls = []
     title_text = "comic"
+    folder = None  # Track folder for cleanup
 
     try:
         log(f"  -> Opening {base_url}")
@@ -215,11 +244,24 @@ def scrape_issue_with_browser(pw, issue_url: str, output_dir: str = None, log_ca
             browser.close()
         except Exception:
             pass
+        # Clean up folder if it was created
+        if folder:
+            cleanup_empty_folder(folder, log_callback)
         return None
 
+    # Create folder path after we have images to download
     folder = safe_title(title_text)
     if output_dir:
         folder = os.path.join(output_dir, folder)
+
+    # Ensure unique folder name to prevent conflicts
+    if os.path.exists(folder):
+        base_folder = folder
+        counter = 1
+        while os.path.exists(folder):
+            folder = f"{base_folder}_({counter})"
+            counter += 1
+        log(f"  -> Folder exists, using unique name: {os.path.basename(folder)}")
 
     log(f"  -> Collected {len(img_urls)} images. Title: {os.path.basename(folder)}")
     update_progress({"status": "Downloading images", "current": os.path.basename(folder)})
@@ -252,13 +294,46 @@ def scrape_issue_with_browser(pw, issue_url: str, output_dir: str = None, log_ca
     except Exception:
         pass
 
+    # Check if folder has any files before creating CBZ
+    if not os.path.exists(folder) or not os.listdir(folder):
+        log("  !! No files downloaded successfully")
+        cleanup_empty_folder(folder, log_callback)
+        return None
+
     update_progress({"status": "Creating CBZ", "current": os.path.basename(folder), "progress": 95})
     cbz_path = create_cbz(folder, log_callback)
     update_progress({"status": "Completed", "current": os.path.basename(cbz_path), "progress": 100})
     return cbz_path
 
+def is_issue_url(url: str) -> bool:
+    """Check if URL is a direct issue link (not a series page)"""
+    # Issue URLs have patterns like:
+    # - /Comic/Series-Name/Issue-1
+    # - /Comic/Series-Name/Full
+    # - /Comic/Series-Name/The-Complete-Collection-Part-1?id=12345
+    # Series URLs are just:
+    # - /Comic/Series-Name
+
+    # Parse the URL path
+    from urllib.parse import urlparse
+    path = urlparse(url).path
+
+    # Split path into parts and filter out empty strings
+    parts = [p for p in path.split('/') if p]
+
+    # If we have more than 2 parts after 'Comic', it's likely an issue
+    # e.g., ['Comic', 'Series-Name', 'Issue-1'] = 3 parts
+    if len(parts) >= 3 and parts[0] == 'Comic':
+        return True
+
+    # Also check for query parameters with 'id=' which indicates a specific issue
+    if '?id=' in url:
+        return True
+
+    return False
+
 def scrape_series(series_url: str, output_dir: str = None, log_callback=None, progress_callback=None):
-    """Scrape all issues from a series"""
+    """Scrape all issues from a series or a single issue"""
     def log(msg):
         if log_callback:
             log_callback(msg)
@@ -269,13 +344,14 @@ def scrape_series(series_url: str, output_dir: str = None, log_callback=None, pr
             progress_callback(data)
 
     # Check if URL is a single issue or series
-    if "/Issue-" in series_url or "/Full" in series_url:
+    if is_issue_url(series_url):
         # Single issue or full comic
-        log(f"Scraping single issue: {series_url}")
+        log(f"Detected direct issue link: {series_url}")
         with sync_playwright() as pw:
             return [scrape_issue_with_browser(pw, series_url, output_dir, log_callback, progress_callback)]
     else:
         # Series - get all issues
+        log(f"Detected series link, fetching all issues...")
         issues = get_issue_links(series_url, log_callback)
         if not issues:
             log("No issues found")

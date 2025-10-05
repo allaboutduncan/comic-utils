@@ -3354,6 +3354,13 @@ function cleanupOrphanFiles() {
       document.getElementById('volumeCurrentDir').textContent = cancelled
         ? `Cancelled after ${processedCount} volumes`
         : `Complete! Processed ${processedCount} volumes (${successCount} success, ${errorCount} errors)`;
+
+      // Auto-close modal after 2 seconds if not cancelled
+      if (!cancelled) {
+        setTimeout(() => {
+          volumeModal.hide();
+        }, 2000);
+      }
     }
 
     // Function to process a single volume directory
@@ -3640,6 +3647,13 @@ function cleanupOrphanFiles() {
             document.getElementById('bulkCurrentFile').textContent = cancelled
               ? `Cancelled after ${processedCount} files`
               : `Complete! Processed ${processedCount} files (${successCount} success, ${errorCount} errors)`;
+
+            // Auto-close modal after 2 seconds if not cancelled
+            if (!cancelled) {
+              setTimeout(() => {
+                bulkModal.hide();
+              }, 2000);
+            }
           }
           return;
         }
@@ -3841,6 +3855,11 @@ function cleanupOrphanFiles() {
             <strong>Total: ${totalSuccessCount} success, ${Math.max(0, totalErrorCount)} still unmatched</strong>
           </div>
         `;
+
+        // Auto-close modal after 2 seconds
+        setTimeout(() => {
+          bulkModal.hide();
+        }, 2000);
       }
 
       // Start processing

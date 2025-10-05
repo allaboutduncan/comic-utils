@@ -1806,6 +1806,7 @@ import uuid
 import threading
 from queue import Queue
 from scrape_readcomiconline import scrape_series
+from scrape_ehentai import scrape_urls as scrape_ehentai_urls
 
 # Store active scrape tasks
 # Each task has: log_queue, progress_queue, status, buffered_logs
@@ -1814,7 +1815,8 @@ scrape_tasks = {}
 @app.route("/scrape")
 def scrape_page():
     """Render the scrape page"""
-    watch_dir = config.get("SETTINGS", "WATCH_DIR", fallback="/downloads/temp")
+    # Use TARGET_DIR directly to avoid file monitor processing
+    target_dir = config.get("SETTINGS", "TARGET", fallback="/processed")
     # Get active tasks for status display
     active_tasks = []
     for task_id, task_info in scrape_tasks.items():
@@ -1823,7 +1825,7 @@ def scrape_page():
                 "task_id": task_id,
                 "status": task_info["status"]
             })
-    return render_template("scrape.html", target_dir=watch_dir, active_tasks=active_tasks)
+    return render_template("scrape.html", target_dir=target_dir, active_tasks=active_tasks)
 
 @app.route("/scrape-readcomiconline", methods=["POST"])
 def scrape_readcomiconline():
@@ -1831,7 +1833,8 @@ def scrape_readcomiconline():
     try:
         data = request.json
         urls = data.get("urls", [])
-        output_dir = data.get("output_dir", config.get("SETTINGS", "WATCH_DIR", fallback="/downloads/temp"))
+        # Use TARGET_DIR directly to avoid file monitor processing and overwrites
+        output_dir = data.get("output_dir", config.get("SETTINGS", "TARGET", fallback="/processed"))
 
         if not urls:
             return jsonify({"success": False, "error": "No URLs provided"}), 400
@@ -1884,6 +1887,64 @@ def scrape_readcomiconline():
 
     except Exception as e:
         app_logger.error(f"Error starting scrape: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+@app.route("/scrape-ehentai", methods=["POST"])
+def scrape_ehentai():
+    """Start scraping E-Hentai URLs"""
+    try:
+        data = request.json
+        urls = data.get("urls", [])
+        # Use TARGET_DIR directly to avoid file monitor processing and overwrites
+        output_dir = data.get("output_dir", config.get("SETTINGS", "TARGET", fallback="/processed"))
+
+        if not urls:
+            return jsonify({"success": False, "error": "No URLs provided"}), 400
+
+        # Create a unique task ID
+        task_id = str(uuid.uuid4())
+
+        # Create a queue for logs and progress
+        log_queue = Queue()
+        progress_queue = Queue()
+
+        # Store task info with buffered logs for reconnection
+        scrape_tasks[task_id] = {
+            "log_queue": log_queue,
+            "progress_queue": progress_queue,
+            "status": "running",
+            "buffered_logs": [],
+            "last_progress": {}
+        }
+
+        # Start scraping in a background thread
+        def scrape_worker():
+            def log_callback(msg):
+                log_queue.put(msg)
+
+            def progress_callback(data):
+                progress_queue.put(data)
+
+            try:
+                # Scrape all URLs
+                scrape_ehentai_urls(urls, output_dir, log_callback, progress_callback)
+
+                log_queue.put("\n=== All URLs processed ===")
+                scrape_tasks[task_id]["status"] = "completed"
+                log_queue.put("__COMPLETED__")  # Signal completion
+
+            except Exception as e:
+                log_queue.put(f"\n=== Error: {str(e)} ===")
+                scrape_tasks[task_id]["status"] = "error"
+                log_queue.put("__ERROR__")  # Signal error
+
+        thread = threading.Thread(target=scrape_worker, daemon=True)
+        thread.start()
+
+        return jsonify({"success": True, "task_id": task_id}), 200
+
+    except Exception as e:
+        app_logger.error(f"Error starting E-Hentai scrape: {e}")
         return jsonify({"success": False, "error": str(e)}), 500
 
 @app.route("/scrape-stream/<task_id>")

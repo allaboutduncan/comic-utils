@@ -13,7 +13,7 @@
             <div class="card shadow-sm">
                 <div class="card-body">
                     <h5 class="card-title">Enter URLs</h5>
-                    <p class="card-text small">Supported sites: readcomiconline.li</p>
+                    <p class="card-text small">Supported sites: readcomiconline.li, e-hentai.org, exhentai.org</p>
 
                     <form id="scrapeForm">
                         <div class="mb-3">
@@ -24,9 +24,9 @@
                         </div>
 
                         <div class="mb-3">
-                            <label for="outputDir" class="form-label">Watch Directory</label>
-                            <input type="text" class="form-control" id="outputDir" name="output_dir" value="{{ target_dir }}" placeholder="/downloads/temp" readonly>
-                            <div class="form-text">Downloaded CBZ files will be saved here and processed by the file monitor</div>
+                            <label for="outputDir" class="form-label">Output Directory</label>
+                            <input type="text" class="form-control" id="outputDir" name="output_dir" value="{{ target_dir }}" placeholder="/processed" readonly>
+                            <div class="form-text">Downloaded CBZ files will be saved directly here (bypasses file monitor to prevent overwrites)</div>
                         </div>
 
                         <div class="d-grid gap-2">
@@ -44,7 +44,7 @@
                 <div class="card-body">
                     <h5 class="card-title">How to Use</h5>
                     <ol class="small">
-                        <li>Copy the URL of a comic series from readcomiconline.li</li>
+                        <li>Copy the URL of a comic from a supported site</li>
                         <li>Paste it into the text area (one URL per line)</li>
                         <li>Click "Start Scraping"</li>
                         <li>Monitor progress in the log below</li>
@@ -52,8 +52,11 @@
                     </ol>
                     <hr>
                     <h6>Example URLs:</h6>
+                    <p class="small mb-1"><strong>ReadComicOnline:</strong></p>
                     <p class="small mb-1"><code>https://readcomiconline.li/Comic/Batman-2016</code></p>
-                    <p class="small mb-0"><code>https://readcomiconline.li/Comic/Superman-2018/Issue-1</code></p>
+                    <p class="small mb-2"><code>https://readcomiconline.li/Comic/Superman-2018/Issue-1</code></p>
+                    <p class="small mb-1"><strong>E-Hentai:</strong></p>
+                    <p class="small mb-0"><code>https://e-hentai.org/g/[gallery-id]/[gallery-token]/</code></p>
                 </div>
             </div>
         </div>
@@ -184,6 +187,16 @@ document.getElementById('scrapeForm').addEventListener('submit', function(e) {
     startScraping(urls, outputDir);
 });
 
+function detectSiteType(url) {
+    // Detect which site the URL is from
+    if (url.includes('readcomiconline.li')) {
+        return 'readcomiconline';
+    } else if (url.includes('e-hentai.org') || url.includes('exhentai.org')) {
+        return 'ehentai';
+    }
+    return 'unknown';
+}
+
 function startScraping(urls, outputDir) {
     const scrapeBtn = document.getElementById('startScrapeBtn');
     const logsContainer = document.getElementById('scrape-logs');
@@ -205,10 +218,50 @@ function startScraping(urls, outputDir) {
         currentScrapeEventSource.close();
     }
 
-    // Send URLs to backend
+    // Parse and categorize URLs by site
     const urlList = urls.split('\n').filter(u => u.trim() && !u.trim().startsWith('#'));
 
-    fetch('/scrape-readcomiconline', {
+    if (urlList.length === 0) {
+        showScrapeAlert('No valid URLs provided', 'warning');
+        scrapeBtn.disabled = false;
+        return;
+    }
+
+    // Group URLs by site type
+    const urlsBySite = {
+        readcomiconline: [],
+        ehentai: [],
+        unknown: []
+    };
+
+    urlList.forEach(url => {
+        const siteType = detectSiteType(url);
+        urlsBySite[siteType].push(url);
+    });
+
+    // Check for mixed sites
+    const sitesWithUrls = Object.keys(urlsBySite).filter(site => urlsBySite[site].length > 0);
+
+    if (sitesWithUrls.length > 1) {
+        showScrapeAlert('Cannot mix URLs from different sites. Please submit URLs from one site at a time.', 'warning');
+        scrapeBtn.disabled = false;
+        return;
+    }
+
+    if (urlsBySite.unknown.length > 0) {
+        showScrapeAlert('Unknown or unsupported site URL(s) detected', 'warning');
+        scrapeBtn.disabled = false;
+        return;
+    }
+
+    // Determine which endpoint to use
+    let endpoint = '/scrape-readcomiconline';
+    if (urlsBySite.ehentai.length > 0) {
+        endpoint = '/scrape-ehentai';
+    }
+
+    // Send URLs to backend
+    fetch(endpoint, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json'
