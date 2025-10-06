@@ -171,6 +171,16 @@
           <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
         </div>
         <div class="modal-body">
+          <!-- Navigation buttons row -->
+          <div id="cbzNavButtons" class="d-flex justify-content-between mb-3" style="display: none !important;">
+            <button type="button" id="cbzPrevBtn" class="btn btn-outline-primary" style="visibility: hidden;">
+              <i class="bi bi-arrow-left"></i> Prev
+            </button>
+            <button type="button" id="cbzNextBtn" class="btn btn-outline-primary" style="visibility: hidden;">
+              Next <i class="bi bi-arrow-right"></i>
+            </button>
+          </div>
+
           <div id="cbzInfoContent">
             <div class="text-center">
               <div class="spinner-border" role="status">

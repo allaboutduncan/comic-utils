@@ -13,6 +13,10 @@ let currentSeriesData = [];
 let currentFilePath = '';
 let currentFileName = '';
 let currentIssueNumber = '';
+// Global variables for CBZ info modal navigation
+let cbzCurrentDirectory = '';
+let cbzCurrentFileList = [];
+let cbzCurrentIndex = -1;
 
 // Store raw data for each panel.
 let sourceDirectoriesData = null;
@@ -277,7 +281,18 @@ function checkGCDAvailability() {
         infoBtn.setAttribute("type", "button");
         infoBtn.onclick = function(e) {
           e.stopPropagation();
-          showCBZInfo(fullPath, fileData.name);
+          // Get the current directory's CBZ file list
+          const directoryPath = fullPath.substring(0, fullPath.lastIndexOf('/'));
+          const cbzFiles = (panel === 'source' ? sourceDirectoriesData : destinationDirectoriesData)
+            .files
+            .filter(f => {
+              const fileName = typeof f === 'object' ? f.name : f;
+              return fileName.toLowerCase().endsWith('.cbz') || fileName.toLowerCase().endsWith('.cbr');
+            })
+            .map(f => typeof f === 'object' ? f.name : f)
+            .sort();
+
+          showCBZInfo(fullPath, fileData.name, directoryPath, cbzFiles);
         };
         iconContainer.appendChild(infoBtn);
         console.log('Info button added');
@@ -1685,10 +1700,24 @@ function openCreateFolderModal() {
     }
 
     // Function to show detailed CBZ information
-function showCBZInfo(filePath, fileName) {
-      const modal = new bootstrap.Modal(document.getElementById('cbzInfoModal'));
+function showCBZInfo(filePath, fileName, directoryPath, fileList) {
+      const modalElement = document.getElementById('cbzInfoModal');
       const content = document.getElementById('cbzInfoContent');
-      
+
+      // Store directory context for navigation
+      if (directoryPath && fileList && fileList.length > 0) {
+        cbzCurrentDirectory = directoryPath;
+        cbzCurrentFileList = fileList;
+        cbzCurrentIndex = fileList.indexOf(fileName);
+      } else {
+        cbzCurrentDirectory = '';
+        cbzCurrentFileList = [];
+        cbzCurrentIndex = -1;
+      }
+
+      // Update navigation buttons visibility
+      updateCBZNavButtons();
+
       // Reset content
       content.innerHTML = `
         <div class="text-center">
@@ -1698,8 +1727,17 @@ function showCBZInfo(filePath, fileName) {
           <p class="mt-2">Loading CBZ information...</p>
         </div>
       `;
-      
-      modal.show();
+
+      // Get or create modal instance (reuse existing instance if already shown)
+      let modal = bootstrap.Modal.getInstance(modalElement);
+      if (!modal) {
+        modal = new bootstrap.Modal(modalElement);
+      }
+
+      // Only show if not already visible
+      if (!modalElement.classList.contains('show')) {
+        modal.show();
+      }
       
       // Load metadata
       fetch(`/cbz-metadata?path=${encodeURIComponent(filePath)}`)
@@ -1920,6 +1958,69 @@ function showCBZInfo(filePath, fileName) {
           `;
         });
     }
+
+    // Function to update CBZ navigation button visibility
+    function updateCBZNavButtons() {
+      const navButtons = document.getElementById('cbzNavButtons');
+      const prevBtn = document.getElementById('cbzPrevBtn');
+      const nextBtn = document.getElementById('cbzNextBtn');
+
+      if (cbzCurrentFileList.length <= 1) {
+        // Hide nav buttons if only one file or no file list
+        navButtons.style.display = 'none';
+        return;
+      }
+
+      // Show nav buttons container
+      navButtons.style.display = 'flex';
+
+      // Show/hide prev button based on current index
+      if (cbzCurrentIndex > 0) {
+        prevBtn.style.visibility = 'visible';
+      } else {
+        prevBtn.style.visibility = 'hidden';
+      }
+
+      // Show/hide next button based on current index
+      if (cbzCurrentIndex < cbzCurrentFileList.length - 1) {
+        nextBtn.style.visibility = 'visible';
+      } else {
+        nextBtn.style.visibility = 'hidden';
+      }
+    }
+
+    // Function to navigate to previous CBZ file
+    function navigateCBZPrev() {
+      if (cbzCurrentIndex > 0) {
+        cbzCurrentIndex--;
+        const prevFileName = cbzCurrentFileList[cbzCurrentIndex];
+        const prevFilePath = cbzCurrentDirectory + '/' + prevFileName;
+        showCBZInfo(prevFilePath, prevFileName, cbzCurrentDirectory, cbzCurrentFileList);
+      }
+    }
+
+    // Function to navigate to next CBZ file
+    function navigateCBZNext() {
+      if (cbzCurrentIndex < cbzCurrentFileList.length - 1) {
+        cbzCurrentIndex++;
+        const nextFileName = cbzCurrentFileList[cbzCurrentIndex];
+        const nextFilePath = cbzCurrentDirectory + '/' + nextFileName;
+        showCBZInfo(nextFilePath, nextFileName, cbzCurrentDirectory, cbzCurrentFileList);
+      }
+    }
+
+    // Add event listeners for CBZ navigation buttons
+    document.addEventListener('DOMContentLoaded', () => {
+      const prevBtn = document.getElementById('cbzPrevBtn');
+      const nextBtn = document.getElementById('cbzNextBtn');
+
+      if (prevBtn) {
+        prevBtn.addEventListener('click', navigateCBZPrev);
+      }
+      if (nextBtn) {
+        nextBtn.addEventListener('click', navigateCBZNext);
+      }
+    });
 
     // Delete confirmation handler.
     document.getElementById("confirmDeleteBtn").addEventListener("click", function() {
