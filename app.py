@@ -3044,308 +3044,233 @@ def search_gcd_metadata():
                     "error": f"No series found matching '{series_name}' in GCD database"
                 }), 404
 
-            # Search for the specific issue using comprehensive query
-            issue_query = """
+            # OPTIMIZED: Split into 3 smaller queries for better performance
+            app_logger.debug(f"DEBUG: Searching for issue #{issue_number} in series ID {best_series['id']}...")
+
+            # Query 1: Basic issue information (fast, no subqueries)
+            basic_issue_query = """
                 SELECT
-                  i.id,
-                    COALESCE(
-                    NULLIF(TRIM(i.title), ''),
-                    (
-                        SELECT NULLIF(TRIM(s.title), '')
-                        FROM gcd_story s
-                        LEFT JOIN gcd_story_type st ON st.id = s.type_id
-                        WHERE s.issue_id = i.id
-                        AND NULLIF(TRIM(s.title), '') IS NOT NULL
-                        ORDER BY
-                        CASE WHEN s.sequence_number = 0 THEN 1 ELSE 0 END,
-                        CASE
-                            WHEN LOWER(st.name) IN ('comic story','story') THEN 0
-                            WHEN LOWER(st.name) IN ('text story','text')   THEN 1
-                            WHEN LOWER(st.name) LIKE '%preview%'           THEN 5
-                            WHEN LOWER(st.name) IN (
-                            'letters','editorial','interview','article','feature',
-                            'promo','advertisement','ad','back cover','inside back cover',
-                            'inside front cover','foreword','afterword'
-                            ) THEN 6
-                            ELSE 3
-                        END,
-                        s.sequence_number
-                        LIMIT 1
-                    )
-                    ) AS Title,
-                  sr.name                                             AS Series,
-                  i.number                                            AS Number,
-                  (
-                    SELECT COUNT(*)
-                    FROM gcd_issue i2
-                    WHERE i2.series_id = i.series_id AND i2.deleted = 0
-                  )                                                   AS `Count`,
-                  i.volume                                            AS Volume,
-                (
-                SELECT COALESCE(
-                        NULLIF(TRIM(s.synopsis), ''),
-                        NULLIF(TRIM(s.notes),    ''),
-                        NULLIF(TRIM(s.title),    '')
-                        )
-                FROM gcd_story s
-                LEFT JOIN gcd_story_type st ON st.id = s.type_id
-                WHERE s.issue_id = i.id
-                    /* must have something usable */
-                    AND COALESCE(
-                        NULLIF(TRIM(s.synopsis), ''),
-                        NULLIF(TRIM(s.notes),    ''),
-                        NULLIF(TRIM(s.title),    '')
-                        ) IS NOT NULL
-
-                    /* 1) avoid choosing seq 0 if any non-zero candidate exists */
-                    AND (
-                    (s.sequence_number IS NULL OR s.sequence_number <> 0)
-                    OR NOT EXISTS (
-                        SELECT 1
-                        FROM gcd_story s2
-                        WHERE s2.issue_id = i.id
-                        AND (s2.sequence_number IS NULL OR s2.sequence_number <> 0)
-                        AND COALESCE(
-                                NULLIF(TRIM(s2.synopsis), ''),
-                                NULLIF(TRIM(s2.notes),    ''),
-                                NULLIF(TRIM(s2.title),    '')
-                            ) IS NOT NULL
-                    )
-                    )
-
-                    /* 2) prefer main story types; only consider others if no main-type exists */
-                    AND (
-                    LOWER(COALESCE(st.name,'')) IN ('comic story','story','text story','text')
-                    OR NOT EXISTS (
-                        SELECT 1
-                        FROM gcd_story s3
-                        LEFT JOIN gcd_story_type st3 ON st3.id = s3.type_id
-                        WHERE s3.issue_id = i.id
-                        AND (s3.sequence_number IS NULL OR s3.sequence_number <> 0)
-                        AND COALESCE(
-                                NULLIF(TRIM(s3.synopsis), ''),
-                                NULLIF(TRIM(s3.notes),    ''),
-                                NULLIF(TRIM(s3.title),    '')
-                            ) IS NOT NULL
-                        AND LOWER(COALESCE(st3.name,'')) IN ('comic story','story','text story','text')
-                    )
-                    )
-
-                ORDER BY
-                    /* within allowed set, keep your preferences */
-                    CASE WHEN NULLIF(TRIM(s.synopsis), '') IS NOT NULL THEN 0 ELSE 1 END,
-                    CASE WHEN NULLIF(TRIM(s.notes),    '') IS NOT NULL THEN 0 ELSE 1 END,
-                    s.sequence_number
-                LIMIT 1
-                ) AS Summary,
-                  CASE
-                    WHEN COALESCE(i.key_date, i.on_sale_date) IS NOT NULL
-                         AND LENGTH(COALESCE(i.key_date, i.on_sale_date)) >= 4
-                      THEN CAST(SUBSTRING(COALESCE(i.key_date, i.on_sale_date), 1, 4) AS UNSIGNED)
-                  END AS `Year`,
-                  CASE
-                    WHEN COALESCE(i.key_date, i.on_sale_date) IS NOT NULL
-                         AND LENGTH(COALESCE(i.key_date, i.on_sale_date)) >= 7
-                      THEN CAST(SUBSTRING(COALESCE(i.key_date, i.on_sale_date), 6, 2) AS UNSIGNED)
-                  END AS `Month`,
-                  (
-                    SELECT GROUP_CONCAT(DISTINCT name ORDER BY name SEPARATOR ', ')
-                    FROM (
-                      SELECT TRIM(COALESCE(NULLIF(sc.credited_as,''), NULLIF(sc.credit_name,''), c.gcd_official_name)) AS name
-                      FROM gcd_story s
-                      JOIN gcd_story_credit sc ON sc.story_id = s.id
-                      JOIN gcd_credit_type ct   ON ct.id = sc.credit_type_id
-                      LEFT JOIN gcd_creator c   ON c.id = sc.creator_id
-                      WHERE s.issue_id = i.id
-                        AND (s.sequence_number IS NULL OR s.sequence_number <> 0)
-                        AND (ct.name LIKE 'script%' OR ct.name LIKE 'writer%' OR ct.name LIKE 'plot%')
-                        AND (sc.deleted = 0 OR sc.deleted IS NULL)
-                      UNION
-                      SELECT TRIM(COALESCE(NULLIF(ic.credited_as,''), NULLIF(ic.credit_name,''), c.gcd_official_name)) AS name
-                      FROM gcd_issue_credit ic
-                      JOIN gcd_credit_type ct ON ct.id = ic.credit_type_id
-                      LEFT JOIN gcd_creator c ON c.id = ic.creator_id
-                      WHERE ic.issue_id = i.id
-                        AND (ct.name LIKE 'script%' OR ct.name LIKE 'writer%' OR ct.name LIKE 'plot%')
-                        AND (ic.deleted = 0 OR ic.deleted IS NULL)
-                    ) x
-                    WHERE NULLIF(name,'') IS NOT NULL
-                  )                                                   AS Writer,
-                  (
-                    SELECT GROUP_CONCAT(DISTINCT name ORDER BY name SEPARATOR ', ')
-                    FROM (
-                      SELECT TRIM(COALESCE(NULLIF(sc.credited_as,''), NULLIF(sc.credit_name,''), c.gcd_official_name)) AS name
-                      FROM gcd_story s
-                      JOIN gcd_story_credit sc ON sc.story_id = s.id
-                      JOIN gcd_credit_type ct   ON ct.id = sc.credit_type_id
-                      LEFT JOIN gcd_creator c   ON c.id = sc.creator_id
-                      WHERE s.issue_id = i.id
-                        AND (s.sequence_number IS NULL OR s.sequence_number <> 0)
-                        AND (ct.name LIKE 'pencil%' OR ct.name LIKE 'penc%')
-                        AND (sc.deleted = 0 OR sc.deleted IS NULL)
-                      UNION
-                      SELECT TRIM(COALESCE(NULLIF(ic.credited_as,''), NULLIF(ic.credit_name,''), c.gcd_official_name)) AS name
-                      FROM gcd_issue_credit ic
-                      JOIN gcd_credit_type ct ON ct.id = ic.credit_type_id
-                      LEFT JOIN gcd_creator c ON c.id = ic.creator_id
-                      WHERE ic.issue_id = i.id
-                        AND (ct.name LIKE 'pencil%' OR ct.name LIKE 'penc%')
-                        AND (ic.deleted = 0 OR ic.deleted IS NULL)
-                    ) x
-                    WHERE NULLIF(name,'') IS NOT NULL
-                  )                                                   AS Penciller,
-                  (
-                    SELECT GROUP_CONCAT(DISTINCT name ORDER BY name SEPARATOR ', ')
-                    FROM (
-                      SELECT TRIM(COALESCE(NULLIF(sc.credited_as,''), NULLIF(sc.credit_name,''), c.gcd_official_name)) AS name
-                      FROM gcd_story s
-                      JOIN gcd_story_credit sc ON sc.story_id = s.id
-                      JOIN gcd_credit_type ct   ON ct.id = sc.credit_type_id
-                      LEFT JOIN gcd_creator c   ON c.id = sc.creator_id
-                      WHERE s.issue_id = i.id
-                        AND (s.sequence_number IS NULL OR s.sequence_number <> 0)
-                        AND (ct.name LIKE 'ink%')
-                        AND (sc.deleted = 0 OR sc.deleted IS NULL)
-                      UNION
-                      SELECT TRIM(COALESCE(NULLIF(ic.credited_as,''), NULLIF(ic.credit_name,''), c.gcd_official_name)) AS name
-                      FROM gcd_issue_credit ic
-                      JOIN gcd_credit_type ct ON ct.id = ic.credit_type_id
-                      LEFT JOIN gcd_creator c ON c.id = ic.creator_id
-                      WHERE ic.issue_id = i.id
-                        AND (ct.name LIKE 'ink%')
-                        AND (ic.deleted = 0 OR ic.deleted IS NULL)
-                    ) x
-                    WHERE NULLIF(name,'') IS NOT NULL
-                  )                                                   AS Inker,
-                  (
-                    SELECT GROUP_CONCAT(DISTINCT name ORDER BY name SEPARATOR ', ')
-                    FROM (
-                      SELECT TRIM(COALESCE(NULLIF(sc.credited_as,''), NULLIF(sc.credit_name,''), c.gcd_official_name)) AS name
-                      FROM gcd_story s
-                      JOIN gcd_story_credit sc ON sc.story_id = s.id
-                      JOIN gcd_credit_type ct   ON ct.id = sc.credit_type_id
-                      LEFT JOIN gcd_creator c   ON c.id = sc.creator_id
-                      WHERE s.issue_id = i.id
-                        AND (s.sequence_number IS NULL OR s.sequence_number <> 0)
-                        AND (ct.name LIKE 'color%' OR ct.name LIKE 'colour%')
-                        AND (sc.deleted = 0 OR sc.deleted IS NULL)
-                      UNION
-                      SELECT TRIM(COALESCE(NULLIF(ic.credited_as,''), NULLIF(ic.credit_name,''), c.gcd_official_name)) AS name
-                      FROM gcd_issue_credit ic
-                      JOIN gcd_credit_type ct ON ct.id = ic.credit_type_id
-                      LEFT JOIN gcd_creator c ON c.id = ic.creator_id
-                      WHERE ic.issue_id = i.id
-                        AND (ct.name LIKE 'color%' OR ct.name LIKE 'colour%')
-                        AND (ic.deleted = 0 OR ic.deleted IS NULL)
-                    ) x
-                    WHERE NULLIF(name,'') IS NOT NULL
-                  )                                                   AS Colorist,
-                  (
-                    SELECT GROUP_CONCAT(DISTINCT name ORDER BY name SEPARATOR ', ')
-                    FROM (
-                      SELECT TRIM(COALESCE(NULLIF(sc.credited_as,''), NULLIF(sc.credit_name,''), c.gcd_official_name)) AS name
-                      FROM gcd_story s
-                      JOIN gcd_story_credit sc ON sc.story_id = s.id
-                      JOIN gcd_credit_type ct   ON ct.id = sc.credit_type_id
-                      LEFT JOIN gcd_creator c   ON c.id = sc.creator_id
-                      WHERE s.issue_id = i.id
-                        AND (s.sequence_number IS NULL OR s.sequence_number <> 0)
-                        AND (ct.name LIKE 'letter%')
-                        AND (sc.deleted = 0 OR sc.deleted IS NULL)
-                      UNION
-                      SELECT TRIM(COALESCE(NULLIF(ic.credited_as,''), NULLIF(ic.credit_name,''), c.gcd_official_name)) AS name
-                      FROM gcd_issue_credit ic
-                      JOIN gcd_credit_type ct ON ct.id = ic.credit_type_id
-                      LEFT JOIN gcd_creator c ON c.id = ic.creator_id
-                      WHERE ic.issue_id = i.id
-                        AND (ct.name LIKE 'letter%')
-                        AND (ic.deleted = 0 OR ic.deleted IS NULL)
-                    ) x
-                    WHERE NULLIF(name,'') IS NOT NULL
-                  )                                                   AS Letterer,
-                  (
-                    SELECT GROUP_CONCAT(DISTINCT name ORDER BY name SEPARATOR ', ')
-                    FROM (
-                      SELECT TRIM(COALESCE(NULLIF(sc.credited_as,''), NULLIF(sc.credit_name,''), c.gcd_official_name)) AS name
-                      FROM gcd_story s
-                      JOIN gcd_story_credit sc ON sc.story_id = s.id
-                      JOIN gcd_credit_type ct   ON ct.id = sc.credit_type_id
-                      LEFT JOIN gcd_creator c   ON c.id = sc.creator_id
-                      WHERE s.issue_id = i.id
-                        AND (s.sequence_number = 0 OR ct.name LIKE 'cover%')
-                        AND (ct.name LIKE 'pencil%' OR ct.name LIKE 'penc%' OR ct.name LIKE 'ink%' OR ct.name LIKE 'art%' OR ct.name LIKE 'cover%')
-                        AND (sc.deleted = 0 OR sc.deleted IS NULL)
-                      UNION
-                      SELECT TRIM(COALESCE(NULLIF(ic.credited_as,''), NULLIF(ic.credit_name,''), c.gcd_official_name)) AS name
-                      FROM gcd_issue_credit ic
-                      JOIN gcd_credit_type ct ON ct.id = ic.credit_type_id
-                      LEFT JOIN gcd_creator c ON c.id = ic.creator_id
-                      WHERE ic.issue_id = i.id
-                        AND (ct.name LIKE 'cover%')
-                        AND (ic.deleted = 0 OR ic.deleted IS NULL)
-                    ) z
-                    WHERE NULLIF(name,'') IS NOT NULL
-                  )                                                   AS CoverArtist,
-                  COALESCE(ip.name, p.name)                           AS Publisher,
-                  (
-                    SELECT TRIM(BOTH ', ' FROM
-                           REPLACE(
-                             GROUP_CONCAT(DISTINCT NULLIF(TRIM(s.genre), '') SEPARATOR ', '),
-                             ';', ','
-                           ))
-                    FROM gcd_story s
-                    WHERE s.issue_id = i.id
-                  )                                                   AS Genre,
-                  COALESCE(
-                    (
-                      SELECT NULLIF(GROUP_CONCAT(DISTINCT c.name SEPARATOR ', '), '')
-                      FROM gcd_story s
-                      LEFT JOIN gcd_story_character sc ON sc.story_id = s.id
-                      LEFT JOIN gcd_character c ON c.id = sc.character_id
-                      WHERE s.issue_id = i.id
-                    ),
-                    (
-                      SELECT TRIM(BOTH ', ' FROM
-                             REPLACE(
-                               GROUP_CONCAT(DISTINCT NULLIF(TRIM(s.characters), '') SEPARATOR ', '),
-                               ';', ','
-                             ))
-                      FROM gcd_story s
-                      WHERE s.issue_id = i.id
-                    )
-                  )                                                   AS Characters,
-                  i.rating                                            AS AgeRating,
-                  'en'                                                AS LanguageISO,
-
-                  /* PageCount: prefer certain issue value; else sum story page counts */
-                  COALESCE(
-                    CASE
-                      WHEN i.page_count IS NOT NULL
-                           AND i.page_count > 0
-                           AND COALESCE(i.page_count_uncertain, 0) = 0
-                      THEN i.page_count
-                      ELSE NULL
-                    END,
-                    (
-                      SELECT ROUND(SUM(CAST(s.page_count AS DECIMAL(10,3))), 0)
-                      FROM gcd_story s
-                      WHERE s.issue_id = i.id
-                        AND s.page_count IS NOT NULL
-                    )
-                  )                                                   AS PageCount
-
+                    i.id,
+                    i.title,
+                    i.number,
+                    i.volume,
+                    i.rating AS AgeRating,
+                    i.page_count,
+                    i.page_count_uncertain,
+                    i.key_date,
+                    i.on_sale_date,
+                    sr.id AS series_id,
+                    sr.name AS Series,
+                    COALESCE(ip.name, p.name) AS Publisher,
+                    (SELECT COUNT(*) FROM gcd_issue i2 WHERE i2.series_id = i.series_id AND i2.deleted = 0) AS Count
                 FROM gcd_issue i
-                JOIN gcd_series sr                 ON sr.id = i.series_id
-                LEFT JOIN gcd_publisher p          ON p.id = sr.publisher_id
+                JOIN gcd_series sr ON sr.id = i.series_id
+                LEFT JOIN gcd_publisher p ON p.id = sr.publisher_id
                 LEFT JOIN gcd_indicia_publisher ip ON ip.id = i.indicia_publisher_id
                 WHERE i.series_id = %s AND i.number = %s
                 LIMIT 1
             """
 
-            app_logger.debug(f"DEBUG: Searching for issue #{issue_number} in series ID {best_series['id']}...")
+            cursor.execute(basic_issue_query, (best_series['id'], str(issue_number)))
+            issue_basic = cursor.fetchone()
 
-            cursor.execute(issue_query, (best_series['id'], str(issue_number)))
-            issue_result = cursor.fetchone()
+            if not issue_basic:
+                app_logger.debug(f"DEBUG: Issue #{issue_number} not found in series")
+                issue_result = None
+            else:
+                app_logger.debug(f"DEBUG: Basic issue info retrieved for issue #{issue_number}")
+                issue_id = issue_basic['id']
+
+                # Query 2: Get all credits in a single query (much faster than multiple subqueries)
+                credits_query = """
+                    SELECT
+                        ct.name AS credit_type,
+                        TRIM(COALESCE(NULLIF(sc.credited_as,''), NULLIF(sc.credit_name,''), c.gcd_official_name)) AS creator_name,
+                        s.sequence_number
+                    FROM gcd_story s
+                    JOIN gcd_story_credit sc ON sc.story_id = s.id
+                    JOIN gcd_credit_type ct ON ct.id = sc.credit_type_id
+                    LEFT JOIN gcd_creator c ON c.id = sc.creator_id
+                    WHERE s.issue_id = %s
+                        AND (sc.deleted = 0 OR sc.deleted IS NULL)
+                        AND NULLIF(TRIM(COALESCE(NULLIF(sc.credited_as,''), NULLIF(sc.credit_name,''), c.gcd_official_name)), '') IS NOT NULL
+                    UNION
+                    SELECT
+                        ct.name AS credit_type,
+                        TRIM(COALESCE(NULLIF(ic.credited_as,''), NULLIF(ic.credit_name,''), c.gcd_official_name)) AS creator_name,
+                        NULL AS sequence_number
+                    FROM gcd_issue_credit ic
+                    JOIN gcd_credit_type ct ON ct.id = ic.credit_type_id
+                    LEFT JOIN gcd_creator c ON c.id = ic.creator_id
+                    WHERE ic.issue_id = %s
+                        AND (ic.deleted = 0 OR ic.deleted IS NULL)
+                        AND NULLIF(TRIM(COALESCE(NULLIF(ic.credited_as,''), NULLIF(ic.credit_name,''), c.gcd_official_name)), '') IS NOT NULL
+                """
+
+                cursor.execute(credits_query, (issue_id, issue_id))
+                credits = cursor.fetchall()
+
+                # Query 3: Story details (title, summary, genre, characters, page count)
+                story_query = """
+                    SELECT
+                        NULLIF(TRIM(s.title), '') AS title,
+                        NULLIF(TRIM(s.synopsis), '') AS synopsis,
+                        NULLIF(TRIM(s.notes), '') AS notes,
+                        NULLIF(TRIM(s.genre), '') AS genre,
+                        NULLIF(TRIM(s.characters), '') AS characters,
+                        s.page_count,
+                        s.sequence_number,
+                        st.name AS story_type
+                    FROM gcd_story s
+                    LEFT JOIN gcd_story_type st ON st.id = s.type_id
+                    WHERE s.issue_id = %s
+                    ORDER BY
+                        CASE WHEN s.sequence_number = 0 THEN 1 ELSE 0 END,
+                        CASE
+                            WHEN LOWER(st.name) IN ('comic story','story') THEN 0
+                            WHEN LOWER(st.name) IN ('text story','text') THEN 1
+                            ELSE 3
+                        END,
+                        s.sequence_number
+                """
+
+                cursor.execute(story_query, (issue_id,))
+                stories = cursor.fetchall()
+
+                # Query 4: Character names from character table
+                characters_query = """
+                    SELECT DISTINCT c.name
+                    FROM gcd_story s
+                    LEFT JOIN gcd_story_character sc ON sc.story_id = s.id
+                    LEFT JOIN gcd_character c ON c.id = sc.character_id
+                    WHERE s.issue_id = %s AND c.name IS NOT NULL
+                """
+
+                cursor.execute(characters_query, (issue_id,))
+                character_results = cursor.fetchall()
+
+                # Process credits in Python (faster than 6 separate subqueries)
+                credits_dict = {
+                    'Writer': set(),
+                    'Penciller': set(),
+                    'Inker': set(),
+                    'Colorist': set(),
+                    'Letterer': set(),
+                    'CoverArtist': set()
+                }
+
+                for credit in credits:
+                    ct_lower = credit['credit_type'].lower()
+                    seq_num = credit['sequence_number']
+                    name = credit['creator_name']
+
+                    # Writer
+                    if any(x in ct_lower for x in ['script', 'writer', 'plot']):
+                        if seq_num is None or seq_num != 0:
+                            credits_dict['Writer'].add(name)
+                    # Penciller
+                    elif 'pencil' in ct_lower or 'penc' in ct_lower:
+                        if seq_num is None or seq_num != 0:
+                            credits_dict['Penciller'].add(name)
+                    # Inker
+                    elif 'ink' in ct_lower:
+                        if seq_num is None or seq_num != 0:
+                            credits_dict['Inker'].add(name)
+                    # Colorist
+                    elif 'color' in ct_lower or 'colour' in ct_lower:
+                        if seq_num is None or seq_num != 0:
+                            credits_dict['Colorist'].add(name)
+                    # Letterer
+                    elif 'letter' in ct_lower:
+                        if seq_num is None or seq_num != 0:
+                            credits_dict['Letterer'].add(name)
+                    # Cover Artist
+                    elif 'cover' in ct_lower or (seq_num == 0 and any(x in ct_lower for x in ['pencil', 'penc', 'ink', 'art'])):
+                        credits_dict['CoverArtist'].add(name)
+
+                # Convert sets to sorted comma-separated strings
+                for key in credits_dict:
+                    credits_dict[key] = ', '.join(sorted(credits_dict[key])) if credits_dict[key] else None
+
+                # Process story details
+                title = issue_basic['title']
+                summary = None
+                genres = set()
+                characters_text = set()
+                page_count_sum = 0
+
+                for story in stories:
+                    # Get title from first non-zero sequence story if issue title is empty
+                    if not title and story['title'] and (story['sequence_number'] is None or story['sequence_number'] != 0):
+                        title = story['title']
+
+                    # Get summary (prefer synopsis > notes > title)
+                    if not summary and (story['sequence_number'] is None or story['sequence_number'] != 0):
+                        summary = story['synopsis'] or story['notes'] or story['title']
+
+                    # Collect genres
+                    if story['genre']:
+                        for g in story['genre'].replace(';', ',').split(','):
+                            g = g.strip()
+                            if g:
+                                genres.add(g)
+
+                    # Collect characters
+                    if story['characters']:
+                        for ch in story['characters'].replace(';', ',').split(','):
+                            ch = ch.strip()
+                            if ch:
+                                characters_text.add(ch)
+
+                    # Sum page counts
+                    if story['page_count']:
+                        page_count_sum += float(story['page_count'])
+
+                # Add character names from character table
+                for char_row in character_results:
+                    if char_row['name']:
+                        characters_text.add(char_row['name'])
+
+                # Calculate dates
+                date_str = issue_basic['key_date'] or issue_basic['on_sale_date']
+                year = None
+                month = None
+                if date_str and len(date_str) >= 4:
+                    year = int(date_str[0:4])
+                    if len(date_str) >= 7:
+                        month = int(date_str[5:7])
+
+                # Calculate page count
+                page_count = None
+                if issue_basic['page_count'] and issue_basic['page_count'] > 0 and not issue_basic['page_count_uncertain']:
+                    page_count = issue_basic['page_count']
+                elif page_count_sum > 0:
+                    page_count = round(page_count_sum)
+
+                # Build final result dictionary matching the original structure
+                issue_result = {
+                    'id': issue_id,
+                    'Title': title,
+                    'Series': issue_basic['Series'],
+                    'Number': issue_basic['number'],
+                    'Count': issue_basic['Count'],
+                    'Volume': issue_basic['volume'],
+                    'Summary': summary,
+                    'Year': year,
+                    'Month': month,
+                    'Writer': credits_dict['Writer'],
+                    'Penciller': credits_dict['Penciller'],
+                    'Inker': credits_dict['Inker'],
+                    'Colorist': credits_dict['Colorist'],
+                    'Letterer': credits_dict['Letterer'],
+                    'CoverArtist': credits_dict['CoverArtist'],
+                    'Publisher': issue_basic['Publisher'],
+                    'Genre': ', '.join(sorted(genres)) if genres else None,
+                    'Characters': ', '.join(sorted(characters_text)) if characters_text else None,
+                    'AgeRating': issue_basic['AgeRating'],
+                    'LanguageISO': 'en',
+                    'PageCount': page_count
+                }
             app_logger.debug(f"DEBUG: Issue search result: {'Found' if issue_result else 'Not found'}")
             if issue_result:
                 #print(f"DEBUG: Issue result keys: {list(issue_result.keys())}")
