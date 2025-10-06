@@ -139,6 +139,32 @@
           .catch(err => console.error("Failed to update scrape badge:", err));
       }
 
+      function checkForUpdates() {
+        fetch('/api/version-check')
+          .then(res => res.json())
+          .then(data => {
+            const versionBadge = document.getElementById('version-badge');
+            const versionText = document.getElementById('version-text');
+
+            if (!versionBadge || !versionText) return;
+
+            if (data.update_available) {
+              versionText.textContent = `v${data.latest_version} available`;
+              versionBadge.classList.remove('d-none');
+              versionBadge.href = data.release_url;
+              versionBadge.setAttribute('target', '_blank');
+
+              // Initialize Bootstrap tooltip
+              const tooltip = new bootstrap.Tooltip(versionBadge, {
+                title: `Update available! Current: v${data.current_version}, Latest: v${data.latest_version}`
+              });
+            } else {
+              versionBadge.classList.add('d-none');
+            }
+          })
+          .catch(err => console.error("Failed to check for updates:", err));
+      }
+
       // ✅ Run only after the DOM is ready
       document.addEventListener('DOMContentLoaded', () => {
         updateFileWatchBadge();
@@ -149,6 +175,9 @@
 
         updateScrapeBadge();
         setInterval(updateScrapeBadge, 5000);  // Update every 5 seconds for more responsive progress
+
+        checkForUpdates();
+        setInterval(checkForUpdates, 3600000);  // Check every hour
       });
     </script>
     {% endblock %}

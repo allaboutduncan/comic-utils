@@ -15,6 +15,12 @@
     <div class="collapse navbar-collapse" id="cluNavbar">
       <ul class="navbar-nav ms-auto mb-2 mb-lg-0">
         <li class="nav-item">
+          <a href="#" id="version-badge" class="nav-link d-none" title="Update available!" data-bs-toggle="tooltip" data-bs-placement="bottom">
+            <i class="bi bi-arrow-up-circle-fill text-warning"></i>
+            <span id="version-text" class="badge bg-warning text-dark ms-1"></span>
+          </a>
+        </li>
+        <li class="nav-item">
           <a href="{{ url_for('index') }}" class="nav-link {% if current_page == url_for('index') %}active{% endif %}">
             Home
           </a>

@@ -32,6 +32,9 @@ from app_logging import app_logger, APP_LOG, MONITOR_LOG
 from helpers import is_hidden
 import threading
 from collections import OrderedDict
+from version import __version__
+import requests
+from packaging import version as pkg_version
 
 load_config()
 
@@ -1798,6 +1801,76 @@ def restart():
     threading.Thread(target=restart_app).start()  # Restart in a separate thread
     app_logger.info(f"Restarting Flask app...")
     return jsonify({"message": "Restarting Flask app..."}), 200
+
+#########################
+# Version Check         #
+#########################
+# Cache for version check (avoid hitting GitHub API too frequently)
+version_check_cache = {
+    "last_check": 0,
+    "latest_version": None,
+    "error": None
+}
+VERSION_CACHE_DURATION = 21600  # 6 hours in seconds
+
+@app.route('/api/version-check')
+def version_check():
+    """
+    Check for updates by comparing current version with latest GitHub release.
+    Caches the result for 6 hours to respect GitHub API rate limits.
+    """
+    current_time = time.time()
+
+    # Return cached result if within cache duration
+    if current_time - version_check_cache["last_check"] < VERSION_CACHE_DURATION:
+        if version_check_cache["error"]:
+            return jsonify({
+                "current_version": __version__,
+                "error": version_check_cache["error"]
+            }), 200
+
+        return jsonify({
+            "current_version": __version__,
+            "latest_version": version_check_cache["latest_version"],
+            "update_available": pkg_version.parse(version_check_cache["latest_version"]) > pkg_version.parse(__version__),
+            "release_url": f"https://github.com/allaboutduncan/comic-utils/releases/tag/v{version_check_cache['latest_version']}"
+        }), 200
+
+    # Fetch latest version from GitHub
+    try:
+        response = requests.get(
+            "https://api.github.com/repos/allaboutduncan/comic-utils/releases/latest",
+            timeout=5
+        )
+        response.raise_for_status()
+
+        release_data = response.json()
+        latest_version = release_data.get("tag_name", "").lstrip("v")
+
+        # Update cache
+        version_check_cache["last_check"] = current_time
+        version_check_cache["latest_version"] = latest_version
+        version_check_cache["error"] = None
+
+        return jsonify({
+            "current_version": __version__,
+            "latest_version": latest_version,
+            "update_available": pkg_version.parse(latest_version) > pkg_version.parse(__version__),
+            "release_url": f"https://github.com/allaboutduncan/comic-utils/releases/tag/v{latest_version}"
+        }), 200
+
+    except requests.exceptions.RequestException as e:
+        error_msg = f"Failed to check for updates: {str(e)}"
+        app_logger.warning(error_msg)
+
+        # Update cache with error
+        version_check_cache["last_check"] = current_time
+        version_check_cache["error"] = error_msg
+
+        return jsonify({
+            "current_version": __version__,
+            "error": error_msg
+        }), 200
 
 #########################
 #   Scrape Page Routes  #
