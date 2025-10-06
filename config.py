@@ -29,8 +29,8 @@ def load_config():
 
     # Define default settings with all required keys
     default_settings = {
-        "WATCH": "/temp",
-        "TARGET": "/processed",
+        "WATCH": "/downloads/temp",
+        "TARGET": "/downloads/processed",
         "IGNORED_TERMS": "Annual",
         "IGNORED_FILES": "cover.jpg,cvinfo,.DS_Store",
         "IGNORED_EXTENSIONS": ".crdownload,.torrent,.tmp,.mega,.rar,.bak,.zip",
@@ -95,8 +95,8 @@ def load_flask_config(app, logger=None):
     settings = config["SETTINGS"] if "SETTINGS" in config else {}
 
     # Populate Flask app.config safely
-    app.config["WATCH"] = settings.get("WATCH", "/temp")
-    app.config["TARGET"] = settings.get("TARGET", "/processed")
+    app.config["WATCH"] = settings.get("WATCH", "/downloads/temp")
+    app.config["TARGET"] = settings.get("TARGET", "/downloads/processed")
     app.config["IGNORED_TERMS"] = settings.get("IGNORED_TERMS", "")
     app.config["IGNORED_FILES"] = settings.get("IGNORED_FILES", "")
     app.config["IGNORED_EXTENSIONS"] = settings.get("IGNORED_EXTENSIONS", "")

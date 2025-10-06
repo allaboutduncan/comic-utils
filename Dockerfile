@@ -77,6 +77,9 @@ COPY . .
 # (keep root here; we'll chown at runtime based on PUID/PGID)
 RUN mkdir -p /app/logs /app/static /config /data /downloads/temp /downloads/processed
 
+# Ensure /app/templates is readable by all users (fix for non-root access)
+RUN chmod -R 755 /app/templates
+
 # Expose Flask port
 EXPOSE 5577
 

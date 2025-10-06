@@ -28,7 +28,7 @@ services:
             ## Your library MUST be mapped to '/data' for the app to work
             - 'D:/Comics:/data'
             ## Additional folder if you want to use Folder Monitoring.
-            - 'F:/downloads:/temp'
+            - 'F:/downloads:/downloads'
         environment:
             - FLASK_ENV=development
             ## Set to 'yes' if you want to use folder monitoring.
