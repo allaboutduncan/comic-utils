@@ -3728,9 +3728,17 @@ function cleanupOrphanFiles() {
           const resultItem = document.createElement('div');
 
           if (result.success) {
-            successCount++;
-            resultItem.className = 'text-success';
-            resultItem.innerHTML = `✓ ${fileName} - Issue #${result.metadata.issue}`;
+            if (result.skipped) {
+              // File was skipped because it already has metadata
+              successCount++;
+              resultItem.className = 'text-info';
+              resultItem.innerHTML = `✓ ${fileName} - Skipped XML Present`;
+            } else {
+              // File was successfully processed
+              successCount++;
+              resultItem.className = 'text-success';
+              resultItem.innerHTML = `✓ ${fileName} - Issue #${result.metadata.issue}`;
+            }
           } else {
             errorCount++;
             resultItem.className = 'text-danger';

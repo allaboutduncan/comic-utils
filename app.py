@@ -3344,12 +3344,6 @@ def search_gcd_metadata():
 
             app_logger.debug(f"DEBUG: Searching for issue #{issue_number} in series ID {best_series['id']}...")
 
-            # First, test a simple query to see if the issue exists at all
-            simple_test_query = "SELECT id, title, number FROM gcd_issue WHERE series_id = %s AND number = %s LIMIT 1"
-            cursor.execute(simple_test_query, (best_series['id'], str(issue_number)))
-            simple_result = cursor.fetchone()
-            app_logger.debug(f"DEBUG: Simple issue test: {dict(simple_result) if simple_result else 'No issue found'}")
-
             cursor.execute(issue_query, (best_series['id'], str(issue_number)))
             issue_result = cursor.fetchone()
             app_logger.debug(f"DEBUG: Issue search result: {'Found' if issue_result else 'Not found'}")
@@ -3373,12 +3367,28 @@ def search_gcd_metadata():
 
                     if existing_notes:
                         app_logger.info(f"Skipping ComicInfo.xml generation - file already has Notes data: {existing_notes[:50]}...")
-                        return jsonify({
-                            "success": True,
-                            "skipped": True,
-                            "message": "ComicInfo.xml already exists with Notes data",
-                            "existing_notes": existing_notes
-                        }), 200
+
+                        # For directory searches, return series_id so processing can continue with other files
+                        if is_directory_search:
+                            response_data = {
+                                "success": True,
+                                "skipped": True,
+                                "message": "ComicInfo.xml already exists with Notes data",
+                                "existing_notes": existing_notes,
+                                "series_id": best_series['id'],
+                                "is_directory_search": True,
+                                "directory_path": directory_path,
+                                "directory_name": directory_name,
+                                "total_files": total_files
+                            }
+                            return jsonify(response_data), 200
+                        else:
+                            return jsonify({
+                                "success": True,
+                                "skipped": True,
+                                "message": "ComicInfo.xml already exists with Notes data",
+                                "existing_notes": existing_notes
+                            }), 200
                 except Exception as check_error:
                     app_logger.debug(f"DEBUG: Error checking existing ComicInfo.xml (will proceed with generation): {str(check_error)}")
 
@@ -3974,6 +3984,26 @@ def search_gcd_metadata_with_selection():
                 app_logger.debug(f"DEBUG: Issue title: {issue_result.get('Title', 'N/A')}")
 
             if issue_result:
+                # Check if ComicInfo.xml already exists and has Notes data
+                try:
+                    from comicinfo import read_comicinfo_from_zip
+                    existing_comicinfo = read_comicinfo_from_zip(file_path)
+                    existing_notes = existing_comicinfo.get('Notes', '').strip()
+
+                    if existing_notes:
+                        app_logger.info(f"Skipping ComicInfo.xml generation - file already has Notes data: {existing_notes[:50]}...")
+                        return jsonify({
+                            "success": True,
+                            "skipped": True,
+                            "message": "ComicInfo.xml already exists with Notes data",
+                            "existing_notes": existing_notes,
+                            "metadata": {
+                                "issue": issue_result['Number']
+                            }
+                        }), 200
+                except Exception as check_error:
+                    app_logger.debug(f"DEBUG: Error checking existing ComicInfo.xml (will proceed with generation): {str(check_error)}")
+
                 # Generate ComicInfo.xml content
                 comicinfo_xml = generate_comicinfo_xml(issue_result, series_result)
 
