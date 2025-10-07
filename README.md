@@ -68,7 +68,7 @@ Here's a quick list of features
 6. __Custom Naming Patterns:__ Define how files are renamed in the Settings of the App
 
 ### Optional GCD Database Support
-1. [Follow the steps in the full documentation](https://app.gitbook.com/o/6y0YI433W9Ydkn658qey/s/twMQo2xj04EWlABw1SD7/features/app-settings-1) to create a mySQL server rinning an export of the Grand Comics Database (GCD) data dump and quickly add metadata to files.
+1. [Follow the steps in the full documentation](https://app.gitbook.com/o/6y0YI433W9Ydkn658qey/s/twMQo2xj04EWlABw1SD7/features/app-settings-1) to create a mySQL server running an export of the Grand Comics Database (GCD) data dump and quickly add metadata to files.
 
 ## Installation via Docker Compose
 
