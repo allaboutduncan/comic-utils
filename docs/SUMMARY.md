@@ -36,6 +36,7 @@
   * [Rename](features/file-management/editor-1.md)
   * [Delete](features/file-management/editor-2.md)
   * [Additional Features](features/file-management/editor-3.md)
+  * [Generate ComicInfo.xml](features/file-management/editor-2-1.md)
 * [Folder Monitoring](features/folder-monitoring/README.md)
   * [Monitoring Setup](features/folder-monitoring/integrations.md)
   * [Features](features/folder-monitoring/integrations-1.md)
@@ -43,6 +44,10 @@
 * [App Settings](features/app-settings/README.md)
   * [Config Installation](features/app-settings/integrations.md)
   * [Settings Available](features/app-settings/integrations-1.md)
+* [GCD Database Support](features/app-settings-1/README.md)
+  * [GCD Database Download](features/app-settings-1/integrations.md)
+  * [MySQL Database Setup](features/app-settings-1/integrations-1.md)
+  * [Updated CLU Settings for GCD](features/app-settings-1/integrations-1-1.md)
 
 ***
 

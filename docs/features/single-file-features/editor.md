@@ -9,7 +9,7 @@ icon: file-zip
 
 This feature, new in v3.0, allows you to open a CBZ file in the browser and rename/rearrange files, crop images, and delete images.
 
-<figure><img src="../../.gitbook/assets/Screenshot 2025-05-28 122156.png" alt=""><figcaption><p>A CBZ Unpacked and Ready to Edit</p></figcaption></figure>
+<figure><img src="../../.gitbook/assets/Screenshot 2025-10-07 102235.png" alt=""><figcaption></figcaption></figure>
 
 Once you select a CBZ file and click "Edit CBZ"  you will see a loading icon while the CBZ is extracted to a temp directory. Once this is complete, all of the image files will be displayed in the UI.
 
@@ -25,11 +25,19 @@ In the image below, you can see that updating the filename to `00b.jpg` has re-o
 
 ### Crop Images
 
+<figure><img src="../../.gitbook/assets/Screenshot 2025-10-07 101721.png" alt=""><figcaption></figcaption></figure>
+
 This is a more precise implementation of the [Crop Cover](editor-2.md) feature that allows you to select which piece of the cover you wish to save as the main cover image. If you had a double-cover, clicking the `<-| Left` button would crop and save the back as the new cover. The original image is never deleted. It is renamed and saved in the CBZ.
 
 Clicking the `Right |->` button will crop the image to the right half and save that as the cover image.
 
 Clicking the `Middle` button is used for Tri-fold covers where the main image is in the middle.
+
+`Free Crop` ![](<../../.gitbook/assets/Screenshot 2025-10-07 102418.png>) lets you click and drag to free-form crop an image in the UI. Click to draw your area, SPACE to move the area and SHIFT to maintain typical comic page proportions.
+
+<figure><img src="../../.gitbook/assets/Screenshot 2025-10-07 101834.png" alt=""><figcaption></figcaption></figure>
+
+<figure><img src="../../.gitbook/assets/Screenshot 2025-10-07 101954.png" alt=""><figcaption></figcaption></figure>
 
 {% hint style="info" %}
 All Crop actions backup/preserve the original file in the CBZ and it should be instantly viewable. If you mistakenly crop something - just delete the file and start over.

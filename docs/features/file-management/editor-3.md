@@ -39,6 +39,8 @@ When browsing files, you'll also see file size next to each file. This allows yo
 
 Additionally, you'll see a new **info icon** next to all comics as well. Clicking this will open a modal window and the cover, meta-data and ComicInfo.xml data (if available) will be displayed.
 
-<figure><img src="../../.gitbook/assets/Screenshot 2025-08-01 at 11.16.33 AM.png" alt=""><figcaption></figcaption></figure>
+Using the `<— Prev` and `Next -->` buttons, you can quickly view details for multiple issues
+
+<figure><img src="../../.gitbook/assets/Screenshot 2025-10-07 103714.png" alt=""><figcaption></figcaption></figure>
 
 <figure><img src="../../.gitbook/assets/Screenshot 2025-08-01 at 11.16.42 AM.png" alt=""><figcaption></figcaption></figure>

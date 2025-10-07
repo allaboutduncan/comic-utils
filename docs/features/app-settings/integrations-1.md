@@ -106,6 +106,22 @@ Download directories configured in the app are not indexed.&#x20;
 Moving files in these directories does not invalidate the cache.
 {% endhint %}
 
+<figure><img src="../../.gitbook/assets/Screenshot 2025-10-07 094321.png" alt=""><figcaption></figcaption></figure>
+
+### Custom Rename Pattern Settings
+
+Use a custom naming scheme for renaming issues when downloads are processed or files are renamed.
+
+Enter your naming pattern using the syntax provided and see a real-time preview of the result.
+
+{% hint style="danger" %}
+Renaming applies only to issues. Entering directory paths or folder structures is not yet supported.
+{% endhint %}
+
+### Logging & Debugging
+
+If you are experiencing issues or odd behavior, enable this to add more detailed logging.
+
 ### ComicInfo.XML Updates
 
 All of these features related to updating/cleaning the `ComicInfo.xml` file in archives. I would consider these experimental or beta features - in that they have been tested the least.
