@@ -1699,28 +1699,34 @@ function setupCropHandlers() {
         }
 
         // Handle negative width/height (dragging in different directions)
-        // Store the CONSTRAINED positions (not the raw mouse positions)
+        // Constrain the selection box to stay within image bounds
+        let finalLeft, finalTop, finalWidth, finalHeight;
+
         if (width < 0) {
-            cropSelection.style.left = (cropData.startX + width) + 'px';
-            cropSelection.style.width = Math.abs(width) + 'px';
-            // Store the constrained end position
-            cropData.endX = currentX;  // currentX is already constrained
+            finalLeft = Math.max(imageOffsetX, cropData.startX + width);
+            finalWidth = cropData.startX - finalLeft;
+            cropData.endX = finalLeft;
         } else {
-            cropSelection.style.left = cropData.startX + 'px';
-            cropSelection.style.width = width + 'px';
-            cropData.endX = currentX;  // currentX is already constrained
+            finalLeft = cropData.startX;
+            finalWidth = Math.min(width, (imageOffsetX + imageRect.width) - cropData.startX);
+            cropData.endX = finalLeft + finalWidth;
         }
 
         if (height < 0) {
-            cropSelection.style.top = (cropData.startY + height) + 'px';
-            cropSelection.style.height = Math.abs(height) + 'px';
-            // Store the constrained end position
-            cropData.endY = currentY;  // currentY is already constrained
+            finalTop = Math.max(imageOffsetY, cropData.startY + height);
+            finalHeight = cropData.startY - finalTop;
+            cropData.endY = finalTop;
         } else {
-            cropSelection.style.top = cropData.startY + 'px';
-            cropSelection.style.height = height + 'px';
-            cropData.endY = currentY;  // currentY is already constrained
+            finalTop = cropData.startY;
+            finalHeight = Math.min(height, (imageOffsetY + imageRect.height) - cropData.startY);
+            cropData.endY = finalTop + finalHeight;
         }
+
+        // Apply the constrained values to the selection box
+        cropSelection.style.left = finalLeft + 'px';
+        cropSelection.style.top = finalTop + 'px';
+        cropSelection.style.width = finalWidth + 'px';
+        cropSelection.style.height = finalHeight + 'px';
     }
 
     function endCrop(e) {
@@ -1782,14 +1788,21 @@ function confirmFreeFormCrop() {
     const imageRelativeY = displayY - imageOffsetY;
 
     // Convert to actual image coordinates
-    const actualX = imageRelativeX * scaleX;
-    const actualY = imageRelativeY * scaleY;
-    const actualWidth = displayWidth * scaleX;
-    const actualHeight = displayHeight * scaleY;
+    let actualX = imageRelativeX * scaleX;
+    let actualY = imageRelativeY * scaleY;
+    let actualWidth = displayWidth * scaleX;
+    let actualHeight = displayHeight * scaleY;
+
+    // Clamp coordinates to ensure they don't exceed actual image dimensions
+    actualX = Math.max(0, Math.min(actualX, cropImage.naturalWidth));
+    actualY = Math.max(0, Math.min(actualY, cropImage.naturalHeight));
+    actualWidth = Math.min(actualWidth, cropImage.naturalWidth - actualX);
+    actualHeight = Math.min(actualHeight, cropImage.naturalHeight - actualY);
 
     console.log('Image offset:', { imageOffsetX, imageOffsetY });
     console.log('Display coords:', { displayX, displayY, displayWidth, displayHeight });
     console.log('Image relative coords:', { imageRelativeX, imageRelativeY });
+    console.log('Natural image size:', { width: cropImage.naturalWidth, height: cropImage.naturalHeight });
     console.log('Actual crop coordinates:', { x: actualX, y: actualY, width: actualWidth, height: actualHeight });
 
     // Send the crop request

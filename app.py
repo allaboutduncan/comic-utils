@@ -2485,10 +2485,38 @@ def app_logs_page():
 def mon_logs_page():
     return render_template('mon-logs.html', config=app.config)
 
-# Function to stream logs in real-time
+# Function to stream logs in real-time (tail last 1000 lines to prevent timeout)
 def stream_logs_file(log_file):
     with open(log_file, "r") as file:
-        file.seek(0)  # Start from the beginning of the file
+        # Tail approach: read last N lines efficiently
+        MAX_LINES = 1000
+        lines = []
+
+        # Seek to end and work backwards to find last N lines
+        file.seek(0, 2)  # Go to end of file
+        file_size = file.tell()
+
+        if file_size > 0:
+            # Read in chunks from the end
+            buffer_size = 8192
+            position = file_size
+
+            while position > 0 and len(lines) < MAX_LINES:
+                # Move back by buffer_size or to start of file
+                position = max(0, position - buffer_size)
+                file.seek(position)
+                chunk = file.read(min(buffer_size, file_size - position))
+                lines = chunk.splitlines() + lines
+
+            # Keep only last MAX_LINES
+            lines = lines[-MAX_LINES:]
+
+            # Yield initial lines
+            for line in lines:
+                yield f"data: {line}\n\n"
+
+        # Now stream new lines as they're added
+        file.seek(0, 2)  # Move to end for new content
         while True:
             line = file.readline()
             if line:

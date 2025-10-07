@@ -423,8 +423,27 @@ def cropFreeForm(image_path, x, y, width, height):
     try:
         # Open the image
         with Image.open(image_path) as img:
+            img_width, img_height = img.size
+
+            # Validate and clamp coordinates to image boundaries
+            x = max(0, min(int(x), img_width))
+            y = max(0, min(int(y), img_height))
+            width = max(1, min(int(width), img_width - x))
+            height = max(1, min(int(height), img_height - y))
+
+            # Log validation info
+            app_logger.info(f"Image size: {img_width}x{img_height}, Crop: x={x}, y={y}, w={width}, h={height}")
+
+            # Ensure crop doesn't exceed image bounds
+            if x + width > img_width:
+                width = img_width - x
+                app_logger.warning(f"Crop width adjusted to {width} to fit within image bounds")
+            if y + height > img_height:
+                height = img_height - y
+                app_logger.warning(f"Crop height adjusted to {height} to fit within image bounds")
+
             # Define the crop box (left, upper, right, lower)
-            crop_box = (int(x), int(y), int(x + width), int(y + height))
+            crop_box = (x, y, x + width, y + height)
 
             # Save the original image with -cropped suffix
             backup_path = f"{file_name}-cropped{file_extension}"

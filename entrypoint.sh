@@ -155,6 +155,15 @@ if command -v stat >/dev/null 2>&1; then
   fi
 fi
 
+# Clear log files on restart (prevents timeout issues with large logs)
+echo "Clearing old log files..."
+for logfile in /app/logs/app.log /app/logs/monitor.log /config/logs/app.log /config/logs/monitor.log; do
+  if [ -f "$logfile" ]; then
+    > "$logfile"
+    echo "  Cleared: $logfile"
+  fi
+done
+
 # Show who we plan to run as (helps with Unraid troubleshooting)
 echo "Starting as UID:GID ${PUID}:${PGID} (umask ${UMASK})"
 echo "MONITOR=${MONITOR}"
