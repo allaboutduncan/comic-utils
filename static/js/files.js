@@ -300,7 +300,7 @@ function checkGCDAvailability() {
         // Add GCD search button for metadata retrieval (only if GCD is available)
         if (gcdMysqlAvailable) {
           const gcdBtn = document.createElement("button");
-          gcdBtn.className = "btn btn-sm btn-outline-warning";
+          gcdBtn.className = "btn btn-sm btn-outline-info";
           gcdBtn.innerHTML = '<i class="bi bi-cloud-download"></i>';
           gcdBtn.title = "Search GCD for Metadata";
           gcdBtn.setAttribute("type", "button");
@@ -373,7 +373,7 @@ function checkGCDAvailability() {
         // Add GCD search button for directories (but not for Parent directory, and only if GCD is available)
         if (fileData.name !== "Parent" && gcdMysqlAvailable) {
           const gcdDirBtn = document.createElement("button");
-          gcdDirBtn.className = "btn btn-sm btn-outline-primary";
+          gcdDirBtn.className = "btn btn-sm btn-outline-info";
           gcdDirBtn.innerHTML = '<i class="bi bi-cloud-download"></i>';
           gcdDirBtn.title = "Search GCD for All Comics in Directory";
           gcdDirBtn.setAttribute("type", "button");
