@@ -20,7 +20,7 @@ The app is intended to allow users to manage their remote comic collections, per
 ![Comic Library Utilities (CLU)](/images/home_v1.png "Comic Library Utilities Homepage")
 
 ### Full Documentation
-With the 2.0 release, full documention and install steps have [moved to Gitbook.io](https://phillips-organization-6.gitbook.io/clu-comic-library-utilities/)
+Full documention and install steps have [moved to Gitbook.io](https://phillips-organization-6.gitbook.io/clu-comic-library-utilities/)
 
 ## Features
 Here's a quick list of features
@@ -31,37 +31,44 @@ Here's a quick list of features
 3. Rebuild Directory - Rebuild All Files in Diretory
 4. Convert PDF to CBZ
 5. Missing File Check
-6. Enhance Images (__New in 2.0__)
+6. Enhance Images
 7. Clean / Update ComicInfo.xml
 
 ### Single File Options
 1. Rebuild/Convert (CBR --> CBZ)
 2. Crop Cover
 3. Remove First Image
-4. Full GUI Editing of CBZ (rename/rearrange files, delete files, crop images) (__New in 3.0__)
+4. Full GUI Editing of CBZ (rename/rearrange files, delete files, crop images)
 5. Add blank Image at End
 6. Enhance Images (__New in 2.0__)
 7. Delete File
 
-### Remote Downloads (New in 3.0)
+### Remote Downloads
 1. Send Downloads from GetComics.org Directly to your Server
 2. Support for GetComics, Pixeldrain and Mega
 3. Chrome Extension
 4. Download Queue
 5. Custom Header Support (for Auth or other variables)
+6. Support for PixelDrain API Key
 
-### File Management (New in 2.0)
+### File Management
 1. _Source_ and _Destination_ file browsing
 2. Drag and drop to move directories and files
 3. Rename directories and files
 4. Delete directories or files
+5. Rename All Files in Directory
+6. Remove Text from All Files in Directory
 
 ### Folder Monitoring
 1. __Auto-Renaming:__ Based on the manually triggered renaming, this option will monitor the configured folder.
 2. __Auto-Convert to CBZ:__ If this is enabled, files that are not CBZ will be converted to CBZ when they are moved to the `/downloads/processed` location
 3. __Processing Sub-Directories:__ If this is enabled, the app will monitor and perform all functions on any sub-directory within the *default monitoring location*. 
-4. __Auto-Upack:__ If enabled, app will extract contents of ZIP files when download complete (__New in 2.0__)
-5. __Move Sub-Directories:__ If enabled, when processing files in sub-directories, the sub-directory name will be cleaned and moved (__New in 2.0__)
+4. __Auto-Upack:__ If enabled, app will extract contents of ZIP files when download complete
+5. __Move Sub-Directories:__ If enabled, when processing files in sub-directories, the sub-directory name will be cleaned and moved
+6. __Custom Naming Patterns:__ Define how files are renamed in the Settings of the App
+
+### Optional GCD Database Support
+1. [Follow the steps in the full documentation](https://app.gitbook.com/o/6y0YI433W9Ydkn658qey/s/twMQo2xj04EWlABw1SD7/features/app-settings-1) to create a mySQL server rinning an export of the Grand Comics Database (GCD) data dump and quickly add metadata to files.
 
 ## Installation via Docker Compose
 
