@@ -106,12 +106,13 @@ def rebuild_single_cbz_file(cbz_path):
     try:
         # Step 1: Rename CBZ to ZIP
         app_logger.info(f"Step 1/4: Preparing {filename} for rebuild...")
-        zip_path = base_name + '.zip'
-        os.rename(cbz_path, zip_path)
+        directory = os.path.dirname(cbz_path)
+        zip_path = os.path.join(directory, base_name + '.zip')
+        shutil.move(cbz_path, zip_path)
         
         # Step 2: Create extraction folder
         app_logger.info(f"Step 2/4: Creating extraction folder...")
-        folder_name = base_name + '_folder'
+        folder_name = os.path.join(directory, base_name + '_folder')
         os.makedirs(folder_name, exist_ok=True)
         
         # Step 3: Extract ZIP file
@@ -133,7 +134,7 @@ def rebuild_single_cbz_file(cbz_path):
         # Step 4: Recompress to CBZ
         app_logger.info(f"Step 4/4: Recompressing {filename}...")
         bak_file_path = zip_path + '.bak'
-        os.rename(zip_path, bak_file_path)
+        shutil.move(zip_path, bak_file_path)
         
         with zipfile.ZipFile(cbz_path, 'w', zipfile.ZIP_DEFLATED) as zf:
             file_count = 0
