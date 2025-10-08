@@ -12,7 +12,8 @@
       "Bash(start test_series_rename.html)",
       "Bash(del test_series_rename.html test_rename.js)",
       "Bash(del test_rename.py test_season_regex.py)",
-      "Read(//c/Users/phill/Github/scrape/**)"
+      "Read(//c/Users/phill/Github/scrape/**)",
+      "WebFetch(domain:api.github.com)"
     ],
     "deny": [],
     "ask": []

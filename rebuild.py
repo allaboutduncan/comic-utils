@@ -136,7 +136,7 @@ def rebuild_single_cbz_file(cbz_path, directory):
         # Step 1: Rename CBZ to ZIP
         app_logger.info(f"Step 1/4: Preparing {filename} for rebuild...")
         new_zip_file = os.path.join(directory, base_name + ".zip")
-        os.rename(cbz_path, new_zip_file)
+        shutil.move(cbz_path, new_zip_file)
         
         # Step 2: Create extraction folder
         app_logger.info(f"Step 2/4: Creating extraction folder...")
@@ -162,7 +162,7 @@ def rebuild_single_cbz_file(cbz_path, directory):
         # Step 4: Recompress to CBZ
         app_logger.info(f"Step 4/4: Recompressing {filename}...")
         bak_file = os.path.join(directory, base_name + ".bak")
-        os.rename(new_zip_file, bak_file)
+        shutil.move(new_zip_file, bak_file)
         
         cbz_file = os.path.join(directory, base_name + ".cbz")
         with zipfile.ZipFile(cbz_file, 'w', zipfile.ZIP_DEFLATED) as zip_ref:
@@ -208,9 +208,9 @@ def rebuild_single_cbz_file(cbz_path, directory):
             # Rename the file back to .rar
             rar_file = os.path.join(directory, base_name + ".rar")
             if os.path.exists(new_zip_file):
-                os.rename(new_zip_file, rar_file)
+                shutil.move(new_zip_file, rar_file)
             elif os.path.exists(cbz_path):
-                os.rename(cbz_path, rar_file)
+                shutil.move(cbz_path, rar_file)
             
             # Clean up any partial extraction folder
             if os.path.exists(folder_path):
