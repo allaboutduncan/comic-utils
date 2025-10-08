@@ -3521,7 +3521,7 @@ def add_comicinfo_to_cbz(file_path, comicinfo_xml_bytes):
     Writes ComicInfo.xml at the ROOT of the CBZ.
     - Removes any existing ComicInfo.xml (case-insensitive)
     - Uses UTF-8 bytes for content
-    - Keeps other entries unchanged
+    - Rebuilds the entire ZIP by extracting and recompressing (matches single_file.py approach)
     """
     import tempfile, shutil
 
@@ -3529,29 +3529,60 @@ def add_comicinfo_to_cbz(file_path, comicinfo_xml_bytes):
     if isinstance(comicinfo_xml_bytes, str):
         comicinfo_xml_bytes = comicinfo_xml_bytes.encode("utf-8")
 
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".cbz") as tmp:
-        temp_path = tmp.name
+    # Create temp directory and file in the same directory as the source file
+    file_dir = os.path.dirname(file_path) or '.'
+    base_name = os.path.splitext(os.path.basename(file_path))[0]
+
+    # Create temporary extraction directory
+    temp_extract_dir = os.path.join(file_dir, f".tmp_extract_{base_name}_{os.getpid()}")
+    temp_zip_path = os.path.join(file_dir, f".tmp_{base_name}_{os.getpid()}.cbz")
 
     try:
-        with zipfile.ZipFile(file_path, "r") as src, \
-             zipfile.ZipFile(temp_path, "w", compression=zipfile.ZIP_DEFLATED) as dst:
+        # Step 1: Extract all files to temporary directory
+        os.makedirs(temp_extract_dir, exist_ok=True)
 
-            for info in src.infolist():
-                # root-level match; also guard against nested paths like "ComicInfo.xml" vs "folder/ComicInfo.xml"
-                if os.path.basename(info.filename).lower() == "comicinfo.xml":
+        with zipfile.ZipFile(file_path, 'r') as src:
+            for filename in src.namelist():
+                # Skip any existing ComicInfo.xml
+                if os.path.basename(filename).lower() == "comicinfo.xml":
                     continue
-                dst.writestr(info, src.read(info.filename))
+                src.extract(filename, temp_extract_dir)
 
-            # Write new ComicInfo.xml at root
-            dst.writestr("ComicInfo.xml", comicinfo_xml_bytes)
+        # Step 2: Write ComicInfo.xml to temp directory
+        comicinfo_path = os.path.join(temp_extract_dir, "ComicInfo.xml")
+        with open(comicinfo_path, 'wb') as f:
+            f.write(comicinfo_xml_bytes)
 
-        # Replace original
-        shutil.move(temp_path, file_path)
+        # Step 3: Recompress everything into new CBZ (sorted for consistency)
+        with zipfile.ZipFile(temp_zip_path, 'w', zipfile.ZIP_DEFLATED) as dst:
+            # Get all files and sort them
+            all_files = []
+            for root, dirs, files in os.walk(temp_extract_dir):
+                for file in files:
+                    file_path_full = os.path.join(root, file)
+                    arcname = os.path.relpath(file_path_full, temp_extract_dir)
+                    all_files.append((file_path_full, arcname))
 
-    except Exception:
-        if os.path.exists(temp_path):
-            os.unlink(temp_path)
-        raise
+            # Sort by arcname for consistent ordering
+            all_files.sort(key=lambda x: x[1])
+
+            # Write all files
+            for file_path_full, arcname in all_files:
+                dst.write(file_path_full, arcname)
+
+        # Step 4: Replace original file
+        os.replace(temp_zip_path, file_path)
+
+    finally:
+        # Clean up temp directory
+        if os.path.exists(temp_extract_dir):
+            shutil.rmtree(temp_extract_dir, ignore_errors=True)
+        # Clean up temp zip if it still exists
+        if os.path.exists(temp_zip_path):
+            try:
+                os.unlink(temp_zip_path)
+            except:
+                pass
 
 @app.route('/validate-gcd-issue', methods=['POST'])
 def validate_gcd_issue():
