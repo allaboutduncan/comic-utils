@@ -13,7 +13,11 @@
       "Bash(del test_series_rename.html test_rename.js)",
       "Bash(del test_rename.py test_season_regex.py)",
       "Read(//c/Users/phill/Github/scrape/**)",
-      "WebFetch(domain:api.github.com)"
+      "WebFetch(domain:api.github.com)",
+      "Bash(mkdir:*)",
+      "Bash(move:*)",
+      "Bash(move scrape_readcomiconline.py scrape)",
+      "Bash(mv:*)"
     ],
     "deny": [],
     "ask": []

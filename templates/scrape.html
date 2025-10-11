@@ -13,7 +13,7 @@
             <div class="card shadow-sm">
                 <div class="card-body">
                     <h5 class="card-title">Enter URLs</h5>
-                    <p class="card-text small">Supported sites: readcomiconline.li, e-hentai.org, exhentai.org</p>
+                    <p class="card-text small">Supported sites: readcomiconline.li, e-hentai.org, exhentai.org, erofus.com</p>
 
                     <form id="scrapeForm">
                         <div class="mb-3">
@@ -56,7 +56,9 @@
                     <p class="small mb-1"><code>https://readcomiconline.li/Comic/Batman-2016</code></p>
                     <p class="small mb-2"><code>https://readcomiconline.li/Comic/Superman-2018/Issue-1</code></p>
                     <p class="small mb-1"><strong>E-Hentai:</strong></p>
-                    <p class="small mb-0"><code>https://e-hentai.org/g/[gallery-id]/[gallery-token]/</code></p>
+                    <p class="small mb-2"><code>https://e-hentai.org/g/[gallery-id]/[gallery-token]/</code></p>
+                    <p class="small mb-1"><strong>Erofus:</strong></p>
+                    <p class="small mb-0"><code>https://www.erofus.com/comics/eros-comix/elizabeth-bathory</code></p>
                 </div>
             </div>
         </div>
@@ -193,6 +195,8 @@ function detectSiteType(url) {
         return 'readcomiconline';
     } else if (url.includes('e-hentai.org') || url.includes('exhentai.org')) {
         return 'ehentai';
+    } else if (url.includes('erofus.com')) {
+        return 'erofus';
     }
     return 'unknown';
 }
@@ -231,6 +235,7 @@ function startScraping(urls, outputDir) {
     const urlsBySite = {
         readcomiconline: [],
         ehentai: [],
+        erofus: [],
         unknown: []
     };
 
@@ -258,6 +263,8 @@ function startScraping(urls, outputDir) {
     let endpoint = '/scrape-readcomiconline';
     if (urlsBySite.ehentai.length > 0) {
         endpoint = '/scrape-ehentai';
+    } else if (urlsBySite.erofus.length > 0) {
+        endpoint = '/scrape-erofus';
     }
 
     // Send URLs to backend

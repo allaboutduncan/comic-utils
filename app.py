@@ -1878,8 +1878,9 @@ def version_check():
 import uuid
 import threading
 from queue import Queue
-from scrape_readcomiconline import scrape_series
-from scrape_ehentai import scrape_urls as scrape_ehentai_urls
+from scrape.scrape_readcomiconline import scrape_series
+from scrape.scrape_ehentai import scrape_urls as scrape_ehentai_urls
+from scrape.scrape_erofus import scrape_series as scrape_erofus_series
 
 # Store active scrape tasks
 # Each task has: log_queue, progress_queue, status, buffered_logs
@@ -2018,6 +2019,68 @@ def scrape_ehentai():
 
     except Exception as e:
         app_logger.error(f"Error starting E-Hentai scrape: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+@app.route("/scrape-erofus", methods=["POST"])
+def scrape_erofus():
+    """Start scraping Erofus URLs"""
+    try:
+        data = request.json
+        urls = data.get("urls", [])
+        # Use TARGET_DIR directly to avoid file monitor processing and overwrites
+        output_dir = data.get("output_dir", config.get("SETTINGS", "TARGET", fallback="/processed"))
+
+        if not urls:
+            return jsonify({"success": False, "error": "No URLs provided"}), 400
+
+        # Create a unique task ID
+        task_id = str(uuid.uuid4())
+
+        # Create a queue for logs and progress
+        log_queue = Queue()
+        progress_queue = Queue()
+
+        # Store task info with buffered logs for reconnection
+        scrape_tasks[task_id] = {
+            "log_queue": log_queue,
+            "progress_queue": progress_queue,
+            "status": "running",
+            "buffered_logs": [],
+            "last_progress": {}
+        }
+
+        # Start scraping in a background thread
+        def scrape_worker():
+            def log_callback(msg):
+                log_queue.put(msg)
+
+            def progress_callback(data):
+                progress_queue.put(data)
+
+            try:
+                for url in urls:
+                    log_queue.put(f"\n{'='*60}")
+                    log_queue.put(f"Processing: {url}")
+                    log_queue.put('='*60)
+
+                    scrape_erofus_series(url, output_dir, log_callback, progress_callback)
+
+                log_queue.put("\n=== All URLs processed ===")
+                scrape_tasks[task_id]["status"] = "completed"
+                log_queue.put("__COMPLETED__")  # Signal completion
+
+            except Exception as e:
+                log_queue.put(f"\n=== Error: {str(e)} ===")
+                scrape_tasks[task_id]["status"] = "error"
+                log_queue.put("__ERROR__")  # Signal error
+
+        thread = threading.Thread(target=scrape_worker, daemon=True)
+        thread.start()
+
+        return jsonify({"success": True, "task_id": task_id}), 200
+
+    except Exception as e:
+        app_logger.error(f"Error starting Erofus scrape: {e}")
         return jsonify({"success": False, "error": str(e)}), 500
 
 @app.route("/scrape-stream/<task_id>")
