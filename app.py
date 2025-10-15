@@ -1450,6 +1450,57 @@ def cbz_metadata():
         app_logger.error(f"Error reading CBZ metadata {file_path}: {e}")
         return jsonify({"error": str(e)}), 500
 
+@app.route('/cbz-clear-comicinfo', methods=['POST'])
+def cbz_clear_comicinfo():
+    """Delete ComicInfo.xml from a CBZ file"""
+    data = request.get_json()
+    file_path = data.get('path')
+
+    if not file_path or not os.path.exists(file_path):
+        return jsonify({"success": False, "error": "Invalid file path"}), 400
+
+    if not file_path.lower().endswith('.cbz'):
+        return jsonify({"success": False, "error": "File is not a CBZ"}), 400
+
+    try:
+        import zipfile
+
+        # Create a temporary file for the new CBZ
+        temp_zip_path = file_path + ".tmpzip"
+        comicinfo_found = False
+
+        # Open the original CBZ and create a new one without ComicInfo.xml
+        with zipfile.ZipFile(file_path, 'r') as old_zip, \
+             zipfile.ZipFile(temp_zip_path, 'w', compression=zipfile.ZIP_DEFLATED) as new_zip:
+
+            for item in old_zip.infolist():
+                if item.filename.lower() == "comicinfo.xml":
+                    comicinfo_found = True
+                    app_logger.info(f"Removing ComicInfo.xml from {file_path}")
+                    # Skip this file (don't write it to new zip)
+                    continue
+                else:
+                    # Copy all other files as-is
+                    new_zip.writestr(item, old_zip.read(item.filename))
+
+        if not comicinfo_found:
+            # Clean up temp file if ComicInfo.xml wasn't found
+            os.remove(temp_zip_path)
+            return jsonify({"success": False, "error": "ComicInfo.xml not found in CBZ"}), 404
+
+        # Replace the original CBZ with the updated one
+        os.replace(temp_zip_path, file_path)
+
+        app_logger.info(f"Successfully removed ComicInfo.xml from {file_path}")
+        return jsonify({"success": True})
+
+    except Exception as e:
+        app_logger.error(f"Error removing ComicInfo.xml from {file_path}: {e}")
+        # Clean up temp file if it exists
+        if os.path.exists(file_path + ".tmpzip"):
+            os.remove(file_path + ".tmpzip")
+        return jsonify({"success": False, "error": str(e)}), 500
+
 #####################################
 #     Move Files/Folders UI Page    #
 #####################################

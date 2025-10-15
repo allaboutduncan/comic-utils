@@ -17,6 +17,7 @@ let currentIssueNumber = '';
 let cbzCurrentDirectory = '';
 let cbzCurrentFileList = [];
 let cbzCurrentIndex = -1;
+let cbzCurrentFilePath = '';
 
 // Store raw data for each panel.
 let sourceDirectoriesData = null;
@@ -1268,7 +1269,54 @@ function openCreateFolderModal() {
       movingModal.show();
     }
     function hideMovingModal() {
-      movingModal.hide();
+      try {
+        movingModal.hide();
+
+        // Failsafe: ensure modal is actually hidden after a short delay
+        setTimeout(() => {
+          const modalElement = document.getElementById('movingModal');
+          if (modalElement && modalElement.classList.contains('show')) {
+            console.warn('Modal still showing after hide(), forcing removal');
+            // Remove Bootstrap classes manually
+            modalElement.classList.remove('show');
+            modalElement.style.display = 'none';
+            modalElement.setAttribute('aria-hidden', 'true');
+            modalElement.removeAttribute('aria-modal');
+            modalElement.removeAttribute('role');
+
+            // Remove backdrop if it exists
+            const backdrop = document.querySelector('.modal-backdrop');
+            if (backdrop) {
+              backdrop.remove();
+            }
+
+            // Restore body scroll
+            document.body.classList.remove('modal-open');
+            document.body.style.removeProperty('overflow');
+            document.body.style.removeProperty('padding-right');
+          }
+        }, 500);
+      } catch (err) {
+        console.error('Error hiding modal:', err);
+        // Force hide using DOM manipulation
+        const modalElement = document.getElementById('movingModal');
+        if (modalElement) {
+          modalElement.classList.remove('show');
+          modalElement.style.display = 'none';
+          modalElement.setAttribute('aria-hidden', 'true');
+
+          // Remove backdrop
+          const backdrop = document.querySelector('.modal-backdrop');
+          if (backdrop) {
+            backdrop.remove();
+          }
+
+          // Restore body scroll
+          document.body.classList.remove('modal-open');
+          document.body.style.removeProperty('overflow');
+          document.body.style.removeProperty('padding-right');
+        }
+      }
     }
     function setMovingStatus(message) {
       movingStatusText.textContent = message;
@@ -1283,34 +1331,60 @@ function openCreateFolderModal() {
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
         let buffer = '';
-        
+        let streamCompleted = false;
+
+        // Timeout to ensure we don't hang forever
+        const streamTimeout = setTimeout(() => {
+          if (!streamCompleted) {
+            console.warn(`Stream timeout for ${fileName}, assuming success`);
+            streamCompleted = true;
+            reader.cancel().catch(err => console.error('Error canceling reader:', err));
+            resolve({ success: true });
+          }
+        }, 120000); // 2 minutes per directory
+
         function processStream() {
           reader.read().then(({ done, value }) => {
             if (done) {
               // Stream complete
-              resolve({ success: true });
+              if (!streamCompleted) {
+                streamCompleted = true;
+                clearTimeout(streamTimeout);
+                console.log(`Stream naturally completed for ${fileName}`);
+                resolve({ success: true });
+              }
               return;
             }
-            
+
             // Decode the chunk and add to buffer
             buffer += decoder.decode(value, { stream: true });
-            
+
             // Process complete lines
             const lines = buffer.split('\n');
             buffer = lines.pop(); // Keep incomplete line in buffer
-            
+
             for (const line of lines) {
               if (line.startsWith('data: ')) {
                 const data = line.slice(6); // Remove 'data: ' prefix
-                
+
                 if (data === 'done') {
                   // Operation complete
-                  resolve({ success: true });
+                  if (!streamCompleted) {
+                    streamCompleted = true;
+                    clearTimeout(streamTimeout);
+                    console.log(`Stream sent 'done' for ${fileName}`);
+                    resolve({ success: true });
+                  }
                   return;
                 } else if (data.startsWith('error:')) {
                   // Operation failed
-                  const error = data.slice(7); // Remove 'error: ' prefix
-                  reject(new Error(error));
+                  if (!streamCompleted) {
+                    streamCompleted = true;
+                    clearTimeout(streamTimeout);
+                    const error = data.slice(7); // Remove 'error: ' prefix
+                    console.error(`Stream error for ${fileName}:`, error);
+                    reject(new Error(error));
+                  }
                   return;
                 } else if (data.startsWith('keepalive:')) {
                   // Keepalive message, update status
@@ -1320,7 +1394,7 @@ function openCreateFolderModal() {
                   // Progress percentage
                   const progress = parseInt(data);
                   updateMovingProgress(progress);
-                  
+
                   // Update status with progress
                   if (progress < 100) {
                     setMovingStatus(`Moving directory ${fileName}: ${progress}% complete`);
@@ -1330,12 +1404,19 @@ function openCreateFolderModal() {
                 }
               }
             }
-            
+
             // Continue reading
             processStream();
-          }).catch(reject);
+          }).catch(err => {
+            if (!streamCompleted) {
+              streamCompleted = true;
+              clearTimeout(streamTimeout);
+              console.error(`Stream read error for ${fileName}:`, err);
+              reject(err);
+            }
+          });
         }
-        
+
         processStream();
       });
     }
@@ -1704,6 +1785,9 @@ function showCBZInfo(filePath, fileName, directoryPath, fileList) {
       const modalElement = document.getElementById('cbzInfoModal');
       const content = document.getElementById('cbzInfoContent');
 
+      // Store current file path for clear button
+      cbzCurrentFilePath = filePath;
+
       // Store directory context for navigation
       if (directoryPath && fileList && fileList.length > 0) {
         cbzCurrentDirectory = directoryPath;
@@ -1756,7 +1840,12 @@ function showCBZInfo(filePath, fileName, directoryPath, fileList) {
           // Add ComicInfo section if available
           if (data.comicinfo) {
             html += `
-                <h6>Comic Information</h6>
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                  <h6 class="mb-0">Comic Information</h6>
+                  <button type="button" class="btn btn-outline-danger btn-sm" id="clearComicInfoBtn" title="Clear ComicInfo.xml">
+                    <i class="bi bi-eraser"></i>
+                  </button>
+                </div>
                 <div class="card">
                   <div class="card-body">
                     <div class="row">
@@ -1928,9 +2017,15 @@ function showCBZInfo(filePath, fileName, directoryPath, fileList) {
               </div>
             </div>
           `;
-          
+
           content.innerHTML = html;
-          
+
+          // Attach event listener to clear button if it exists
+          const clearBtn = document.getElementById('clearComicInfoBtn');
+          if (clearBtn) {
+            clearBtn.addEventListener('click', showClearComicInfoConfirmation);
+          }
+
           // Load preview
           fetch(`/cbz-preview?path=${encodeURIComponent(filePath)}&size=large`)
             .then(res => res.json())
@@ -2009,16 +2104,80 @@ function showCBZInfo(filePath, fileName, directoryPath, fileList) {
       }
     }
 
+    // Function to show confirmation toast for clearing ComicInfo.xml
+    function showClearComicInfoConfirmation() {
+      if (!cbzCurrentFilePath) {
+        const errorToastEl = document.getElementById('clearComicInfoErrorToast');
+        const errorBody = document.getElementById('clearComicInfoErrorBody');
+        errorBody.textContent = 'No CBZ file is currently selected.';
+        const errorToast = new bootstrap.Toast(errorToastEl);
+        errorToast.show();
+        return;
+      }
+
+      const confirmToastEl = document.getElementById('clearComicInfoConfirmToast');
+      const confirmToast = new bootstrap.Toast(confirmToastEl);
+      confirmToast.show();
+    }
+
+    // Function to actually clear ComicInfo.xml from the current CBZ file
+    function clearComicInfoXml() {
+      // Hide confirmation toast
+      const confirmToastEl = document.getElementById('clearComicInfoConfirmToast');
+      const confirmToast = bootstrap.Toast.getInstance(confirmToastEl);
+      if (confirmToast) {
+        confirmToast.hide();
+      }
+
+      fetch('/cbz-clear-comicinfo', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ path: cbzCurrentFilePath })
+      })
+      .then(response => response.json())
+      .then(result => {
+        if (result.success) {
+          // Show success toast
+          const successToastEl = document.getElementById('clearComicInfoSuccessToast');
+          const successToast = new bootstrap.Toast(successToastEl);
+          successToast.show();
+
+          // Reload the CBZ info to show updated metadata
+          const fileName = cbzCurrentFilePath.split('/').pop();
+          showCBZInfo(cbzCurrentFilePath, fileName, cbzCurrentDirectory, cbzCurrentFileList);
+        } else {
+          // Show error toast
+          const errorToastEl = document.getElementById('clearComicInfoErrorToast');
+          const errorBody = document.getElementById('clearComicInfoErrorBody');
+          errorBody.textContent = result.error || 'Failed to delete ComicInfo.xml';
+          const errorToast = new bootstrap.Toast(errorToastEl);
+          errorToast.show();
+        }
+      })
+      .catch(error => {
+        console.error('Error clearing ComicInfo.xml:', error);
+        const errorToastEl = document.getElementById('clearComicInfoErrorToast');
+        const errorBody = document.getElementById('clearComicInfoErrorBody');
+        errorBody.textContent = 'An error occurred while trying to delete ComicInfo.xml.';
+        const errorToast = new bootstrap.Toast(errorToastEl);
+        errorToast.show();
+      });
+    }
+
     // Add event listeners for CBZ navigation buttons
     document.addEventListener('DOMContentLoaded', () => {
       const prevBtn = document.getElementById('cbzPrevBtn');
       const nextBtn = document.getElementById('cbzNextBtn');
+      const confirmClearBtn = document.getElementById('confirmClearComicInfoBtn');
 
       if (prevBtn) {
         prevBtn.addEventListener('click', navigateCBZPrev);
       }
       if (nextBtn) {
         nextBtn.addEventListener('click', navigateCBZNext);
+      }
+      if (confirmClearBtn) {
+        confirmClearBtn.addEventListener('click', clearComicInfoXml);
       }
     });
 

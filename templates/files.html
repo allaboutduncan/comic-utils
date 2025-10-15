@@ -87,6 +87,43 @@
           Rename failed.
         </div>
       </div>
+
+      <!-- ComicInfo Clear Confirmation Toast -->
+      <div id="clearComicInfoConfirmToast" class="toast bg-warning" role="alert" aria-live="assertive" aria-atomic="true">
+        <div class="toast-header bg-warning">
+          <strong class="me-auto">Confirm Delete</strong>
+          <button type="button" class="btn-close" data-bs-dismiss="toast" aria-label="Close"></button>
+        </div>
+        <div class="toast-body">
+          <p class="mb-2">Are you sure you want to delete ComicInfo.xml? This cannot be undone.</p>
+          <div class="d-flex gap-2">
+            <button type="button" class="btn btn-sm btn-danger" id="confirmClearComicInfoBtn">Delete</button>
+            <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="toast">Cancel</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ComicInfo Clear Success Toast -->
+      <div id="clearComicInfoSuccessToast" class="toast bg-success text-white" role="alert" aria-live="assertive" aria-atomic="true">
+        <div class="toast-header bg-success text-white">
+          <strong class="me-auto">Success</strong>
+          <button type="button" class="btn-close btn-close-white" data-bs-dismiss="toast" aria-label="Close"></button>
+        </div>
+        <div class="toast-body">
+          ComicInfo.xml has been successfully deleted.
+        </div>
+      </div>
+
+      <!-- ComicInfo Clear Error Toast -->
+      <div id="clearComicInfoErrorToast" class="toast bg-danger text-white" role="alert" aria-live="assertive" aria-atomic="true">
+        <div class="toast-header bg-danger text-white">
+          <strong class="me-auto">Error</strong>
+          <button type="button" class="btn-close btn-close-white" data-bs-dismiss="toast" aria-label="Close"></button>
+        </div>
+        <div class="toast-body" id="clearComicInfoErrorBody">
+          Failed to delete ComicInfo.xml.
+        </div>
+      </div>
     </div>
 
   </div>
