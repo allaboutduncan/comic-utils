@@ -2872,6 +2872,7 @@ def search_gcd_metadata():
         series_name = None
         issue_number = None
         year = None
+        issue_number_was_defaulted = False  # Track if we defaulted the issue number
 
         if is_directory_search:
             # Check if this is a volume directory (e.g., v2015) that needs parent series name
@@ -2949,6 +2950,18 @@ def search_gcd_metadata():
                     year = int(match.group(3)) if len(match.groups()) >= 3 else None
                     app_logger.debug(f"DEBUG: File parsed - series_name={series_name}, issue_number={issue_number}, year={year}")
                     break
+
+            # If no pattern matched, try to parse as single-issue/graphic novel with just year
+            if not series_name:
+                # Pattern for single-issue series: "Series Name (2020)" or "Series Name: Subtitle (2020)"
+                single_issue_pattern = r'^(.+?)\s*\((\d{4})\)$'
+                match = re.match(single_issue_pattern, name_without_ext, re.IGNORECASE)
+                if match:
+                    series_name = match.group(1).strip()
+                    year = int(match.group(2))
+                    issue_number = 1  # Default to issue 1 for single-issue series/graphic novels
+                    issue_number_was_defaulted = True  # Mark that we defaulted this
+                    app_logger.debug(f"DEBUG: Single-issue/graphic novel parsed - series_name={series_name}, year={year}, issue_number={issue_number} (defaulted)")
 
         if not series_name or (not is_directory_search and issue_number is None):
             app_logger.debug(f"DEBUG: Failed to parse: {name_without_ext}")
@@ -3218,8 +3231,63 @@ def search_gcd_metadata():
 
             if not issue_basic:
                 app_logger.debug(f"DEBUG: Issue #{issue_number} not found in series")
-                issue_result = None
-            else:
+
+                # If the issue number was defaulted and we have exactly one series match,
+                # check if this is a single-issue series and get the only issue
+                if issue_number_was_defaulted and len(series_results) == 1:
+                    app_logger.debug(f"DEBUG: Checking if this is a single-issue series...")
+
+                    # Count total issues in this series
+                    count_query = "SELECT COUNT(*) as total FROM gcd_issue WHERE series_id = %s AND deleted = 0"
+                    cursor.execute(count_query, (best_series['id'],))
+                    count_result = cursor.fetchone()
+                    total_issues = count_result['total'] if count_result else 0
+
+                    app_logger.debug(f"DEBUG: Series has {total_issues} total issue(s)")
+
+                    if total_issues == 1:
+                        # This is a single-issue series, get the only issue regardless of its number
+                        app_logger.debug(f"DEBUG: Single-issue series detected, fetching the only issue...")
+
+                        single_issue_query = """
+                            SELECT
+                                i.id,
+                                i.title,
+                                i.number,
+                                i.volume,
+                                i.rating AS AgeRating,
+                                i.page_count,
+                                i.page_count_uncertain,
+                                i.key_date,
+                                i.on_sale_date,
+                                sr.id AS series_id,
+                                sr.name AS Series,
+                                COALESCE(ip.name, p.name) AS Publisher,
+                                (SELECT COUNT(*) FROM gcd_issue i2 WHERE i2.series_id = i.series_id AND i2.deleted = 0) AS Count
+                            FROM gcd_issue i
+                            JOIN gcd_series sr ON sr.id = i.series_id
+                            LEFT JOIN gcd_publisher p ON p.id = sr.publisher_id
+                            LEFT JOIN gcd_indicia_publisher ip ON ip.id = i.indicia_publisher_id
+                            WHERE i.series_id = %s AND i.deleted = 0
+                            LIMIT 1
+                        """
+
+                        cursor.execute(single_issue_query, (best_series['id'],))
+                        issue_basic = cursor.fetchone()
+
+                        if issue_basic:
+                            app_logger.debug(f"DEBUG: Found single issue with number: {issue_basic['number']}")
+                            # Continue with normal processing using this issue
+                        else:
+                            app_logger.debug(f"DEBUG: Failed to fetch the single issue")
+                            issue_result = None
+                    else:
+                        issue_result = None
+                else:
+                    issue_result = None
+
+            # Process the issue if we found it (either by exact match or single-issue fallback)
+            if issue_basic:
                 app_logger.debug(f"DEBUG: Basic issue info retrieved for issue #{issue_number}")
                 issue_id = issue_basic['id']
 
@@ -3413,6 +3481,10 @@ def search_gcd_metadata():
                     'LanguageISO': 'en',
                     'PageCount': page_count
                 }
+            else:
+                # If we still don't have issue_basic after all attempts, set issue_result to None
+                issue_result = None
+
             app_logger.debug(f"DEBUG: Issue search result: {'Found' if issue_result else 'Not found'}")
             if issue_result:
                 #print(f"DEBUG: Issue result keys: {list(issue_result.keys())}")
