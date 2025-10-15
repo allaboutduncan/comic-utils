@@ -60,6 +60,7 @@ function extractSeriesName(filename) {
 }
 
 // Get the most common series name from selected files
+// Returns an object with { seriesName, hasMultipleSeries, uniqueSeriesCount }
 function getMostCommonSeriesName(filePaths) {
   const seriesCount = {};
 
@@ -75,6 +76,7 @@ function getMostCommonSeriesName(filePaths) {
   // Find the most common series name
   let maxCount = 0;
   let mostCommon = null;
+  const uniqueSeriesCount = Object.keys(seriesCount).length;
 
   for (const [series, count] of Object.entries(seriesCount)) {
     if (count > maxCount) {
@@ -83,7 +85,12 @@ function getMostCommonSeriesName(filePaths) {
     }
   }
 
-  return mostCommon;
+  return {
+    seriesName: mostCommon,
+    hasMultipleSeries: uniqueSeriesCount > 1,
+    uniqueSeriesCount: uniqueSeriesCount,
+    seriesCount: seriesCount
+  };
 }
 
 // Create folder with selected files
@@ -96,17 +103,70 @@ function createFolderWithSelection() {
   }
 
   const filePaths = Array.from(selectedFiles);
-  const seriesName = getMostCommonSeriesName(filePaths);
+  const seriesInfo = getMostCommonSeriesName(filePaths);
 
-  if (!seriesName) {
+  if (!seriesInfo.seriesName) {
     alert('Could not determine series name from selected files');
     return;
   }
 
+  // If there are multiple different series, prompt the user for a folder name
+  if (seriesInfo.hasMultipleSeries) {
+    showFolderNamePrompt(filePaths, seriesInfo);
+    return;
+  }
+
+  // Single series - proceed with automatic folder creation
+  const seriesName = seriesInfo.seriesName;
+  proceedWithFolderCreation(filePaths, seriesName);
+}
+
+// Show the folder name prompt modal
+function showFolderNamePrompt(filePaths, seriesInfo) {
+  const modal = new bootstrap.Modal(document.getElementById('folderNamePromptModal'));
+
+  // Update the message
+  const message = `Selected files contain ${seriesInfo.uniqueSeriesCount} different series. Please enter a folder name.`;
+  document.getElementById('folderPromptMessage').textContent = message;
+
+  // Populate the file list
+  const fileListElement = document.getElementById('selectedFilesListItems');
+  fileListElement.innerHTML = '';
+
+  filePaths.forEach(path => {
+    const filename = path.split('/').pop();
+    const li = document.createElement('li');
+    li.className = 'list-group-item';
+    li.textContent = filename;
+    fileListElement.appendChild(li);
+  });
+
+  // Clear previous input
+  document.getElementById('customFolderName').value = '';
+
+  // Show modal
+  modal.show();
+
+  // Handle Enter key in input
+  const inputElement = document.getElementById('customFolderName');
+  inputElement.onkeypress = function(e) {
+    if (e.key === 'Enter') {
+      document.getElementById('confirmCustomFolderBtn').click();
+    }
+  };
+
+  // Focus the input
+  document.getElementById('folderNamePromptModal').addEventListener('shown.bs.modal', function () {
+    inputElement.focus();
+  }, { once: true });
+}
+
+// Proceed with folder creation using the specified folder name
+function proceedWithFolderCreation(filePaths, folderName) {
   // Get the directory of the first selected file
   const firstFilePath = filePaths[0];
   const parentDir = firstFilePath.substring(0, firstFilePath.lastIndexOf('/'));
-  const newFolderPath = `${parentDir}/${seriesName}`;
+  const newFolderPath = `${parentDir}/${folderName}`;
 
   // Create the folder
   fetch('/create-folder', {
@@ -248,6 +308,7 @@ document.addEventListener('DOMContentLoaded', function() {
   const contextCreateFolder = document.getElementById('contextCreateFolder');
   const contextDeleteFiles = document.getElementById('contextDeleteFiles');
   const confirmDeleteMultipleBtn = document.getElementById('confirmDeleteMultipleBtn');
+  const confirmCustomFolderBtn = document.getElementById('confirmCustomFolderBtn');
 
   if (contextCreateFolder) {
     contextCreateFolder.addEventListener('click', function(e) {
@@ -266,6 +327,27 @@ document.addEventListener('DOMContentLoaded', function() {
   if (confirmDeleteMultipleBtn) {
     confirmDeleteMultipleBtn.addEventListener('click', function() {
       deleteMultipleFiles();
+    });
+  }
+
+  if (confirmCustomFolderBtn) {
+    confirmCustomFolderBtn.addEventListener('click', function() {
+      const folderName = document.getElementById('customFolderName').value.trim();
+
+      if (!folderName) {
+        alert('Please enter a folder name');
+        return;
+      }
+
+      // Close the modal
+      const modal = bootstrap.Modal.getInstance(document.getElementById('folderNamePromptModal'));
+      if (modal) modal.hide();
+
+      // Get the selected files from the global variable
+      const filePaths = Array.from(selectedFiles);
+
+      // Proceed with folder creation
+      proceedWithFolderCreation(filePaths, folderName);
     });
   }
 });

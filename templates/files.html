@@ -194,6 +194,39 @@
   </div>
   <!-- End of Multi-file Delete Confirmation Modal -->
 
+  <!-- Folder Name Prompt Modal for Mixed Series -->
+  <div class="modal fade" id="folderNamePromptModal" tabindex="-1" aria-labelledby="folderNamePromptModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title" id="folderNamePromptModalLabel">Enter Folder Name</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body">
+          <div class="alert alert-info">
+            <i class="bi bi-info-circle me-2"></i>
+            <span id="folderPromptMessage">Selected files have different series names. Please enter a folder name.</span>
+          </div>
+          <div class="mb-3">
+            <label for="customFolderName" class="form-label">Folder Name</label>
+            <input type="text" class="form-control" id="customFolderName" placeholder="Enter folder name" autocomplete="off" />
+          </div>
+          <div id="selectedFilesList" style="max-height: 200px; overflow-y: auto;">
+            <h6 class="text-muted small">Selected files:</h6>
+            <ul id="selectedFilesListItems" class="list-group list-group-flush small">
+              <!-- File names will be populated here -->
+            </ul>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+          <button type="button" class="btn btn-primary" id="confirmCustomFolderBtn">Create Folder</button>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- End of Folder Name Prompt Modal -->
+
   <!-- Create Folder Modal -->
   <div class="modal fade" id="createFolderModal" tabindex="-1" aria-labelledby="createFolderModalLabel" aria-hidden="true">
     <div class="modal-dialog">
