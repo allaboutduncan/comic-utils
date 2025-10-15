@@ -84,6 +84,7 @@ function checkGCDAvailability() {
         let paths = items.map(item => item.path);
         moveMultipleItems(paths, currentPath, panel);
         selectedFiles.clear();
+        if (typeof updateSelectionBadge === 'function') updateSelectionBadge();
       });
       
       container.appendChild(dropTargetItem);
@@ -503,9 +504,11 @@ function checkGCDAvailability() {
             if (selectedFiles.has(fullPath)) {
               selectedFiles.delete(fullPath);
               li.classList.remove("selected");
+              li.removeAttribute("data-selection-hint");
             } else {
               selectedFiles.add(fullPath);
               li.classList.add("selected");
+              li.setAttribute("data-selection-hint", "Drag to move • Right-click for options");
             }
             lastClickedFile = li;
           } else if (e.shiftKey) {
@@ -522,20 +525,30 @@ function checkGCDAvailability() {
               let item = fileItems[i];
               selectedFiles.add(item.getAttribute("data-fullpath"));
               item.classList.add("selected");
+              item.setAttribute("data-selection-hint", "Drag to move • Right-click for options");
             }
           } else {
             selectedFiles.clear();
             document.querySelectorAll("li.list-group-item.selected").forEach(item => {
               item.classList.remove("selected");
+              item.removeAttribute("data-selection-hint");
             });
             selectedFiles.add(fullPath);
             li.classList.add("selected");
+            li.setAttribute("data-selection-hint", "Drag to move • Right-click for options");
             lastClickedFile = li;
           }
+          updateSelectionBadge();
           e.stopPropagation();
         });
 
-        li.addEventListener("contextmenu", e => e.preventDefault());
+        li.addEventListener("contextmenu", e => {
+          e.preventDefault();
+          // Only show context menu if multiple files are selected
+          if (selectedFiles.size > 1) {
+            showFileContextMenu(e, panel);
+          }
+        });
       }
 
       if (type === "directory") {
@@ -583,8 +596,9 @@ function checkGCDAvailability() {
             } else {
               // Pass item types for better progress tracking
               moveMultipleItems(paths, targetDir, panel, items);
-            } 
+            }
             selectedFiles.clear();
+            if (typeof updateSelectionBadge === 'function') updateSelectionBadge();
           });
         }
       } else {
@@ -614,9 +628,14 @@ function checkGCDAvailability() {
               }
             } else {
               selectedFiles.clear();
-              document.querySelectorAll("li.list-group-item.selected").forEach(item => item.classList.remove("selected"));
+              document.querySelectorAll("li.list-group-item.selected").forEach(item => {
+                item.classList.remove("selected");
+                item.removeAttribute("data-selection-hint");
+              });
               selectedFiles.add(fullPath);
               li.classList.add("selected");
+              li.setAttribute("data-selection-hint", "Drag to move • Right-click for options");
+              if (typeof updateSelectionBadge === 'function') updateSelectionBadge();
               e.dataTransfer.setData("text/plain", JSON.stringify([{ path: fullPath, type: "file" }]));
               e.dataTransfer.effectAllowed = "move";
             }
@@ -1144,6 +1163,7 @@ document.addEventListener('DOMContentLoaded', function() {
           moveMultipleItems(paths, targetPath, panel, itemsWithTypes);
         }
         selectedFiles.clear();
+        if (typeof updateSelectionBadge === 'function') updateSelectionBadge();
       });
     }
   
@@ -4361,3 +4381,4 @@ function cleanupOrphanFiles() {
         seriesList.appendChild(seriesItem);
       });
     }
+

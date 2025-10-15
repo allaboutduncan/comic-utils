@@ -65,6 +65,40 @@
     .list-group-item.selected {
         background-color: #e3f2fd;
         border-color: #2196f3;
+        box-shadow: 0 2px 4px rgba(33, 150, 243, 0.2);
+        position: relative;
+    }
+
+    /* Enhanced cursor for selected files */
+    .list-group-item.selected[draggable="true"] {
+        cursor: grab;
+    }
+
+    .list-group-item.selected[draggable="true"]:active {
+        cursor: grabbing;
+    }
+
+    /* Tooltip for selected files */
+    .list-group-item.selected::after {
+        content: attr(data-selection-hint);
+        position: absolute;
+        bottom: -30px;
+        left: 50%;
+        transform: translateX(-50%);
+        background: rgba(0, 0, 0, 0.8);
+        color: white;
+        padding: 4px 8px;
+        border-radius: 4px;
+        font-size: 0.75rem;
+        white-space: nowrap;
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 0.2s ease;
+        z-index: 1000;
+    }
+
+    .list-group-item.selected:hover::after {
+        opacity: 1;
     }
 
     /* Draggable items cursor */
@@ -100,4 +134,56 @@
         font-weight: bold;
         z-index: 1000;
         pointer-events: none;
+    }
+
+    /* Selection count badge */
+    .selection-badge {
+        position: fixed;
+        top: 80px;
+        right: 20px;
+        background: linear-gradient(135deg, #2196f3 0%, #1976d2 100%);
+        color: white;
+        padding: 8px 16px;
+        border-radius: 20px;
+        font-size: 0.875rem;
+        font-weight: 600;
+        box-shadow: 0 4px 12px rgba(33, 150, 243, 0.4);
+        z-index: 1040;
+        display: none;
+        align-items: center;
+        gap: 8px;
+        animation: slideInRight 0.3s ease;
+        transition: all 0.3s ease;
+    }
+
+    .selection-badge.show {
+        display: flex;
+    }
+
+    .selection-badge:hover {
+        transform: scale(1.05);
+        box-shadow: 0 6px 16px rgba(33, 150, 243, 0.5);
+    }
+
+    .selection-badge .badge-icon {
+        font-size: 1rem;
+    }
+
+    .selection-badge .badge-hint {
+        font-size: 0.75rem;
+        opacity: 0.9;
+        margin-left: 4px;
+        padding-left: 8px;
+        border-left: 1px solid rgba(255, 255, 255, 0.3);
+    }
+
+    @keyframes slideInRight {
+        from {
+            transform: translateX(100%);
+            opacity: 0;
+        }
+        to {
+            transform: translateX(0);
+            opacity: 1;
+        }
     }
