@@ -3078,65 +3078,6 @@ function performSearch() {
       }
     }
 
-    // Function to cleanup orphan files in the watch directory
-function cleanupOrphanFiles() {
-      if (!confirm('This will remove all temporary download files (like .crdownload, .tmp, .part) from the downloads folder. Continue?')) {
-        return;
-      }
-      
-      // Show loading state
-      const cleanupBtn = event.target;
-      const originalText = cleanupBtn.innerHTML;
-      cleanupBtn.disabled = true;
-      cleanupBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Cleaning...';
-      
-      fetch('/cleanup-orphan-files', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' }
-      })
-      .then(response => response.json())
-      .then(data => {
-        if (data.success) {
-          // Update last cleanup status
-          updateLastCleanupStatus();
-          
-          if (data.cleaned_count > 0) {
-            // Show detailed results
-            let message = `Cleaned up ${data.cleaned_count} orphan files, freed ${data.total_size_cleaned}`;
-            if (data.cleaned_files && data.cleaned_files.length > 0) {
-              message += '\n\nCleaned files:\n' + data.cleaned_files.map(f => `• ${f.file} (${f.size})`).join('\n');
-            }
-            showToast('Cleanup Complete', message, 'success');
-          } else {
-            showToast('Cleanup Complete', 'No orphan files found', 'info');
-          }
-          
-          // Refresh the destination directory listing
-          loadDirectories(currentDestinationPath, 'destination');
-        } else {
-          showToast('Cleanup Failed', data.error || 'Unknown error occurred', 'error');
-        }
-      })
-      .catch(error => {
-        console.error('Error during cleanup:', error);
-        showToast('Cleanup Failed', 'Network or server error occurred', 'error');
-      })
-      .finally(() => {
-        // Restore button state
-        cleanupBtn.disabled = false;
-        cleanupBtn.innerHTML = originalText;
-      });
-    }
-
-    // Function to update the last cleanup status
-    function updateLastCleanupStatus() {
-      const now = new Date();
-      const statusElement = document.getElementById('lastCleanupStatus');
-      if (statusElement) {
-        statusElement.textContent = formatTimestamp(now);
-      }
-    }
-
     // Function to format timestamp in a user-friendly way
     function formatTimestamp(date) {
       const now = new Date();
