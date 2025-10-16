@@ -27,10 +27,8 @@
         <div class="btn-group mb-2" role="group" aria-label="View Options">
           <button type="button" id="btnDirectories" class="btn btn-outline-primary active" onclick="loadDirectories('/data', 'source');" data-bs-toggle="button" aria-pressed="true">Directories</button>
           <button type="button" id="btnDownloads" class="btn btn-outline-primary" onclick="loadDownloads('{{ target_dir }}', 'source');"data-bs-toggle="button">Downloads</button>
+          <button type="button" id="btnNewFiles" class="btn btn-outline-primary" onclick="loadNewFiles('/data', 'source');" data-bs-toggle="button">New Files</button>
         </div>
-        <!-- <div class="btn-group mb-2" role="group" aria-label="View Options">
-          <button type="button" class="btn btn-outline-warning" onclick="cleanupOrphanFiles()"><i class="bi bi-trash"></i> Cleanup Orphan Downloads</button>
-        </div> -->
         <!-- Filter buttons for source panel -->
         <div id="source-directory-filter" class="mb-2">
           <div class="btn-group d-grid grid-filter-buttons" role="group" aria-label="Directory Filter">

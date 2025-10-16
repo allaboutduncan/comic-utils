@@ -944,6 +944,120 @@ def list_directories():
 
 
 #########################
+#    List New Files     #
+#########################
+@app.route('/list-new-files', methods=['GET'])
+def list_new_files():
+    """List files created in the past 7 days in the given directory and its subdirectories.
+    Optimized for large file counts with early termination and result limits."""
+    current_path = request.args.get('path', DATA_DIR)  # Default to /data
+    days = int(request.args.get('days', 7))  # Default to 7 days
+    max_results = int(request.args.get('max_results', 500))  # Limit results to prevent timeout
+
+    if not os.path.exists(current_path):
+        return jsonify({"error": "Directory not found"}), 404
+
+    try:
+        from datetime import datetime, timedelta
+        import time as time_module
+
+        # Calculate cutoff time (7 days ago)
+        cutoff_time = datetime.now() - timedelta(days=days)
+        cutoff_timestamp = cutoff_time.timestamp()
+
+        # List to store new files
+        new_files = []
+        excluded_extensions = {".png", ".jpg", ".jpeg", ".gif", ".txt", ".html", ".css", ".ds_store", "cvinfo", ".json", ".db"}
+
+        # Track scan stats
+        files_scanned = 0
+        dirs_scanned = 0
+        start_time = time_module.time()
+        max_scan_time = 30  # Maximum 30 seconds scan time
+
+        # Generator function for efficient scanning
+        def scan_for_new_files():
+            nonlocal files_scanned, dirs_scanned
+
+            for root, dirs, files in os.walk(current_path):
+                # Check timeout
+                if time_module.time() - start_time > max_scan_time:
+                    app_logger.warning(f"New files scan timed out after {max_scan_time}s")
+                    break
+
+                # Skip hidden directories
+                dirs[:] = [d for d in dirs if not d.startswith(('.', '_'))]
+                dirs_scanned += 1
+
+                for filename in files:
+                    files_scanned += 1
+
+                    # Skip hidden files and excluded extensions
+                    if filename.startswith(('.', '_')):
+                        continue
+
+                    if any(filename.lower().endswith(ext) for ext in excluded_extensions):
+                        continue
+
+                    full_path = os.path.join(root, filename)
+
+                    try:
+                        # Use lstat for faster access (doesn't follow symlinks)
+                        stat = os.lstat(full_path)
+
+                        # Check if file was created within the time window
+                        if stat.st_ctime >= cutoff_timestamp:
+                            yield {
+                                "name": filename,
+                                "size": stat.st_size,
+                                "path": full_path,
+                                "created": datetime.fromtimestamp(stat.st_ctime).isoformat(),
+                                "created_ts": stat.st_ctime
+                            }
+                    except (OSError, IOError):
+                        # Skip files we can't access
+                        continue
+
+        # Collect files up to max_results
+        for file_info in scan_for_new_files():
+            new_files.append(file_info)
+
+            # Stop if we've reached the limit
+            if len(new_files) >= max_results:
+                app_logger.info(f"Reached max_results limit of {max_results}")
+                break
+
+        # Sort by creation time (newest first)
+        new_files.sort(key=lambda f: f["created_ts"], reverse=True)
+
+        # Remove the timestamp field from results (was only used for sorting)
+        for file_info in new_files:
+            del file_info["created_ts"]
+
+        elapsed_time = time_module.time() - start_time
+        app_logger.info(f"New files scan completed: {len(new_files)} found, {files_scanned} files scanned, {dirs_scanned} dirs, {elapsed_time:.2f}s")
+
+        return jsonify({
+            "current_path": current_path,
+            "files": new_files,
+            "total_count": len(new_files),
+            "days": days,
+            "cutoff_date": cutoff_time.isoformat(),
+            "limited": len(new_files) >= max_results,
+            "max_results": max_results,
+            "scan_stats": {
+                "files_scanned": files_scanned,
+                "dirs_scanned": dirs_scanned,
+                "elapsed_seconds": round(elapsed_time, 2)
+            }
+        })
+
+    except Exception as e:
+        app_logger.error(f"Error in list_new_files for {current_path}: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+#########################
 #    List Downloads     #
 #########################
 @app.route('/list-downloads', methods=['GET'])

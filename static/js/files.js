@@ -722,10 +722,19 @@ function checkGCDAvailability() {
       }
     }
     // Updated loadDirectories function.
-function loadDirectories(path, panel) {
+    function loadDirectories(path, panel) {
       console.log("loadDirectories called with path:", path, "panel:", panel);
       document.getElementById('btnDirectories').classList.add('active');
       document.getElementById('btnDownloads').classList.remove('active');
+      const btnNewFiles = document.getElementById('btnNewFiles');
+      if (btnNewFiles) btnNewFiles.classList.remove('active');
+
+      // Show filter bar
+      const filterBar = document.getElementById(`${panel}-directory-filter`);
+      if (filterBar) {
+        filterBar.style.display = 'block';
+      }
+
       window.scrollTo({ top: 0, behavior: "smooth" });
       let container = panel === 'source' ? document.getElementById("source-list")
                                          : document.getElementById("destination-list");
@@ -774,6 +783,109 @@ function loadDirectories(path, panel) {
           console.error("Error loading directories:", error);
           container.innerHTML = `<div class="alert alert-danger" role="alert">
                                     Error loading directory.
+                                  </div>`;
+        });
+    }
+
+    // Load new files from the past 7 days
+    function loadNewFiles(path, panel) {
+      console.log("loadNewFiles called with path:", path, "panel:", panel);
+
+      // Update button states
+      document.getElementById('btnDirectories').classList.remove('active');
+      document.getElementById('btnDownloads').classList.remove('active');
+      document.getElementById('btnNewFiles').classList.add('active');
+
+      window.scrollTo({ top: 0, behavior: "smooth" });
+
+      let container = panel === 'source' ? document.getElementById("source-list")
+                                         : document.getElementById("destination-list");
+      if (!container) {
+        console.error("Container not found for panel:", panel);
+        return;
+      }
+
+      // Show loading spinner
+      container.innerHTML = `<div class="d-flex justify-content-center my-3">
+                                <button class="btn btn-primary" type="button" disabled>
+                                  <span class="spinner-grow spinner-grow-sm" role="status" aria-hidden="true"></span>
+                                  Loading new files...
+                                </button>
+                              </div>`;
+
+      fetch(`/list-new-files?path=${encodeURIComponent(path)}`)
+        .then(response => response.json())
+        .then(data => {
+          console.log("Received new files data:", data);
+
+          // Check for server errors
+          if (data.error) {
+            throw new Error(data.error);
+          }
+
+          // Update current path
+          if (panel === 'source') {
+            currentSourcePath = data.current_path;
+            updateBreadcrumb('source', data.current_path);
+          } else {
+            currentDestinationPath = data.current_path;
+            updateBreadcrumb('destination', data.current_path);
+          }
+
+          // Clear the container
+          container.innerHTML = "";
+
+          // Add info header showing file count and date range
+          const infoHeader = document.createElement("div");
+          infoHeader.className = data.limited ? "alert alert-warning mb-3" : "alert alert-info mb-3";
+
+          let headerHTML = `
+            <i class="bi bi-info-circle me-2"></i>
+            <strong>${data.total_count}</strong> new file(s) found in the past ${data.days} days
+          `;
+
+          // Show warning if results were limited
+          if (data.limited) {
+            headerHTML += `<br><small><i class="bi bi-exclamation-triangle me-1"></i>Showing first ${data.max_results} results only. Scan stopped early to prevent timeout.</small>`;
+          }
+
+          // Show scan stats
+          if (data.scan_stats) {
+            headerHTML += `<br><small class="text-muted">Scanned ${data.scan_stats.files_scanned.toLocaleString()} files in ${data.scan_stats.elapsed_seconds}s</small>`;
+          }
+
+          infoHeader.innerHTML = headerHTML;
+          container.appendChild(infoHeader);
+
+          // Render files
+          if (data.files && data.files.length > 0) {
+            data.files.forEach(file => {
+              const fileItem = createListItem(
+                { name: file.name, size: file.size },
+                file.path,
+                "file",
+                panel,
+                true
+              );
+              container.appendChild(fileItem);
+            });
+          } else {
+            const noFilesMsg = document.createElement("div");
+            noFilesMsg.className = "alert alert-secondary text-center";
+            noFilesMsg.textContent = "No new files found in the past 7 days";
+            container.appendChild(noFilesMsg);
+          }
+
+          // Hide filter bar for new files view
+          const filterBar = document.getElementById(`${panel}-directory-filter`);
+          if (filterBar) {
+            filterBar.style.display = 'none';
+          }
+        })
+        .catch(error => {
+          console.error("Error loading new files:", error);
+          container.innerHTML = `<div class="alert alert-danger" role="alert">
+                                    Error loading new files: ${error.message}
                                   </div>`;
         });
     }
@@ -879,6 +991,15 @@ function loadDownloads(path, panel) {
       console.log("loadDownloads called with path:", path, "panel:", panel);
       document.getElementById('btnDownloads').classList.add('active');
       document.getElementById('btnDirectories').classList.remove('active');
+      const btnNewFiles = document.getElementById('btnNewFiles');
+      if (btnNewFiles) btnNewFiles.classList.remove('active');
+
+      // Show filter bar
+      const filterBar = document.getElementById(`${panel}-directory-filter`);
+      if (filterBar) {
+        filterBar.style.display = 'block';
+      }
+
       window.scrollTo({ top: 0, behavior: "smooth" });
       let container = panel === 'source' ? document.getElementById("source-list")
                                          : document.getElementById("destination-list");
