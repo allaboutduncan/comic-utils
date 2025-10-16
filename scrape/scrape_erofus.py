@@ -25,8 +25,50 @@ def safe_title(text: str) -> str:
     t = ' '.join((text or 'comic').split())
     return re.sub(r'[<>:"/\\|?*\r\n]', '', t).strip() or "comic"
 
+def get_series_links(publisher_url: str, log_callback=None) -> list[str]:
+    """Get all series links from a publisher page"""
+    def log(msg):
+        if log_callback:
+            log_callback(msg)
+        app_logger.info(msg)
+
+    log(f"Fetching series links from: {publisher_url}")
+    r = session.get(publisher_url, timeout=25)
+    r.raise_for_status()
+    soup = BeautifulSoup(r.text, "html.parser")
+
+    # Extract base path from publisher URL (e.g., /comics/brainstorm-comics)
+    parsed = urlparse(publisher_url)
+    publisher_path = parsed.path.rstrip("/")
+    log(f"Publisher path: {publisher_path}")
+
+    # Find all series links that start with the publisher path
+    # Pattern: /comics/[publisher-slug]/[series-slug]
+    series_links = []
+    for a in soup.find_all("a", href=True):
+        href = a["href"]
+        # Check if this is a series link (starts with publisher path and has one more segment)
+        if href.startswith(publisher_path + "/"):
+            # Count path segments after publisher path
+            relative_path = href[len(publisher_path):].strip("/")
+            # Series links have exactly one more segment (no /issue- suffix)
+            if relative_path and "/" not in relative_path and "/issue-" not in relative_path.lower():
+                full_url = urljoin(BASE, href)
+                series_links.append(full_url)
+
+    # Remove duplicates and sort
+    series_links = sorted(set(series_links))
+    log(f"Found {len(series_links)} series links")
+    if len(series_links) > 0:
+        log(f"First 3 series: {series_links[:3]}")
+    return series_links
+
 def get_issue_links(series_url: str, log_callback=None) -> list[str]:
-    """Get all issue links from a series page"""
+    """Get all issue links from a series page
+
+    Returns a list of issue URLs. If the series is a single-issue comic (no /issue- links),
+    returns the series URL itself as the only issue.
+    """
     def log(msg):
         if log_callback:
             log_callback(msg)
@@ -48,6 +90,17 @@ def get_issue_links(series_url: str, log_callback=None) -> list[str]:
         if series_path in href and "/issue-" in href.lower():
             full_url = urljoin(BASE, href)
             issue_links.append(full_url)
+
+    # If no issue links found, check if this is a single-issue comic
+    if not issue_links:
+        # Look for page links to confirm this is a direct comic page
+        page_links = soup.find_all("a", href=re.compile(r'^/pic/'), class_="a-click")
+        if page_links:
+            log("Detected single-issue comic (no /issue- links, but has page links)")
+            return [series_url]
+        else:
+            log("No issue links or page links found")
+            return []
 
     # Remove duplicates and sort
     issue_links = sorted(set(issue_links))
@@ -264,14 +317,51 @@ def scrape_issue(issue_url: str, output_dir: str = None, log_callback=None, prog
     update_progress({"status": "Completed", "current": os.path.basename(cbz_path), "progress": 100})
     return cbz_path
 
-def is_issue_url(url: str, log_callback=None) -> bool:
-    """Check if URL points directly to issue pages (vs a series page with multiple issues)"""
+def detect_url_type(url: str, log_callback=None) -> str:
+    """Detect if URL is a publisher, series, or issue page
+
+    Returns:
+        'publisher' - Publisher page with multiple series
+        'series' - Series page with multiple issues
+        'issue' - Direct issue page with comic pages
+    """
     def log(msg):
         if log_callback:
             log_callback(msg)
         app_logger.info(msg)
 
     try:
+        # Check URL structure first
+        parsed = urlparse(url)
+        path_parts = [p for p in parsed.path.strip("/").split("/") if p]
+
+        # Publisher URL pattern: /comics/[publisher-slug] (2 parts)
+        # Series URL pattern: /comics/[publisher-slug]/[series-slug] (3 parts)
+        # Issue URL pattern: /comics/[publisher-slug]/[series-slug]/issue-X (4 parts with "issue-")
+
+        if len(path_parts) == 2 and path_parts[0] == "comics":
+            log("URL structure suggests publisher page")
+            # Verify by checking for series links
+            r = session.get(url, timeout=25)
+            r.raise_for_status()
+            soup = BeautifulSoup(r.text, "html.parser")
+
+            publisher_path = parsed.path.rstrip("/")
+            series_count = 0
+            for a in soup.find_all("a", href=True):
+                href = a["href"]
+                if href.startswith(publisher_path + "/") and "/issue-" not in href.lower():
+                    relative_path = href[len(publisher_path):].strip("/")
+                    if relative_path and "/" not in relative_path:
+                        series_count += 1
+                        if series_count > 3:  # Found enough to confirm it's a publisher page
+                            break
+
+            if series_count > 0:
+                log(f"Detected publisher page (found {series_count}+ series)")
+                return 'publisher'
+
+        # Check page content to distinguish between series and issue
         r = session.get(url, timeout=25)
         r.raise_for_status()
         soup = BeautifulSoup(r.text, "html.parser")
@@ -281,17 +371,71 @@ def is_issue_url(url: str, log_callback=None) -> bool:
 
         # If we find page links, this is an issue URL
         if len(page_links) > 0:
-            log(f"Detected direct issue URL (found {len(page_links)} page links)")
-            return True
+            log(f"Detected issue page (found {len(page_links)} page links)")
+            return 'issue'
 
         # Otherwise, it's a series page
-        log("Detected series page URL")
-        return False
+        log("Detected series page")
+        return 'series'
 
     except Exception as e:
-        log(f"Error checking URL type: {e}")
+        log(f"Error detecting URL type: {e}")
         # Default to treating as series page
-        return False
+        return 'series'
+
+def is_issue_url(url: str, log_callback=None) -> bool:
+    """Check if URL points directly to issue pages (vs a series page with multiple issues)
+
+    DEPRECATED: Use detect_url_type() instead for better accuracy
+    """
+    return detect_url_type(url, log_callback) == 'issue'
+
+def scrape_publisher(publisher_url: str, output_dir: str = None, log_callback=None, progress_callback=None):
+    """Scrape all series from a publisher page"""
+    def log(msg):
+        if log_callback:
+            log_callback(msg)
+        app_logger.info(msg)
+
+    def update_progress(data):
+        if progress_callback:
+            progress_callback(data)
+
+    log(f"Scraping publisher: {publisher_url}")
+    update_progress({"status": "Getting series links", "current": publisher_url})
+
+    # Get all series links
+    series_links = get_series_links(publisher_url, log_callback)
+    if not series_links:
+        log("No series found")
+        return []
+
+    log(f"Found {len(series_links)} series to scrape")
+    results = []
+    for idx, series_url in enumerate(series_links, 1):
+        try:
+            log(f"\n{'='*80}")
+            log(f"Processing series {idx}/{len(series_links)}: {series_url}")
+            log('='*80)
+            update_progress({
+                "status": f"Processing series {idx}/{len(series_links)}",
+                "current": series_url,
+                "progress": (idx - 1) / len(series_links) * 100
+            })
+
+            # Scrape all issues from this series
+            series_results = scrape_series(series_url, output_dir, log_callback, progress_callback)
+            if series_results:
+                results.extend(series_results)
+
+            time.sleep(1.0)  # Be extra nice between series
+        except Exception as e:
+            log(f"Error on series {series_url}: {e}")
+
+    log(f"\n{'='*80}")
+    log(f"Publisher scrape complete: {len(results)} total issues downloaded")
+    log('='*80)
+    return results
 
 def scrape_series(series_url: str, output_dir: str = None, log_callback=None, progress_callback=None):
     """Scrape all issues from a series or a single issue"""
@@ -339,3 +483,46 @@ def scrape_series(series_url: str, output_dir: str = None, log_callback=None, pr
                 log(f"Error on {issue_url}: {e}")
 
         return results
+
+def scrape(url: str, output_dir: str = None, log_callback=None, progress_callback=None):
+    """Main entry point for scraping - automatically detects URL type and scrapes accordingly
+
+    Args:
+        url: Publisher, series, or issue URL
+        output_dir: Directory to save CBZ files
+        log_callback: Function to call for logging messages
+        progress_callback: Function to call for progress updates
+
+    Returns:
+        List of paths to created CBZ files
+    """
+    def log(msg):
+        if log_callback:
+            log_callback(msg)
+        app_logger.info(msg)
+
+    try:
+        # Ensure output directory exists if specified
+        if output_dir:
+            os.makedirs(output_dir, exist_ok=True)
+            log(f"Output directory: {output_dir}")
+
+        # Detect URL type
+        log(f"Detecting URL type for: {url}")
+        url_type = detect_url_type(url, log_callback)
+        log(f"Detected URL type: {url_type}")
+
+        if url_type == 'publisher':
+            return scrape_publisher(url, output_dir, log_callback, progress_callback)
+        elif url_type == 'series':
+            return scrape_series(url, output_dir, log_callback, progress_callback)
+        elif url_type == 'issue':
+            result = scrape_issue(url, output_dir, log_callback, progress_callback)
+            return [result] if result else []
+        else:
+            log(f"Unknown URL type: {url_type}")
+            return []
+    except Exception as e:
+        log(f"ERROR in scrape(): {type(e).__name__}: {str(e)}")
+        app_logger.error(f"Error in scrape(): {e}", exc_info=True)
+        raise  # Re-raise to let the caller handle it

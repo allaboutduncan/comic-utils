@@ -17,7 +17,8 @@
       "Bash(mkdir:*)",
       "Bash(move:*)",
       "Bash(move scrape_readcomiconline.py scrape)",
-      "Bash(mv:*)"
+      "Bash(mv:*)",
+      "WebFetch(domain:www.erofus.com)"
     ],
     "deny": [],
     "ask": []

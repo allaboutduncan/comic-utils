@@ -26,7 +26,13 @@
                         <div class="mb-3">
                             <label for="outputDir" class="form-label">Output Directory</label>
                             <input type="text" class="form-control" id="outputDir" name="output_dir" value="{{ target_dir }}" placeholder="/processed" readonly>
-                            <div class="form-text">Downloaded CBZ files will be saved directly here (bypasses file monitor to prevent overwrites)</div>
+                            <div class="form-text">Base output directory for downloads</div>
+                        </div>
+
+                        <div class="mb-3">
+                            <label for="sessionSubdir" class="form-label">Session Subdirectory (Optional)</label>
+                            <input type="text" class="form-control" id="sessionSubdir" name="session_subdir" placeholder="e.g., brainstorm">
+                            <div class="form-text">All downloads for this session will be saved to a subdirectory with this name (will be created if it doesn't exist)</div>
                         </div>
 
                         <div class="d-grid gap-2">
@@ -179,11 +185,19 @@ document.getElementById('scrapeForm').addEventListener('submit', function(e) {
     e.preventDefault();
 
     const urls = document.getElementById('urlTextarea').value.trim();
-    const outputDir = document.getElementById('outputDir').value.trim();
+    const baseDir = document.getElementById('outputDir').value.trim();
+    const sessionSubdir = document.getElementById('sessionSubdir').value.trim();
 
     if (!urls) {
         showScrapeAlert('Please enter at least one URL', 'warning');
         return;
+    }
+
+    // Combine base directory with session subdirectory if provided
+    let outputDir = baseDir;
+    if (sessionSubdir) {
+        // Ensure proper path separator (works for both Windows and Unix)
+        outputDir = baseDir + (baseDir.endsWith('/') || baseDir.endsWith('\\') ? '' : '/') + sessionSubdir;
     }
 
     startScraping(urls, outputDir);

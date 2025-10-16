@@ -2045,7 +2045,7 @@ import threading
 from queue import Queue
 from scrape.scrape_readcomiconline import scrape_series
 from scrape.scrape_ehentai import scrape_urls as scrape_ehentai_urls
-from scrape.scrape_erofus import scrape_series as scrape_erofus_series
+from scrape.scrape_erofus import scrape as scrape_erofus_url
 
 # Store active scrape tasks
 # Each task has: log_queue, progress_queue, status, buffered_logs
@@ -2228,14 +2228,19 @@ def scrape_erofus():
                     log_queue.put(f"Processing: {url}")
                     log_queue.put('='*60)
 
-                    scrape_erofus_series(url, output_dir, log_callback, progress_callback)
+                    scrape_erofus_url(url, output_dir, log_callback, progress_callback)
 
                 log_queue.put("\n=== All URLs processed ===")
                 scrape_tasks[task_id]["status"] = "completed"
                 log_queue.put("__COMPLETED__")  # Signal completion
 
             except Exception as e:
+                import traceback
+                error_details = traceback.format_exc()
                 log_queue.put(f"\n=== Error: {str(e)} ===")
+                log_queue.put(f"Exception type: {type(e).__name__}")
+                log_queue.put(f"Traceback:\n{error_details}")
+                app_logger.error(f"Erofus scrape error: {e}\n{error_details}")
                 scrape_tasks[task_id]["status"] = "error"
                 log_queue.put("__ERROR__")  # Signal error
 
