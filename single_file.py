@@ -164,7 +164,46 @@ def rebuild_single_cbz_file(cbz_path):
         
         app_logger.info(f"Successfully rebuilt: {filename}")
         return True
-        
+
+    except zipfile.BadZipFile as e:
+        # Handle the case where a .cbz file is actually a RAR file
+        if "File is not a zip file" in str(e) or "BadZipFile" in str(e):
+            app_logger.warning(f"Detected that {filename} is not a valid ZIP file. Attempting to rename to .rar and retry...")
+
+            # Rename the file to .rar
+            rar_file = os.path.join(directory, base_name + ".rar")
+            if os.path.exists(zip_path):
+                shutil.move(zip_path, rar_file)
+            elif os.path.exists(cbz_path):
+                shutil.move(cbz_path, rar_file)
+
+            # Clean up any partial extraction folder
+            if os.path.exists(folder_name):
+                shutil.rmtree(folder_name)
+
+            # Try to convert as RAR file
+            temp_extraction_dir = os.path.join(directory, f"temp_{base_name}")
+            final_cbz_path = os.path.join(directory, base_name + '.cbz')
+
+            app_logger.info(f"Attempting to convert {base_name}.rar as RAR file...")
+            success = convert_single_rar_file(rar_file, final_cbz_path, temp_extraction_dir)
+
+            if success:
+                # Delete the original RAR file
+                if os.path.exists(rar_file):
+                    os.remove(rar_file)
+                # Clean up temp directory
+                if os.path.exists(temp_extraction_dir):
+                    shutil.rmtree(temp_extraction_dir)
+                app_logger.info(f"Successfully converted {filename} (was actually a RAR file)")
+                return True
+            else:
+                app_logger.error(f"Failed to convert {base_name}.rar after renaming from {filename}")
+                return False
+        else:
+            app_logger.error(f"Failed to rebuild {filename}: {e}")
+            return False
+
     except Exception as e:
         app_logger.error(f"Failed to rebuild {filename}: {e}")
         return False

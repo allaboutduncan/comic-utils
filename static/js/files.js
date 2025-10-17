@@ -2405,6 +2405,29 @@ function showCBZInfo(filePath, fileName, directoryPath, fileList) {
           openCustomRenameModal(pathFromData, panelFromData);
         };
 
+        // Create or update the replace text button
+        let replaceButton = renameRow.querySelector('.replace-text-btn');
+        if (!replaceButton) {
+          replaceButton = document.createElement('button');
+          replaceButton.className = 'btn btn-outline-warning btn-sm replace-text-btn me-2';
+          replaceButton.innerHTML = '<i class="bi bi-arrow-left-right me-2"></i>Replace Text';
+          replaceButton.title = 'Replace text in all filenames in this directory';
+          renameRow.appendChild(replaceButton);
+        }
+
+        // Store the current path as a data attribute
+        replaceButton.dataset.currentPath = currentPath;
+        replaceButton.dataset.currentPanel = panel;
+
+        // Update button click handler with current context
+        replaceButton.onclick = function(e) {
+          e.preventDefault();
+          const pathFromData = e.target.dataset.currentPath;
+          const panelFromData = e.target.dataset.currentPanel;
+          console.log('Replace text button clicked, path from data:', pathFromData, 'panel:', panelFromData);
+          openReplaceTextModal(pathFromData, panelFromData);
+        };
+
         // Create or update the series rename button
         let seriesRenameButton = renameRow.querySelector('.series-rename-btn');
         if (!seriesRenameButton) {
@@ -2621,6 +2644,192 @@ function executeCustomRename() {
           document.getElementById('previewRenameBtn').disabled = false;
           document.getElementById('executeRenameBtn').disabled = false;
           document.getElementById('executeRenameBtn').textContent = 'Execute Rename';
+        });
+    }
+
+    // Replace Text Modal functionality
+    let replaceTextModal;
+    let currentReplaceDirectory = '';
+    let currentReplacePanel = '';
+    let replaceFileList = [];
+
+    function openReplaceTextModal(directoryPath, panel) {
+      console.log('openReplaceTextModal called with:', directoryPath, panel);
+      currentReplaceDirectory = directoryPath;
+      currentReplacePanel = panel;
+
+      // Validate that we have a valid directory path
+      if (!directoryPath || directoryPath === '') {
+        console.error('Invalid directory path provided to openReplaceTextModal:', directoryPath);
+        alert('Error: No directory path provided for replace operation.');
+        return;
+      }
+
+      // Reset modal state
+      document.getElementById('textToReplace').value = '';
+      document.getElementById('replacementText').value = '';
+      document.getElementById('replacePreview').style.display = 'none';
+      document.getElementById('previewReplaceBtn').style.display = 'inline-block';
+      document.getElementById('executeReplaceBtn').style.display = 'none';
+
+      // Show modal
+      const modalEl = document.getElementById('replaceTextModal');
+      replaceTextModal = new bootstrap.Modal(modalEl);
+      replaceTextModal.show();
+
+      // Focus on input when modal opens
+      modalEl.addEventListener('shown.bs.modal', function () {
+        document.getElementById('textToReplace').focus();
+      }, { once: true });
+    }
+
+    function previewReplaceText() {
+      const textToReplace = document.getElementById('textToReplace').value;
+      const replacementText = document.getElementById('replacementText').value;
+
+      console.log('previewReplaceText called');
+      console.log('currentReplaceDirectory:', currentReplaceDirectory);
+      console.log('currentReplacePanel:', currentReplacePanel);
+      console.log('textToReplace:', textToReplace);
+      console.log('replacementText:', replacementText);
+
+      if (!textToReplace.trim()) {
+        alert('Please enter text to replace in filenames.');
+        return;
+      }
+
+      if (!currentReplaceDirectory || currentReplaceDirectory === '') {
+        alert('Error: No directory selected for replace operation.');
+        console.error('currentReplaceDirectory is empty');
+        return;
+      }
+
+      // Fetch files in the directory
+      const url = `/list-directories?path=${encodeURIComponent(currentReplaceDirectory)}`;
+      console.log('Fetching URL:', url);
+      fetch(url)
+        .then(response => response.json())
+        .then(data => {
+          if (data.error) {
+            throw new Error(data.error);
+          }
+
+          replaceFileList = [];
+          const previewList = document.getElementById('replacePreviewList');
+          previewList.innerHTML = '';
+
+          // Filter only files (not directories) that contain the text to replace
+          const filesToRename = (data.files || []).filter(file => {
+            const fileData = normalizeFile(file);
+            const nameWithoutExtension = fileData.name.substring(0, fileData.name.lastIndexOf('.')) || fileData.name;
+            return nameWithoutExtension.includes(textToReplace);
+          });
+
+          if (filesToRename.length === 0) {
+            previewList.innerHTML = '<div class="text-warning">No files found containing the specified text.</div>';
+          } else {
+            filesToRename.forEach(file => {
+              const fileData = normalizeFile(file);
+              const nameWithoutExtension = fileData.name.substring(0, fileData.name.lastIndexOf('.')) || fileData.name;
+              const extension = fileData.name.substring(fileData.name.lastIndexOf('.')) || '';
+              const newNameWithoutExtension = nameWithoutExtension.replace(new RegExp(escapeRegExp(textToReplace), 'g'), replacementText);
+              const newName = newNameWithoutExtension + extension;
+
+              replaceFileList.push({
+                oldPath: `${currentReplaceDirectory}/${fileData.name}`,
+                newName: newName,
+                oldName: fileData.name
+              });
+
+              const previewItem = document.createElement('div');
+              previewItem.className = 'mb-2 p-2 border rounded';
+              previewItem.innerHTML = `
+                <div><strong>Old:</strong> <code>${fileData.name}</code></div>
+                <div><strong>New:</strong> <code>${newName}</code></div>
+              `;
+              previewList.appendChild(previewItem);
+            });
+          }
+
+          // Show preview and execute button
+          document.getElementById('replacePreview').style.display = 'block';
+          if (filesToRename.length > 0) {
+            document.getElementById('executeReplaceBtn').style.display = 'inline-block';
+          }
+        })
+        .catch(error => {
+          console.error('Error fetching directory contents:', error);
+          alert('Error fetching directory contents: ' + error.message);
+        });
+    }
+
+    function executeReplaceText() {
+      if (replaceFileList.length === 0) {
+        alert('No files to rename.');
+        return;
+      }
+
+      // Disable buttons during execution
+      document.getElementById('previewReplaceBtn').disabled = true;
+      document.getElementById('executeReplaceBtn').disabled = true;
+      document.getElementById('executeReplaceBtn').textContent = 'Replacing...';
+
+      // Execute renames
+      const renamePromises = replaceFileList.map(file => {
+        const newPath = `${currentReplaceDirectory}/${file.newName}`;
+        return fetch('/custom-rename', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            old: file.oldPath,
+            new: newPath
+          })
+        });
+      });
+
+      Promise.all(renamePromises)
+        .then(responses => {
+          const errors = [];
+          responses.forEach((response, index) => {
+            if (!response.ok) {
+              errors.push(`Failed to rename ${replaceFileList[index].oldName}`);
+            }
+          });
+
+          if (errors.length > 0) {
+            alert('Some files could not be renamed:\n' + errors.join('\n'));
+          } else {
+            // Show success message in modal before closing
+            const replacePreviewList = document.getElementById('replacePreviewList');
+            replacePreviewList.innerHTML = `
+              <div class="alert alert-success text-center">
+                <i class="bi bi-check-circle-fill me-2"></i>
+                <strong>Success!</strong> Replaced text in ${replaceFileList.length} files.
+              </div>
+            `;
+            document.getElementById('previewReplaceBtn').style.display = 'none';
+            document.getElementById('executeReplaceBtn').style.display = 'none';
+
+            // Auto-close modal after 2 seconds
+            setTimeout(() => {
+              replaceTextModal.hide();
+            }, 2000);
+          }
+
+          // Refresh directory listing - use loadDownloads since that's what shows files
+          loadDownloads(currentReplaceDirectory, currentReplacePanel);
+        })
+        .catch(error => {
+          console.error('Error during replace operation:', error);
+          alert('Error during replace operation: ' + error.message);
+        })
+        .finally(() => {
+          // Re-enable buttons
+          document.getElementById('previewReplaceBtn').disabled = false;
+          document.getElementById('executeReplaceBtn').disabled = false;
+          document.getElementById('executeReplaceBtn').textContent = 'Execute Replace';
         });
     }
 

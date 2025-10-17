@@ -3827,8 +3827,10 @@ def add_comicinfo_to_cbz(file_path, comicinfo_xml_bytes):
     - Removes any existing ComicInfo.xml (case-insensitive)
     - Uses UTF-8 bytes for content
     - Rebuilds the entire ZIP by extracting and recompressing (matches single_file.py approach)
+    - Handles RAR files incorrectly named as CBZ
     """
     import tempfile, shutil
+    from single_file import convert_single_rar_file
 
     # Safety: ensure bytes
     if isinstance(comicinfo_xml_bytes, str):
@@ -3877,6 +3879,50 @@ def add_comicinfo_to_cbz(file_path, comicinfo_xml_bytes):
 
         # Step 4: Replace original file
         os.replace(temp_zip_path, file_path)
+
+    except zipfile.BadZipFile as e:
+        # Handle the case where a .cbz file is actually a RAR file
+        if "File is not a zip file" in str(e) or "BadZipFile" in str(e):
+            app_logger.warning(f"Detected that {os.path.basename(file_path)} is not a valid ZIP file. Attempting to convert from RAR...")
+
+            # Clean up any partial extraction
+            if os.path.exists(temp_extract_dir):
+                shutil.rmtree(temp_extract_dir, ignore_errors=True)
+            if os.path.exists(temp_zip_path):
+                try:
+                    os.unlink(temp_zip_path)
+                except:
+                    pass
+
+            # Rename to .rar for conversion
+            rar_file = os.path.join(file_dir, base_name + ".rar")
+            shutil.move(file_path, rar_file)
+
+            # Convert RAR to CBZ
+            app_logger.info(f"Converting {base_name}.rar to CBZ format...")
+            temp_conversion_dir = os.path.join(file_dir, f"temp_{base_name}")
+            success = convert_single_rar_file(rar_file, file_path, temp_conversion_dir)
+
+            if success:
+                # Delete the RAR file
+                if os.path.exists(rar_file):
+                    os.remove(rar_file)
+                # Clean up temp directory
+                if os.path.exists(temp_conversion_dir):
+                    shutil.rmtree(temp_conversion_dir, ignore_errors=True)
+
+                app_logger.info(f"Successfully converted RAR to CBZ. Now adding ComicInfo.xml...")
+
+                # Now recursively call this function to add ComicInfo.xml to the newly converted CBZ
+                add_comicinfo_to_cbz(file_path, comicinfo_xml_bytes)
+            else:
+                app_logger.error(f"Failed to convert {base_name}.rar to CBZ")
+                # Move the RAR file back to original CBZ name
+                if os.path.exists(rar_file):
+                    shutil.move(rar_file, file_path)
+                raise Exception(f"File is actually a RAR archive and conversion failed")
+        else:
+            raise
 
     finally:
         # Clean up temp directory

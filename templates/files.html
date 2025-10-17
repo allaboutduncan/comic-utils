@@ -343,6 +343,53 @@
 </div>
 <!-- End of Custom Rename Modal -->
 
+<!-- Replace Text in Filenames Modal -->
+<div class="modal fade" id="replaceTextModal" tabindex="-1" aria-labelledby="replaceTextModalLabel" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="replaceTextModalLabel">Replace Text in Filenames</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <div class="mb-3">
+          <label for="textToReplace" class="form-label">Text to Replace:</label>
+          <input type="text" class="form-control" id="textToReplace" placeholder="e.g., 'v1'" autocomplete="off">
+          <div class="form-text">
+            This text will be found in all filenames in the selected directory.
+          </div>
+        </div>
+        <div class="mb-3">
+          <label for="replacementText" class="form-label">Replacement Text:</label>
+          <input type="text" class="form-control" id="replacementText" placeholder="e.g., 'Volume 1'" autocomplete="off">
+          <div class="form-text">
+            The text above will be replaced with this text. Leave blank to remove the text.
+          </div>
+        </div>
+        <div class="mb-3">
+          <div class="alert alert-info">
+            <strong>Example:</strong><br>
+            Filename: <code>Captain Britain v1 001.cbz</code><br>
+            Text to Replace: <code>v1</code><br>
+            Replacement Text: <code>Volume 1</code><br>
+            New Filename: <code>Captain Britain Volume 1 001.cbz</code>
+          </div>
+        </div>
+        <div id="replacePreview" class="mb-3" style="display: none;">
+          <h6>Preview of Changes:</h6>
+          <div id="replacePreviewList" class="small text-muted" style="max-height: 200px; overflow-y: auto;"></div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="button" class="btn btn-primary" id="previewReplaceBtn" onclick="previewReplaceText()">Preview</button>
+        <button type="button" class="btn btn-success" id="executeReplaceBtn" onclick="executeReplaceText()" style="display: none;">Execute Replace</button>
+      </div>
+    </div>
+  </div>
+</div>
+<!-- End of Replace Text Modal -->
+
 <!-- Rename Files Modal -->
 <div class="modal fade" id="renameFilesModal" tabindex="-1" aria-labelledby="renameFilesModalLabel" aria-hidden="true">
   <div class="modal-dialog">
