@@ -341,9 +341,21 @@ def try_rule_engine(filename: str, cfg_path="/config/rename_rules.ini"):
 # Custom Rename Pattern Support
 # -------------------------------------------------------------------
 
-def norm_issue(s): 
+def norm_issue(s):
     s = re.sub(r'\D+', '', s or '')
     return f"{int(s):03d}" if s else ''
+
+def clean_final_filename(filename):
+    """
+    Final cleanup of filename to remove empty parentheses and extra spaces.
+    """
+    if not filename:
+        return filename
+    # Remove empty parentheses and space before them
+    filename = re.sub(r'\s*\(\s*\)', '', filename).strip()
+    # Clean up any double spaces
+    filename = re.sub(r'\s+', ' ', filename).strip()
+    return filename
 
 def load_custom_rename_config():
     """
@@ -405,7 +417,49 @@ def extract_comic_values(filename):
         values['issue_number'] = f"{int(issue_num):03d}"  # Zero-pad to 3 digits
         return values
 
-    # Try to match the new YYYYMM Series Name v# ### format
+    # Try to match "Series v# ### (YYYYMM)" format (e.g., "Astonishing v1 063 (195708).cbz")
+    series_volume_issue_yearmonth_match = re.match(
+        r'^(.*?)\s+(v\d{1,3})\s+(\d{1,4})\s+\((\d{6})\).*(\.\w+)?$',
+        filename,
+        re.IGNORECASE
+    )
+    if series_volume_issue_yearmonth_match:
+        series_name, volume, issue_num, yearmonth, extension = series_volume_issue_yearmonth_match.groups()
+        values['series_name'] = smart_title_case(series_name.replace('_', ' ').strip())
+        values['volume_number'] = volume.strip()
+        values['issue_number'] = f"{int(issue_num):03d}"  # Zero-pad to 3 digits
+        values['year'] = yearmonth[:4]  # Extract YYYY from YYYYMM
+        return values
+
+    # Try to match "YYYYMM Series ### ()" format (e.g., "195200 Astonishing 011 ().cbz")
+    yearmonth_series_issue_empty_match = re.match(
+        r'^(\d{6})\s+(.*?)\s+(\d{1,4})\s+\(\s*\).*(\.\w+)?$',
+        filename,
+        re.IGNORECASE
+    )
+    if yearmonth_series_issue_empty_match:
+        yearmonth, series_name, issue_num, extension = yearmonth_series_issue_empty_match.groups()
+        values['series_name'] = smart_title_case(series_name.replace('_', ' ').strip())
+        values['issue_number'] = f"{int(issue_num):03d}"  # Zero-pad to 3 digits
+        values['year'] = yearmonth[:4]  # Extract YYYY from YYYYMM
+        return values
+
+    # Try to match "YYYYMM Series ###" format without parentheses (e.g., "195203 Astonishing 010.cbz")
+    yearmonth_series_issue_match = re.match(
+        r'^(\d{6})\s+(.*?)\s+(\d{1,4})(\.\w+)?$',
+        filename,
+        re.IGNORECASE
+    )
+    if yearmonth_series_issue_match:
+        yearmonth, series_name, issue_num, extension = yearmonth_series_issue_match.groups()
+        # Make sure the series name doesn't look like just numbers or a pattern indicator
+        if series_name and not re.match(r'^\d+$', series_name):
+            values['series_name'] = smart_title_case(series_name.replace('_', ' ').strip())
+            values['issue_number'] = f"{int(issue_num):03d}"  # Zero-pad to 3 digits
+            values['year'] = yearmonth[:4]  # Extract YYYY from YYYYMM
+            return values
+
+    # Try to match the YYYYMM Series Name v# ### format (e.g., "199309 Hokum & Hex v1 001.cbz")
     year_month_series_volume_issue_match = YEAR_MONTH_SERIES_VOLUME_ISSUE_PATTERN.match(filename)
     if year_month_series_volume_issue_match:
         year_month, series_name, volume, issue_num, extension = year_month_series_volume_issue_match.groups()
@@ -544,30 +598,33 @@ def apply_custom_pattern(values, pattern):
     """
     if not pattern:
         return ""
-    
+
     # Validate that we have the required fields
     series_name = values.get('series_name', '').strip()
     issue_number = values.get('issue_number', '').strip()
-    
+
     if not series_name:
         app_logger.warning(f"Missing series_name in extracted values: {values}")
         return ""
-    
+
     if not issue_number:
         app_logger.warning(f"Missing issue_number in extracted values: {values}")
         return ""
-    
+
     result = pattern
-    
+
     # Replace variables with extracted values
     result = result.replace('{series_name}', series_name)
     result = result.replace('{volume_number}', values.get('volume_number', ''))
     result = result.replace('{year}', values.get('year', ''))
     result = result.replace('{issue_number}', issue_number)
-    
+
     # Clean up extra spaces and trim
     result = re.sub(r'\s+', ' ', result).strip()
-    
+
+    # Remove empty parentheses and space before them
+    result = re.sub(r'\s*\(\s*\)', '', result).strip()
+
     return result
 
 
@@ -757,6 +814,7 @@ def get_renamed_filename(filename):
                 base_filename = custom_result
                 
                 new_filename = base_filename + extension
+                new_filename = clean_final_filename(new_filename)
                 app_logger.info(f"Custom rename result: {filename} -> {new_filename}")
                 return new_filename
             else:
@@ -770,7 +828,7 @@ def get_renamed_filename(filename):
     # This runs AFTER custom rename pattern check, so custom pattern takes precedence
     rule_name = try_rule_engine(filename, "config/rename_rules.ini")
     if rule_name:
-        return rule_name
+        return clean_final_filename(rule_name)
 
     # ==========================================================
     # 1) Special case: Issue number + year in parentheses (BEFORE pre-cleaning)
@@ -783,7 +841,7 @@ def get_renamed_filename(filename):
         clean_title = smart_title_case(raw_title.replace('_', ' ').strip())
         final_issue = norm_issue(issue_num)
         new_filename = f"{clean_title} {final_issue} ({year}){extension}"
-        return new_filename
+        return clean_final_filename(new_filename)
 
     # ==========================================================
     # 2) Special case: Title, YYYY-MM-DD (NN) format (BEFORE pre-cleaning)
@@ -806,7 +864,7 @@ def get_renamed_filename(filename):
             final_issue = norm_issue(issue_num)
 
         new_filename = f"{clean_title} {final_issue} ({year}){extension}"
-        return new_filename
+        return clean_final_filename(new_filename)
 
     # ==========================================================
     # 3) Special case: Title, YYYY-MM-DD (#NN) format (BEFORE pre-cleaning)
@@ -823,7 +881,7 @@ def get_renamed_filename(filename):
         final_issue = norm_issue(issue_num)
 
         new_filename = f"{clean_title} {final_issue} ({year}){extension}"
-        return new_filename
+        return clean_final_filename(new_filename)
 
     # ==========================================================
     # 4) Special case: ISSUE number AFTER YEAR pattern (BEFORE pre-cleaning)
@@ -839,7 +897,7 @@ def get_renamed_filename(filename):
         issue_num = issue[1:]  # Remove the # prefix
         final_issue = norm_issue(issue_num)
         new_filename = f"{clean_title} {final_issue} ({year}){extension}"
-        return new_filename
+        return clean_final_filename(new_filename)
 
     # ==========================================================
     # 5) Special case: YYYYMM Series Name v# ### format (BEFORE pre-cleaning)
@@ -863,7 +921,7 @@ def get_renamed_filename(filename):
         final_issue = norm_issue(issue_num)
 
         new_filename = f"{clean_series} {final_volume} {final_issue} ({year}){extension}"
-        return new_filename
+        return clean_final_filename(new_filename)
 
     # ==========================================================
     # 6) Special case: Series Name YYYY-MM ( NN) (YYYY) format (BEFORE pre-cleaning)
@@ -881,7 +939,7 @@ def get_renamed_filename(filename):
         final_issue = norm_issue(issue_num)
 
         new_filename = f"{clean_series} {final_issue} ({year}){extension}"
-        return new_filename
+        return clean_final_filename(new_filename)
 
     # ==========================================================
     # 7) Special case: Series Name YYYY-MM-DD ( NN) (digital) format (BEFORE pre-cleaning)
@@ -899,7 +957,7 @@ def get_renamed_filename(filename):
         final_issue = norm_issue(issue_num)
 
         new_filename = f"{clean_series} {final_issue} ({year}){extension}"
-        return new_filename
+        return clean_final_filename(new_filename)
 
     # Pre-processing step
     cleaned_filename = clean_filename_pre(filename)
@@ -938,7 +996,7 @@ def get_renamed_filename(filename):
         else:
             new_filename = f"{clean_title} {final_volume} {final_issue}{extension}"
 
-        return new_filename
+        return clean_final_filename(new_filename)
 
     # ==========================================================
     # 6) Hash‐issue pattern (explicit "#NNN"): catch before bare digits
@@ -964,7 +1022,7 @@ def get_renamed_filename(filename):
         else:
             new_filename = f"{clean_title} {final_issue}{extension}"
 
-        return new_filename
+        return clean_final_filename(new_filename)
 
     # ==========================================================
     # 7) VOLUME + SUBTITLE pattern (e.g. "Infinity 8 v03 - The Gospel According to Emma (2019).cbr")
@@ -998,7 +1056,7 @@ def get_renamed_filename(filename):
         else:
             new_filename = f"{clean_title} {final_volume} {clean_subtitle}{extension}"
 
-        return new_filename
+        return clean_final_filename(new_filename)
 
     # ==========================================================
     # 4) Series-number + issue-number (no “v”, no “#”)
@@ -1021,8 +1079,8 @@ def get_renamed_filename(filename):
                 break
 
         if found_year:
-            return f"{clean_title} {final_issue} ({found_year}){extension}"
-        return f"{clean_title} {final_issue}{extension}"
+            return clean_final_filename(f"{clean_title} {final_issue} ({found_year}){extension}")
+        return clean_final_filename(f"{clean_title} {final_issue}{extension}")
 
     # ==========================================================
     # 9) Single ISSUE pattern (no separate "volume" token)
@@ -1056,7 +1114,7 @@ def get_renamed_filename(filename):
         else:
             new_filename = f"{clean_title} {final_issue}{extension}"
 
-        return new_filename
+        return clean_final_filename(new_filename)
 
 
 
@@ -1071,7 +1129,7 @@ def get_renamed_filename(filename):
         clean_title = smart_title_case(raw_title.replace('_', ' ').strip())
         # Remove any trailing opening parenthesis that might have been captured
         clean_title = clean_title.rstrip(' (')
-        return f"{clean_title} ({found_year}){extension}"
+        return clean_final_filename(f"{clean_title} ({found_year}){extension}")
 
     # ==========================================================
     # 11) Fallback: Title (YYYY) anything .ext
@@ -1083,7 +1141,7 @@ def get_renamed_filename(filename):
         raw_title, found_year, _, extension = fallback_match.groups()
         clean_title = smart_title_case(raw_title.replace('_', ' ').strip())
         new_filename = f"{clean_title} ({found_year}){extension}"
-        return new_filename
+        return clean_final_filename(new_filename)
 
     # ==========================================================
     # 12) No match => return None
