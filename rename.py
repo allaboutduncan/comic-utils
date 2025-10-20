@@ -352,15 +352,19 @@ def load_custom_rename_config():
     """
     try:
         config = configparser.ConfigParser()
-        config_file = "/config/config.ini"
-        
-        if os.path.exists(config_file):
-            config.read(config_file)
-            if "SETTINGS" in config:
-                enabled = config.getboolean("SETTINGS", "ENABLE_CUSTOM_RENAME", fallback=False)
-                pattern = config.get("SETTINGS", "CUSTOM_RENAME_PATTERN", fallback="")
-                return enabled, pattern
-        
+        # Try both absolute path (for Docker) and relative path (for local)
+        config_paths = ["/config/config.ini", "config.ini"]
+
+        for config_file in config_paths:
+            if os.path.exists(config_file):
+                config.read(config_file)
+                if "SETTINGS" in config:
+                    enabled = config.getboolean("SETTINGS", "ENABLE_CUSTOM_RENAME", fallback=False)
+                    pattern = config.get("SETTINGS", "CUSTOM_RENAME_PATTERN", fallback="")
+                    app_logger.info(f"Loaded custom rename config from {config_file}: enabled={enabled}, pattern={pattern}")
+                    return enabled, pattern
+
+        app_logger.info("No config file found, custom rename disabled")
         return False, ""
     except Exception as e:
         app_logger.warning(f"Failed to load custom rename config: {e}")
@@ -410,7 +414,7 @@ def extract_comic_values(filename):
         values['year'] = year_month[:4]
         values['series_name'] = smart_title_case(series_name.replace('_', ' ').strip())
         values['volume_number'] = volume.strip()
-        values['issue_number'] = issue_num
+        values['issue_number'] = f"{int(issue_num):03d}"  # Zero-pad to 3 digits
         return values
 
     # Try to match the Series Name YYYY-MM ( NN) (YYYY) format
@@ -724,10 +728,6 @@ def get_renamed_filename(filename):
     """
     app_logger.info(f"Attempting to rename filename: {filename}")
 
-    # Try declarative rule engine first (hot-patchable via /config/rename_rules.ini)
-    rule_name = try_rule_engine(filename, "config/rename_rules.ini")
-    if rule_name:
-        return rule_name    
     # ==========================================================
     # 0) Check for custom rename pattern (BEFORE all other logic)
     # ==========================================================
@@ -765,7 +765,13 @@ def get_renamed_filename(filename):
             app_logger.info("Custom rename pattern disabled or not configured, using default logic")
     except Exception as e:
         app_logger.warning(f"Error in custom rename logic: {e}, falling back to default logic")
-    
+
+    # Try declarative rule engine (hot-patchable via /config/rename_rules.ini)
+    # This runs AFTER custom rename pattern check, so custom pattern takes precedence
+    rule_name = try_rule_engine(filename, "config/rename_rules.ini")
+    if rule_name:
+        return rule_name
+
     # ==========================================================
     # 1) Special case: Issue number + year in parentheses (BEFORE pre-cleaning)
     #    e.g. "Leonard Nimoy's Primortals (00 1996).cbz"
