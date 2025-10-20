@@ -209,10 +209,46 @@ SERIES_NUMBER_ISSUE_YEAR_PATTERN = re.compile(
 )
 
 # ====== BEGIN: Rule Engine Helpers ======
+def smart_title_case(text: str) -> str:
+    """
+    Convert text to title case with special handling for articles and conjunctions.
+    Rules:
+    - Always capitalize the first word
+    - Don't capitalize: a, an, and, of, if, the (unless they're the first word)
+    - Capitalize all other words
+    """
+    if not text:
+        return text
+
+    # Words that should stay lowercase (unless first word)
+    lowercase_words = {'a', 'an', 'and', 'of', 'if', 'the'}
+
+    words = text.split()
+    if not words:
+        return text
+
+    result = []
+    for i, word in enumerate(words):
+        # Always capitalize the first word
+        if i == 0:
+            result.append(word.capitalize())
+        # Check if word (lowercase) is in our exceptions list
+        elif word.lower() in lowercase_words:
+            result.append(word.lower())
+        # Capitalize all other words
+        else:
+            result.append(word.capitalize())
+
+    return ' '.join(result)
+
 def _apply_filters(val: str, filters: list[str]) -> str:
     for f in filters:
         if f == "digits":
             val = re.sub(r'\D+', '', val or '')
+        elif f == "year4":
+            # Extract first 4 digits (year from YYYYMM)
+            val = re.sub(r'\D+', '', val or '')
+            val = val[:4] if len(val) >= 4 else val
         elif f == "pad3":
             val = f"{int(val):03d}" if val else val
         elif f == "pad4":
@@ -222,7 +258,7 @@ def _apply_filters(val: str, filters: list[str]) -> str:
         elif f == "lower":
             val = (val or '').lower()
         elif f == "title":
-            val = (val or '').title()
+            val = smart_title_case(val or '')
     return val
 
 def _format_from_groups(fmt: str, groups: dict[str, str]) -> str:
@@ -281,9 +317,9 @@ def try_rule_engine(filename: str, cfg_path="/config/rename_rules.ini"):
 
         # normalize common fields
         if "series" in g:
-            g["series"] = g["series"].replace("_", " ").strip()
+            g["series"] = smart_title_case(g["series"].replace("_", " ").strip())
         if "series_name" in g and "series" not in g:
-            g["series"] = g["series_name"].replace("_", " ").strip()
+            g["series"] = smart_title_case(g["series_name"].replace("_", " ").strip())
 
         # allow deriving year from YYYYMM token if present
         if "yearmonth" in g and not g.get("year"):
@@ -349,7 +385,7 @@ def extract_comic_values(filename):
     if international_annual_match:
         series_name, volume, annual, issue_num, year, extra, extension = international_annual_match.groups()
 
-        values['series_name'] = series_name.replace('_', ' ').strip()
+        values['series_name'] = smart_title_case(series_name.replace('_', ' ').strip())
         values['volume_number'] = (volume or '').strip()
         values['year'] = year
         values['issue_number'] = f"{int(issue_num):03d}"  # Zero-pad to 3 digits
@@ -360,7 +396,7 @@ def extract_comic_values(filename):
     if series_number_issue_year_match:
         series_name, issue_num, year, extra, extension = series_number_issue_year_match.groups()
 
-        values['series_name'] = series_name.replace('_', ' ').strip()
+        values['series_name'] = smart_title_case(series_name.replace('_', ' ').strip())
         values['year'] = year
         values['issue_number'] = f"{int(issue_num):03d}"  # Zero-pad to 3 digits
         return values
@@ -372,27 +408,27 @@ def extract_comic_values(filename):
 
         # Extract year from the first 4 digits of year_month
         values['year'] = year_month[:4]
-        values['series_name'] = series_name.replace('_', ' ').strip()
+        values['series_name'] = smart_title_case(series_name.replace('_', ' ').strip())
         values['volume_number'] = volume.strip()
         values['issue_number'] = issue_num
         return values
-    
+
     # Try to match the Series Name YYYY-MM ( NN) (YYYY) format
     series_year_month_issue_match = SERIES_YEAR_MONTH_ISSUE_PATTERN.match(filename)
     if series_year_month_issue_match:
         series_name, year, issue_num, extra, extension = series_year_month_issue_match.groups()
-        
-        values['series_name'] = series_name.replace('_', ' ').strip()
+
+        values['series_name'] = smart_title_case(series_name.replace('_', ' ').strip())
         values['year'] = year
         values['issue_number'] = f"{int(issue_num):03d}"  # Zero-pad to 3 digits
         return values
-    
+
     # Try to match the Series Name YYYY-MM-DD ( NN) (digital) format
     series_year_month_day_issue_match = SERIES_YEAR_MONTH_DAY_ISSUE_PATTERN.match(filename)
     if series_year_month_day_issue_match:
         series_name, year, issue_num, extra, extension = series_year_month_day_issue_match.groups()
 
-        values['series_name'] = series_name.replace('_', ' ').strip()
+        values['series_name'] = smart_title_case(series_name.replace('_', ' ').strip())
         values['year'] = year
         values['issue_number'] = f"{int(issue_num):03d}"  # Zero-pad to 3 digits
         return values
@@ -402,28 +438,28 @@ def extract_comic_values(filename):
     if series_year_month_simple_match:
         series_name, year, issue_num, extra, extension = series_year_month_simple_match.groups()
 
-        values['series_name'] = series_name.replace('_', ' ').strip()
+        values['series_name'] = smart_title_case(series_name.replace('_', ' ').strip())
         values['year'] = year
         values['issue_number'] = f"{int(issue_num):03d}"  # Zero-pad to 3 digits
         return values
-    
+
     # Try to match the Title, YYYY-MM-DD (#NN) format
     title_comma_year_hash_issue_match = TITLE_COMMA_YEAR_HASH_ISSUE_PATTERN.match(filename)
     if title_comma_year_hash_issue_match:
         raw_title, year, hash_issue_num, extra, extension = title_comma_year_hash_issue_match.groups()
         values['year'] = year
-        values['series_name'] = raw_title.replace('_', ' ').strip()
+        values['series_name'] = smart_title_case(raw_title.replace('_', ' ').strip())
         # Remove the # prefix and zero-pad to 3 digits
         issue_num = hash_issue_num[1:]  # Remove the # prefix
         values['issue_number'] = f"{int(issue_num):03d}"
         return values
-    
+
     # Try to match the Title, YYYY-MM-DD (NN) format
     title_comma_year_issue_match = TITLE_COMMA_YEAR_ISSUE_PATTERN.match(filename)
     if title_comma_year_issue_match:
         raw_title, year, issue_num, extra, extension = title_comma_year_issue_match.groups()
         values['year'] = year
-        values['series_name'] = raw_title.replace('_', ' ').strip()
+        values['series_name'] = smart_title_case(raw_title.replace('_', ' ').strip())
         # Handle issue numbers that may have underscore prefixes and zero-pad to 3 digits
         if issue_num.startswith('_'):
             numeric_part = issue_num[1:]  # Remove the underscore
@@ -738,7 +774,7 @@ def get_renamed_filename(filename):
     if issue_year_paren_match:
         app_logger.info(f"Matched ISSUE_YEAR_PARENTHESES_PATTERN for: {filename}")
         raw_title, issue_num, year, extra, extension = issue_year_paren_match.groups()
-        clean_title = raw_title.replace('_', ' ').strip()
+        clean_title = smart_title_case(raw_title.replace('_', ' ').strip())
         final_issue = norm_issue(issue_num)
         new_filename = f"{clean_title} {final_issue} ({year}){extension}"
         return new_filename
@@ -752,8 +788,8 @@ def get_renamed_filename(filename):
     if title_comma_year_issue_match:
         app_logger.info(f"Matched TITLE_COMMA_YEAR_ISSUE_PATTERN for: {filename}")
         raw_title, year, issue_num, extra, extension = title_comma_year_issue_match.groups()
-        clean_title = raw_title.replace('_', ' ').strip()
-        
+        clean_title = smart_title_case(raw_title.replace('_', ' ').strip())
+
         # Handle issue numbers that may have underscore prefixes
         if issue_num.startswith('_'):
             # Remove underscore and zero-pad the numeric part
@@ -762,7 +798,7 @@ def get_renamed_filename(filename):
         else:
             # Regular numeric issue number
             final_issue = norm_issue(issue_num)
-            
+
         new_filename = f"{clean_title} {final_issue} ({year}){extension}"
         return new_filename
 
@@ -774,12 +810,12 @@ def get_renamed_filename(filename):
     if title_comma_year_hash_issue_match:
         app_logger.info(f"Matched TITLE_COMMA_YEAR_HASH_ISSUE_PATTERN for: {filename}")
         raw_title, year, hash_issue_num, extra, extension = title_comma_year_hash_issue_match.groups()
-        clean_title = raw_title.replace('_', ' ').strip()
-        
+        clean_title = smart_title_case(raw_title.replace('_', ' ').strip())
+
         # Remove the # from the issue number and zero-pad
         issue_num = hash_issue_num[1:]  # Remove the # prefix
         final_issue = norm_issue(issue_num)
-        
+
         new_filename = f"{clean_title} {final_issue} ({year}){extension}"
         return new_filename
 
@@ -792,7 +828,7 @@ def get_renamed_filename(filename):
     if issue_after_year_match:
         app_logger.info(f"Matched ISSUE_AFTER_YEAR_PATTERN for: {filename}")
         raw_title, year, issue, extra, extension = issue_after_year_match.groups()
-        clean_title = raw_title.replace('_', ' ').strip()
+        clean_title = smart_title_case(raw_title.replace('_', ' ').strip())
         # Remove the # from the issue number and zero-pad
         issue_num = issue[1:]  # Remove the # prefix
         final_issue = norm_issue(issue_num)
@@ -807,19 +843,19 @@ def get_renamed_filename(filename):
     if year_month_series_volume_issue_match:
         app_logger.info(f"Matched YEAR_MONTH_SERIES_VOLUME_ISSUE_PATTERN for: {filename}")
         year_month, series_name, volume, issue_num, extension = year_month_series_volume_issue_match.groups()
-        
+
         # Extract year from the first 4 digits of year_month
         year = year_month[:4]
-        
-        # Clean the series name: underscores -> spaces, then strip
-        clean_series = series_name.replace('_', ' ').strip()
-        
+
+        # Clean the series name: underscores -> spaces, then strip, then title case
+        clean_series = smart_title_case(series_name.replace('_', ' ').strip())
+
         # Keep volume as-is (e.g., "v1")
         final_volume = volume.strip()
-        
+
         # Zero-pad the issue number
         final_issue = norm_issue(issue_num)
-        
+
         new_filename = f"{clean_series} {final_volume} {final_issue} ({year}){extension}"
         return new_filename
 
@@ -831,13 +867,13 @@ def get_renamed_filename(filename):
     if series_year_month_issue_match:
         app_logger.info(f"Matched SERIES_YEAR_MONTH_ISSUE_PATTERN for: {filename}")
         series_name, year, issue_num, extra, extension = series_year_month_issue_match.groups()
-        
-        # Clean the series name: underscores -> spaces, then strip
-        clean_series = series_name.replace('_', ' ').strip()
-        
+
+        # Clean the series name: underscores -> spaces, then strip, then title case
+        clean_series = smart_title_case(series_name.replace('_', ' ').strip())
+
         # Zero-pad the issue number
         final_issue = norm_issue(issue_num)
-        
+
         new_filename = f"{clean_series} {final_issue} ({year}){extension}"
         return new_filename
 
@@ -849,13 +885,13 @@ def get_renamed_filename(filename):
     if series_year_month_day_issue_match:
         app_logger.info(f"Matched SERIES_YEAR_MONTH_DAY_ISSUE_PATTERN for: {filename}")
         series_name, year, issue_num, extra, extension = series_year_month_day_issue_match.groups()
-        
-        # Clean the series name: underscores -> spaces, then strip
-        clean_series = series_name.replace('_', ' ').strip()
-        
+
+        # Clean the series name: underscores -> spaces, then strip, then title case
+        clean_series = smart_title_case(series_name.replace('_', ' ').strip())
+
         # Zero-pad the issue number
         final_issue = norm_issue(issue_num)
-        
+
         new_filename = f"{clean_series} {final_issue} ({year}){extension}"
         return new_filename
 
@@ -870,8 +906,8 @@ def get_renamed_filename(filename):
         app_logger.info(f"Matched VOLUME_ISSUE_PATTERN for: {cleaned_filename}")
         raw_title, volume_part, issue_part, middle, extension = vol_issue_match.groups()
 
-        # Clean the title: underscores -> spaces, then strip
-        clean_title = raw_title.replace('_', ' ').strip()
+        # Clean the title: underscores -> spaces, then strip, then title case
+        clean_title = smart_title_case(raw_title.replace('_', ' ').strip())
 
         # volume_part (e.g. "v3") - keep as-is
         final_volume = volume_part.strip()
@@ -907,7 +943,7 @@ def get_renamed_filename(filename):
         app_logger.info(f"Matched ISSUE_HASH_PATTERN for: {cleaned_filename}")
         raw_title, issue_num, middle, extension = hash_match.groups()
 
-        clean_title = raw_title.replace('_', ' ').strip()
+        clean_title = smart_title_case(raw_title.replace('_', ' ').strip())
         final_issue = norm_issue(issue_num)
 
         # Try to pull a year out of any parentheses in `middle`
@@ -932,8 +968,8 @@ def get_renamed_filename(filename):
         app_logger.info(f"Matched VOLUME_SUBTITLE_PATTERN for: {cleaned_filename}")
         raw_title, volume_part, subtitle_part, extension = vol_subtitle_match.groups()
 
-        # Clean the title: underscores -> spaces, then strip
-        clean_title = raw_title.replace('_', ' ').strip()
+        # Clean the title: underscores -> spaces, then strip, then title case
+        clean_title = smart_title_case(raw_title.replace('_', ' ').strip())
 
         # volume_part (e.g. "v03") - keep as-is
         final_volume = volume_part.strip()
@@ -941,7 +977,7 @@ def get_renamed_filename(filename):
         # Extract year from subtitle and clean it up
         found_year = None
         clean_subtitle = subtitle_part.strip()
-        
+
         # Look for a 4-digit year in parentheses
         year_match = re.search(r'\((\d{4})\)', subtitle_part)
         if year_match:
@@ -950,7 +986,7 @@ def get_renamed_filename(filename):
             clean_subtitle = subtitle_part[:year_match.start()].strip()
             # Also remove any trailing parentheses that might be left
             clean_subtitle = re.sub(r'\s*\([^)]*\)\s*$', '', clean_subtitle).strip()
-        
+
         if found_year:
             new_filename = f"{clean_title} {final_volume} {clean_subtitle} ({found_year}){extension}"
         else:
@@ -967,8 +1003,8 @@ def get_renamed_filename(filename):
         app_logger.info(f"Matched SERIES_ISSUE_PATTERN for: {cleaned_filename}")
         raw_title, series_num, issue_num, middle, extension = series_match.groups()
 
-        # Keep the series number in the title
-        clean_title = f"{raw_title.replace('_', ' ').strip()} {series_num}"
+        # Keep the series number in the title, apply title case
+        clean_title = smart_title_case(f"{raw_title.replace('_', ' ').strip()} {series_num}")
         final_issue = norm_issue(issue_num)
 
         # Pull out a 4-digit year if present
@@ -991,8 +1027,8 @@ def get_renamed_filename(filename):
         app_logger.info(f"Matched ISSUE_PATTERN for: {cleaned_filename}")
         raw_title, issue_part, middle, extension = issue_match.groups()
 
-        # Clean the title: underscores -> spaces, then strip
-        clean_title = raw_title.replace('_', ' ').strip()
+        # Clean the title: underscores -> spaces, then strip, then title case
+        clean_title = smart_title_case(raw_title.replace('_', ' ').strip())
 
         # If issue_part starts with 'v', keep "vXX" as-is, else zero-pad
         if issue_part.lower().startswith('v'):
@@ -1026,7 +1062,7 @@ def get_renamed_filename(filename):
     if title_year_match:
         app_logger.info(f"Matched TITLE_YEAR_PATTERN for: {cleaned_filename}")
         raw_title, found_year, _, extension = title_year_match.groups()
-        clean_title = raw_title.replace('_', ' ').strip()
+        clean_title = smart_title_case(raw_title.replace('_', ' ').strip())
         # Remove any trailing opening parenthesis that might have been captured
         clean_title = clean_title.rstrip(' (')
         return f"{clean_title} ({found_year}){extension}"
@@ -1039,7 +1075,7 @@ def get_renamed_filename(filename):
     if fallback_match:
         app_logger.info(f"Matched FALLBACK_PATTERN for: {cleaned_filename}")
         raw_title, found_year, _, extension = fallback_match.groups()
-        clean_title = raw_title.replace('_', ' ').strip()
+        clean_title = smart_title_case(raw_title.replace('_', ' ').strip())
         new_filename = f"{clean_title} ({found_year}){extension}"
         return new_filename
 
