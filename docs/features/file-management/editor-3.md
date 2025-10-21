@@ -25,6 +25,16 @@ Search will also run in real-time, but be warned, if you have a large library, i
 
 See the Cache Management section on [app-settings](../app-settings/ "mention") for more details
 
+### New Files
+
+Clicking the "New Files" button will attempt to show any new files added within the last 7 days. This is useful for seeing new downloads. This searches you entire '/data' library, but ignores the 'TARGET' folder if you are using [folder-monitoring](../folder-monitoring/ "mention")
+
+<figure><img src="../../.gitbook/assets/Screenshot 2025-10-21 092519.png" alt=""><figcaption></figcaption></figure>
+
+{% hint style="warning" %}
+The "New Files" feature is limited to 500 files or 30-seconds. Large libraries will timeout attempting to search all files.
+{% endhint %}
+
 ### File & Folder Sizes
 
 When viewing folders, you can click the _**info icon**_ and CLU will scan the folder and return the size and file count. This is done on request, as providing that data in the list would increase load time significantly.&#x20;
@@ -39,8 +49,14 @@ When browsing files, you'll also see file size next to each file. This allows yo
 
 Additionally, you'll see a new **info icon** next to all comics as well. Clicking this will open a modal window and the cover, meta-data and ComicInfo.xml data (if available) will be displayed.
 
-Using the `<— Prev` and `Next -->` buttons, you can quickly view details for multiple issues
+Using the `<— Prev` and `Next -->` buttons, you can quickly view details for multiple issues.
 
 <figure><img src="../../.gitbook/assets/Screenshot 2025-10-07 103714.png" alt=""><figcaption></figcaption></figure>
 
 <figure><img src="../../.gitbook/assets/Screenshot 2025-08-01 at 11.16.42 AM.png" alt=""><figcaption></figcaption></figure>
+
+For any comic that has a valid 'ComicInfo.xml' file, you'll also see a 'red eraser' icon that will let you clear the comic info for that file. This is useful if the metadata is incorrect or incomplete.
+
+<figure><img src="../../.gitbook/assets/Screenshot 2025-10-21 093056.png" alt=""><figcaption></figcaption></figure>
+
+After clicking the icon, you'll be asked to confirm you want to delete the metadata. Clicking Yes, will unpack the file, delete the XML and re-pack the file.
