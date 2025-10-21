@@ -15,8 +15,24 @@ You can see in the example above, we have 2 files that are the same, with slight
 
 <figure><img src="../../.gitbook/assets/delete03.png" alt=""><figcaption></figcaption></figure>
 
-Once you confirm the file delete, the UI will refresh with the new file list.
+After confirming the delete, the file is removed from the UI and directory.
 
 ### Delete Directories
 
 Deleting directories works in the same way - but will remove ALL FILES and the directory itself.
+
+### Delete Multiple Files
+
+You can CTRL+Click or SHIFT+Click to select multiple files. Once you have multiple files selected, the UI will show what options you have.
+
+<figure><img src="../../.gitbook/assets/Screenshot 2025-10-21 092039.png" alt=""><figcaption></figcaption></figure>
+
+You can see we have 4 files selected. Right-clicking will show you the option to "Delete Selected Files"
+
+<figure><img src="../../.gitbook/assets/Screenshot 2025-10-15 164850.png" alt=""><figcaption></figcaption></figure>
+
+Clicking that option will show you the files that will be deleted and ask you to confirm.
+
+<figure><img src="../../.gitbook/assets/Screenshot 2025-10-15 164858.png" alt=""><figcaption></figcaption></figure>
+
+Clicking "Delete All" will delete the files. The modal will close and the files will be removed from the directory and the UI.
