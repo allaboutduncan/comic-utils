@@ -70,10 +70,29 @@ def convert_single_rar_file(rar_path, cbz_path, temp_extraction_dir):
                 for extract_file in extract_files:
                     file_path_inner = os.path.join(extract_root, extract_file)
                     arcname = os.path.relpath(file_path_inner, temp_extraction_dir)
-                    zf.write(file_path_inner, arcname)
-                    
+
+                    # Create ZipInfo manually to control the timestamp
+                    # ZIP format requires dates >= 1980-01-01
+                    zip_info = zipfile.ZipInfo(filename=arcname)
+                    zip_info.compress_type = zipfile.ZIP_DEFLATED
+
+                    # Get file stats
+                    file_stat = os.stat(file_path_inner)
+                    file_time = time.localtime(file_stat.st_mtime)
+
+                    # Check if timestamp is before 1980
+                    if file_time.tm_year < 1980:
+                        # Use a safe default timestamp: 1980-01-01 00:00:00
+                        zip_info.date_time = (1980, 1, 1, 0, 0, 0)
+                    else:
+                        zip_info.date_time = file_time[:6]
+
+                    # Write file with controlled timestamp
+                    with open(file_path_inner, 'rb') as f:
+                        zf.writestr(zip_info, f.read())
+
                     processed_files += 1
-                    
+
                     # Progress reporting for large files
                     if is_large_file and processed_files % max(1, total_files // 10) == 0:
                         progress_percent = (processed_files / total_files) * 100
@@ -139,19 +158,39 @@ def rebuild_single_cbz_file(cbz_path):
         with zipfile.ZipFile(cbz_path, 'w', zipfile.ZIP_DEFLATED) as zf:
             file_count = 0
             total_files = 0
-            
+
             # Count total files first
             for root, _, files in os.walk(folder_name):
                 total_files += len(files)
-            
+
             # Compress files with progress reporting
             for root, _, files in os.walk(folder_name):
                 for file in files:
                     file_path_in_folder = os.path.join(root, file)
                     arcname = os.path.relpath(file_path_in_folder, folder_name)
-                    zf.write(file_path_in_folder, arcname)
+
+                    # Create ZipInfo manually to control the timestamp
+                    # ZIP format requires dates >= 1980-01-01
+                    zip_info = zipfile.ZipInfo(filename=arcname)
+                    zip_info.compress_type = zipfile.ZIP_DEFLATED
+
+                    # Get file stats
+                    file_stat = os.stat(file_path_in_folder)
+                    file_time = time.localtime(file_stat.st_mtime)
+
+                    # Check if timestamp is before 1980
+                    if file_time.tm_year < 1980:
+                        # Use a safe default timestamp: 1980-01-01 00:00:00
+                        zip_info.date_time = (1980, 1, 1, 0, 0, 0)
+                    else:
+                        zip_info.date_time = file_time[:6]
+
+                    # Write file with controlled timestamp
+                    with open(file_path_in_folder, 'rb') as f:
+                        zf.writestr(zip_info, f.read())
+
                     file_count += 1
-                    
+
                     # Progress reporting for large files
                     if is_large_file and file_count % max(1, total_files // 10) == 0:
                         progress_percent = (file_count / total_files) * 100

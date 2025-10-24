@@ -1,4 +1,4 @@
-import os, re, time, zipfile, shutil
+import os, re, time, zipfile, shutil, base64
 import requests
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin, urlparse
@@ -82,6 +82,9 @@ def download_image_via_requests(url, output_path, referer, log_callback=None):
             log_callback(msg)
         app_logger.info(msg)
 
+    # Special handling for Blogspot images - they have strict anti-hotlinking
+    is_blogspot = "blogspot.com" in url.lower()
+
     headers = {
         "Referer": referer,
         "User-Agent": UA,
@@ -89,6 +92,17 @@ def download_image_via_requests(url, output_path, referer, log_callback=None):
         "Accept-Encoding": "gzip, deflate, br",
         "Accept-Language": "en-US,en;q=0.9",
     }
+
+    # For Blogspot, add additional headers to mimic browser behavior
+    if is_blogspot:
+        headers.update({
+            "Sec-Fetch-Dest": "image",
+            "Sec-Fetch-Mode": "no-cors",
+            "Sec-Fetch-Site": "cross-site",
+            "Cache-Control": "no-cache",
+            "Pragma": "no-cache",
+        })
+
     try:
         with session.get(url, headers=headers, stream=True, timeout=30) as r:
             r.raise_for_status()
@@ -267,23 +281,89 @@ def scrape_issue_with_browser(pw, issue_url: str, output_dir: str = None, log_ca
     update_progress({"status": "Downloading images", "current": os.path.basename(folder)})
     os.makedirs(folder, exist_ok=True)
 
-    # Download images directly using requests with proper referer
+    # Download images - we'll capture them while navigating the pages
+    # So we need to go back through the pages and capture the image data directly
+    log(f"  -> Downloading images...")
+    update_progress({"status": "Downloading images", "current": "Navigating pages"})
+
+    # Navigate back to first page
+    page.goto(base_url, wait_until="domcontentloaded", timeout=60000)
+    page.wait_for_timeout(1500)
+
     for i, url in enumerate(img_urls, 1):
         ext = os.path.splitext(url.split("?")[0])[-1].lower()
         if not ext or len(ext) > 5:
             ext = ".jpg"
         out = os.path.join(folder, f"{i:03d}{ext}")
 
-        # Try downloading with requests
+        success = False
+
+        # Try downloading with requests first (works for non-Blogspot)
         if download_image_via_requests(url, out, base_url, log_callback):
+            success = True
             log(f"  ✓ Downloaded {i}/{len(img_urls)}")
+        else:
+            # For Blogspot: Navigate to the page and capture the image as base64
+            try:
+                log(f"    Retrying {i}/{len(img_urls)} via screenshot...")
+
+                # Wait for the image to load on current page
+                page.wait_for_selector("#divImage img", timeout=5000)
+                page.wait_for_timeout(1000)
+
+                # Get the image element and extract as base64
+                img_data = page.evaluate("""
+                    () => {
+                        const div = document.querySelector('#divImage');
+                        if (!div) return null;
+                        const imgs = Array.from(div.querySelectorAll('img')).filter(img => {
+                            const src = img.src;
+                            return src && src.includes('blogspot.com') && !src.includes('loading.gif');
+                        });
+                        const targetImg = imgs.length >= 2 ? imgs[1] : imgs[0];
+                        if (!targetImg) return null;
+
+                        // Create canvas and draw image
+                        const canvas = document.createElement('canvas');
+                        canvas.width = targetImg.naturalWidth;
+                        canvas.height = targetImg.naturalHeight;
+                        const ctx = canvas.getContext('2d');
+                        ctx.drawImage(targetImg, 0, 0);
+
+                        // Return base64 data
+                        return canvas.toDataURL('image/jpeg', 0.95).split(',')[1];
+                    }
+                """)
+
+                if img_data:
+                    with open(out, "wb") as f:
+                        f.write(base64.b64decode(img_data))
+                    success = True
+                    log(f"  ✓ Downloaded {i}/{len(img_urls)} (capture)")
+                else:
+                    log(f"  ! Failed {i}/{len(img_urls)} - No image data")
+            except Exception as e:
+                log(f"  ! Failed {i}/{len(img_urls)} - {str(e)[:40]}")
+
+        if success:
             update_progress({
                 "status": "Downloading images",
                 "current": f"{i}/{len(img_urls)}",
                 "progress": 50 + (i / len(img_urls)) * 50  # 50-100% for downloads
             })
-        else:
-            log(f"  ! Failed {i}/{len(img_urls)}")
+
+        # Navigate to next page for the next image (if not last)
+        if i < len(img_urls):
+            try:
+                current_hash = page.evaluate("() => window.location.hash")
+                page.evaluate("() => document.querySelector('#btnNext').click()")
+                page.wait_for_function(
+                    f"() => window.location.hash !== '{current_hash}'",
+                    timeout=3000
+                )
+                page.wait_for_timeout(800)
+            except Exception:
+                pass
 
         time.sleep(0.2)
 
