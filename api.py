@@ -165,11 +165,33 @@ def download_getcomics(url, download_id):
     delay = 2  # base delay in seconds
     last_exception = None
 
+    # Create a session with connection pooling and optimization for large files
+    session = requests.Session()
+
+    # Configure retry strategy
+    retry_strategy = Retry(
+        total=3,
+        backoff_factor=1,
+        status_forcelist=[429, 500, 502, 503, 504],
+        allowed_methods=["GET"]
+    )
+    adapter = HTTPAdapter(
+        max_retries=retry_strategy,
+        pool_connections=10,
+        pool_maxsize=10,
+        pool_block=False
+    )
+    session.mount("http://", adapter)
+    session.mount("https://", adapter)
+
+    # Set TCP keepalive and socket options for better performance
+    session.headers.update(headers)
+
     for attempt in range(retries):
         try:
             app_logger.info(f"Attempt {attempt + 1} to download {url}")
             # Increase timeout for large files: 60s connection, 300s read (5 minutes)
-            response = requests.get(url, stream=True, headers=headers, timeout=(60, 300))
+            response = session.get(url, stream=True, timeout=(60, 300))
             response.raise_for_status()
             if response.status_code in (403, 404):
                 app_logger.warning(f"Fatal HTTP error {response.status_code}; aborting retries.")
@@ -212,11 +234,25 @@ def download_getcomics(url, download_id):
             download_progress[download_id]['bytes_total'] = total_length
             downloaded = 0
 
-            # Use larger chunk size for files over 100MB (improves speed for large files)
-            chunk_size = 1024 * 1024 if total_length > 100 * 1024 * 1024 else 8192  # 1MB or 8KB
-            app_logger.info(f"Downloading {total_length} bytes using {chunk_size} byte chunks")
+            # Optimize chunk size based on file size
+            if total_length > 1024 * 1024 * 1024:  # > 1GB: use 4MB chunks
+                chunk_size = 4 * 1024 * 1024
+            elif total_length > 100 * 1024 * 1024:  # > 100MB: use 1MB chunks
+                chunk_size = 1024 * 1024
+            else:  # smaller files: use 256KB chunks
+                chunk_size = 256 * 1024
 
-            with open(temp_file_path, 'wb') as f:
+            app_logger.info(f"Downloading {total_length / (1024*1024):.1f}MB using {chunk_size / 1024}KB chunks")
+
+            # Use larger buffer for writing to disk (improves I/O performance)
+            buffer_size = 8 * 1024 * 1024  # 8MB write buffer
+
+            with open(temp_file_path, 'wb', buffering=buffer_size) as f:
+                # Track time for speed calculation
+                start_time = time.time()
+                last_log_time = start_time
+                last_downloaded = 0
+
                 for chunk in response.iter_content(chunk_size=chunk_size):
                     if download_progress.get(download_id, {}).get('cancelled'):
                         app_logger.info(f"Download {download_id} cancelled; deleting temp file.")
@@ -229,9 +265,24 @@ def download_getcomics(url, download_id):
                         f.write(chunk)
                         downloaded += len(chunk)
                         download_progress[download_id]['bytes_downloaded'] = downloaded
+
+                        # Update progress
                         if total_length > 0:
                             percent = int((downloaded / total_length) * 100)
                             download_progress[download_id]['progress'] = percent
+
+                            # Log speed every 10 seconds for large files
+                            current_time = time.time()
+                            if total_length > 100 * 1024 * 1024 and (current_time - last_log_time) >= 10:
+                                speed_mbps = ((downloaded - last_downloaded) / (1024 * 1024)) / (current_time - last_log_time)
+                                app_logger.info(f"Download progress: {percent}% ({downloaded / (1024*1024):.1f}MB / {total_length / (1024*1024):.1f}MB) @ {speed_mbps:.2f} MB/s")
+                                last_log_time = current_time
+                                last_downloaded = downloaded
+
+            # Log final download stats
+            total_time = time.time() - start_time
+            avg_speed = (downloaded / (1024 * 1024)) / total_time if total_time > 0 else 0
+            app_logger.info(f"Download completed in {total_time:.1f}s @ average {avg_speed:.2f} MB/s")
 
             # Verify download completed successfully
             if total_length > 0 and downloaded != total_length:
@@ -259,6 +310,10 @@ def download_getcomics(url, download_id):
 
             download_progress[download_id]['progress'] = 100
             app_logger.info(f"Download completed: {file_path} ({downloaded} bytes)")
+
+            # Clean up session
+            session.close()
+
             return file_path
 
         except (ChunkedEncodingError, ConnectionError, IncompleteRead, RequestException, Exception) as e:
@@ -279,21 +334,24 @@ def download_getcomics(url, download_id):
             if attempt < retries - 1:  # Don't sleep after the last attempt
                 time.sleep(delay * (2 ** attempt))
 
-    # All retries failed
+    # All retries failed - cleanup
+    session.close()
+
     app_logger.error(f"Download failed after {retries} attempts: {last_exception}")
     download_progress[download_id]['status'] = 'error'
     download_progress[download_id]['progress'] = -1
 
     # Remove leftover crdownload files from all attempts
-    for i in range(retries):
-        leftover = file_path + f".{i}.crdownload"
-        if os.path.exists(leftover):
-            try:
-                os.remove(leftover)
-            except Exception as e:
-                app_logger.warning(f"Failed to remove stale temp file: {leftover} — {e}")
-        else:
-            app_logger.debug(f"No leftover temp file to remove: {leftover}")
+    if 'file_path' in locals():
+        for i in range(retries):
+            leftover = file_path + f".{i}.crdownload"
+            if os.path.exists(leftover):
+                try:
+                    os.remove(leftover)
+                except Exception as e:
+                    app_logger.warning(f"Failed to remove stale temp file: {leftover} — {e}")
+            else:
+                app_logger.debug(f"No leftover temp file to remove: {leftover}")
 
     raise Exception(f"Download failed after {retries} attempts for {url}: {last_exception}")
 
