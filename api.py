@@ -168,7 +168,8 @@ def download_getcomics(url, download_id):
     for attempt in range(retries):
         try:
             app_logger.info(f"Attempt {attempt + 1} to download {url}")
-            response = requests.get(url, stream=True, headers=headers, timeout=30)
+            # Increase timeout for large files: 60s connection, 300s read (5 minutes)
+            response = requests.get(url, stream=True, headers=headers, timeout=(60, 300))
             response.raise_for_status()
             if response.status_code in (403, 404):
                 app_logger.warning(f"Fatal HTTP error {response.status_code}; aborting retries.")
@@ -211,8 +212,12 @@ def download_getcomics(url, download_id):
             download_progress[download_id]['bytes_total'] = total_length
             downloaded = 0
 
+            # Use larger chunk size for files over 100MB (improves speed for large files)
+            chunk_size = 1024 * 1024 if total_length > 100 * 1024 * 1024 else 8192  # 1MB or 8KB
+            app_logger.info(f"Downloading {total_length} bytes using {chunk_size} byte chunks")
+
             with open(temp_file_path, 'wb') as f:
-                for chunk in response.iter_content(chunk_size=8192):
+                for chunk in response.iter_content(chunk_size=chunk_size):
                     if download_progress.get(download_id, {}).get('cancelled'):
                         app_logger.info(f"Download {download_id} cancelled; deleting temp file.")
                         f.close()
@@ -228,19 +233,40 @@ def download_getcomics(url, download_id):
                             percent = int((downloaded / total_length) * 100)
                             download_progress[download_id]['progress'] = percent
 
-            os.rename(temp_file_path, file_path)
+            # Verify download completed successfully
+            if total_length > 0 and downloaded != total_length:
+                raise Exception(f"Download incomplete: got {downloaded} bytes, expected {total_length} bytes")
+
+            # Verify temp file exists and has expected size
+            if not os.path.exists(temp_file_path):
+                raise Exception(f"Temp file not found: {temp_file_path}")
+
+            temp_file_size = os.path.getsize(temp_file_path)
+            if total_length > 0 and temp_file_size != total_length:
+                raise Exception(f"Temp file size mismatch: {temp_file_size} bytes, expected {total_length} bytes")
+
+            # Rename temp file to final destination
+            try:
+                os.rename(temp_file_path, file_path)
+                app_logger.info(f"Successfully renamed temp file to: {file_path}")
+            except Exception as rename_err:
+                app_logger.error(f"Failed to rename temp file: {rename_err}")
+                raise
+
+            # Verify final file exists
+            if not os.path.exists(file_path):
+                raise Exception(f"Final file not found after rename: {file_path}")
+
             download_progress[download_id]['progress'] = 100
-            app_logger.info(f"Download completed: {file_path}")
+            app_logger.info(f"Download completed: {file_path} ({downloaded} bytes)")
             return file_path
 
-        except (ChunkedEncodingError, ConnectionError, IncompleteRead, RequestException) as e:
+        except (ChunkedEncodingError, ConnectionError, IncompleteRead, RequestException, Exception) as e:
             app_logger.warning(f"Attempt {attempt + 1} failed with error: {e}")
             last_exception = e
-            time.sleep(delay * (2 ** attempt))  # Exponential backoff
 
-            # Clean up temp file between retries
-            temp_file_path = file_path + ".crdownload" if 'file_path' in locals() else None
-            if temp_file_path and os.path.exists(temp_file_path):
+            # Clean up the attempt-specific temp file
+            if 'temp_file_path' in locals() and os.path.exists(temp_file_path):
                 try:
                     os.remove(temp_file_path)
                     app_logger.info(f"Cleaned up temp file between retries: {temp_file_path}")
@@ -248,6 +274,10 @@ def download_getcomics(url, download_id):
                     app_logger.warning(f"Failed to remove temp file: {cleanup_err}")
             else:
                 app_logger.debug("No temp file to clean up between retries")
+
+            # Wait before next retry (exponential backoff)
+            if attempt < retries - 1:  # Don't sleep after the last attempt
+                time.sleep(delay * (2 ** attempt))
 
     # All retries failed
     app_logger.error(f"Download failed after {retries} attempts: {last_exception}")
