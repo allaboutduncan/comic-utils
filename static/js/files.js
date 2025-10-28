@@ -272,7 +272,10 @@ function checkGCDAvailability() {
       });
 
       // Add CBZ info functionality
-      if (type === "file" && fileData.name.toLowerCase().endsWith('.cbz')) {
+      if (
+        type === "file" &&
+        ['.cbz', '.zip'].some(ext => fileData.name.toLowerCase().endsWith(ext))
+      ) {
         console.log('Creating CBZ buttons for:', fileData.name);
 
         // Add info button for detailed CBZ information
@@ -289,7 +292,7 @@ function checkGCDAvailability() {
             .files
             .filter(f => {
               const fileName = typeof f === 'object' ? f.name : f;
-              return fileName.toLowerCase().endsWith('.cbz') || fileName.toLowerCase().endsWith('.cbr');
+              return fileName.toLowerCase().endsWith('.cbz') || fileData.name.toLowerCase().endsWith('.zip') || fileName.toLowerCase().endsWith('.cbr');
             })
             .map(f => typeof f === 'object' ? f.name : f)
             .sort();
@@ -2915,7 +2918,7 @@ function executeCustomRename() {
         // Filter only comic files
         const comicFiles = data.files.filter(file => {
           const fileData = typeof file === 'object' ? file : { name: file };
-          return fileData.name.toLowerCase().endsWith('.cbz') || fileData.name.toLowerCase().endsWith('.cbr');
+          return fileData.name.toLowerCase().endsWith('.cbz') || fileData.name.toLowerCase().endsWith('.zip') || fileData.name.toLowerCase().endsWith('.cbr');
         });
 
         if (comicFiles.length === 0) {
@@ -3720,7 +3723,7 @@ function performSearch() {
           // Filter for CBZ/CBR files
           const comicFiles = (data.files || []).filter(file => {
             const fileData = typeof file === 'object' ? file : { name: file };
-            return fileData.name.toLowerCase().endsWith('.cbz') || fileData.name.toLowerCase().endsWith('.cbr');
+            return fileData.name.toLowerCase().endsWith('.cbz') || fileData.name.toLowerCase().endsWith('.zip') || fileData.name.toLowerCase().endsWith('.cbr');
           });
 
           // Check for nested volume directories (e.g., v2015, v2016)
@@ -3857,7 +3860,7 @@ function performSearch() {
 
           const comicFiles = (data.files || []).filter(file => {
             const fileData = typeof file === 'object' ? file : { name: file };
-            return fileData.name.toLowerCase().endsWith('.cbz') || fileData.name.toLowerCase().endsWith('.cbr');
+            return fileData.name.toLowerCase().endsWith('.cbz') || fileData.name.toLowerCase().endsWith('.zip') || fileData.name.toLowerCase().endsWith('.cbr');
           });
 
           if (comicFiles.length === 0) {

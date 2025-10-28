@@ -1348,7 +1348,7 @@ def folder_size():
                     if os.path.exists(fp):
                         total_size += os.path.getsize(fp)
                         ext = f.lower()
-                        if ext.endswith(('.cbz', '.cbr')):
+                        if ext.endswith(('.cbz', '.cbr', '.zip')):
                             comic_count += 1
                         elif ext.endswith('.pdf'):
                             magazine_count += 1
@@ -1429,7 +1429,7 @@ def cbz_preview():
     if not file_path or not os.path.exists(file_path):
         return jsonify({"error": "Invalid file path"}), 400
     
-    if not file_path.lower().endswith('.cbz'):
+    if not file_path.lower().endswith(('.cbz', '.zip')):
         return jsonify({"error": "File is not a CBZ"}), 400
     
     try:
@@ -1505,7 +1505,7 @@ def cbz_metadata():
     if not file_path or not os.path.exists(file_path):
         return jsonify({"error": "Invalid file path"}), 400
     
-    if not file_path.lower().endswith('.cbz'):
+    if not file_path.lower().endswith(('.cbz', '.zip')):
         return jsonify({"error": "File is not a CBZ"}), 400
     
     try:
@@ -2984,7 +2984,10 @@ def search_gcd_metadata():
             app_logger.debug(f"DEBUG: Using directory name for parsing: {name_without_ext}")
         else:
             # Parse series name and issue from filename
-            name_without_ext = file_name.replace('.cbz', '').replace('.cbr', '')
+            name_without_ext = file_name
+            for ext in ('.cbz', '.cbr', '.zip'):
+                name_without_ext = name_without_ext.replace(ext, '')
+
             app_logger.debug(f"DEBUG: Using file name for parsing: {name_without_ext}")
 
         # Try to parse series and issue from common formats
@@ -3029,7 +3032,9 @@ def search_gcd_metadata():
                     app_logger.debug(f"DEBUG: Directory fallback - series_name={series_name}")
 
             # For directory search, parse issue number from the first file name
-            file_name_without_ext = file_name.replace('.cbz', '').replace('.cbr', '')
+            file_name_without_ext = file_name
+            for ext in ('.cbz', '.cbr', '.zip'):
+                file_name_without_ext = name_without_ext.replace(ext, '')
             app_logger.debug(f"DEBUG: Parsing issue number from first file: {file_name_without_ext}")
 
             # Try multiple patterns to extract issue number from the first file

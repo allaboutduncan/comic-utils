@@ -76,7 +76,7 @@ def process_cbz_file(file_path):
     Uses memory-efficient streaming extraction.
     """
     app_logger.info("********************// Editing CBZ File //********************")
-    if not file_path.lower().endswith('.cbz'):
+    if not file_path.lower().endswith(('.cbz', '.zip')):
         app_logger.info("Provided file is not a CBZ file.")
         raise ValueError("Provided file is not a CBZ file.")
     
