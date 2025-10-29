@@ -1485,7 +1485,7 @@ function openCreateFolderModal() {
             reader.cancel().catch(err => console.error('Error canceling reader:', err));
             resolve({ success: true });
           }
-        }, 120000); // 2 minutes per directory
+        }, 600000); // 10 minutes per directory
 
         function processStream() {
           reader.read().then(({ done, value }) => {

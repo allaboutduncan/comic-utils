@@ -1303,7 +1303,7 @@ def move():
             "Content-Type": "text/event-stream",
             "Cache-Control": "no-cache",
             "X-Accel-Buffering": "no",
-            "Connection": "close"
+            "Connection": "keep-alive"
         }
         return Response(stream_with_context(generate()), headers=headers)
 
@@ -3034,7 +3034,7 @@ def search_gcd_metadata():
             # For directory search, parse issue number from the first file name
             file_name_without_ext = file_name
             for ext in ('.cbz', '.cbr', '.zip'):
-                file_name_without_ext = name_without_ext.replace(ext, '')
+                file_name_without_ext = file_name_without_ext.replace(ext, '')
             app_logger.debug(f"DEBUG: Parsing issue number from first file: {file_name_without_ext}")
 
             # Try multiple patterns to extract issue number from the first file
@@ -3407,6 +3407,22 @@ def search_gcd_metadata():
                             issue_result = None
                     else:
                         issue_result = None
+                # For directory searches, if the specific issue isn't found, return series info
+                # so that other files in the directory can be processed
+                elif is_directory_search:
+                    app_logger.debug(f"DEBUG: Directory search - issue #{issue_number} not found, but returning series info for continued processing")
+                    return jsonify({
+                        "success": True,
+                        "issue_not_found": True,
+                        "series_found": True,
+                        "series_id": best_series['id'],
+                        "series_name": best_series['name'],
+                        "is_directory_search": True,
+                        "directory_path": directory_path,
+                        "directory_name": directory_name,
+                        "total_files": total_files,
+                        "message": f"Issue #{issue_number} not found, but series '{best_series['name']}' found. Continuing with other files."
+                    }), 200
                 else:
                     issue_result = None
 
