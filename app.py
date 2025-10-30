@@ -3157,7 +3157,7 @@ def search_gcd_metadata():
                     p.name AS publisher_name,
                     (SELECT COUNT(*) FROM gcd_issue i WHERE i.series_id = s.id) AS issue_count
                 FROM gcd_series s
-                INNER JOIN stddata_language l ON s.language_id = l.id
+                JOIN stddata_language l ON s.language_id = l.id
                 LEFT JOIN gcd_publisher p ON s.publisher_id = p.id
                 WHERE s.name LIKE %s
                     AND l.code IN ({in_clause})
@@ -3175,7 +3175,7 @@ def search_gcd_metadata():
                     p.name AS publisher_name,
                     (SELECT COUNT(*) FROM gcd_issue i WHERE i.series_id = s.id) AS issue_count
                 FROM gcd_series s
-                INNER JOIN stddata_language l ON s.language_id = l.id
+                JOIN stddata_language l ON s.language_id = l.id
                 LEFT JOIN gcd_publisher p ON s.publisher_id = p.id
                 WHERE s.name LIKE %s
                     AND s.year_began <= %s
@@ -3195,7 +3195,7 @@ def search_gcd_metadata():
                     p.name AS publisher_name,
                     (SELECT COUNT(*) FROM gcd_issue i WHERE i.series_id = s.id) AS issue_count
                 FROM gcd_series s
-                INNER JOIN stddata_language l ON s.language_id = l.id
+                JOIN stddata_language l ON s.language_id = l.id
                 LEFT JOIN gcd_publisher p ON s.publisher_id = p.id
                 WHERE LOWER(s.name) REGEXP %s
                     AND l.code IN ({in_clause})
@@ -3346,10 +3346,12 @@ def search_gcd_metadata():
                     i.on_sale_date,
                     sr.id AS series_id,
                     sr.name AS Series,
+                    l.code AS language,
                     COALESCE(ip.name, p.name) AS Publisher,
                     (SELECT COUNT(*) FROM gcd_issue i2 WHERE i2.series_id = i.series_id AND i2.deleted = 0) AS Count
                 FROM gcd_issue i
                 JOIN gcd_series sr ON sr.id = i.series_id
+                JOIN stddata_language l ON l.id = sr.language_id
                 LEFT JOIN gcd_publisher p ON p.id = sr.publisher_id
                 LEFT JOIN gcd_indicia_publisher ip ON ip.id = i.indicia_publisher_id
                 WHERE i.series_id = %s AND i.number = %s
@@ -3392,10 +3394,12 @@ def search_gcd_metadata():
                                 i.on_sale_date,
                                 sr.id AS series_id,
                                 sr.name AS Series,
+                                l.code AS language,
                                 COALESCE(ip.name, p.name) AS Publisher,
                                 (SELECT COUNT(*) FROM gcd_issue i2 WHERE i2.series_id = i.series_id AND i2.deleted = 0) AS Count
                             FROM gcd_issue i
                             JOIN gcd_series sr ON sr.id = i.series_id
+                            JOIN stddata_language l ON l.id = sr.language_id
                             LEFT JOIN gcd_publisher p ON p.id = sr.publisher_id
                             LEFT JOIN gcd_indicia_publisher ip ON ip.id = i.indicia_publisher_id
                             WHERE i.series_id = %s AND i.deleted = 0
@@ -3624,7 +3628,7 @@ def search_gcd_metadata():
                     'Genre': ', '.join(sorted(genres)) if genres else None,
                     'Characters': ', '.join(sorted(characters_text)) if characters_text else None,
                     'AgeRating': issue_basic['AgeRating'],
-                    'LanguageISO': 'en',
+                    'LanguageISO': issue_basic['language'],
                     'PageCount': page_count
                 }
             else:
@@ -4326,10 +4330,11 @@ def search_gcd_metadata_with_selection():
                     )
                   )                                                   AS Characters,
                   i.rating                                            AS AgeRating,
-                  'en'                                                AS LanguageISO,
+                  l.code                                              AS LanguageISO,
                   i.page_count                                        AS PageCount
                 FROM gcd_issue i
                 JOIN gcd_series sr                 ON sr.id = i.series_id
+                JOIN stddata_language l            ON sr.language_id = l.id
                 LEFT JOIN gcd_publisher p          ON p.id = sr.publisher_id
                 LEFT JOIN gcd_indicia_publisher ip ON ip.id = i.indicia_publisher_id
                 WHERE i.series_id = %s AND i.number = %s
