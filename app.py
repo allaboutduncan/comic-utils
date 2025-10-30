@@ -1654,9 +1654,17 @@ def rename():
         app_logger.error(f"Attempted to rename to critical folder location: {new_path}")
         return jsonify({"error": get_critical_path_error_message(new_path, "rename to")}), 403
 
-    # Optionally, check if the new path already exists to avoid overwriting
+    # Check if the new path already exists to avoid overwriting
+    # Allow case-only changes (e.g., "file.txt" -> "File.txt") on case-insensitive filesystems
     if os.path.exists(new_path):
-        return jsonify({"error": "Destination already exists"}), 400
+        # Check if this is a case-only rename by checking if they're the same file
+        try:
+            if not os.path.samefile(old_path, new_path):
+                return jsonify({"error": "Destination already exists"}), 400
+        except (OSError, ValueError):
+            # If samefile fails, fall back to normcase comparison
+            if os.path.normcase(os.path.abspath(old_path)) != os.path.normcase(os.path.abspath(new_path)):
+                return jsonify({"error": "Destination already exists"}), 400
 
     try:
         os.rename(old_path, new_path)
