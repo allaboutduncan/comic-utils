@@ -46,6 +46,7 @@ def load_config():
         "DELETED_FILES": ".nfo,.sfv,.db,.DS_Store",
         "HEADERS": "",
         "PIXELDRAIN_API_KEY": "",
+        "GCD_METADATA_LANGUAGES": "en",
         "ENABLE_CUSTOM_RENAME": "False",
         "CUSTOM_RENAME_PATTERN": "",
         "ENABLE_DEBUG_LOGGING": "False"
@@ -112,6 +113,7 @@ def load_flask_config(app, logger=None):
     app.config["DELETED_FILES"] = settings.get("DELETED_FILES", "")
     app.config["HEADERS"] = settings.get("HEADERS", "")
     app.config["PIXELDRAIN_API_KEY"] = settings.get("PIXELDRAIN_API_KEY", "")
+    app.config["GCD_METADATA_LANGUAGES"] = settings.get("GCD_METADATA_LANGUAGES", "en")
     app.config["ENABLE_CUSTOM_RENAME"] = config.getboolean("SETTINGS", "ENABLE_CUSTOM_RENAME", fallback=False)
     app.config["CUSTOM_RENAME_PATTERN"] = settings.get("CUSTOM_RENAME_PATTERN", "")
     app.config["ENABLE_DEBUG_LOGGING"] = config.getboolean("SETTINGS", "ENABLE_DEBUG_LOGGING", fallback=False)

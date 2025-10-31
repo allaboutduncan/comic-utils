@@ -3128,11 +3128,11 @@ def search_gcd_metadata():
             cursor.execute("SET SESSION MAX_EXECUTION_TIME=30000")  # 30000 milliseconds = 30 seconds
 
             # Helper: build safe IN (...) placeholder list + params
-            def build_in_clause(ids):
-                ids = list(ids or [])
-                if not ids:
+            def build_in_clause(codes):
+                codes = list(codes or [])
+                if not codes:
                     return 'NULL', []            # produces "IN (NULL)" -> matches nothing
-                return ','.join(['%s'] * len(ids)), ids
+                return ','.join(['%s'] * len(codes)), codes
 
             # Progressive search strategy for GCD database
             app_logger.debug(f"DEBUG: Starting progressive search for series: '{series_name}' with year: {year}")
@@ -3146,11 +3146,11 @@ def search_gcd_metadata():
             search_success_method = None
             app_logger.debug(f"DEBUG: Checkpoint 2 - Variables initialized")
 
-            # Language filter (fill with your confirmed English IDs)
-            english_ids = [25]  # add more if needed (e.g., [25, 34])
-            app_logger.debug(f"DEBUG: Checkpoint 3 - English IDs set")
-            app_logger.debug(f"DEBUG: Building IN clause for language filter with IDs: {english_ids}")
-            in_clause, in_params = build_in_clause(english_ids)
+            # Language filter
+            languages = [language.strip().lower() for language in config.get("SETTINGS", "GCD_METADATA_LANGUAGES", fallback="en").split(",")]
+            app_logger.debug(f"DEBUG: Checkpoint 3 - languages set")
+            app_logger.debug(f"DEBUG: Building IN clause for language filter with codes: {languages}")
+            in_clause, in_params = build_in_clause(languages)
             app_logger.debug(f"DEBUG: IN clause built: {in_clause}, params: {in_params}")
 
             # Base queries for LIKE and REGEXP matching
@@ -3161,12 +3161,14 @@ def search_gcd_metadata():
                     s.year_began,
                     s.year_ended,
                     s.publisher_id,
+                    l.code AS language,
                     p.name AS publisher_name,
                     (SELECT COUNT(*) FROM gcd_issue i WHERE i.series_id = s.id) AS issue_count
                 FROM gcd_series s
+                JOIN stddata_language l ON s.language_id = l.id
                 LEFT JOIN gcd_publisher p ON s.publisher_id = p.id
                 WHERE s.name LIKE %s
-                    AND s.language_id IN ({in_clause})
+                    AND l.code IN ({in_clause})
                 ORDER BY s.year_began DESC
             """
 
@@ -3177,14 +3179,16 @@ def search_gcd_metadata():
                     s.year_began,
                     s.year_ended,
                     s.publisher_id,
+                    l.code AS language,
                     p.name AS publisher_name,
                     (SELECT COUNT(*) FROM gcd_issue i WHERE i.series_id = s.id) AS issue_count
                 FROM gcd_series s
+                JOIN stddata_language l ON s.language_id = l.id
                 LEFT JOIN gcd_publisher p ON s.publisher_id = p.id
                 WHERE s.name LIKE %s
                     AND s.year_began <= %s
                     AND (s.year_ended IS NULL OR s.year_ended >= %s)
-                    AND s.language_id IN ({in_clause})
+                    AND l.code IN ({in_clause})
                 ORDER BY s.year_began DESC
             """
 
@@ -3195,12 +3199,14 @@ def search_gcd_metadata():
                     s.year_began,
                     s.year_ended,
                     s.publisher_id,
+                    l.code AS language,
                     p.name AS publisher_name,
                     (SELECT COUNT(*) FROM gcd_issue i WHERE i.series_id = s.id) AS issue_count
                 FROM gcd_series s
+                JOIN stddata_language l ON s.language_id = l.id
                 LEFT JOIN gcd_publisher p ON s.publisher_id = p.id
                 WHERE LOWER(s.name) REGEXP %s
-                    AND s.language_id IN ({in_clause})
+                    AND l.code IN ({in_clause})
                 ORDER BY s.year_began DESC
             """
 
@@ -3348,10 +3354,12 @@ def search_gcd_metadata():
                     i.on_sale_date,
                     sr.id AS series_id,
                     sr.name AS Series,
+                    l.code AS language,
                     COALESCE(ip.name, p.name) AS Publisher,
                     (SELECT COUNT(*) FROM gcd_issue i2 WHERE i2.series_id = i.series_id AND i2.deleted = 0) AS Count
                 FROM gcd_issue i
                 JOIN gcd_series sr ON sr.id = i.series_id
+                JOIN stddata_language l ON l.id = sr.language_id
                 LEFT JOIN gcd_publisher p ON p.id = sr.publisher_id
                 LEFT JOIN gcd_indicia_publisher ip ON ip.id = i.indicia_publisher_id
                 WHERE i.series_id = %s AND i.number = %s
@@ -3394,10 +3402,12 @@ def search_gcd_metadata():
                                 i.on_sale_date,
                                 sr.id AS series_id,
                                 sr.name AS Series,
+                                l.code AS language,
                                 COALESCE(ip.name, p.name) AS Publisher,
                                 (SELECT COUNT(*) FROM gcd_issue i2 WHERE i2.series_id = i.series_id AND i2.deleted = 0) AS Count
                             FROM gcd_issue i
                             JOIN gcd_series sr ON sr.id = i.series_id
+                            JOIN stddata_language l ON l.id = sr.language_id
                             LEFT JOIN gcd_publisher p ON p.id = sr.publisher_id
                             LEFT JOIN gcd_indicia_publisher ip ON ip.id = i.indicia_publisher_id
                             WHERE i.series_id = %s AND i.deleted = 0
@@ -3626,7 +3636,7 @@ def search_gcd_metadata():
                     'Genre': ', '.join(sorted(genres)) if genres else None,
                     'Characters': ', '.join(sorted(characters_text)) if characters_text else None,
                     'AgeRating': issue_basic['AgeRating'],
-                    'LanguageISO': 'en',
+                    'LanguageISO': issue_basic['language'],
                     'PageCount': page_count
                 }
             else:
@@ -4328,10 +4338,11 @@ def search_gcd_metadata_with_selection():
                     )
                   )                                                   AS Characters,
                   i.rating                                            AS AgeRating,
-                  'en'                                                AS LanguageISO,
+                  l.code                                              AS LanguageISO,
                   i.page_count                                        AS PageCount
                 FROM gcd_issue i
                 JOIN gcd_series sr                 ON sr.id = i.series_id
+                JOIN stddata_language l            ON sr.language_id = l.id
                 LEFT JOIN gcd_publisher p          ON p.id = sr.publisher_id
                 LEFT JOIN gcd_indicia_publisher ip ON ip.id = i.indicia_publisher_id
                 WHERE i.series_id = %s AND i.number = %s

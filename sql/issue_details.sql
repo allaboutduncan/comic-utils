@@ -226,11 +226,12 @@ SELECT
   ) AS Characters,
 
   i.rating AS AgeRating,
-  'en'     AS LanguageISO,   -- change default if you wish
+  l.code AS LanguageISO,
   'No'     AS Manga
 
 FROM gcd_data.gcd_issue i
 JOIN gcd_data.gcd_series sr                 ON sr.id = i.series_id
+JOIN stddata_language l                     ON sr.language_id = l.id
 LEFT JOIN gcd_data.gcd_publisher p          ON p.id = sr.publisher_id
 LEFT JOIN gcd_data.gcd_indicia_publisher ip ON ip.id = i.indicia_publisher_id
 WHERE i.id = @issue_id
