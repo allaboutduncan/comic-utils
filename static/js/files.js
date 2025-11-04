@@ -4638,7 +4638,10 @@ function performSearch() {
             <div class="fw-bold">${series.name}</div>
             <small class="text-muted">Publisher: ${series.publisher_name || 'Unknown'}<br>Issue Count: ${series.issue_count || 'Unknown'}</small>
           </div>
-          <span class="badge bg-primary rounded-pill">${yearRange}</span>
+          <div class="text-end">
+            <span class="badge bg-primary rounded-pill">${yearRange}</span><br>
+            <span class="badge bg-dark rounded-pill">${series.language}</span>
+          </div>
         `;
 
         seriesItem.addEventListener('click', () => {
