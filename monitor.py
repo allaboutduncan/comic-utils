@@ -348,6 +348,16 @@ class DownloadCompleteHandler(FileSystemEventHandler):
         try:
             # Ensure that the target sub-directory exists.
             os.makedirs(os.path.dirname(target_path), exist_ok=True)
+
+            # Check if target file already exists and generate unique filename if needed
+            original_target_path = target_path
+            target_path = get_unique_filepath(target_path)
+
+            if target_path != original_target_path:
+                monitor_logger.warning(f"File already exists at destination. Using unique filename to prevent overwrite.")
+                monitor_logger.info(f"Original target: {original_target_path}")
+                monitor_logger.info(f"New target: {target_path}")
+
             shutil.move(filepath, target_path)
             monitor_logger.info(f"Moved file to: {target_path}")
 
@@ -443,12 +453,40 @@ def format_size(size_bytes):
     """Helper function to format file sizes in human-readable format"""
     if size_bytes == 0:
         return "0B"
-    
+
     size_names = ["B", "KB", "MB", "GB", "TB"]
     i = int(math.floor(math.log(size_bytes, 1024)))
     p = math.pow(1024, i)
     s = round(size_bytes / p, 2)
     return f"{s} {size_names[i]}"
+
+def get_unique_filepath(target_path):
+    """
+    Generate a unique filepath by appending (1), (2), etc. if the file already exists.
+    This prevents files from being overwritten during the move operation.
+
+    Args:
+        target_path: The desired target path for the file
+
+    Returns:
+        A unique filepath that doesn't exist yet
+    """
+    if not os.path.exists(target_path):
+        return target_path
+
+    # Split the path into directory, filename, and extension
+    directory = os.path.dirname(target_path)
+    filename = os.path.basename(target_path)
+    name, ext = os.path.splitext(filename)
+
+    # Keep incrementing the counter until we find a unique name
+    counter = 1
+    while True:
+        new_name = f"{name} ({counter}){ext}"
+        new_path = os.path.join(directory, new_name)
+        if not os.path.exists(new_path):
+            return new_path
+        counter += 1
 
 
 if __name__ == "__main__":

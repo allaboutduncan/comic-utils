@@ -20,7 +20,9 @@
       "Bash(mv:*)",
       "WebFetch(domain:www.erofus.com)",
       "Bash(findstr:*)",
-      "Bash(del \"C:\\Users\\phill\\Documents\\GitHub\\comic-utils\\test_rename_debug.py\")"
+      "Bash(del \"C:\\Users\\phill\\Documents\\GitHub\\comic-utils\\test_rename_debug.py\")",
+      "Bash(gh pr view:*)",
+      "Bash(gh pr diff:*)"
     ],
     "deny": [],
     "ask": []

@@ -765,6 +765,35 @@ def clean_directory_name(directory_name):
     return clean_filename_pre(directory_name)
 
 
+def get_unique_filepath(file_path):
+    """
+    Generate a unique filepath by appending (1), (2), etc. if the file already exists.
+    This prevents files from being overwritten during rename operations.
+
+    Args:
+        file_path: The desired target path for the file
+
+    Returns:
+        A unique filepath that doesn't exist yet
+    """
+    if not os.path.exists(file_path):
+        return file_path
+
+    # Split the path into directory, filename, and extension
+    directory = os.path.dirname(file_path)
+    filename = os.path.basename(file_path)
+    name, ext = os.path.splitext(filename)
+
+    # Keep incrementing the counter until we find a unique name
+    counter = 1
+    while True:
+        new_name = f"{name} ({counter}){ext}"
+        new_path = os.path.join(directory, new_name)
+        if not os.path.exists(new_path):
+            return new_path
+        counter += 1
+
+
 def get_renamed_filename(filename):
     """
     Given a single filename (no directory path):
@@ -1190,9 +1219,19 @@ def rename_files(directory):
 
             app_logger.info(f"Processing file: {filename}")
             new_name = get_renamed_filename(filename)
-            
+
             if new_name and new_name != filename:
                 new_path = os.path.join(subdir, new_name)
+
+                # Check if target file already exists and generate unique filename if needed
+                original_new_path = new_path
+                new_path = get_unique_filepath(new_path)
+
+                if new_path != original_new_path:
+                    app_logger.warning(f"File already exists at destination. Using unique filename to prevent overwrite.")
+                    app_logger.info(f"Original target: {original_new_path}")
+                    app_logger.info(f"New target: {new_path}")
+
                 app_logger.info(f"Renaming:\n  {old_path}\n  --> {new_path}\n")
                 try:
                     os.rename(old_path, new_path)
@@ -1234,6 +1273,16 @@ def rename_file(file_path):
 
     if new_name and new_name != filename:
         new_path = os.path.join(directory, new_name)
+
+        # Check if target file already exists and generate unique filename if needed
+        original_new_path = new_path
+        new_path = get_unique_filepath(new_path)
+
+        if new_path != original_new_path:
+            app_logger.warning(f"File already exists at destination. Using unique filename to prevent overwrite.")
+            app_logger.info(f"Original target: {original_new_path}")
+            app_logger.info(f"New target: {new_path}")
+
         app_logger.info(f"Renaming:\n  {file_path}\n  --> {new_path}\n")
         os.rename(file_path, new_path)
         return new_path
