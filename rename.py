@@ -395,8 +395,24 @@ def extract_comic_values(filename):
         'year': '',
         'issue_number': ''
     }
-    
-    # First, try to match International/Annual patterns (highest priority)
+
+    # First, try to match "Series ### extra_info YYYY" format (e.g., "Batman 046 52p ctc 04-05 1948.cbz")
+    series_issue_extra_year_match = re.match(
+        r'^(?P<series>.*?)\s+(?P<issue>\d{1,4})\s+.*?\s+(?P<year>\d{4})(?P<ext>\.\w+)?$',
+        filename,
+        re.IGNORECASE
+    )
+    if series_issue_extra_year_match:
+        series_name = series_issue_extra_year_match.group('series')
+        issue_num = series_issue_extra_year_match.group('issue')
+        year = series_issue_extra_year_match.group('year')
+
+        values['series_name'] = smart_title_case(series_name.replace('_', ' ').strip())
+        values['issue_number'] = f"{int(issue_num):03d}"  # Zero-pad to 3 digits
+        values['year'] = year
+        return values
+
+    # Next, try to match International/Annual patterns (highest priority)
     international_annual_match = SERIES_INTERNATIONAL_ANNUAL_PATTERN.match(filename)
     if international_annual_match:
         series_name, volume, annual, issue_num, year, extra, extension = international_annual_match.groups()

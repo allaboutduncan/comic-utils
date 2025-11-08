@@ -406,7 +406,7 @@ def cropCenter(image_path):
 def cropFreeForm(image_path, x, y, width, height):
     """
     Crop an image using custom coordinates.
-    Saves the original as {filename}-cropped{ext} and keeps the cropped version as original name.
+    Saves the cropped version as {filename}-a{ext} and keeps the original as {filename}{ext}.
 
     Args:
         image_path: Full path to the image file
@@ -445,20 +445,16 @@ def cropFreeForm(image_path, x, y, width, height):
             # Define the crop box (left, upper, right, lower)
             crop_box = (x, y, x + width, y + height)
 
-            # Save the original image with -cropped suffix
-            backup_path = f"{file_name}-cropped{file_extension}"
-            img.save(backup_path)
-
             # Crop the image
             cropped_img = img.crop(crop_box)
 
-            # Save the cropped image with the original filename
-            new_image_path = image_path
-            cropped_img.save(new_image_path)
+            # Save the cropped image with -a suffix
+            cropped_image_path = f"{file_name}-a{file_extension}"
+            cropped_img.save(cropped_image_path)
 
-        app_logger.info(f"Free form crop processed: {os.path.basename(image_path)}, original saved as {backup_path}")
+        app_logger.info(f"Free form crop processed: {os.path.basename(image_path)}, cropped saved as {cropped_image_path}")
 
-        return new_image_path, backup_path
+        return cropped_image_path, image_path
 
     except Exception as e:
         app_logger.error(f"Error processing free form crop: {e}")

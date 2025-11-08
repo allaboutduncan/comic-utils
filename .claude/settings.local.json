@@ -22,7 +22,9 @@
       "Bash(findstr:*)",
       "Bash(del \"C:\\Users\\phill\\Documents\\GitHub\\comic-utils\\test_rename_debug.py\")",
       "Bash(gh pr view:*)",
-      "Bash(gh pr diff:*)"
+      "Bash(gh pr diff:*)",
+      "Bash(del test_remove_sort.py)",
+      "Bash(del:*)"
     ],
     "deny": [],
     "ask": []

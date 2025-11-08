@@ -2,11 +2,38 @@ import os
 import sys
 import zipfile
 import shutil
+import re
 from PIL import Image, ImageFilter, features
 from app_logging import app_logger
 
 # Define supported image extensions
 SUPPORTED_IMAGE_EXTENSIONS = ['.jpg', '.jpeg', '.bmp', '.gif', '.png', '.webp']
+
+def natural_sort_key(file_path):
+    """
+    Create a sort key that mimics JavaScript's natural sorting behavior:
+    - Files starting with special characters (non-alphanumeric) come first
+    - Then case-insensitive natural (numeric-aware) sorting
+
+    This matches the sortInlineEditCards function in static/js/index.js
+    """
+    # Get just the filename without the path
+    filename = os.path.basename(file_path)
+
+    # Check if filename starts with alphanumeric character
+    starts_with_alphanum = bool(re.match(r'^[a-zA-Z0-9]', filename))
+
+    # Create a list to hold sort key components
+    # First element: 0 if starts with special char (sorts first), 1 if alphanumeric
+    # Second element: case-insensitive natural sort key
+    def convert(text):
+        """Convert text to lowercase and numbers to integers for natural sorting"""
+        return int(text) if text.isdigit() else text.lower()
+
+    # Split filename into text and number parts for natural sorting
+    alphanum_key = [convert(c) for c in re.split('([0-9]+)', filename)]
+
+    return (1 if starts_with_alphanum else 0, alphanum_key)
 
 def check_webp_support():
     """Log WebP support status"""
@@ -131,11 +158,12 @@ def remove_first_image_file(dir_path):
     if not image_files:
         app_logger.info(f"No supported image files found in {dir_path} or its subdirectories.")
         return
-    
-    # Sort the image files alphanumerically
-    image_files.sort()
-    
-    # The first image in alphanumerical order
+
+    # Sort the image files using natural sort (matches JavaScript sorting in index.js)
+    # Files starting with special characters come first, then case-insensitive natural sort
+    image_files.sort(key=natural_sort_key)
+
+    # The first image in natural sort order
     first_image = image_files[0]
     
     try:
