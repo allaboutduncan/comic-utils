@@ -3362,11 +3362,11 @@ def search_gcd_metadata():
                 JOIN stddata_language l ON l.id = sr.language_id
                 LEFT JOIN gcd_publisher p ON p.id = sr.publisher_id
                 LEFT JOIN gcd_indicia_publisher ip ON ip.id = i.indicia_publisher_id
-                WHERE i.series_id = %s AND i.number = %s
+                WHERE i.series_id = %s AND (i.number = %s OR i.number = CONCAT('[', %s, ']'))
                 LIMIT 1
             """
 
-            cursor.execute(basic_issue_query, (best_series['id'], str(issue_number)))
+            cursor.execute(basic_issue_query, (best_series['id'], str(issue_number), str(issue_number)))
             issue_basic = cursor.fetchone()
 
             if not issue_basic:
@@ -4014,9 +4014,9 @@ def validate_gcd_issue():
             cursor = connection.cursor(dictionary=True)
 
             # Simple query to check if issue exists
-            validation_query = "SELECT id, title, number FROM gcd_issue WHERE series_id = %s AND number = %s AND deleted = 0 LIMIT 1"
+            validation_query = "SELECT id, title, number FROM gcd_issue WHERE series_id = %s AND (number = %s OR number = CONCAT('[', %s, ']')) AND deleted = 0 LIMIT 1"
             app_logger.debug(f"DEBUG: Executing validation query...")
-            cursor.execute(validation_query, (series_id, str(issue_number)))
+            cursor.execute(validation_query, (series_id, str(issue_number), str(issue_number)))
             issue_result = cursor.fetchone()
 
             cursor.close()
@@ -4345,12 +4345,12 @@ def search_gcd_metadata_with_selection():
                 JOIN stddata_language l            ON sr.language_id = l.id
                 LEFT JOIN gcd_publisher p          ON p.id = sr.publisher_id
                 LEFT JOIN gcd_indicia_publisher ip ON ip.id = i.indicia_publisher_id
-                WHERE i.series_id = %s AND i.number = %s
+                WHERE i.series_id = %s AND (i.number = %s OR i.number = CONCAT('[', %s, ']'))
                 LIMIT 1
             """
 
             app_logger.debug(f"DEBUG: Executing issue query for series {series_id}, issue {issue_number}")
-            cursor.execute(issue_query, (series_id, str(issue_number)))
+            cursor.execute(issue_query, (series_id, str(issue_number), str(issue_number)))
             issue_result = cursor.fetchone()
 
             app_logger.debug(f"DEBUG: Issue search result for series {series_id}, issue {issue_number}: {'Found' if issue_result else 'Not found'}")
