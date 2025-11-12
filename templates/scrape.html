@@ -115,6 +115,10 @@
 {{ super() }}
 <script>
 let currentScrapeEventSource = null;
+let currentTaskId = null;
+let reconnectAttempts = 0;
+const MAX_RECONNECT_ATTEMPTS = 5;
+const RECONNECT_DELAY = 2000; // 2 seconds
 
 // Check for active tasks on page load and reconnect
 document.addEventListener('DOMContentLoaded', function() {
@@ -126,21 +130,27 @@ document.addEventListener('DOMContentLoaded', function() {
     {% endif %}
 });
 
-function reconnectToTask(taskId) {
+function reconnectToTask(taskId, isAutoReconnect = false) {
     const scrapeBtn = document.getElementById('startScrapeBtn');
     const logsContainer = document.getElementById('scrape-logs');
     const progressContainer = document.getElementById('scrape-progress-container');
 
+    // Store the current task ID for auto-reconnection
+    currentTaskId = taskId;
+
     // Show progress container
     progressContainer.style.display = 'block';
-    document.getElementById('scrape-status').textContent = 'Reconnecting to active task...';
-    document.getElementById('scrape-current').textContent = '-';
+    if (isAutoReconnect) {
+        document.getElementById('scrape-status').textContent = `Reconnecting... (attempt ${reconnectAttempts + 1}/${MAX_RECONNECT_ATTEMPTS})`;
+        appendLog(`=== Attempting to reconnect (${reconnectAttempts + 1}/${MAX_RECONNECT_ATTEMPTS}) ===`);
+    } else {
+        document.getElementById('scrape-status').textContent = 'Reconnecting to active task...';
+        document.getElementById('scrape-current').textContent = '-';
+        logsContainer.innerHTML = '=== Reconnected to active scraping task ===\n';
+    }
 
     // Disable the start button
     scrapeBtn.disabled = true;
-
-    // Add reconnection message to logs
-    logsContainer.innerHTML = '=== Reconnected to active scraping task ===\n';
 
     // Close any existing connection
     if (currentScrapeEventSource) {
@@ -161,6 +171,8 @@ function reconnectToTask(taskId) {
     eventSource.addEventListener('progress', function(event) {
         const data = JSON.parse(event.data);
         updateProgress(data);
+        // Reset reconnect attempts on successful data reception
+        reconnectAttempts = 0;
     });
 
     eventSource.addEventListener('completed', function(event) {
@@ -170,14 +182,29 @@ function reconnectToTask(taskId) {
         document.getElementById('scrape-progress-bar').textContent = '100%';
         eventSource.close();
         scrapeBtn.disabled = false;
+        currentTaskId = null;
+        reconnectAttempts = 0;
         showScrapeAlert('Scraping completed successfully!', 'success');
     });
 
     eventSource.addEventListener('error', function(event) {
-        appendLog('\n=== Error occurred or connection lost ===');
         eventSource.close();
-        scrapeBtn.disabled = false;
-        showScrapeAlert('Connection to scraping task lost', 'warning');
+
+        // Attempt automatic reconnection
+        if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
+            reconnectAttempts++;
+            appendLog(`\n=== Connection lost, reconnecting in ${RECONNECT_DELAY/1000} seconds... ===`);
+            setTimeout(() => {
+                reconnectToTask(taskId, true);
+            }, RECONNECT_DELAY);
+        } else {
+            appendLog('\n=== Connection lost. Max reconnection attempts reached. Please refresh the page. ===');
+            document.getElementById('scrape-status').textContent = 'Connection Lost';
+            scrapeBtn.disabled = false;
+            currentTaskId = null;
+            reconnectAttempts = 0;
+            showScrapeAlert('Connection to scraping task lost. Please refresh the page to reconnect.', 'warning');
+        }
     });
 }
 
@@ -297,6 +324,9 @@ function startScraping(urls, outputDir) {
         if (data.success) {
             // Start listening to the SSE stream
             const taskId = data.task_id;
+            currentTaskId = taskId;
+            reconnectAttempts = 0;
+
             const eventSource = new EventSource(`/scrape-stream/${taskId}`);
             currentScrapeEventSource = eventSource;
 
@@ -310,6 +340,8 @@ function startScraping(urls, outputDir) {
             eventSource.addEventListener('progress', function(event) {
                 const data = JSON.parse(event.data);
                 updateProgress(data);
+                // Reset reconnect attempts on successful data reception
+                reconnectAttempts = 0;
             });
 
             eventSource.addEventListener('completed', function(event) {
@@ -319,14 +351,29 @@ function startScraping(urls, outputDir) {
                 document.getElementById('scrape-progress-bar').textContent = '100%';
                 eventSource.close();
                 scrapeBtn.disabled = false;
+                currentTaskId = null;
+                reconnectAttempts = 0;
                 showScrapeAlert('Scraping completed successfully!', 'success');
             });
 
             eventSource.addEventListener('error', function(event) {
-                appendLog('\n=== Error occurred ===');
                 eventSource.close();
-                scrapeBtn.disabled = false;
-                showScrapeAlert('An error occurred during scraping', 'danger');
+
+                // Attempt automatic reconnection
+                if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
+                    reconnectAttempts++;
+                    appendLog(`\n=== Connection lost, reconnecting in ${RECONNECT_DELAY/1000} seconds... (attempt ${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS}) ===`);
+                    setTimeout(() => {
+                        reconnectToTask(taskId, true);
+                    }, RECONNECT_DELAY);
+                } else {
+                    appendLog('\n=== Connection lost. Max reconnection attempts reached. Please refresh the page. ===');
+                    document.getElementById('scrape-status').textContent = 'Connection Lost';
+                    scrapeBtn.disabled = false;
+                    currentTaskId = null;
+                    reconnectAttempts = 0;
+                    showScrapeAlert('Connection to scraping task lost. Please refresh the page to reconnect.', 'warning');
+                }
             });
 
         } else {

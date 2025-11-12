@@ -2282,10 +2282,17 @@ def scrape_stream(task_id):
             import json
             yield f"event: progress\ndata: {json.dumps(task['last_progress'])}\n\n"
 
+        # Keepalive counter - send keepalive every 15 seconds
+        keepalive_counter = 0
+        keepalive_interval = 150  # 150 * 0.1s = 15 seconds
+
         while True:
+            has_activity = False
+
             # Check for log messages
             if not log_queue.empty():
                 msg = log_queue.get()
+                has_activity = True
 
                 if msg == "__COMPLETED__":
                     yield f"event: completed\ndata: {{}}\n\n"
@@ -2304,10 +2311,20 @@ def scrape_stream(task_id):
             # Check for progress updates
             if not progress_queue.empty():
                 progress_data = progress_queue.get()
+                has_activity = True
                 # Store last progress for reconnections
                 task["last_progress"] = progress_data
                 import json
                 yield f"event: progress\ndata: {json.dumps(progress_data)}\n\n"
+
+            # Send keepalive if no activity
+            if not has_activity:
+                keepalive_counter += 1
+                if keepalive_counter >= keepalive_interval:
+                    yield f": keepalive\n\n"
+                    keepalive_counter = 0
+            else:
+                keepalive_counter = 0
 
             time.sleep(0.1)
 
@@ -3094,6 +3111,13 @@ def search_gcd_metadata():
                     issue_number = 1  # Default to issue 1 for single-issue series/graphic novels
                     issue_number_was_defaulted = True  # Mark that we defaulted this
                     app_logger.debug(f"DEBUG: Single-issue/graphic novel parsed - series_name={series_name}, year={year}, issue_number={issue_number} (defaulted)")
+
+            # Ultimate fallback: if still no series_name, use the entire filename as series name
+            if not series_name:
+                series_name = name_without_ext.strip()
+                issue_number = 1  # Default to issue 1
+                issue_number_was_defaulted = True
+                app_logger.debug(f"DEBUG: Fallback parsing - using entire filename as series_name={series_name}, issue_number={issue_number} (defaulted)")
 
         if not series_name or (not is_directory_search and issue_number is None):
             app_logger.debug(f"DEBUG: Failed to parse: {name_without_ext}")
