@@ -3074,8 +3074,11 @@ def search_gcd_metadata():
             for pattern in issue_patterns:
                 match = re.search(pattern, file_name_without_ext, re.IGNORECASE)
                 if match:
-                    issue_number = int(match.group(1))
-                    app_logger.debug(f"DEBUG: Extracted issue number {issue_number} from filename using pattern: {pattern}")
+                    issue_number = int(match.group(1))  # Handles '0', '00', '000' -> 0
+                    if issue_number == 0:
+                        app_logger.debug(f"DEBUG: Extracted issue number {issue_number} (zero/variant issue) from filename using pattern: {pattern}")
+                    else:
+                        app_logger.debug(f"DEBUG: Extracted issue number {issue_number} from filename using pattern: {pattern}")
                     break
 
             if issue_number is None:
@@ -3095,9 +3098,12 @@ def search_gcd_metadata():
                 match = re.match(pattern, name_without_ext, re.IGNORECASE)
                 if match:
                     series_name = match.group(1).strip()
-                    issue_number = int(match.group(2))
+                    issue_number = int(match.group(2))  # Handles '0', '00', '000' -> 0
                     year = int(match.group(3)) if len(match.groups()) >= 3 else None
-                    app_logger.debug(f"DEBUG: File parsed - series_name={series_name}, issue_number={issue_number}, year={year}")
+                    if issue_number == 0:
+                        app_logger.debug(f"DEBUG: File parsed - series_name={series_name}, issue_number={issue_number} (zero/variant issue), year={year}")
+                    else:
+                        app_logger.debug(f"DEBUG: File parsed - series_name={series_name}, issue_number={issue_number}, year={year}")
                     break
 
             # If no pattern matched, try to parse as single-issue/graphic novel with just year
@@ -3366,6 +3372,7 @@ def search_gcd_metadata():
 
             # Query 1: Basic issue information (fast, no subqueries)
             # When issue_number_was_defaulted, also check for [nn] which GCD uses for one-shot comics
+            # Note: issue_number can be 0, which is valid and used for variants/special editions
             if issue_number_was_defaulted:
                 app_logger.debug(f"DEBUG: Issue number was defaulted, also searching for [nn] (one-shot comics)")
                 basic_issue_query = """
@@ -3418,7 +3425,10 @@ def search_gcd_metadata():
                     LIMIT 1
                 """
 
-            cursor.execute(basic_issue_query, (best_series['id'], str(issue_number), str(issue_number), str(issue_number)))
+            # Convert issue_number to string for SQL query (handles 0 correctly)
+            issue_number_str = str(issue_number)
+            app_logger.debug(f"DEBUG: Querying for issue_number_str='{issue_number_str}' (includes checks for '{issue_number_str}', '[{issue_number_str}]', '{issue_number_str} (%')")
+            cursor.execute(basic_issue_query, (best_series['id'], issue_number_str, issue_number_str, issue_number_str))
             issue_basic = cursor.fetchone()
 
             if not issue_basic:
@@ -4038,8 +4048,9 @@ def validate_gcd_issue():
 
         app_logger.debug(f"DEBUG: validate_gcd_issue called - series_id={series_id}, issue={issue_number}")
 
-        if not all([series_id, issue_number]):
-            app_logger.error(f"ERROR: Missing parameters in validate_gcd_issue")
+        # Note: issue_number can be 0, so check for None explicitly
+        if series_id is None or issue_number is None:
+            app_logger.error(f"ERROR: Missing parameters in validate_gcd_issue - series_id={series_id}, issue_number={issue_number}")
             return jsonify({
                 "success": False,
                 "error": "Missing required parameters"
@@ -4129,7 +4140,8 @@ def search_gcd_metadata_with_selection():
 
         app_logger.debug(f"DEBUG: search_gcd_metadata_with_selection called - file={file_name}, series_id={series_id}, issue={issue_number}")
 
-        if not all([file_path, file_name, series_id, issue_number]):
+        # Note: issue_number can be 0, so check for None explicitly
+        if not file_path or not file_name or series_id is None or issue_number is None:
             app_logger.error(f"ERROR: Missing required parameters - file_path={file_path}, file_name={file_name}, series_id={series_id}, issue_number={issue_number}")
             return jsonify({
                 "success": False,
