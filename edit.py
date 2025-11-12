@@ -105,27 +105,8 @@ def process_cbz_file(file_path):
                     app_logger.warning(f"Failed to extract {filename}: {e}")
                     continue
         
-        # Optional: Remove unwanted system files (.DS_Store) before checking for single folder
-        for root, _, files in os.walk(folder_name):
-            for file in files:
-                if file.lower() == '.ds_store':
-                    try:
-                        os.remove(os.path.join(root, file))
-                    except Exception as e:
-                        app_logger.warning(f"Failed to remove .DS_Store file: {e}")
-        
-        # Step 4: Check if the extracted content contains a single directory.
-        # Do this recursively in case the ZIP nests multiple single-directory levels.
-        while True:
-            # List only directories, ignoring any loose files.
-            inner_dirs = [d for d in os.listdir(folder_name) if os.path.isdir(os.path.join(folder_name, d))]
-            if len(inner_dirs) == 1:
-                folder_name = os.path.join(folder_name, inner_dirs[0])
-                app_logger.info(f"Found a single nested folder, updating folder_name to: {folder_name}")
-            else:
-                break
-        
-        # Step 5: Delete files that match deleted extensions (case-insensitive)
+        # Step 4: Delete files that match deleted extensions (case-insensitive)
+        # This must happen BEFORE checking for nested folders, to ensure files in parent folders are deleted
         for root, _, files in os.walk(folder_name):
             for file in files:
                 ext = os.path.splitext(file)[1].lower()
@@ -136,6 +117,17 @@ def process_cbz_file(file_path):
                         app_logger.info(f"Deleted unwanted file: {file_path}")
                     except Exception as e:
                         app_logger.error(f"Error deleting file {file_path}: {e}")
+
+        # Step 5: Check if the extracted content contains a single directory.
+        # Do this recursively in case the ZIP nests multiple single-directory levels.
+        while True:
+            # List only directories, ignoring any loose files.
+            inner_dirs = [d for d in os.listdir(folder_name) if os.path.isdir(os.path.join(folder_name, d))]
+            if len(inner_dirs) == 1:
+                folder_name = os.path.join(folder_name, inner_dirs[0])
+                app_logger.info(f"Found a single nested folder, updating folder_name to: {folder_name}")
+            else:
+                break
 
         app_logger.info(f"Extraction complete: {folder_name}")
         return {"folder_name": folder_name, "zip_file_path": zip_path}

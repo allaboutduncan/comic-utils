@@ -3341,30 +3341,58 @@ def search_gcd_metadata():
             app_logger.debug(f"DEBUG: Searching for issue #{issue_number} in series ID {best_series['id']}...")
 
             # Query 1: Basic issue information (fast, no subqueries)
-            basic_issue_query = """
-                SELECT
-                    i.id,
-                    i.title,
-                    i.number,
-                    i.volume,
-                    i.rating AS AgeRating,
-                    i.page_count,
-                    i.page_count_uncertain,
-                    i.key_date,
-                    i.on_sale_date,
-                    sr.id AS series_id,
-                    sr.name AS Series,
-                    l.code AS language,
-                    COALESCE(ip.name, p.name) AS Publisher,
-                    (SELECT COUNT(*) FROM gcd_issue i2 WHERE i2.series_id = i.series_id AND i2.deleted = 0) AS Count
-                FROM gcd_issue i
-                JOIN gcd_series sr ON sr.id = i.series_id
-                JOIN stddata_language l ON l.id = sr.language_id
-                LEFT JOIN gcd_publisher p ON p.id = sr.publisher_id
-                LEFT JOIN gcd_indicia_publisher ip ON ip.id = i.indicia_publisher_id
-                WHERE i.series_id = %s AND (i.number = %s OR i.number = CONCAT('[', %s, ']') OR i.number LIKE CONCAT(%s, ' (%'))
-                LIMIT 1
-            """
+            # When issue_number_was_defaulted, also check for [nn] which GCD uses for one-shot comics
+            if issue_number_was_defaulted:
+                app_logger.debug(f"DEBUG: Issue number was defaulted, also searching for [nn] (one-shot comics)")
+                basic_issue_query = """
+                    SELECT
+                        i.id,
+                        i.title,
+                        i.number,
+                        i.volume,
+                        i.rating AS AgeRating,
+                        i.page_count,
+                        i.page_count_uncertain,
+                        i.key_date,
+                        i.on_sale_date,
+                        sr.id AS series_id,
+                        sr.name AS Series,
+                        l.code AS language,
+                        COALESCE(ip.name, p.name) AS Publisher,
+                        (SELECT COUNT(*) FROM gcd_issue i2 WHERE i2.series_id = i.series_id AND i2.deleted = 0) AS Count
+                    FROM gcd_issue i
+                    JOIN gcd_series sr ON sr.id = i.series_id
+                    JOIN stddata_language l ON l.id = sr.language_id
+                    LEFT JOIN gcd_publisher p ON p.id = sr.publisher_id
+                    LEFT JOIN gcd_indicia_publisher ip ON ip.id = i.indicia_publisher_id
+                    WHERE i.series_id = %s AND (i.number = %s OR i.number = CONCAT('[', %s, ']') OR i.number LIKE CONCAT(%s, ' (%') OR i.number = '[nn]')
+                    LIMIT 1
+                """
+            else:
+                basic_issue_query = """
+                    SELECT
+                        i.id,
+                        i.title,
+                        i.number,
+                        i.volume,
+                        i.rating AS AgeRating,
+                        i.page_count,
+                        i.page_count_uncertain,
+                        i.key_date,
+                        i.on_sale_date,
+                        sr.id AS series_id,
+                        sr.name AS Series,
+                        l.code AS language,
+                        COALESCE(ip.name, p.name) AS Publisher,
+                        (SELECT COUNT(*) FROM gcd_issue i2 WHERE i2.series_id = i.series_id AND i2.deleted = 0) AS Count
+                    FROM gcd_issue i
+                    JOIN gcd_series sr ON sr.id = i.series_id
+                    JOIN stddata_language l ON l.id = sr.language_id
+                    LEFT JOIN gcd_publisher p ON p.id = sr.publisher_id
+                    LEFT JOIN gcd_indicia_publisher ip ON ip.id = i.indicia_publisher_id
+                    WHERE i.series_id = %s AND (i.number = %s OR i.number = CONCAT('[', %s, ']') OR i.number LIKE CONCAT(%s, ' (%'))
+                    LIMIT 1
+                """
 
             cursor.execute(basic_issue_query, (best_series['id'], str(issue_number), str(issue_number), str(issue_number)))
             issue_basic = cursor.fetchone()

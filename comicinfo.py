@@ -142,6 +142,63 @@ def get_year_from_file(directory):
 #     XML Functions     #
 #########################
 
+def _sanitize_xml(xml_data: bytes) -> bytes:
+    """
+    Sanitize XML data by removing/fixing common issues that cause parse errors.
+
+    :param xml_data: Raw XML bytes
+    :return: Sanitized XML bytes
+    """
+    try:
+        # Decode to string for manipulation
+        xml_str = xml_data.decode('utf-8', errors='ignore')
+
+        # Remove invalid XML characters (control characters except tab, newline, carriage return)
+        # Valid XML chars: #x9 | #xA | #xD | [#x20-#xD7FF] | [#xE000-#xFFFD] | [#x10000-#x10FFFF]
+        import re
+        # This regex removes invalid XML 1.0 characters
+        xml_str = re.sub(r'[\x00-\x08\x0B\x0C\x0E-\x1F\x7F-\x84\x86-\x9F]', '', xml_str)
+
+        # Fix common XML escape issues
+        # First, unescape any already-escaped entities to avoid double-escaping
+        xml_str = xml_str.replace('&amp;', '&')
+        xml_str = xml_str.replace('&lt;', '<')
+        xml_str = xml_str.replace('&gt;', '>')
+        xml_str = xml_str.replace('&quot;', '"')
+        xml_str = xml_str.replace('&apos;', "'")
+
+        # Now we need to escape only the ampersands that are not part of entity references
+        # This is tricky - we'll escape all ampersands except those followed by valid entity patterns
+        # Valid entities: &amp; &lt; &gt; &quot; &apos; &#nnn; &#xhh;
+        def escape_ampersand(match):
+            text = match.group(0)
+            # Don't escape if it's already a valid entity reference
+            if re.match(r'&(?:amp|lt|gt|quot|apos|#\d+|#x[0-9a-fA-F]+);', text):
+                return text
+            return '&amp;'
+
+        # Find all ampersands and escape those that aren't part of entities
+        # But to keep it simple and avoid complex regex, let's just escape & that appear in text content
+        # We need to be careful not to break existing valid XML structure
+
+        # Split by tags and only fix text content between tags
+        parts = re.split(r'(<[^>]+>)', xml_str)
+        for i in range(len(parts)):
+            # Only process text content (not tags)
+            if not parts[i].startswith('<'):
+                # Escape special characters in text content
+                parts[i] = parts[i].replace('&', '&amp;')
+                parts[i] = parts[i].replace('<', '&lt;')
+                parts[i] = parts[i].replace('>', '&gt;')
+
+        xml_str = ''.join(parts)
+
+        return xml_str.encode('utf-8')
+    except Exception as e:
+        app_logger.error(f"Error sanitizing XML: {e}")
+        return xml_data  # Return original if sanitization fails
+
+
 def read_comicinfo_xml(xml_data: bytes) -> dict:
     """
     Parse the raw bytes of a ComicInfo.xml file and return a dictionary
@@ -153,18 +210,33 @@ def read_comicinfo_xml(xml_data: bytes) -> dict:
     try:
         root = ET.fromstring(xml_data)
         data = {}
-        
+
         # Handle both namespaced and non-namespaced XML
         # Remove namespace prefixes from tag names for consistency
         for child in root:
             # Get the tag name without namespace
             tag_name = child.tag.split('}')[-1] if '}' in child.tag else child.tag
             data[tag_name] = child.text if child.text else ""
-            
+
         return data
     except ET.ParseError as e:
         app_logger.error(f"XML parsing error: {e}")
-        return {}
+        # Try to sanitize and parse again
+        try:
+            app_logger.info("Attempting to sanitize and re-parse XML...")
+            sanitized_xml = _sanitize_xml(xml_data)
+            root = ET.fromstring(sanitized_xml)
+            data = {}
+
+            for child in root:
+                tag_name = child.tag.split('}')[-1] if '}' in child.tag else child.tag
+                data[tag_name] = child.text if child.text else ""
+
+            app_logger.info("Successfully parsed XML after sanitization")
+            return data
+        except Exception as sanitize_error:
+            app_logger.error(f"Failed to parse XML even after sanitization: {sanitize_error}")
+            return {}
     except Exception as e:
         app_logger.error(f"Unexpected error parsing ComicInfo.xml: {e}")
         return {}
@@ -195,13 +267,24 @@ def update_comicinfo_xml(xml_data: bytes, updates: dict) -> bytes:
     """
     Given the raw bytes of a ComicInfo.xml file (xml_data) and a dict (updates),
     parse and update the specified tags, then return the updated XML as bytes.
-    
+
     :param xml_data: Bytes of the original ComicInfo.xml content.
     :param updates:  Dict of XML tag -> new value, e.g. {'Title': 'My New Title'}.
     :return:         Updated XML bytes.
     """
-    root = ET.fromstring(xml_data)
-    
+    try:
+        root = ET.fromstring(xml_data)
+    except ET.ParseError as e:
+        app_logger.error(f"XML parsing error in update_comicinfo_xml: {e}")
+        app_logger.info("Attempting to sanitize XML before updating...")
+        try:
+            sanitized_xml = _sanitize_xml(xml_data)
+            root = ET.fromstring(sanitized_xml)
+            app_logger.info("Successfully parsed XML after sanitization")
+        except Exception as sanitize_error:
+            app_logger.error(f"Failed to parse XML even after sanitization: {sanitize_error}")
+            raise  # Re-raise to let caller handle it
+
     # Update or add the specified tags
     for tag, new_value in updates.items():
         elem = root.find(tag)
@@ -209,7 +292,7 @@ def update_comicinfo_xml(xml_data: bytes, updates: dict) -> bytes:
             elem.text = new_value
         else:
             ET.SubElement(root, tag).text = new_value
-    
+
     # Convert the updated XML back into bytes (with XML declaration)
     updated_xml_bytes = ET.tostring(root, encoding='utf-8', xml_declaration=True)
     return updated_xml_bytes
