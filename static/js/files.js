@@ -2119,8 +2119,13 @@ function showCBZInfo(filePath, fileName, directoryPath, fileList) {
                     <h6 class="text-muted small">${group.title}</h6>
                     <ul class="list-unstyled small">
                 `;
-                
+
                 group.fields.forEach(field => {
+                  // Debug logging for date fields
+                  if (field.key === 'Year' || field.key === 'Month' || field.key === 'Day') {
+                    console.log(`DEBUG ${field.key}: value="${comicInfo[field.key]}", type=${typeof comicInfo[field.key]}`);
+                  }
+
                   if (comicInfo[field.key] && comicInfo[field.key] !== '' && comicInfo[field.key] !== -1) {
                     let value = comicInfo[field.key];
                     

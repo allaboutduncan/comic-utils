@@ -6,7 +6,7 @@ including volume (series) search, issue search, and metadata mapping to ComicInf
 """
 
 import logging
-from datetime import datetime
+from datetime import datetime, date
 from typing import Optional, Dict, List, Any
 
 try:
@@ -205,20 +205,40 @@ def _issue_to_dict(issue: Any) -> Dict[str, Any]:
     year = None
     month = None
     day = None
+    date_str = None
 
     # Try cover_date first (preferred), then store_date as fallback
-    date_str = getattr(issue, 'cover_date', None)
-    if not date_str:
-        date_str = getattr(issue, 'store_date', None)
+    date_value = getattr(issue, 'cover_date', None)
+    if not date_value:
+        date_value = getattr(issue, 'store_date', None)
 
-    if date_str:
-        year = _extract_year_from_date(date_str)
-        try:
-            date_obj = datetime.strptime(date_str, "%Y-%m-%d")
-            month = date_obj.month
-            day = date_obj.day
-        except (ValueError, TypeError):
-            pass
+    if date_value:
+        # Handle datetime objects, date objects, and strings
+        if isinstance(date_value, (datetime, date)):
+            # Already a datetime or date object
+            year = date_value.year
+            month = date_value.month
+            day = date_value.day
+            date_str = date_value.strftime("%Y-%m-%d")
+            logger.info(f"DEBUG _issue_to_dict: date/datetime object - year={year}, month={month}, day={day}")
+        elif isinstance(date_value, str):
+            # String format
+            date_str = date_value
+            year = _extract_year_from_date(date_str)
+            logger.info(f"DEBUG _issue_to_dict: date_str={date_str}, extracted year={year}")
+            try:
+                date_obj = datetime.strptime(date_str, "%Y-%m-%d")
+                month = date_obj.month
+                day = date_obj.day
+                logger.info(f"DEBUG _issue_to_dict: parsed month={month}, day={day}")
+            except (ValueError, TypeError):
+                logger.warning(f"DEBUG _issue_to_dict: Failed to parse date_str={date_str}")
+                pass
+        else:
+            # Unknown type - try converting to string
+            date_str = str(date_value)
+            year = _extract_year_from_date(date_str)
+            logger.info(f"DEBUG _issue_to_dict: unknown type {type(date_value)}, converted to string={date_str}, year={year}")
 
     # Extract person credits (creators)
     writers = []
@@ -340,6 +360,10 @@ def map_to_comicinfo(issue_data: Dict[str, Any], volume_data: Optional[Dict[str,
     else:
         notes = f'Metadata from ComicVine CVDB — retrieved {current_date}.'
 
+    # Append cover_date or store_date if available
+    if issue_data.get('cover_date'):
+        notes += f' Cover/Store Date: {issue_data.get("cover_date")}.'
+
     comicinfo = {
         'Series': series_name,
         'Number': issue_data.get('issue_number'),
@@ -365,6 +389,9 @@ def map_to_comicinfo(issue_data: Dict[str, Any], volume_data: Optional[Dict[str,
         'Notes': notes,
         'Count': None,  # Not needed per requirements
     }
+
+    # Debug logging for date fields
+    logger.info(f"DEBUG map_to_comicinfo: cover_date={issue_data.get('cover_date')}, year={issue_data.get('year')}, month={issue_data.get('month')}, day={issue_data.get('day')}")
 
     # Remove None values
     return {k: v for k, v in comicinfo.items() if v is not None}
