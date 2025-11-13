@@ -2407,6 +2407,8 @@ def config_page():
         config["SETTINGS"]["OPERATION_TIMEOUT"] = request.form.get("operationTimeout", "3600")
         config["SETTINGS"]["LARGE_FILE_THRESHOLD"] = request.form.get("largeFileThreshold", "500")
         config["SETTINGS"]["PIXELDRAIN_API_KEY"] = request.form.get("pixeldrainApiKey", "")
+        config["SETTINGS"]["COMICVINE_API_KEY"] = request.form.get("comicvineApiKey", "")
+        config["SETTINGS"]["GCD_METADATA_LANGUAGES"] = request.form.get("gcdLanguages", "en")
         config["SETTINGS"]["ENABLE_CUSTOM_RENAME"] = str(request.form.get("enableCustomRename") == "on")
         config["SETTINGS"]["CUSTOM_RENAME_PATTERN"] = request.form.get("customRenamePattern", "")
         config["SETTINGS"]["ENABLE_DEBUG_LOGGING"] = str(request.form.get("enableDebugLogging") == "on")
@@ -2451,6 +2453,8 @@ def config_page():
         operationTimeout=settings.get("OPERATION_TIMEOUT", "3600"),
         largeFileThreshold=settings.get("LARGE_FILE_THRESHOLD", "500"),
         pixeldrainApiKey=settings.get("PIXELDRAIN_API_KEY", ""),
+        comicvineApiKey=settings.get("COMICVINE_API_KEY", ""),
+        gcdLanguages=settings.get("GCD_METADATA_LANGUAGES", "en"),
         enableCustomRename=settings.get("ENABLE_CUSTOM_RENAME", "False") == "True",
         customRenamePattern=settings.get("CUSTOM_RENAME_PATTERN", ""),
         enableDebugLogging=settings.get("ENABLE_DEBUG_LOGGING", "False") == "True",
@@ -3910,9 +3914,13 @@ def generate_comicinfo_xml(issue_data, series_data=None):
     # Manga flag: ComicRack expects "Yes" or "No"
     add("Manga", "No")
 
-    # Notes
-    notes = f"Metadata from Grand Comic Database (GCD). Issue ID: {issue_data.get('id', 'Unknown')} — retrieved {datetime.now():%Y-%m-%d}."
-    add("Notes", notes)
+    # Notes - use provided Notes if available (e.g., from ComicVine), otherwise generate GCD notes
+    if issue_data.get("Notes"):
+        add("Notes", issue_data.get("Notes"))
+    else:
+        # Default to GCD format for backward compatibility
+        notes = f"Metadata from Grand Comic Database (GCD). Issue ID: {issue_data.get('id', 'Unknown')} — retrieved {datetime.now():%Y-%m-%d}."
+        add("Notes", notes)
 
     # Pretty-print and serialize as UTF-8 BYTES (not a Python str)
     ET.indent(root)  # Python 3.9+
@@ -4495,6 +4503,279 @@ def search_gcd_metadata_with_selection():
         return jsonify({
             "success": False,
             "error": f"Server error: {str(e)}"
+        }), 500
+
+@app.route('/search-comicvine-metadata', methods=['POST'])
+def search_comicvine_metadata():
+    """Search ComicVine API for comic metadata and add to CBZ file"""
+    try:
+        app_logger.info(f"🔍 ComicVine search started")
+
+        try:
+            import comicvine
+            app_logger.debug("DEBUG: comicvine module imported successfully")
+        except ImportError as import_err:
+            app_logger.error(f"Failed to import comicvine module: {str(import_err)}")
+            return jsonify({
+                "success": False,
+                "error": f"ComicVine module import error: {str(import_err)}"
+            }), 500
+
+        data = request.get_json()
+        app_logger.info(f"ComicVine Request data: {data}")
+
+        file_path = data.get('file_path')
+        file_name = data.get('file_name')
+
+        if not file_path or not file_name:
+            return jsonify({
+                "success": False,
+                "error": "Missing file_path or file_name"
+            }), 400
+
+        # Check if ComicVine API key is configured
+        api_key = app.config.get("COMICVINE_API_KEY", "").strip()
+        app_logger.debug(f"DEBUG: ComicVine API key configured: {bool(api_key)}")
+        app_logger.debug(f"DEBUG: API key value (first 10 chars): {api_key[:10] if api_key else 'EMPTY'}")
+        app_logger.debug(f"DEBUG: All COMICVINE config keys in app.config: {[k for k in app.config.keys() if 'COMIC' in k.upper()]}")
+
+        # Also check the raw config file
+        from config import config as raw_config
+        raw_key = raw_config.get("SETTINGS", "COMICVINE_API_KEY", fallback="")
+        app_logger.debug(f"DEBUG: Raw config.ini value (first 10 chars): {raw_key[:10] if raw_key else 'EMPTY'}")
+
+        if not api_key:
+            app_logger.error("ComicVine API key not configured")
+            return jsonify({
+                "success": False,
+                "error": "ComicVine API key not configured. Please add your API key in Settings."
+            }), 400
+
+        # Check if Simyan library is available
+        app_logger.debug(f"DEBUG: Checking if Simyan is available...")
+        if not comicvine.is_simyan_available():
+            app_logger.error("Simyan library not available")
+            return jsonify({
+                "success": False,
+                "error": "Simyan library not installed. Please install it with: pip install simyan"
+            }), 500
+        app_logger.debug(f"DEBUG: Simyan library is available")
+
+        # Parse series name and issue from filename (reuse GCD parsing logic)
+        name_without_ext = file_name
+        for ext in ('.cbz', '.cbr', '.zip'):
+            name_without_ext = name_without_ext.replace(ext, '')
+
+        # Try to parse series and issue from common formats
+        series_name = None
+        issue_number = None
+        year = None
+
+        patterns = [
+            r'^(.+?)\s+(\d{3,4})\s+\((\d{4})\)',  # "Series 001 (2020)"
+            r'^(.+?)\s+#?(\d{1,4})\s*\((\d{4})\)', # "Series #1 (2020)" or "Series 1 (2020)"
+            r'^(.+?)\s+v\d+\s+(\d{1,4})\s*\((\d{4})\)', # "Series v1 001 (2020)"
+            r'^(.+?)\s+(\d{1,4})\s+\(of\s+\d+\)\s+\((\d{4})\)', # "Series 05 (of 12) (2020)"
+            r'^(.+?)\s+#?(\d{1,4})$',  # "Series 169" or "Series #169" (no year)
+        ]
+
+        for pattern in patterns:
+            match = re.match(pattern, name_without_ext, re.IGNORECASE)
+            if match:
+                series_name = match.group(1).strip()
+                issue_number = str(int(match.group(2)))  # Convert to int then back to string to remove leading zeros
+                year = int(match.group(3)) if len(match.groups()) >= 3 else None
+                app_logger.debug(f"DEBUG: File parsed - series_name={series_name}, issue_number={issue_number}, year={year}")
+                break
+
+        # If no pattern matched, try to parse as single-issue/graphic novel with just year
+        if not series_name:
+            single_issue_pattern = r'^(.+?)\s*\((\d{4})\)$'
+            match = re.match(single_issue_pattern, name_without_ext, re.IGNORECASE)
+            if match:
+                series_name = match.group(1).strip()
+                year = int(match.group(2))
+                issue_number = "1"
+                app_logger.debug(f"DEBUG: Single-issue/graphic novel parsed - series_name={series_name}, year={year}, issue_number={issue_number}")
+
+        # Ultimate fallback: use entire filename as series name
+        if not series_name:
+            series_name = name_without_ext.strip()
+            issue_number = "1"
+            app_logger.debug(f"DEBUG: Fallback parsing - using entire filename as series_name={series_name}, issue_number={issue_number}")
+
+        if not series_name or not issue_number:
+            return jsonify({
+                "success": False,
+                "error": f"Could not parse series name from: {name_without_ext}"
+            }), 400
+
+        # Normalize series name for searching - remove special characters
+        normalized_series = re.sub(r'[:\-–—\'\"\.\,\!\?]', ' ', series_name)
+        normalized_series = re.sub(r'\s+', ' ', normalized_series).strip()
+
+        # Search ComicVine for volumes using normalized name
+        app_logger.info(f"Searching ComicVine for '{normalized_series}' (original: '{series_name}') issue #{issue_number}")
+        volumes = comicvine.search_volumes(api_key, normalized_series, year)
+
+        if not volumes:
+            return jsonify({
+                "success": False,
+                "error": f"No volumes found matching '{series_name}' in ComicVine"
+            }), 404
+
+        # Check if we have a confident match (all search words present in a single result)
+        search_words = set(normalized_series.lower().split())
+        confident_match = None
+
+        if len(volumes) > 1:
+            # Look for a volume that contains all search words
+            for volume in volumes:
+                volume_name_lower = volume['name'].lower()
+                if all(word in volume_name_lower for word in search_words):
+                    confident_match = volume
+                    app_logger.info(f"Confident match found: '{volume['name']}' contains all search words: {search_words}")
+                    break
+
+        # If we have a confident match, use it; otherwise show modal for multiple volumes
+        if confident_match:
+            selected_volume = confident_match
+            app_logger.info(f"Auto-selected confident match: {selected_volume['name']} ({selected_volume['start_year']})")
+        elif len(volumes) > 1:
+            # Multiple volumes and no confident match - show selection modal
+            return jsonify({
+                "success": False,
+                "requires_selection": True,
+                "parsed_filename": {
+                    "series_name": series_name,
+                    "issue_number": issue_number,
+                    "year": year
+                },
+                "possible_matches": volumes,
+                "message": f"Found {len(volumes)} volume(s). Please select the correct one."
+            }), 200
+        else:
+            # Single volume - auto-select
+            selected_volume = volumes[0]
+            app_logger.info(f"Auto-selected single volume: {selected_volume['name']} ({selected_volume['start_year']})")
+
+        # Get the issue
+        issue_data = comicvine.get_issue_by_number(api_key, selected_volume['id'], issue_number, year)
+
+        if not issue_data:
+            return jsonify({
+                "success": False,
+                "error": f"Issue #{issue_number} not found in volume '{selected_volume['name']}'"
+            }), 404
+
+        # Map to ComicInfo format
+        comicinfo_data = comicvine.map_to_comicinfo(issue_data, selected_volume)
+
+        # Generate ComicInfo.xml
+        comicinfo_xml = generate_comicinfo_xml(comicinfo_data)
+
+        # Add ComicInfo.xml to the CBZ file
+        add_comicinfo_to_cbz(file_path, comicinfo_xml)
+
+        # Return success with metadata and rename configuration
+        return jsonify({
+            "success": True,
+            "metadata": comicinfo_data,
+            "image_url": issue_data.get('image_url'),
+            "volume_info": {
+                "id": selected_volume['id'],
+                "name": selected_volume['name'],
+                "start_year": selected_volume['start_year']
+            },
+            "rename_config": {
+                "enabled": app.config.get("ENABLE_CUSTOM_RENAME", False),
+                "pattern": app.config.get("CUSTOM_RENAME_PATTERN", "")
+            }
+        })
+
+    except Exception as e:
+        app_logger.error(f"Error in ComicVine search: {str(e)}")
+        import traceback
+        app_logger.error(f"Traceback: {traceback.format_exc()}")
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
+
+@app.route('/search-comicvine-metadata-with-selection', methods=['POST'])
+def search_comicvine_metadata_with_selection():
+    """Search ComicVine using user-selected volume"""
+    try:
+        import comicvine
+
+        data = request.get_json()
+        file_path = data.get('file_path')
+        file_name = data.get('file_name')
+        volume_id = data.get('volume_id')
+        publisher_name = data.get('publisher_name')
+        issue_number = data.get('issue_number')
+        year = data.get('year')
+
+        app_logger.debug(f"DEBUG: search_comicvine_metadata_with_selection called - file={file_name}, volume_id={volume_id}, publisher={publisher_name}, issue={issue_number}")
+
+        # Note: issue_number can be 0, so check for None explicitly
+        if not file_path or not file_name or volume_id is None or issue_number is None:
+            app_logger.error(f"ERROR: Missing required parameters - file_path={file_path}, file_name={file_name}, volume_id={volume_id}, issue_number={issue_number}")
+            return jsonify({
+                "success": False,
+                "error": "Missing required parameters"
+            }), 400
+
+        # Check if ComicVine API key is configured
+        api_key = app.config.get("COMICVINE_API_KEY", "").strip()
+        if not api_key:
+            return jsonify({
+                "success": False,
+                "error": "ComicVine API key not configured"
+            }), 400
+
+        # Get the issue
+        issue_data = comicvine.get_issue_by_number(api_key, volume_id, str(issue_number), year)
+
+        if not issue_data:
+            return jsonify({
+                "success": False,
+                "error": f"Issue #{issue_number} not found in selected volume"
+            }), 404
+
+        # Create volume_data dict with the volume ID and publisher for metadata
+        volume_data = {
+            'id': volume_id,
+            'publisher_name': publisher_name
+        }
+
+        # Map to ComicInfo format
+        comicinfo_data = comicvine.map_to_comicinfo(issue_data, volume_data)
+
+        # Generate ComicInfo.xml
+        comicinfo_xml = generate_comicinfo_xml(comicinfo_data)
+
+        # Add ComicInfo.xml to the CBZ file
+        add_comicinfo_to_cbz(file_path, comicinfo_xml)
+
+        # Return success with metadata and rename configuration
+        return jsonify({
+            "success": True,
+            "metadata": comicinfo_data,
+            "image_url": issue_data.get('image_url'),
+            "rename_config": {
+                "enabled": app.config.get("ENABLE_CUSTOM_RENAME", False),
+                "pattern": app.config.get("CUSTOM_RENAME_PATTERN", "")
+            }
+        })
+
+    except Exception as e:
+        app_logger.error(f"Error in ComicVine search with selection: {str(e)}")
+        import traceback
+        app_logger.error(f"Traceback: {traceback.format_exc()}")
+        return jsonify({
+            "success": False,
+            "error": str(e)
         }), 500
 
 #########################

@@ -29,6 +29,9 @@ let currentFilter = { source: 'all', destination: 'all' };
 // Global variable to track GCD MySQL availability
 let gcdMysqlAvailable = false;
 
+// Global variable to track ComicVine API availability
+let comicVineAvailable = false;
+
 // Format file size helper function
 function formatSize(bytes) {
       const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
@@ -48,6 +51,24 @@ function checkGCDAvailability() {
         .catch(error => {
             console.warn('Error checking GCD availability:', error);
             gcdMysqlAvailable = false;
+        });
+}
+
+// Function to check ComicVine API availability
+function checkComicVineAvailability() {
+    fetch('/config')
+        .then(response => response.text())
+        .then(html => {
+            // Check if ComicVine API key is configured (not empty)
+            const parser = new DOMParser();
+            const doc = parser.parseFromString(html, 'text/html');
+            const apiKeyInput = doc.getElementById('comicvineApiKey');
+            comicVineAvailable = apiKeyInput && apiKeyInput.value && apiKeyInput.value.trim().length > 0;
+            console.log('ComicVine API availability checked:', comicVineAvailable);
+        })
+        .catch(error => {
+            console.warn('Error checking ComicVine availability:', error);
+            comicVineAvailable = false;
         });
 }
 
@@ -317,6 +338,23 @@ function checkGCDAvailability() {
           console.log('GCD button added');
         } else {
           console.log('GCD button skipped - GCD MySQL not available');
+        }
+
+        // Add ComicVine search button (only if ComicVine API key is configured)
+        if (comicVineAvailable) {
+          const cvBtn = document.createElement("button");
+          cvBtn.className = "btn btn-sm btn-outline-success";
+          cvBtn.innerHTML = '<i class="bi bi-book"></i>';
+          cvBtn.title = "Search ComicVine for Metadata";
+          cvBtn.setAttribute("type", "button");
+          cvBtn.onclick = function(e) {
+            e.stopPropagation();
+            searchComicVineMetadata(fullPath, fileData.name);
+          };
+          iconContainer.appendChild(cvBtn);
+          console.log('ComicVine button added');
+        } else {
+          console.log('ComicVine button skipped - API key not configured');
         }
       }
 
@@ -1093,6 +1131,9 @@ document.addEventListener('DOMContentLoaded', function() {
 
   // Check GCD MySQL availability
   checkGCDAvailability();
+
+  // Check ComicVine API availability
+  checkComicVineAvailability();
 
   // Initialize rename rows as hidden
   document.getElementById('source-directory-rename-row').style.display = 'none';
@@ -3456,7 +3497,7 @@ function performSearch() {
 
       // Show a simple loading indicator
       const loadingToast = document.createElement('div');
-      loadingToast.className = 'toast show position-fixed bottom-0 end-0 m-3';
+      loadingToast.className = 'toast show position-fixed top-0 end-0 m-3';
       loadingToast.style.zIndex = '1200';
       loadingToast.innerHTML = `
         <div class="toast-header bg-primary text-white">
@@ -3516,7 +3557,7 @@ function performSearch() {
         if (data.success) {
           // Show success message
           const successToast = document.createElement('div');
-          successToast.className = 'toast show position-fixed bottom-0 end-0 m-3';
+          successToast.className = 'toast show position-fixed top-0 end-0 m-3';
           successToast.style.zIndex = '1200';
           successToast.innerHTML = `
             <div class="toast-header bg-success text-white">
@@ -3544,7 +3585,7 @@ function performSearch() {
         } else if (data.notFound) {
           // Show not found message as warning (not error)
           const warningToast = document.createElement('div');
-          warningToast.className = 'toast show position-fixed bottom-0 end-0 m-3';
+          warningToast.className = 'toast show position-fixed top-0 end-0 m-3';
           warningToast.style.zIndex = '1200';
           warningToast.innerHTML = `
             <div class="toast-header bg-warning text-white">
@@ -3566,7 +3607,7 @@ function performSearch() {
         } else {
           // Show error message
           const errorToast = document.createElement('div');
-          errorToast.className = 'toast show position-fixed bottom-0 end-0 m-3';
+          errorToast.className = 'toast show position-fixed top-0 end-0 m-3';
           errorToast.style.zIndex = '1200';
           errorToast.innerHTML = `
             <div class="toast-header bg-danger text-white">
@@ -3592,7 +3633,7 @@ function performSearch() {
         document.body.removeChild(loadingToast);
 
         const errorToast = document.createElement('div');
-        errorToast.className = 'toast show position-fixed bottom-0 end-0 m-3';
+        errorToast.className = 'toast show position-fixed top-0 end-0 m-3';
         errorToast.style.zIndex = '1200';
         errorToast.innerHTML = `
           <div class="toast-header bg-danger text-white">
@@ -3692,7 +3733,7 @@ function performSearch() {
 
       // Show loading indicator
       const loadingToast = document.createElement('div');
-      loadingToast.className = 'toast show position-fixed bottom-0 end-0 m-3';
+      loadingToast.className = 'toast show position-fixed top-0 end-0 m-3';
       loadingToast.style.zIndex = '1200';
       loadingToast.innerHTML = `
         <div class="toast-header bg-primary text-white">
@@ -4467,7 +4508,7 @@ function performSearch() {
 
       // Create loading toast
       const loadingToast = document.createElement('div');
-      loadingToast.className = 'toast show position-fixed bottom-0 end-0 m-3';
+      loadingToast.className = 'toast show position-fixed top-0 end-0 m-3';
       loadingToast.style.zIndex = '1200';
       loadingToast.innerHTML = `
         <div class="toast-header bg-primary text-white">
@@ -4510,7 +4551,7 @@ function performSearch() {
         if (data.success) {
           // Show success message
           const successToast = document.createElement('div');
-          successToast.className = 'toast show position-fixed bottom-0 end-0 m-3';
+          successToast.className = 'toast show position-fixed top-0 end-0 m-3';
           successToast.style.zIndex = '1200';
           successToast.innerHTML = `
             <div class="toast-header bg-success text-white">
@@ -4536,7 +4577,7 @@ function performSearch() {
         } else {
           // Show error message
           const errorToast = document.createElement('div');
-          errorToast.className = 'toast show position-fixed bottom-0 end-0 m-3';
+          errorToast.className = 'toast show position-fixed top-0 end-0 m-3';
           errorToast.style.zIndex = '1200';
           errorToast.innerHTML = `
             <div class="toast-header bg-danger text-white">
@@ -4562,7 +4603,7 @@ function performSearch() {
         document.body.removeChild(loadingToast);
 
         const errorToast = document.createElement('div');
-        errorToast.className = 'toast show position-fixed bottom-0 end-0 m-3';
+        errorToast.className = 'toast show position-fixed top-0 end-0 m-3';
         errorToast.style.zIndex = '1200';
         errorToast.innerHTML = `
           <div class="toast-header bg-danger text-white">
@@ -4659,3 +4700,509 @@ function performSearch() {
       });
     }
 
+
+
+// ComicVine metadata search function
+function searchComicVineMetadata(filePath, fileName) {
+  console.log('ComicVine Search Called with:', { filePath, fileName });
+
+  // Validate inputs
+  if (!filePath || !fileName) {
+    console.error('Invalid parameters:', { filePath, fileName });
+    showToast('ComicVine Search Error', 'Missing file path or name', 'error');
+    return;
+  }
+
+  if (!fileName.toLowerCase().match(/\.(cbz|cbr)$/)) {
+    console.error('Invalid file type:', fileName);
+    showToast('ComicVine Search Error', 'File must be CBZ or CBR format', 'error');
+    return;
+  }
+
+  // Parse series name and issue from filename
+  const nameWithoutExt = fileName.replace(/\.(cbz|cbr)$/i, '');
+
+  // Show a simple loading indicator
+  const loadingToast = document.createElement('div');
+  loadingToast.className = 'toast show position-fixed top-0 end-0 m-3';
+  loadingToast.style.zIndex = '1200';
+  loadingToast.innerHTML = `
+    <div class="toast-header bg-success text-white">
+      <strong class="me-auto">ComicVine Search</strong>
+      <small>Searching...</small>
+    </div>
+    <div class="toast-body">
+      <div class="d-flex align-items-center">
+        <div class="spinner-border spinner-border-sm me-2" role="status">
+          <span class="visually-hidden">Loading...</span>
+        </div>
+        Searching ComicVine for "${nameWithoutExt}"...
+      </div>
+    </div>
+  `;
+  document.body.appendChild(loadingToast);
+
+  // Make request to backend
+  const requestData = {
+    file_path: filePath,
+    file_name: fileName
+  };
+  console.log('ComicVine Search Request Data:', requestData);
+
+  fetch('/search-comicvine-metadata', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify(requestData)
+  })
+  .then(response => {
+    console.log('ComicVine Search Response Status:', response.status);
+    if (!response.ok) {
+      return response.json().then(errorData => {
+        if (response.status === 404) {
+          return { success: false, notFound: true, error: errorData.error || 'Issue not found in ComicVine' };
+        }
+        throw new Error('HTTP error: ' + (errorData.error || response.statusText));
+      }).catch((jsonError) => {
+        if (response.status === 404) {
+          return { success: false, notFound: true, error: 'Issue not found in ComicVine' };
+        }
+        throw new Error('HTTP error: ' + response.statusText);
+      });
+    }
+    return response.json();
+  })
+  .then(data => {
+    console.log('ComicVine Search Response Data:', data);
+    document.body.removeChild(loadingToast);
+
+    if (data.success) {
+      // Show success message with cover image if available
+      const successToast = document.createElement('div');
+      successToast.className = 'toast show position-fixed top-0 end-0 m-3';
+      successToast.style.zIndex = '1200';
+      let imageHtml = data.image_url ? ('<img src="' + data.image_url + '" class="img-thumbnail mt-2" style="max-width: 100px;" alt="Cover">') : '';
+      successToast.innerHTML = `
+        <div class="toast-header bg-success text-white">
+          <strong class="me-auto">ComicVine Search</strong>
+          <button type="button" class="btn-close btn-close-white" onclick="this.closest('.toast').remove()"></button>
+        </div>
+        <div class="toast-body">
+          Successfully added metadata to "${fileName}"<br>
+          <small class="text-muted">Series: ${ data.metadata && data.metadata.Series || 'Unknown'}<br>
+          Issue: ${data.metadata && data.metadata.Number || 'Unknown'}</small>
+          ${imageHtml}
+        </div>
+      `;
+      document.body.appendChild(successToast);
+
+      setTimeout(() => {
+        if (document.body.contains(successToast)) {
+          document.body.removeChild(successToast);
+        }
+      }, 5000);
+
+      // Ask if user wants to rename file
+      if (data.metadata && data.metadata.Series) {
+        promptRenameAfterMetadata(filePath, fileName, data.metadata, data.rename_config);
+      }
+    } else if (data.requires_selection) {
+      // Show volume selection modal
+      showComicVineVolumeSelectionModal(data, filePath, fileName);
+    } else if (data.notFound) {
+      // Show not found message as warning
+      const warningToast = document.createElement('div');
+      warningToast.className = 'toast show position-fixed top-0 end-0 m-3';
+      warningToast.style.zIndex = '1200';
+      warningToast.innerHTML = `
+        <div class="toast-header bg-warning text-white">
+          <strong class="me-auto">ComicVine Search</strong>
+          <button type="button" class="btn-close btn-close-white" onclick="this.closest('.toast').remove()"></button>
+        </div>
+        <div class="toast-body">
+          ${data.error || 'Issue not found in ComicVine'}
+        </div>
+      `;
+      document.body.appendChild(warningToast);
+
+      setTimeout(() => {
+        if (document.body.contains(warningToast)) {
+          document.body.removeChild(warningToast);
+        }
+      }, 5000);
+    } else {
+      // Show error message
+      const errorToast = document.createElement('div');
+      errorToast.className = 'toast show position-fixed top-0 end-0 m-3';
+      errorToast.style.zIndex = '1200';
+      errorToast.innerHTML = `
+        <div class="toast-header bg-danger text-white">
+          <strong class="me-auto">ComicVine Search Error</strong>
+          <button type="button" class="btn-close btn-close-white" onclick="this.closest('.toast').remove()"></button>
+        </div>
+        <div class="toast-body">
+          Failed to add metadata: ${data.error || 'Unknown error'}
+        </div>
+      `;
+      document.body.appendChild(errorToast);
+
+      setTimeout(() => {
+        if (document.body.contains(errorToast)) {
+          document.body.removeChild(errorToast);
+        }
+      }, 8000);
+    }
+  })
+  .catch(error => {
+    console.error('ComicVine Search Network Error:', error);
+    if (document.body.contains(loadingToast)) {
+      document.body.removeChild(loadingToast);
+    }
+
+    const errorToast = document.createElement('div');
+    errorToast.className = 'toast show position-fixed top-0 end-0 m-3';
+    errorToast.style.zIndex = '1200';
+    errorToast.innerHTML = `
+      <div class="toast-header bg-danger text-white">
+        <strong class="me-auto">Network Error</strong>
+        <button type="button" class="btn-close btn-close-white" onclick="this.closest('.toast').remove()"></button>
+      </div>
+      <div class="toast-body">
+        Network error: ${error.message}
+      </div>
+    `;
+    document.body.appendChild(errorToast);
+
+    setTimeout(() => {
+      if (document.body.contains(errorToast)) {
+        document.body.removeChild(errorToast);
+      }
+    }, 8000);
+  });
+}
+
+// Stub for ComicVine volume selection modal - will be implemented similar to GCD
+function showComicVineVolumeSelectionModal(data, filePath, fileName) {
+  console.log('Showing ComicVine volume selection modal', data);
+
+  // Populate parsed filename info
+  document.getElementById('cvParsedSeries').textContent = data.parsed_filename.series_name;
+  document.getElementById('cvParsedIssue').textContent = data.parsed_filename.issue_number;
+  document.getElementById('cvParsedYear').textContent = data.parsed_filename.year || 'Unknown';
+
+  // Update modal title
+  const modalTitle = document.getElementById('comicVineVolumeModalLabel');
+  if (modalTitle) {
+    modalTitle.textContent = `Found ${data.possible_matches.length} Volume(s) - Select Correct One`;
+  }
+
+  // Populate volume list
+  const volumeList = document.getElementById('cvVolumeList');
+  volumeList.innerHTML = '';
+
+  data.possible_matches.forEach(volume => {
+    const volumeItem = document.createElement('div');
+    volumeItem.className = 'list-group-item list-group-item-action d-flex align-items-start';
+    volumeItem.style.cursor = 'pointer';
+
+    const yearDisplay = volume.start_year || 'Unknown';
+    const descriptionPreview = volume.description ?
+      `<small class="text-muted d-block mt-1">${volume.description}</small>` : '';
+
+    // Display thumbnail if available, otherwise show placeholder
+    const thumbnailHtml = volume.image_url ?
+      `<img src="${volume.image_url}" class="img-thumbnail me-3" style="width: 80px; height: 120px; object-fit: cover;" alt="${volume.name} cover">` :
+      `<div class="me-3 d-flex align-items-center justify-content-center bg-secondary text-white" style="width: 80px; height: 120px; font-size: 10px;">No Cover</div>`;
+
+    volumeItem.innerHTML = `
+      ${thumbnailHtml}
+      <div class="flex-grow-1 d-flex justify-content-between align-items-start">
+        <div class="me-2">
+          <div class="fw-bold">${volume.name}</div>
+          <small class="text-muted">Publisher: ${volume.publisher_name || 'Unknown'}<br>Issues: ${volume.count_of_issues || 'Unknown'}</small>
+          ${descriptionPreview}
+        </div>
+        <span class="badge bg-success rounded-pill">${yearDisplay}</span>
+      </div>
+    `;
+
+    volumeItem.addEventListener('click', () => {
+      // Highlight selected item
+      volumeList.querySelectorAll('.list-group-item').forEach(item => {
+        item.classList.remove('active');
+      });
+      volumeItem.classList.add('active');
+
+      // Call backend with selected volume (including publisher)
+      selectComicVineVolume(filePath, fileName, volume.id, volume.publisher_name, data.parsed_filename.issue_number, data.parsed_filename.year);
+    });
+
+    volumeList.appendChild(volumeItem);
+  });
+
+  // Show the modal
+  const modal = new bootstrap.Modal(document.getElementById('comicVineVolumeModal'));
+  modal.show();
+}
+
+function selectComicVineVolume(filePath, fileName, volumeId, publisherName, issueNumber, year) {
+  console.log('ComicVine volume selected:', { filePath, fileName, volumeId, publisherName, issueNumber, year });
+
+  // Close the modal
+  const modal = bootstrap.Modal.getInstance(document.getElementById('comicVineVolumeModal'));
+  modal.hide();
+
+  // Show loading indicator
+  const loadingToast = document.createElement('div');
+  loadingToast.className = 'toast show position-fixed top-0 end-0 m-3';
+  loadingToast.style.zIndex = '1200';
+  loadingToast.innerHTML = `
+    <div class="toast-header bg-success text-white">
+      <strong class="me-auto">ComicVine</strong>
+      <small>Processing...</small>
+    </div>
+    <div class="toast-body">
+      <div class="d-flex align-items-center">
+        <div class="spinner-border spinner-border-sm me-2" role="status">
+          <span class="visually-hidden">Loading...</span>
+        </div>
+        Retrieving metadata...
+      </div>
+    </div>
+  `;
+  document.body.appendChild(loadingToast);
+
+  // Make request to backend
+  fetch('/search-comicvine-metadata-with-selection', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      file_path: filePath,
+      file_name: fileName,
+      volume_id: volumeId,
+      publisher_name: publisherName,
+      issue_number: issueNumber,
+      year: year
+    })
+  })
+  .then(response => response.json())
+  .then(data => {
+    document.body.removeChild(loadingToast);
+
+    if (data.success) {
+      // Show success with cover image
+      const successToast = document.createElement('div');
+      successToast.className = 'toast show position-fixed top-0 end-0 m-3';
+      successToast.style.zIndex = '1200';
+      let imageHtml = data.image_url ? `<img src="${data.image_url}" class="img-thumbnail mt-2" style="max-width: 100px;" alt="Cover">` : '';
+      successToast.innerHTML = `
+        <div class="toast-header bg-success text-white">
+          <strong class="me-auto">ComicVine Success</strong>
+          <button type="button" class="btn-close btn-close-white" onclick="this.closest('.toast').remove()"></button>
+        </div>
+        <div class="toast-body">
+          Successfully added metadata to "${fileName}"<br>
+          <small class="text-muted">Series: ${data.metadata?.Series || 'Unknown'}<br>
+          Issue: ${data.metadata?.Number || 'Unknown'}</small>
+          ${imageHtml}
+        </div>
+      `;
+      document.body.appendChild(successToast);
+
+      setTimeout(() => {
+        if (document.body.contains(successToast)) {
+          document.body.removeChild(successToast);
+        }
+      }, 5000);
+
+      // Ask if user wants to rename file
+      if (data.metadata?.Series) {
+        promptRenameAfterMetadata(filePath, fileName, data.metadata, data.rename_config);
+      }
+    } else {
+      showToast('ComicVine Error', data.error || 'Failed to retrieve metadata', 'error');
+    }
+  })
+  .catch(error => {
+    document.body.removeChild(loadingToast);
+    showToast('ComicVine Error', error.message, 'error');
+  });
+}
+
+function promptRenameAfterMetadata(filePath, fileName, metadata, renameConfig) {
+  console.log('promptRenameAfterMetadata called with:', { filePath, fileName, metadata, renameConfig });
+
+  let suggestedName;
+  const ext = fileName.match(/\.(cbz|cbr)$/i)?.[0] || '.cbz';
+
+  // Check if custom rename pattern is enabled and defined
+  if (renameConfig && renameConfig.enabled && renameConfig.pattern) {
+    console.log('Using custom rename pattern:', renameConfig.pattern);
+
+    // Apply custom pattern - similar to rename.py logic
+    let pattern = renameConfig.pattern;
+
+    // Prepare values for replacement
+    let series = metadata.Series || '';
+    series = series.replace(/:/g, ' -');  // Replace colon with dash for Windows
+    series = series.replace(/[<>"/\\|?*]/g, '');  // Remove invalid chars
+
+    const issueNumber = String(metadata.Number).padStart(3, '0');
+    const year = metadata.Year || '';
+    const volumeNumber = '';  // ComicVine uses year as Volume, not volume number
+
+    console.log('Pattern replacement values:', { series, issueNumber, year, volumeNumber, metadata });
+
+    // Replace pattern variables (case-insensitive for flexibility)
+    let result = pattern;
+    result = result.replace(/{series_name}/gi, series);
+    result = result.replace(/{issue_number}/gi, issueNumber);
+    result = result.replace(/{year}/gi, year);
+    result = result.replace(/{YYYY}/g, year);  // Support YYYY as well
+    result = result.replace(/{volume_number}/gi, volumeNumber);
+
+    // Clean up extra spaces
+    result = result.replace(/\s+/g, ' ').trim();
+
+    // Remove empty parentheses
+    result = result.replace(/\s*\(\s*\)/g, '').trim();
+
+    suggestedName = result + ext;
+  } else {
+    // Default rename pattern: Series Number.ext
+    let series = metadata.Series;
+    series = series.replace(/:/g, ' -');  // Replace colon with dash
+    series = series.replace(/[<>"/\\|?*]/g, '');  // Remove other invalid filename chars
+    series = series.replace(/\s+/g, ' ').trim();  // Normalize whitespace
+
+    const number = String(metadata.Number).padStart(3, '0');
+    suggestedName = `${series} ${number}${ext}`;
+  }
+
+  // Only prompt if the name would actually change
+  if (suggestedName === fileName) {
+    return;
+  }
+
+  // Populate modal with current and suggested names
+  document.getElementById('renameCurrentName').textContent = fileName;
+  document.getElementById('renameSuggestedName').textContent = suggestedName;
+
+  // Store the rename data for the confirmation button
+  const confirmBtn = document.getElementById('confirmRenameBtn');
+  confirmBtn.onclick = function() {
+    // Close the modal
+    const modal = bootstrap.Modal.getInstance(document.getElementById('renameConfirmModal'));
+    modal.hide();
+
+    // Execute rename
+    renameFileAfterMetadata(filePath, fileName, suggestedName);
+  };
+
+  // Show the modal
+  const renameModal = new bootstrap.Modal(document.getElementById('renameConfirmModal'));
+  renameModal.show();
+}
+
+function renameFileAfterMetadata(filePath, oldName, newName) {
+  console.log('renameFileAfterMetadata called with:', { filePath, oldName, newName });
+
+  // Construct the new full path
+  const directory = filePath.substring(0, filePath.lastIndexOf('/'));
+  const newPath = directory + '/' + newName;
+
+  console.log('Constructed paths:', { old: filePath, new: newPath, directory });
+
+  // Show loading toast
+  const loadingToast = document.createElement('div');
+  loadingToast.className = 'toast show position-fixed top-0 end-0 m-3';
+  loadingToast.style.zIndex = '1200';
+  loadingToast.innerHTML = `
+    <div class="toast-header bg-primary text-white">
+      <strong class="me-auto">Renaming</strong>
+    </div>
+    <div class="toast-body">
+      <div class="d-flex align-items-center">
+        <div class="spinner-border spinner-border-sm me-2" role="status">
+          <span class="visually-hidden">Loading...</span>
+        </div>
+        Renaming file...
+      </div>
+    </div>
+  `;
+  document.body.appendChild(loadingToast);
+
+  fetch('/rename', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      old: filePath,
+      new: newPath
+    })
+  })
+  .then(response => {
+    if (!response.ok) {
+      return response.json().then(err => {
+        throw new Error(err.error || 'Rename failed');
+      });
+    }
+    return response.json();
+  })
+  .then(data => {
+    document.body.removeChild(loadingToast);
+    if (data.success) {
+      showToast('File Renamed', `Successfully renamed to: ${newName}`, 'success');
+
+      // Update the file in the DOM instead of reloading entire list
+      updateRenamedFileInDOM(filePath, newPath, newName);
+    } else {
+      showToast('Rename Failed', data.error || 'Failed to rename file', 'error');
+    }
+  })
+  .catch(error => {
+    if (document.body.contains(loadingToast)) {
+      document.body.removeChild(loadingToast);
+    }
+    console.error('Rename error:', error);
+    showToast('Rename Error', error.message, 'error');
+  });
+}
+
+function updateRenamedFileInDOM(oldPath, newPath, newName) {
+  console.log('updateRenamedFileInDOM:', { oldPath, newPath, newName });
+
+  // Find the list item with the old path
+  const sourceList = document.getElementById('source-list');
+  const destList = document.getElementById('destination-list');
+
+  // Check both panels for the file
+  [sourceList, destList].forEach(list => {
+    if (!list) return;
+
+    const listItem = list.querySelector(`li[data-fullpath="${oldPath}"]`);
+    if (listItem) {
+      console.log('Found list item to update:', listItem);
+
+      // Update the data attribute
+      listItem.dataset.fullpath = newPath;
+
+      // Find and update the filename span
+      const nameSpan = listItem.querySelector('span');
+      if (nameSpan) {
+        // Preserve the size info if it exists
+        const sizeMatch = nameSpan.innerHTML.match(/<span class="text-info-emphasis small ms-2">\([^)]+\)<\/span>/);
+        if (sizeMatch) {
+          nameSpan.innerHTML = `${newName} ${sizeMatch[0]}`;
+        } else {
+          nameSpan.textContent = newName;
+        }
+        console.log('Updated filename in DOM');
+      }
+    }
+  });
+}

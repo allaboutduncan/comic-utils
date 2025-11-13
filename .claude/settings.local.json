@@ -24,7 +24,10 @@
       "Bash(gh pr view:*)",
       "Bash(gh pr diff:*)",
       "Bash(del test_remove_sort.py)",
-      "Bash(del:*)"
+      "Bash(del:*)",
+      "Bash(cat:*)",
+      "Bash(C:/Users/phill/Documents/GitHub/comic-utils/static/js/files.js)",
+      "WebFetch(domain:simyan.readthedocs.io)"
     ],
     "deny": [],
     "ask": []

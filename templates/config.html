@@ -222,6 +222,30 @@
             </div>
         </div>
 
+        <!-- Metadata API Settings -->
+        <div class="container p-4 border rounded shadow-sm mb-4">
+            <h4>Metadata API Configuration</h4>
+            <p class="text-muted">Configure API keys for metadata providers to enrich your comics with detailed information.</p>
+
+            <div class="row">
+                <div class="col-md-6">
+                    <label for="comicvineApiKey" class="form-label">ComicVine API Key</label>
+                    <input type="password" name="comicvineApiKey" id="comicvineApiKey" value="{{ comicvineApiKey }}" class="form-control" placeholder="Enter your ComicVine API key">
+                    <small class="form-text text-muted">
+                        Optional: Enter your ComicVine API key to enable metadata lookup from ComicVine. Get your API key at <a href="https://comicvine.gamespot.com/api/" target="_blank">comicvine.gamespot.com/api</a>
+                    </small>
+                </div>
+
+                <div class="col-md-6">
+                    <label for="gcdLanguages" class="form-label">GCD Metadata Languages</label>
+                    <input type="text" name="gcdLanguages" id="gcdLanguages" value="{{ gcdLanguages }}" class="form-control" placeholder="en">
+                    <small class="form-text text-muted">
+                        Comma-separated list of language codes for Grand Comics Database metadata (e.g., "en,es,fr"). Default: "en"
+                    </small>
+                </div>
+            </div>
+        </div>
+
         <!-- Performance & Timeout Settings -->
         <div class="container p-4 border rounded shadow-sm mb-4">
             <h4>Performance & Timeout Settings</h4>
@@ -867,7 +891,7 @@
         let toastContainer = document.querySelector('.toast-container');
         if (!toastContainer) {
             toastContainer = document.createElement('div');
-            toastContainer.className = 'toast-container position-fixed bottom-0 end-0 p-3';
+            toastContainer.className = 'toast-container position-fixed top-0 end-0 p-3';
             toastContainer.style.zIndex = '1100';
             document.body.appendChild(toastContainer);
         }

@@ -75,7 +75,7 @@
     </div>
 
     <!-- Toast Container -->
-    <div class="toast-container position-fixed bottom-0 end-0 p-3" style="z-index: 1100">
+    <div class="toast-container position-fixed top-0 end-0 p-3" style="z-index: 1100">
       <div id="moveErrorToast" class="toast bg-danger text-white" role="alert" aria-live="assertive" aria-atomic="true">
         <div class="toast-header bg-danger text-white">
           <strong class="me-auto">Rename Error</strong>
@@ -510,6 +510,62 @@
   </div>
 </div>
 <!-- End of GCD Series Selection Modal -->
+
+<!-- ComicVine Volume Selection Modal -->
+<div class="modal fade" id="comicVineVolumeModal" tabindex="-1" aria-labelledby="comicVineVolumeModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="comicVineVolumeModalLabel">Select Correct Volume</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <div class="mb-3">
+          <p><strong>Parsed from filename:</strong></p>
+          <ul class="list-unstyled">
+            <li><strong>Series:</strong> <span id="cvParsedSeries"></span></li>
+            <li><strong>Issue:</strong> <span id="cvParsedIssue"></span></li>
+            <li><strong>Year:</strong> <span id="cvParsedYear"></span></li>
+          </ul>
+        </div>
+        <div class="mb-3">
+          <p class="mb-2"><strong>Please select the correct volume from ComicVine:</strong></p>
+          <div id="cvVolumeList" class="list-group" style="max-height: 400px; overflow-y: auto;">
+            <!-- Volume options will be populated here -->
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+      </div>
+    </div>
+  </div>
+</div>
+<!-- End of ComicVine Volume Selection Modal -->
+
+<!-- Rename Confirmation Modal -->
+<div class="modal fade" id="renameConfirmModal" tabindex="-1" aria-labelledby="renameConfirmModalLabel" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="renameConfirmModalLabel">Rename File?</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <p><strong>Current filename:</strong></p>
+        <p class="text-muted" id="renameCurrentName"></p>
+        <p><strong>Suggested filename:</strong></p>
+        <p class="text-success fw-bold" id="renameSuggestedName"></p>
+        <p class="text-muted small">The filename will be updated to match the metadata from ComicVine.</p>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Keep Original</button>
+        <button type="button" class="btn btn-primary" id="confirmRenameBtn">Rename File</button>
+      </div>
+    </div>
+  </div>
+</div>
+<!-- End of Rename Confirmation Modal -->
 
 {% endblock %}
 

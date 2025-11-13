@@ -47,6 +47,7 @@ def load_config():
         "HEADERS": "",
         "PIXELDRAIN_API_KEY": "",
         "GCD_METADATA_LANGUAGES": "en",
+        "COMICVINE_API_KEY": "",
         "ENABLE_CUSTOM_RENAME": "False",
         "CUSTOM_RENAME_PATTERN": "",
         "ENABLE_DEBUG_LOGGING": "False"
@@ -114,6 +115,7 @@ def load_flask_config(app, logger=None):
     app.config["HEADERS"] = settings.get("HEADERS", "")
     app.config["PIXELDRAIN_API_KEY"] = settings.get("PIXELDRAIN_API_KEY", "")
     app.config["GCD_METADATA_LANGUAGES"] = settings.get("GCD_METADATA_LANGUAGES", "en")
+    app.config["COMICVINE_API_KEY"] = settings.get("COMICVINE_API_KEY", "")
     app.config["ENABLE_CUSTOM_RENAME"] = config.getboolean("SETTINGS", "ENABLE_CUSTOM_RENAME", fallback=False)
     app.config["CUSTOM_RENAME_PATTERN"] = settings.get("CUSTOM_RENAME_PATTERN", "")
     app.config["ENABLE_DEBUG_LOGGING"] = config.getboolean("SETTINGS", "ENABLE_DEBUG_LOGGING", fallback=False)

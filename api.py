@@ -32,11 +32,12 @@ from urllib3.util.retry import Retry
 
 # Application logging and configuration (adjust these as needed)
 from app_logging import app_logger
-from config import config, load_config
+from config import config, load_config, load_flask_config
 
 # Load config and initialize Flask app.
 app = Flask(__name__)
 load_config()
+load_flask_config(app, app_logger)  # Load config into Flask app.config
 
 # -------------------------------
 # Global Variables & Configuration
