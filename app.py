@@ -1774,16 +1774,16 @@ def api_browse_recursive():
     import re
     
     path = request.args.get('path', '')
-    base_dir = DATA_DIR
     
-    # Build full path
-    if path:
-        full_path = os.path.join(base_dir, path.lstrip('/'))
+    # Use the path directly (like /api/browse does)
+    if not path:
+        full_path = DATA_DIR
     else:
-        full_path = base_dir
+        full_path = path
     
     if not os.path.exists(full_path) or not os.path.isdir(full_path):
         return jsonify({"error": "Invalid path"}), 400
+
     
     files = []
     
@@ -1791,7 +1791,12 @@ def api_browse_recursive():
     for root, dirs, filenames in os.walk(full_path):
         for filename in filenames:
             file_path = os.path.join(root, filename)
-            rel_path = os.path.relpath(file_path, base_dir)
+            
+            # Calculate relative path from DATA_DIR for consistency
+            if full_path == DATA_DIR:
+                rel_path = os.path.relpath(file_path, DATA_DIR)
+            else:
+                rel_path = os.path.relpath(file_path, DATA_DIR)
             
             try:
                 stat_info = os.stat(file_path)

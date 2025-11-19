@@ -142,7 +142,14 @@ async function loadAllBooks() {
         const data = await response.json();
 
         allBooksData = data;
-        allItems = data.files;  // Only files, no folders
+
+        // Map backend snake_case to frontend camelCase for thumbnails
+        allItems = data.files.map(file => ({
+            ...file,
+            hasThumbnail: file.has_thumbnail,
+            thumbnailUrl: file.thumbnail_url
+        }));
+
         currentPage = 1;
 
         updateViewButtons(currentPath);
