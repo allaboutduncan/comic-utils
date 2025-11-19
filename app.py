@@ -35,8 +35,110 @@ from collections import OrderedDict
 from version import __version__
 import requests
 from packaging import version as pkg_version
+from database import init_db, get_db_connection
+from concurrent.futures import ThreadPoolExecutor
 
 load_config()
+
+# Initialize Database
+init_db()
+
+# Thread pool for thumbnail generation
+thumbnail_executor = ThreadPoolExecutor(max_workers=2)
+
+def scan_library_task():
+    """Background task to scan library for new/changed files and generate thumbnails."""
+    app_logger.info("Starting background library scan for thumbnails...")
+    
+    conn = get_db_connection()
+    if not conn:
+        app_logger.error("Could not connect to DB for library scan")
+        return
+
+    try:
+        # Get all existing jobs to minimize DB queries in loop
+        # Map path -> (status, file_mtime)
+        cursor = conn.execute("SELECT path, status, file_mtime FROM thumbnail_jobs")
+        existing_jobs = {row['path']: (row['status'], row['file_mtime']) for row in cursor.fetchall()}
+        
+        count_queued = 0
+        count_skipped = 0
+        
+        for root, dirs, files in os.walk(DATA_DIR):
+            for file in files:
+                if file.lower().endswith(('.cbz', '.cbr', '.zip', '.rar', '.pdf')):
+                    full_path = os.path.join(root, file)
+                    try:
+                        stat = os.stat(full_path)
+                        current_mtime = stat.st_mtime
+                        
+                        should_process = False
+                        
+                        if full_path not in existing_jobs:
+                            should_process = True # New file
+                        else:
+                            status, stored_mtime = existing_jobs[full_path]
+                            # Check if file modified since last scan
+                            # stored_mtime might be None if migrated
+                            if stored_mtime is None or current_mtime > stored_mtime:
+                                should_process = True
+                            elif status == 'error':
+                                # Optional: Retry errors? Let's skip for now to avoid loops, 
+                                # or maybe retry once per startup? 
+                                # For now, assume errors are permanent until file changes.
+                                pass
+                                
+                        if should_process:
+                            # Update DB to mark as pending/processing and update mtime
+                            conn.execute("""
+                                INSERT INTO thumbnail_jobs (path, status, file_mtime, updated_at) 
+                                VALUES (?, 'processing', ?, CURRENT_TIMESTAMP)
+                                ON CONFLICT(path) DO UPDATE SET 
+                                    status='processing', 
+                                    file_mtime=excluded.file_mtime,
+                                    updated_at=CURRENT_TIMESTAMP
+                            """, (full_path, current_mtime))
+                            
+                            # Queue the job
+                            # We need to calculate cache_path here or let the task do it?
+                            # The task takes (file_path, cache_path).
+                            # We need to replicate the cache path logic.
+                            import hashlib
+                            path_hash = hashlib.md5(full_path.encode('utf-8')).hexdigest()
+                            shard_dir = path_hash[:2]
+                            filename = f"{path_hash}.jpg"
+                            thumbnails_dir = os.path.join(config.get("SETTINGS", "CACHE_DIR", fallback="/cache"), "thumbnails")
+                            cache_path = os.path.join(thumbnails_dir, shard_dir, filename)
+                            
+                            thumbnail_executor.submit(generate_thumbnail_task, full_path, cache_path)
+                            count_queued += 1
+                        else:
+                            count_skipped += 1
+                            
+                    except OSError as e:
+                        app_logger.error(f"Error accessing file {full_path}: {e}")
+                        
+            # Commit batches or at end? At end is fine for single thread scan
+            conn.commit()
+            
+        app_logger.info(f"Library scan complete. Queued {count_queued} thumbnails, skipped {count_skipped}.")
+        
+    except Exception as e:
+        app_logger.error(f"Error during library scan: {e}")
+    finally:
+        conn.close()
+
+# Start background scanner
+def start_background_scanner():
+    # Delay slightly to let app startup finish
+    def run():
+        time.sleep(5) 
+        scan_library_task()
+    
+    thread = threading.Thread(target=run, daemon=True)
+    thread.start()
+
+start_background_scanner()
 
 # app = Flask(__name__)
 
@@ -1623,6 +1725,211 @@ def files_page():
     watch = config.get("SETTINGS", "WATCH", fallback="/temp")
     target_dir = config.get("SETTINGS", "TARGET", fallback="/processed")
     return render_template('files.html', watch=watch, target_dir=target_dir)
+
+#####################################
+#           Collection Page             #
+#####################################
+
+@app.route('/collection')
+def collection():
+    """Render the visual browse page."""
+    return render_template('collection.html')
+
+@app.route('/api/browse')
+def api_browse():
+    """Get directory listing for the browse page."""
+    path = request.args.get('path')
+    if not path:
+        path = DATA_DIR
+    
+    if not os.path.exists(path):
+        return jsonify({"error": "Directory not found"}), 404
+        
+    try:
+        # Use existing list logic
+        listing = get_directory_listing(path)
+        
+        # Add thumbnail info
+        files = listing['files']
+        for f in files:
+            if f['name'].lower().endswith(('.cbz', '.cbr', '.zip')):
+                f['has_thumbnail'] = True
+                f['thumbnail_url'] = url_for('get_thumbnail', path=os.path.join(path, f['name']))
+            else:
+                f['has_thumbnail'] = False
+                
+        return jsonify({
+            "current_path": path,
+            "directories": listing['directories'],
+            "files": files,
+            "parent": os.path.dirname(path) if path != DATA_DIR else None
+        })
+    except Exception as e:
+        app_logger.error(f"Error browsing {path}: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/browse-recursive')
+def api_browse_recursive():
+    """Get all files recursively from a directory and subdirectories."""
+    import re
+    
+    path = request.args.get('path', '')
+    base_dir = DATA_DIR
+    
+    # Build full path
+    if path:
+        full_path = os.path.join(base_dir, path.lstrip('/'))
+    else:
+        full_path = base_dir
+    
+    if not os.path.exists(full_path) or not os.path.isdir(full_path):
+        return jsonify({"error": "Invalid path"}), 400
+    
+    files = []
+    
+    # Recursively walk directory
+    for root, dirs, filenames in os.walk(full_path):
+        for filename in filenames:
+            file_path = os.path.join(root, filename)
+            rel_path = os.path.relpath(file_path, base_dir)
+            
+            try:
+                stat_info = os.stat(file_path)
+                file_info = {
+                    "name": filename,  # Just filename, not full path
+                    "path": rel_path,
+                    "size": stat_info.st_size,
+                    "modified": stat_info.st_mtime,
+                    "type": "file"
+                }
+                
+                # Add thumbnail info for comic files
+                if filename.lower().endswith(('.cbz', '.cbr', '.zip')):
+                    file_info['has_thumbnail'] = True
+                    file_info['thumbnail_url'] = url_for('get_thumbnail', path=file_path)
+                else:
+                    file_info['has_thumbnail'] = False
+                
+                files.append(file_info)
+            except Exception as e:
+                app_logger.warning(f"Error processing file {file_path}: {e}")
+                continue
+    
+    # Sort files alpha-numerically (natural sort)
+    def natural_sort_key(item):
+        """Convert a string into a list of mixed integers and strings for natural sorting."""
+        return [int(text) if text.isdigit() else text.lower() 
+                for text in re.split('([0-9]+)', item['name'])]
+    
+    files.sort(key=natural_sort_key)
+    
+    return jsonify({
+        "current_path": path,
+        "files": files,
+        "total": len(files)
+    })
+
+def generate_thumbnail_task(file_path, cache_path):
+    """Background task to generate thumbnail."""
+    app_logger.info(f"Starting thumbnail generation for {file_path}")
+    try:
+        # Extract and resize
+        import zipfile
+        from PIL import Image
+        
+        # Ensure cache directory exists
+        os.makedirs(os.path.dirname(cache_path), exist_ok=True)
+        
+        with zipfile.ZipFile(file_path, 'r') as zf:
+            file_list = zf.namelist()
+            image_extensions = {'.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp'}
+            image_files = sorted([f for f in file_list if os.path.splitext(f.lower())[1] in image_extensions])
+            
+            if image_files:
+                with zf.open(image_files[0]) as image_file:
+                    img = Image.open(image_file)
+                    if img.mode in ('RGBA', 'LA', 'P'):
+                        img = img.convert('RGB')
+                    
+                    # Resize to 300px height
+                    aspect_ratio = img.width / img.height
+                    new_height = 300
+                    new_width = int(new_height * aspect_ratio)
+                    img.thumbnail((new_width, new_height), Image.Resampling.LANCZOS)
+                    
+                    img.save(cache_path, format='JPEG', quality=85)
+                    
+                    # Update DB success
+                    conn = get_db_connection()
+                    if conn:
+                        conn.execute('UPDATE thumbnail_jobs SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE path = ?', ('completed', file_path))
+                        conn.commit()
+                        conn.close()
+                        app_logger.info(f"Thumbnail generated successfully for {file_path}")
+            else:
+                raise Exception("No images found in archive")
+                
+    except Exception as e:
+        app_logger.error(f"Error generating thumbnail for {file_path}: {e}")
+        conn = get_db_connection()
+        if conn:
+            conn.execute('UPDATE thumbnail_jobs SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE path = ?', ('error', file_path))
+            conn.commit()
+            conn.close()
+
+@app.route('/api/thumbnail')
+def get_thumbnail():
+    """Serve or generate thumbnail for a file."""
+    file_path = request.args.get('path')
+    if not file_path:
+        return jsonify({"error": "Missing path"}), 400
+        
+    # Calculate cache path
+    cache_dir = config.get("SETTINGS", "CACHE_DIR", fallback="/cache")
+    thumbnails_dir = os.path.join(cache_dir, "thumbnails")
+    
+    # Create a hash of the file path to use as filename
+    import hashlib
+    path_hash = hashlib.md5(file_path.encode('utf-8')).hexdigest()
+    
+    # Sharding: use first 2 chars of hash as subdirectory to avoid too many files in one folder
+    shard_dir = path_hash[:2]
+    filename = f"{path_hash}.jpg"
+    
+    # Full path for checking existence / generation
+    cache_path = os.path.join(thumbnails_dir, shard_dir, filename)
+    
+    # Check if thumbnail exists
+    if os.path.exists(cache_path):
+        return send_from_directory(os.path.join(thumbnails_dir, shard_dir), filename)
+        
+    # Check DB status
+    conn = get_db_connection()
+    job = None
+    if conn:
+        job = conn.execute('SELECT * FROM thumbnail_jobs WHERE path = ?', (file_path,)).fetchone()
+        conn.close()
+        
+    if job and job['status'] == 'completed' and os.path.exists(cache_path):
+        return send_from_directory(os.path.join(thumbnails_dir, shard_dir), filename)
+        
+    if job and job['status'] == 'processing':
+        return redirect(url_for('static', filename='images/loading.svg'))
+        
+    if job and job['status'] == 'error':
+        return redirect(url_for('static', filename='images/error.svg'))
+        
+    # Insert 'processing' status synchronously to prevent race conditions
+    conn = get_db_connection()
+    if conn:
+        conn.execute('INSERT OR REPLACE INTO thumbnail_jobs (path, status) VALUES (?, ?)', (file_path, 'processing'))
+        conn.commit()
+        conn.close()
+
+    # Submit task
+    thumbnail_executor.submit(generate_thumbnail_task, file_path, cache_path)
+    
+    return redirect(url_for('static', filename='images/loading.svg'))
 
 
 #####################################

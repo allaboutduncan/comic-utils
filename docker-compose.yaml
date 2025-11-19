@@ -17,9 +17,11 @@ services:
             - '/path/to/local/config:/config' # Maps local folder to container
             ## update the line below to map to your library.
             ## Your library MUST be mapped to '/data' for the app to work
-            - 'D:/Comics:/data'
+            - "/e/Comics:/data"
             ## Additional folder if you want to use Folder Monitoring.
-            - 'F:/downloads:/downloads'
+            - "/f/downloads:/downloads"
+            - 'config-volume:/config'
+            - '/path/to/cache:/cache' # Maps local folder to container for DB and thumbnails
         environment:
             - FLASK_ENV=development
             ## Set to 'yes' if you want to use folder monitoring.

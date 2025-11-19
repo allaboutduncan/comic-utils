@@ -8,14 +8,16 @@
       CLU
     </a>
 
-    <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#cluNavbar" aria-controls="cluNavbar" aria-expanded="false" aria-label="Toggle navigation">
+    <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#cluNavbar"
+      aria-controls="cluNavbar" aria-expanded="false" aria-label="Toggle navigation">
       <span class="navbar-toggler-icon"></span>
     </button>
 
     <div class="collapse navbar-collapse" id="cluNavbar">
       <ul class="navbar-nav ms-auto mb-2 mb-lg-0">
         <li class="nav-item">
-          <a href="#" id="version-badge" class="nav-link d-none" title="Update available!" data-bs-toggle="tooltip" data-bs-placement="bottom">
+          <a href="#" id="version-badge" class="nav-link d-none" title="Update available!" data-bs-toggle="tooltip"
+            data-bs-placement="bottom">
             <i class="bi bi-arrow-up-circle-fill text-warning"></i>
             <span id="version-text" class="badge bg-warning text-dark ms-1"></span>
           </a>
@@ -26,9 +28,17 @@
           </a>
         </li>
         <li class="nav-item">
-          <a href="{{ url_for('files_page') }}" class="nav-link position-relative {% if current_page == url_for('files_page') %}active{% endif %}">
+          <a href="{{ url_for('collection') }}"
+            class="nav-link position-relative {% if current_page == url_for('collection') %}active{% endif %}">
+            Collection
+          </a>
+        </li>
+        <li class="nav-item">
+          <a href="{{ url_for('files_page') }}"
+            class="nav-link position-relative {% if current_page == url_for('files_page') %}active{% endif %}">
             File Manager
-            <span id="file-watch-badge" class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-warning d-none">
+            <span id="file-watch-badge"
+              class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-warning d-none">
               0
             </span>
           </a>
@@ -40,29 +50,34 @@
             <span id="scrape-badge" class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-info d-none">
               0%
             </span>
-          </a>
+          </a>  
         </li> -->
         <li class="nav-item">
-          <a href="{{ url_for('status') }}" class="nav-link position-relative {% if current_page == url_for('status') %}active{% endif %}">
+          <a href="{{ url_for('status') }}"
+            class="nav-link position-relative {% if current_page == url_for('status') %}active{% endif %}">
             Downloads
-            <span id="download-badge" class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger d-none">
+            <span id="download-badge"
+              class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger d-none">
               0
             </span>
           </a>
         </li>
         <li class="nav-item">
-          <a href="{{ url_for('config_page') }}" class="nav-link {% if current_page == url_for('config_page') %}active{% endif %}">
+          <a href="{{ url_for('config_page') }}"
+            class="nav-link {% if current_page == url_for('config_page') %}active{% endif %}">
             Settings
           </a>
         </li>
         <li class="nav-item">
-          <a href="{{ url_for('app_logs_page') }}" class="nav-link {% if current_page == url_for('app_logs_page') %}active{% endif %}">
+          <a href="{{ url_for('app_logs_page') }}"
+            class="nav-link {% if current_page == url_for('app_logs_page') %}active{% endif %}">
             App Logs
           </a>
         </li>
         {% if monitor == "yes" %}
         <li class="nav-item">
-          <a href="{{ url_for('mon_logs_page') }}" class="nav-link {% if current_page == url_for('mon_logs_page') %}active{% endif %}">
+          <a href="{{ url_for('mon_logs_page') }}"
+            class="nav-link {% if current_page == url_for('mon_logs_page') %}active{% endif %}">
             Monitor Logs
           </a>
         </li>

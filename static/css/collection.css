@@ -1,0 +1,114 @@
+.file-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    gap: 1.5rem;
+    padding: 1rem 0;
+}
+
+.grid-item {
+    cursor: pointer;
+    transition: transform 0.2s;
+    position: relative;
+    /* Ensure z-index works */
+}
+
+.grid-item:hover {
+    transform: translateY(-5px);
+    z-index: 10;
+    /* Bring hovered item to front */
+}
+
+/* Ensure dropdown is above everything */
+.item-actions .dropdown-menu {
+    z-index: 1050;
+    /* Bootstrap default is 1000, go higher */
+}
+
+/* Make dropdown item hover more visible */
+.dropdown-item:hover,
+.dropdown-item:focus {
+    background-color: #0d6efd;
+    /* Primary color */
+    color: white;
+}
+
+.thumbnail-container {
+    position: relative;
+    width: 100%;
+    aspect-ratio: 2/3;
+    background-color: #f8f9fa;
+    border-radius: 8px;
+    overflow: hidden;
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.thumbnail {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    transition: opacity 0.3s;
+}
+
+.icon-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background-color: rgba(0, 0, 0, 0.05);
+    opacity: 0;
+    /* Hidden by default for files with thumbnails */
+}
+
+.grid-item.folder .icon-overlay {
+    opacity: 1;
+    background-color: #e9ecef;
+}
+
+.grid-item.folder .thumbnail {
+    display: none;
+}
+
+.grid-item.folder .icon-overlay i {
+    font-size: 3rem;
+    color: #ffc107;
+    /* Folder color */
+}
+
+.item-info {
+    margin-top: 0.5rem;
+}
+
+.item-name {
+    font-size: 0.9rem;
+    font-weight: 500;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    color: #333;
+}
+
+.item-meta {
+    font-size: 0.75rem;
+    color: #6c757d;
+}
+
+/* Dark mode support if base.html supports it (assuming standard bootstrap dark mode or custom class) */
+[data-bs-theme="dark"] .item-name {
+    color: #e9ecef;
+}
+
+[data-bs-theme="dark"] .thumbnail-container {
+    background-color: #2b3035;
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.3);
+}
+
+[data-bs-theme="dark"] .grid-item.folder .icon-overlay {
+    background-color: #343a40;
+}
