@@ -1345,7 +1345,18 @@ function sortInlineEditCards() {
 function performRename(input) {
     const newFilename = input.value.trim();
     const folderName = document.getElementById('editInlineFolderName').value;
-    const oldFilename = input.dataset.oldFilename || input.previousElementSibling.textContent.trim();
+
+    // Get the old relative path from data-rel-path attribute (set by edit.py template)
+    const oldRelPath = input.dataset.relPath || input.getAttribute('data-rel-path');
+    if (!oldRelPath) {
+        console.error("No relative path found in input:", input);
+        return;
+    }
+
+    // Extract just the filename from the relative path for comparison
+    const oldFilename = oldRelPath.includes('/')
+        ? oldRelPath.substring(oldRelPath.lastIndexOf('/') + 1)
+        : oldRelPath;
 
     // Cancel if the filename hasn't changed
     if (newFilename === oldFilename) {
@@ -1354,8 +1365,14 @@ function performRename(input) {
         return;
     }
 
-    const oldPath = `${folderName}/${oldFilename}`;
-    const newPath = `${folderName}/${newFilename}`;
+    // Construct new relative path (preserve subdirectory if any)
+    const dirPath = oldRelPath.includes('/')
+        ? oldRelPath.substring(0, oldRelPath.lastIndexOf('/'))
+        : '';
+    const newRelPath = dirPath ? `${dirPath}/${newFilename}` : newFilename;
+
+    const oldPath = `${folderName}/${oldRelPath}`;
+    const newPath = `${folderName}/${newRelPath}`;
 
     console.log("Renaming", oldPath, "to", newPath);
 
@@ -1369,6 +1386,9 @@ function performRename(input) {
             if (data.success) {
                 const span = input.previousElementSibling;
                 span.textContent = newFilename;
+                // Update data-rel-path with the new relative path
+                span.setAttribute('data-rel-path', newRelPath);
+                input.setAttribute('data-rel-path', newRelPath);
                 span.classList.remove('d-none');
                 input.classList.add('d-none');
                 // After updating the filename, re-sort the inline edit cards.
@@ -1403,8 +1423,13 @@ function deleteCardImage(buttonElement) {
         console.error("Folder name not found in #editInlineFolderName.");
         return;
     }
-    const oldFilename = span.dataset.oldFilename || span.textContent.trim();
-    const fullPath = `${folderName}/${oldFilename}`;
+    // Get the relative path from data-rel-path attribute (set by edit.py template)
+    const relPath = span.dataset.relPath || span.getAttribute('data-rel-path');
+    if (!relPath) {
+        console.error("No relative path found in span:", span);
+        return;
+    }
+    const fullPath = `${folderName}/${relPath}`;
 
     fetch('/delete', {
         method: 'POST',
@@ -1482,8 +1507,14 @@ function processCropImage(buttonElement, cropType) {
         return;
     }
 
-    const oldFilename = span.dataset.oldFilename || span.textContent.trim();
-    const fullPath = `${folderName}/${oldFilename}`;
+    // Get the relative path from data-rel-path attribute (set by edit.py template)
+    const relPath = span.dataset.relPath || span.getAttribute('data-rel-path');
+    if (!relPath) {
+        console.error("No relative path found in span:", span);
+        return;
+    }
+
+    const fullPath = `${folderName}/${relPath}`;
 
     fetch('/crop', {
         method: 'POST',
@@ -1622,8 +1653,14 @@ function cropImageFreeForm(buttonElement) {
         return;
     }
 
-    const oldFilename = span.dataset.oldFilename || span.textContent.trim();
-    const fullPath = `${folderName}/${oldFilename}`;
+    // Get the relative path from data-rel-path attribute (set by edit.py template)
+    const relPath = span.dataset.relPath || span.getAttribute('data-rel-path');
+    if (!relPath) {
+        console.error("No relative path found in span:", span);
+        return;
+    }
+
+    const fullPath = `${folderName}/${relPath}`;
 
     // Store the data for later use
     cropData.imagePath = fullPath;
@@ -1803,23 +1840,42 @@ function setupCropHandlers() {
     }
 
     function startCrop(e) {
-        // Don't start drawing if spacebar is pressed (pan mode)
-        if (cropData.spacebarPressed) {
-            // If there's an existing selection, start panning it
-            if (cropSelection.style.display !== 'none') {
-                startPan(e);
-            }
+        // Check if clicking on the selection box with spacebar pressed
+        if (e.target === cropSelection && cropData.spacebarPressed) {
+            console.log('Starting pan from selection box click');
+            startPan(e);
             return;
         }
 
-        // Don't start if clicking on the selection itself (unless spacebar is pressed)
-        if (e.target === cropSelection) return;
+        // If spacebar is pressed and we have a selection, start panning
+        if (cropData.spacebarPressed && cropSelection.style.display !== 'none') {
+            console.log('Starting pan - spacebar mode');
+            startPan(e);
+            return;
+        }
 
+        e.preventDefault();
         cropData.isDragging = true;
 
-        const rect = newCropImage.getBoundingClientRect();
-        cropData.startX = e.clientX - rect.left;
-        cropData.startY = e.clientY - rect.top;
+        const imageRect = newCropImage.getBoundingClientRect();
+        const containerRect = newCropImage.parentElement.getBoundingClientRect();
+
+        // Calculate image offset within container
+        const imageOffsetX = imageRect.left - containerRect.left;
+        const imageOffsetY = imageRect.top - containerRect.top;
+
+        // Calculate position relative to the image container
+        let startX = e.clientX - containerRect.left;
+        let startY = e.clientY - containerRect.top;
+
+        // Constrain starting position to image bounds
+        startX = Math.max(imageOffsetX, Math.min(startX, imageOffsetX + imageRect.width));
+        startY = Math.max(imageOffsetY, Math.min(startY, imageOffsetY + imageRect.height));
+
+        cropData.startX = startX;
+        cropData.startY = startY;
+
+        console.log('Start crop at:', cropData.startX, cropData.startY);
 
         cropSelection.style.left = cropData.startX + 'px';
         cropSelection.style.top = cropData.startY + 'px';
@@ -1831,29 +1887,106 @@ function setupCropHandlers() {
     }
 
     function updateCrop(e) {
+        // Handle panning mode if spacebar is pressed during dragging
+        if (cropData.spacebarPressed && cropSelection.style.display !== 'none') {
+            if (!cropData.isPanning) {
+                // Start panning
+                cropData.isPanning = true;
+                cropData.panStartX = e.clientX;
+                cropData.panStartY = e.clientY;
+                cropData.selectionLeft = parseInt(cropSelection.style.left) || 0;
+                cropData.selectionTop = parseInt(cropSelection.style.top) || 0;
+                console.log('Started panning during drag');
+            }
+
+            // Pan the selection
+            e.preventDefault();
+            const deltaX = e.clientX - cropData.panStartX;
+            const deltaY = e.clientY - cropData.panStartY;
+
+            const newLeft = cropData.selectionLeft + deltaX;
+            const newTop = cropData.selectionTop + deltaY;
+
+            const imageRect = newCropImage.getBoundingClientRect();
+            const containerRect = cropContainer.getBoundingClientRect();
+
+            // Calculate image offset within container
+            const imageOffsetX = imageRect.left - containerRect.left;
+            const imageOffsetY = imageRect.top - containerRect.top;
+
+            const selectionWidth = parseInt(cropSelection.style.width) || 0;
+            const selectionHeight = parseInt(cropSelection.style.height) || 0;
+
+            // Constrain to image bounds
+            const constrainedLeft = Math.max(imageOffsetX, Math.min(newLeft, imageOffsetX + imageRect.width - selectionWidth));
+            const constrainedTop = Math.max(imageOffsetY, Math.min(newTop, imageOffsetY + imageRect.height - selectionHeight));
+
+            cropSelection.style.left = constrainedLeft + 'px';
+            cropSelection.style.top = constrainedTop + 'px';
+
+            // Update crop data coordinates (relative to container)
+            cropData.startX = constrainedLeft;
+            cropData.startY = constrainedTop;
+            cropData.endX = constrainedLeft + selectionWidth;
+            cropData.endY = constrainedTop + selectionHeight;
+
+            return;
+        }
+
         if (!cropData.isDragging) return;
 
-        const rect = newCropImage.getBoundingClientRect();
-        const currentX = e.clientX - rect.left;
-        const currentY = e.clientY - rect.top;
+        e.preventDefault();
 
-        let width = currentX - cropData.startX;
-        let height = currentY - cropData.startY;
-
-        // Get the image's position and size within the container
+        // Get both container and image bounds
+        const containerRect = newCropImage.parentElement.getBoundingClientRect();
         const imageRect = newCropImage.getBoundingClientRect();
-        const containerRect = cropContainer.getBoundingClientRect();
 
         // Calculate image offset within container
         const imageOffsetX = imageRect.left - containerRect.left;
         const imageOffsetY = imageRect.top - containerRect.top;
 
-        // Constrain start point to image bounds
-        if (cropData.startX < imageOffsetX) {
-            cropData.startX = imageOffsetX;
-        }
-        if (cropData.startY < imageOffsetY) {
-            cropData.startY = imageOffsetY;
+        // Get current mouse position relative to container
+        let currentX = e.clientX - containerRect.left;
+        let currentY = e.clientY - containerRect.top;
+
+        // Constrain current position to image bounds
+        currentX = Math.max(imageOffsetX, Math.min(currentX, imageOffsetX + imageRect.width));
+        currentY = Math.max(imageOffsetY, Math.min(currentY, imageOffsetY + imageRect.height));
+
+        let width = currentX - cropData.startX;
+        let height = currentY - cropData.startY;
+
+        // Apply aspect ratio constraint if Shift is pressed
+        // Comic book aspect ratio: 53:82 (width:height) ≈ 0.646
+        if (e.shiftKey) {
+            const aspectRatio = 53 / 82;
+
+            // Determine which dimension to constrain based on which is larger
+            if (Math.abs(width / height) > aspectRatio) {
+                // Width is too large, constrain it
+                width = height * aspectRatio;
+                currentX = cropData.startX + width;
+                // Re-constrain after aspect ratio adjustment
+                if (width > 0) {
+                    currentX = Math.min(currentX, imageOffsetX + imageRect.width);
+                    width = currentX - cropData.startX;
+                } else {
+                    currentX = Math.max(currentX, imageOffsetX);
+                    width = currentX - cropData.startX;
+                }
+            } else {
+                // Height is too large, constrain it
+                height = width / aspectRatio;
+                currentY = cropData.startY + height;
+                // Re-constrain after aspect ratio adjustment
+                if (height > 0) {
+                    currentY = Math.min(currentY, imageOffsetY + imageRect.height);
+                    height = currentY - cropData.startY;
+                } else {
+                    currentY = Math.max(currentY, imageOffsetY);
+                    height = currentY - cropData.startY;
+                }
+            }
         }
 
         // Handle negative width/height (dragging in different directions)
