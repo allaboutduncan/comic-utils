@@ -16,12 +16,13 @@ let currentPath = '';
 let isLoading = false;
 let allItems = []; // Stores all files and folders for the current directory
 let currentPage = 1;
-let itemsPerPage = 25;
+let itemsPerPage = 20; // Default to match the select dropdown
 
 // All Books mode state
 let isAllBooksMode = false;
 let allBooksData = null;
 let folderViewPath = '';
+let backgroundLoadingActive = false; // Track if background loading is happening
 
 // Filter state
 let currentFilter = 'all';
@@ -70,6 +71,10 @@ function getFilteredItems() {
  */
 async function loadDirectory(path) {
     if (isLoading) return;
+
+    // Cancel any ongoing background loading
+    backgroundLoadingActive = false;
+    hideLoadingMoreIndicator();
 
     setLoading(true);
     currentPath = path;
@@ -192,27 +197,61 @@ async function loadAllBooks() {
     isAllBooksMode = true;
 
     try {
-        const response = await fetch(`/api/browse-recursive?path=${encodeURIComponent(currentPath)}`);
+        // Start fetching all data
+        const fetchPromise = fetch(`/api/browse-recursive?path=${encodeURIComponent(currentPath)}`);
+
+        // Get the response and start reading
+        const response = await fetchPromise;
         if (!response.ok) {
             throw new Error(`HTTP error! status: ${response.status}`);
         }
-        const data = await response.json();
 
+        const data = await response.json();
         allBooksData = data;
 
         // Map backend snake_case to frontend camelCase for thumbnails
-        allItems = data.files.map(file => ({
+        // In All Books mode, paths are relative to DATA_DIR, so prepend /data/
+        const allFiles = data.files.map(file => ({
             ...file,
+            // Ensure path starts with /data/ for consistency with folder view
+            path: file.path.startsWith('/') ? file.path : `/data/${file.path}`,
             hasThumbnail: file.has_thumbnail,
             thumbnailUrl: file.thumbnail_url
         }));
 
-        currentPage = 1;
-        currentFilter = 'all'; // Reset filter for All Books mode
-        gridSearchTerm = ''; // Reset search for All Books mode
+        const totalFiles = allFiles.length;
 
-        updateViewButtons(currentPath);
-        renderPage();
+        // If there are many files, show initial batch immediately
+        if (totalFiles > 500) {
+            // Get initial batch size (min 20, max 500, based on itemsPerPage)
+            const initialBatchSize = Math.max(20, Math.min(itemsPerPage, 500));
+
+            // Show initial batch immediately
+            allItems = allFiles.slice(0, initialBatchSize);
+            currentPage = 1;
+            currentFilter = 'all';
+            gridSearchTerm = '';
+
+            updateViewButtons(currentPath);
+            renderPage();
+            setLoading(false);
+
+            // Show loading indicator for remaining items
+            showLoadingMoreIndicator(initialBatchSize, totalFiles);
+
+            // Load remaining files in batches
+            await loadRemainingBooksInBackground(allFiles, initialBatchSize);
+        } else {
+            // For smaller collections, load everything at once
+            allItems = allFiles;
+            currentPage = 1;
+            currentFilter = 'all';
+            gridSearchTerm = '';
+
+            updateViewButtons(currentPath);
+            renderPage();
+            setLoading(false);
+        }
 
     } catch (error) {
         console.error('Error loading all books:', error);
@@ -221,8 +260,133 @@ async function loadAllBooks() {
         isAllBooksMode = false;
         allBooksData = null;
         updateViewButtons(currentPath);
-    } finally {
         setLoading(false);
+    }
+}
+
+/**
+ * Load remaining books in the background
+ * @param {Array} allFiles - All files to load
+ * @param {number} startIndex - Index to start from
+ */
+async function loadRemainingBooksInBackground(allFiles, startIndex) {
+    backgroundLoadingActive = true;
+    const batchSize = 200; // Load 200 items at a time for better performance
+    let currentIndex = startIndex;
+    let lastRenderTime = Date.now();
+
+    while (currentIndex < allFiles.length && backgroundLoadingActive) {
+        // Wait a bit to not block the UI
+        await new Promise(resolve => setTimeout(resolve, 200));
+
+        // Check if loading was cancelled
+        if (!backgroundLoadingActive) {
+            break;
+        }
+
+        // Add next batch
+        const endIndex = Math.min(currentIndex + batchSize, allFiles.length);
+        const newItems = allFiles.slice(currentIndex, endIndex);
+
+        // Add to allItems
+        allItems = allItems.concat(newItems);
+
+        // Update loading indicator
+        updateLoadingMoreIndicator(allItems.length, allFiles.length);
+
+        // Only update pagination/filter bar, not the entire grid
+        // This prevents thumbnails from reloading
+        const now = Date.now();
+        if (now - lastRenderTime > 1000) { // Update UI at most once per second
+            updatePaginationOnly();
+            updateFilterBar();
+            lastRenderTime = now;
+        }
+
+        currentIndex = endIndex;
+    }
+
+    // Final update when complete
+    if (backgroundLoadingActive) {
+        updatePaginationOnly();
+        updateFilterBar();
+    }
+
+    // Hide loading indicator when done
+    backgroundLoadingActive = false;
+    hideLoadingMoreIndicator();
+}
+
+/**
+ * Update pagination controls without re-rendering the grid
+ */
+function updatePaginationOnly() {
+    const filteredItems = getFilteredItems();
+    renderPagination(filteredItems.length);
+}
+
+/**
+ * Show loading indicator for remaining items
+ * @param {number} loaded - Number of items loaded
+ * @param {number} total - Total number of items
+ */
+function showLoadingMoreIndicator(loaded, total) {
+    const grid = document.getElementById('file-grid');
+    let indicator = document.getElementById('loading-more-indicator');
+
+    if (!indicator) {
+        indicator = document.createElement('div');
+        indicator.id = 'loading-more-indicator';
+        indicator.className = 'alert alert-info mt-3';
+        indicator.style.textAlign = 'center';
+        grid.parentNode.insertBefore(indicator, grid.nextSibling);
+    }
+
+    indicator.innerHTML = `
+        <div class="d-flex align-items-center justify-content-center">
+            <div class="spinner-border spinner-border-sm me-2" role="status">
+                <span class="visually-hidden">Loading...</span>
+            </div>
+            <span>Loading books... ${loaded} of ${total}</span>
+        </div>
+    `;
+    indicator.style.display = 'block';
+}
+
+/**
+ * Update loading indicator with current progress
+ * @param {number} loaded - Number of items loaded
+ * @param {number} total - Total number of items
+ */
+function updateLoadingMoreIndicator(loaded, total) {
+    const indicator = document.getElementById('loading-more-indicator');
+    if (indicator) {
+        indicator.innerHTML = `
+            <div class="d-flex align-items-center justify-content-center">
+                <div class="spinner-border spinner-border-sm me-2" role="status">
+                    <span class="visually-hidden">Loading...</span>
+                </div>
+                <span>Loading books... ${loaded} of ${total}</span>
+            </div>
+        `;
+    }
+}
+
+/**
+ * Hide loading indicator
+ */
+function hideLoadingMoreIndicator() {
+    const indicator = document.getElementById('loading-more-indicator');
+    if (indicator) {
+        // Add fade-out animation
+        indicator.classList.add('fade-out');
+
+        // Remove it after animation completes
+        setTimeout(() => {
+            if (indicator && indicator.parentNode) {
+                indicator.parentNode.removeChild(indicator);
+            }
+        }, 300);
     }
 }
 
@@ -230,6 +394,10 @@ async function loadAllBooks() {
  * Return to normal folder view from All Books mode
  */
 function returnToFolderView() {
+    // Cancel any ongoing background loading
+    backgroundLoadingActive = false;
+    hideLoadingMoreIndicator();
+
     isAllBooksMode = false;
     allBooksData = null;
     loadDirectory(folderViewPath);
@@ -316,6 +484,11 @@ function renderGrid(items) {
             gridItem.classList.add('file');
             metaEl.textContent = formatFileSize(item.size);
 
+            // Add has-comic class for comic files
+            if (item.hasThumbnail) {
+                gridItem.classList.add('has-comic');
+            }
+
             // Handle actions menu
             if (actionsDropdown) {
                 const btn = actionsDropdown.querySelector('button');
@@ -396,11 +569,14 @@ function renderGrid(items) {
                 img.style.display = 'none';
             }
 
-            // Handle click for files (optional: open/download)
+            // Handle click for files - open comic reader for comic files
             gridItem.onclick = () => {
-                // For now, maybe just log or do nothing. 
-                // Could implement preview or download later.
-                console.log('Clicked file:', item.path);
+                if (item.hasThumbnail) {
+                    // Open comic reader for CBZ/CBR/ZIP files
+                    openComicReader(item.path);
+                } else {
+                    console.log('Clicked file:', item.path);
+                }
             };
         }
 
@@ -1935,3 +2111,284 @@ function saveEditedCBZ() {
             hideProgressIndicator();
         });
 }
+
+// ============================================================================
+// COMIC READER FUNCTIONALITY
+// ============================================================================
+
+let comicReaderSwiper = null;
+let currentComicPath = null;
+let currentComicPageCount = 0;
+
+/**
+ * Encode a file path for URL while preserving slashes
+ * @param {string} path - The file path to encode
+ * @returns {string} Encoded path (without leading slash for use in URLs)
+ */
+function encodeFilePath(path) {
+    // Remove leading slash if present (will be part of the URL path)
+    const cleanPath = path.startsWith('/') ? path.substring(1) : path;
+    // Split by slash, encode each component, then rejoin
+    return cleanPath.split('/').map(component => encodeURIComponent(component)).join('/');
+}
+
+/**
+ * Open comic reader for a specific file
+ * @param {string} filePath - Path to the comic file
+ */
+function openComicReader(filePath) {
+    currentComicPath = filePath;
+    const modal = document.getElementById('comicReaderModal');
+    const titleEl = document.getElementById('comicReaderTitle');
+    const pageInfoEl = document.getElementById('comicReaderPageInfo');
+
+    // Show modal
+    modal.style.display = 'flex';
+    document.body.style.overflow = 'hidden'; // Prevent scrolling
+
+    // Set title
+    const fileName = filePath.split(/[/\\]/).pop();
+    titleEl.textContent = fileName;
+
+    // Show loading
+    pageInfoEl.textContent = 'Loading...';
+
+    // Encode the path properly for URL
+    const encodedPath = encodeFilePath(filePath);
+
+    // Fetch comic info
+    fetch(`/api/read/${encodedPath}/info`)
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                currentComicPageCount = data.page_count;
+                initializeComicReader(data.page_count);
+            } else {
+                showError('Failed to load comic: ' + (data.error || 'Unknown error'));
+                closeComicReader();
+            }
+        })
+        .catch(error => {
+            console.error('Error loading comic:', error);
+            showError('An error occurred while loading the comic.');
+            closeComicReader();
+        });
+}
+
+/**
+ * Initialize the Swiper comic reader
+ * @param {number} pageCount - Total number of pages
+ */
+function initializeComicReader(pageCount) {
+    const wrapper = document.getElementById('comicReaderWrapper');
+    const pageInfoEl = document.getElementById('comicReaderPageInfo');
+
+    // Clear existing slides
+    wrapper.innerHTML = '';
+
+    // Create slides for each page
+    for (let i = 0; i < pageCount; i++) {
+        const slide = document.createElement('div');
+        slide.className = 'swiper-slide';
+        slide.dataset.pageNum = i;
+
+        // Add loading spinner initially
+        slide.innerHTML = `
+            <div class="comic-page-loading">
+                <div class="spinner-border" role="status">
+                    <span class="visually-hidden">Loading...</span>
+                </div>
+            </div>
+        `;
+
+        wrapper.appendChild(slide);
+    }
+
+    // Destroy existing swiper if it exists
+    if (comicReaderSwiper) {
+        comicReaderSwiper.destroy(true, true);
+    }
+
+    // Initialize Swiper
+    comicReaderSwiper = new Swiper('#comicReaderSwiper', {
+        direction: 'horizontal',
+        loop: false,
+        keyboard: {
+            enabled: true,
+            onlyInViewport: false,
+        },
+        navigation: {
+            nextEl: '.swiper-button-next',
+            prevEl: '.swiper-button-prev',
+        },
+        pagination: {
+            el: '.swiper-pagination',
+            type: 'bullets',
+            clickable: true,
+        },
+        lazy: {
+            loadPrevNext: true,
+            loadPrevNextAmount: 2,
+        },
+        on: {
+            slideChange: function () {
+                const currentIndex = this.activeIndex;
+                pageInfoEl.textContent = `Page ${currentIndex + 1} of ${pageCount}`;
+
+                // Load current page
+                loadComicPage(currentIndex);
+
+                // Preload next 2 pages
+                if (currentIndex + 1 < pageCount) {
+                    loadComicPage(currentIndex + 1);
+                }
+                if (currentIndex + 2 < pageCount) {
+                    loadComicPage(currentIndex + 2);
+                }
+
+                // Preload previous page for backward navigation
+                if (currentIndex - 1 >= 0) {
+                    loadComicPage(currentIndex - 1);
+                }
+
+                // Clean up pages that are far away to save memory
+                unloadDistantPages(currentIndex, pageCount);
+            },
+            init: function () {
+                pageInfoEl.textContent = `Page 1 of ${pageCount}`;
+
+                // Load first page
+                loadComicPage(0);
+
+                // Preload next 2 pages immediately
+                if (pageCount > 1) {
+                    loadComicPage(1);
+                }
+                if (pageCount > 2) {
+                    loadComicPage(2);
+                }
+            }
+        }
+    });
+}
+
+/**
+ * Load a specific comic page
+ * @param {number} pageNum - Page number to load
+ */
+function loadComicPage(pageNum) {
+    const slide = document.querySelector(`.swiper-slide[data-page-num="${pageNum}"]`);
+    if (!slide) return;
+
+    // Check if already loaded or loading
+    if (slide.querySelector('img') || slide.dataset.loading === 'true') return;
+
+    // Mark as loading to prevent duplicate requests
+    slide.dataset.loading = 'true';
+
+    // Encode the path properly for URL
+    const encodedPath = encodeFilePath(currentComicPath);
+    const imageUrl = `/api/read/${encodedPath}/page/${pageNum}`;
+
+    // Create image element
+    const img = document.createElement('img');
+    img.src = imageUrl;
+    img.alt = `Page ${pageNum + 1}`;
+
+    // Add decoding hint for faster rendering
+    img.decoding = 'async';
+
+    // Add fetchpriority for current/next pages
+    const currentIndex = comicReaderSwiper ? comicReaderSwiper.activeIndex : 0;
+    if (Math.abs(pageNum - currentIndex) <= 1) {
+        img.fetchPriority = 'high';
+    } else {
+        img.fetchPriority = 'low';
+    }
+
+    img.onload = function () {
+        // Remove loading spinner
+        slide.innerHTML = '';
+        slide.appendChild(img);
+        slide.dataset.loading = 'false';
+    };
+
+    img.onerror = function () {
+        slide.innerHTML = `
+            <div class="comic-page-loading">
+                <p>Failed to load page ${pageNum + 1}</p>
+            </div>
+        `;
+        slide.dataset.loading = 'false';
+    };
+}
+
+/**
+ * Unload pages that are far from the current page to save memory
+ * @param {number} currentIndex - Current page index
+ * @param {number} pageCount - Total number of pages
+ */
+function unloadDistantPages(currentIndex, pageCount) {
+    const keepDistance = 5; // Keep pages within 5 pages of current
+
+    for (let i = 0; i < pageCount; i++) {
+        // Skip pages close to current position
+        if (Math.abs(i - currentIndex) <= keepDistance) continue;
+
+        const slide = document.querySelector(`.swiper-slide[data-page-num="${i}"]`);
+        if (!slide) continue;
+
+        const img = slide.querySelector('img');
+        if (img) {
+            // Replace with loading spinner to free memory
+            slide.innerHTML = `
+                <div class="comic-page-loading">
+                    <div class="spinner-border" role="status">
+                        <span class="visually-hidden">Loading...</span>
+                    </div>
+                </div>
+            `;
+            slide.dataset.loading = 'false';
+        }
+    }
+}
+
+/**
+ * Close the comic reader
+ */
+function closeComicReader() {
+    const modal = document.getElementById('comicReaderModal');
+    modal.style.display = 'none';
+    document.body.style.overflow = ''; // Restore scrolling
+
+    // Destroy swiper
+    if (comicReaderSwiper) {
+        comicReaderSwiper.destroy(true, true);
+        comicReaderSwiper = null;
+    }
+
+    // Clear state
+    currentComicPath = null;
+    currentComicPageCount = 0;
+}
+
+// Setup close button handler
+document.addEventListener('DOMContentLoaded', () => {
+    const closeBtn = document.getElementById('comicReaderClose');
+    if (closeBtn) {
+        closeBtn.addEventListener('click', closeComicReader);
+    }
+
+    // Close on overlay click
+    const overlay = document.querySelector('.comic-reader-overlay');
+    if (overlay) {
+        overlay.addEventListener('click', closeComicReader);
+    }
+
+    // Close on Escape key
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && currentComicPath) {
+            closeComicReader();
+        }
+    });
+});

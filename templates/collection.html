@@ -2,6 +2,7 @@
 {% block title %}Browse Library{% endblock %}
 {% block extra_css %}
 <link rel="stylesheet" href="{{ url_for('static', filename='css/collection.css') }}?v={{ range(1, 10000) | random }}">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/swiper@11/swiper-bundle.min.css" />
 {% endblock %}
 {% block content %}
 <div class="container-lg mt-4">
@@ -26,7 +27,7 @@
             <div class="input-group input-group-sm me-2">
                 <label class="input-group-text" for="itemsPerPage">Per page</label>
                 <select class="form-select" id="itemsPerPage" onchange="changeItemsPerPage(this.value)">
-                    <option value="25" selected>25</option>
+                    <option value="20" selected>20</option>
                     <option value="50">50</option>
                     <option value="100">100</option>
                     <option value="250">250</option>
@@ -151,8 +152,36 @@
         </div>
     </div>
 </div>
+<!-- Comic Reader Modal -->
+<div id="comicReaderModal" class="comic-reader-modal" style="display: none;">
+    <div class="comic-reader-overlay"></div>
+    <div class="comic-reader-container">
+        <!-- Header -->
+        <div class="comic-reader-header">
+            <div class="comic-reader-title" id="comicReaderTitle">Loading...</div>
+            <div class="comic-reader-controls">
+                <span class="comic-reader-page-info" id="comicReaderPageInfo">Page 1 of 1</span>
+                <button class="btn btn-sm btn-outline-light" id="comicReaderClose" title="Close">
+                    <i class="bi bi-x-lg"></i>
+                </button>
+            </div>
+        </div>
+        <!-- Swiper -->
+        <div class="swiper comic-reader-swiper" id="comicReaderSwiper">
+            <div class="swiper-wrapper" id="comicReaderWrapper">
+                <!-- Slides will be dynamically added here -->
+            </div>
+            <!-- Navigation -->
+            <div class="swiper-button-next"></div>
+            <div class="swiper-button-prev"></div>
+            <!-- Pagination -->
+            <div class="swiper-pagination"></div>
+        </div>
+    </div>
+</div>
 {% endblock %}
 {% block scripts %}
 {{ super() }}
+<script src="https://cdn.jsdelivr.net/npm/swiper@11/swiper-bundle.min.js"></script>
 <script src="{{ url_for('static', filename='js/collection.js') }}?v={{ range(1, 10000) | random }}"></script>
 {% endblock %}

@@ -40,6 +40,15 @@
     /* Ensure z-index works */
 }
 
+/* Make comic files visually distinct */
+.grid-item.file.has-comic {
+    cursor: pointer;
+}
+
+.grid-item.file.has-comic:hover .thumbnail {
+    opacity: 0.8;
+}
+
 .grid-item:hover {
     transform: translateY(-5px);
     z-index: 10;
@@ -149,4 +158,164 @@
 
 [data-bs-theme="dark"] .grid-item.folder .icon-overlay {
     background-color: #343a40;
+}
+
+/* Comic Reader Modal Styles */
+.comic-reader-modal {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    z-index: 9999;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.comic-reader-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0, 0, 0, 0.95);
+    z-index: 1;
+}
+
+.comic-reader-container {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    z-index: 2;
+    display: flex;
+    flex-direction: column;
+}
+
+.comic-reader-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 1rem 2rem;
+    background-color: rgba(0, 0, 0, 0.8);
+    color: white;
+    z-index: 3;
+}
+
+.comic-reader-title {
+    font-size: 1.1rem;
+    font-weight: 500;
+}
+
+.comic-reader-controls {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+}
+
+.comic-reader-page-info {
+    font-size: 0.9rem;
+    opacity: 0.8;
+}
+
+#comicReaderClose {
+    cursor: pointer;
+}
+
+.comic-reader-swiper {
+    flex: 1;
+    width: 100%;
+    height: 100%;
+}
+
+.comic-reader-swiper .swiper-slide {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background-color: black;
+}
+
+.comic-reader-swiper .swiper-slide img {
+    max-width: 100%;
+    max-height: 100%;
+    object-fit: contain;
+    user-select: none;
+}
+
+.comic-reader-swiper .swiper-button-next,
+.comic-reader-swiper .swiper-button-prev {
+    color: white;
+    background-color: rgba(0, 0, 0, 0.5);
+    width: 50px;
+    height: 50px;
+    border-radius: 50%;
+}
+
+.comic-reader-swiper .swiper-button-next:after,
+.comic-reader-swiper .swiper-button-prev:after {
+    font-size: 1.5rem;
+}
+
+.comic-reader-swiper .swiper-pagination {
+    bottom: 20px;
+}
+
+.comic-reader-swiper .swiper-pagination-bullet {
+    background-color: white;
+    opacity: 0.5;
+}
+
+.comic-reader-swiper .swiper-pagination-bullet-active {
+    opacity: 1;
+}
+
+/* Loading spinner for comic pages */
+.comic-page-loading {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    height: 100%;
+    color: white;
+}
+
+.comic-page-loading .spinner-border {
+    width: 3rem;
+    height: 3rem;
+}
+
+/* Loading more indicator for progressive loading */
+#loading-more-indicator {
+    position: sticky;
+    bottom: 20px;
+    z-index: 100;
+    margin: 1rem auto;
+    max-width: 400px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    border-radius: 8px;
+    animation: slideUp 0.3s ease-out;
+}
+
+@keyframes slideUp {
+    from {
+        opacity: 0;
+        transform: translateY(20px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+#loading-more-indicator.fade-out {
+    animation: fadeOut 0.3s ease-out;
+}
+
+@keyframes fadeOut {
+    from {
+        opacity: 1;
+    }
+    to {
+        opacity: 0;
+    }
 }

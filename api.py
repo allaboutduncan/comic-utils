@@ -2,6 +2,7 @@ import threading
 from queue import Queue
 from flask import Flask, request, jsonify, render_template, redirect, url_for
 import os
+import logging
 import requests
 from requests.exceptions import ChunkedEncodingError, ConnectionError, RequestException
 from urllib.parse import urlparse, unquote, urljoin
@@ -31,13 +32,22 @@ from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
 # Application logging and configuration (adjust these as needed)
-from app_logging import app_logger
+from app_logging import MONITOR_LOG
 from config import config, load_config, load_flask_config
 
 # Load config and initialize Flask app.
 app = Flask(__name__)
 load_config()
-load_flask_config(app, app_logger)  # Load config into Flask app.config
+load_flask_config(app)  # Load config into Flask app.config
+
+# Logging setup - MONITOR_LOG imported from app_logging
+monitor_logger = logging.getLogger("monitor_logger")
+monitor_logger.setLevel(logging.INFO)
+# Only add handler if not already added (prevents duplicate handlers)
+if not monitor_logger.handlers:
+    monitor_handler = logging.FileHandler(MONITOR_LOG)
+    monitor_handler.setFormatter(logging.Formatter("%(asctime)s - %(levelname)s - %(message)s"))
+    monitor_logger.addHandler(monitor_handler)
 
 # -------------------------------
 # Global Variables & Configuration
@@ -67,11 +77,11 @@ if custom_headers_str:
         custom_headers = json.loads(custom_headers_str)
         if isinstance(custom_headers, dict):
             default_headers.update(custom_headers)
-            app_logger.info("Custom headers from settings applied.")
+            monitor_logger.info("Custom headers from settings applied.")
         else:
-            app_logger.warning("Custom headers from settings are not a valid dictionary. Ignoring.")
+            monitor_logger.warning("Custom headers from settings are not a valid dictionary. Ignoring.")
     except Exception as e:
-        app_logger.warning(f"Failed to parse custom headers: {e}. Ignoring.")
+        monitor_logger.warning(f"Failed to parse custom headers: {e}. Ignoring.")
 
 headers = default_headers
 
@@ -125,7 +135,7 @@ def process_download(task):
 
     try:
         final_url = resolve_final_url(original_url)
-        app_logger.info(f"Resolved → {final_url}")
+        monitor_logger.info(f"Resolved → {final_url}")
 
         if "mega.nz" in final_url:
             file_path = download_mega(final_url, download_id, dest_filename)
@@ -139,7 +149,7 @@ def process_download(task):
         download_progress[download_id]['filename'] = file_path
         download_progress[download_id]['status']   = 'complete'
     except Exception as e:
-        app_logger.error(f"Error during background download: {e}")
+        monitor_logger.error(f"Error during background download: {e}")
         download_progress[download_id]['status']   = 'error'
         download_progress[download_id]['error'] = str(e)
 
@@ -190,12 +200,12 @@ def download_getcomics(url, download_id):
 
     for attempt in range(retries):
         try:
-            app_logger.info(f"Attempt {attempt + 1} to download {url}")
+            monitor_logger.info(f"Attempt {attempt + 1} to download {url}")
             # Increase timeout for large files: 60s connection, 300s read (5 minutes)
             response = session.get(url, stream=True, timeout=(60, 300))
             response.raise_for_status()
             if response.status_code in (403, 404):
-                app_logger.warning(f"Fatal HTTP error {response.status_code}; aborting retries.")
+                monitor_logger.warning(f"Fatal HTTP error {response.status_code}; aborting retries.")
                 break
 
 
@@ -206,14 +216,14 @@ def download_getcomics(url, download_id):
 
             if not filename:
                 filename = str(uuid.uuid4())
-                app_logger.info(f"Filename generated from final URL: {filename}")
+                monitor_logger.info(f"Filename generated from final URL: {filename}")
 
             content_disposition = response.headers.get("Content-Disposition")
             if content_disposition:
                 fname_match = re.search('filename="?([^";]+)"?', content_disposition)
                 if fname_match:
                     filename = unquote(fname_match.group(1))
-                    app_logger.info(f"Filename from Content-Disposition: {filename}")
+                    monitor_logger.info(f"Filename from Content-Disposition: {filename}")
 
             file_path = os.path.join(DOWNLOAD_DIR, filename)
             base, ext = os.path.splitext(filename)
@@ -228,8 +238,8 @@ def download_getcomics(url, download_id):
             attempt_suffix = f".{attempt}.crdownload"
             temp_file_path = file_path + attempt_suffix
             
-            app_logger.info(f"Temp file path: {temp_file_path}")
-            app_logger.info(f"Final file path: {file_path}")
+            monitor_logger.info(f"Temp file path: {temp_file_path}")
+            monitor_logger.info(f"Final file path: {file_path}")
 
             total_length = int(response.headers.get('content-length', 0))
             download_progress[download_id]['bytes_total'] = total_length
@@ -243,7 +253,7 @@ def download_getcomics(url, download_id):
             else:  # smaller files: use 256KB chunks
                 chunk_size = 256 * 1024
 
-            app_logger.info(f"Downloading {total_length / (1024*1024):.1f}MB using {chunk_size / 1024}KB chunks")
+            monitor_logger.info(f"Downloading {total_length / (1024*1024):.1f}MB using {chunk_size / 1024}KB chunks")
 
             # Use larger buffer for writing to disk (improves I/O performance)
             buffer_size = 8 * 1024 * 1024  # 8MB write buffer
@@ -256,7 +266,7 @@ def download_getcomics(url, download_id):
 
                 for chunk in response.iter_content(chunk_size=chunk_size):
                     if download_progress.get(download_id, {}).get('cancelled'):
-                        app_logger.info(f"Download {download_id} cancelled; deleting temp file.")
+                        monitor_logger.info(f"Download {download_id} cancelled; deleting temp file.")
                         f.close()
                         if os.path.exists(temp_file_path):
                             os.remove(temp_file_path)
@@ -276,14 +286,14 @@ def download_getcomics(url, download_id):
                             current_time = time.time()
                             if total_length > 100 * 1024 * 1024 and (current_time - last_log_time) >= 10:
                                 speed_mbps = ((downloaded - last_downloaded) / (1024 * 1024)) / (current_time - last_log_time)
-                                app_logger.info(f"Download progress: {percent}% ({downloaded / (1024*1024):.1f}MB / {total_length / (1024*1024):.1f}MB) @ {speed_mbps:.2f} MB/s")
+                                monitor_logger.info(f"Download progress: {percent}% ({downloaded / (1024*1024):.1f}MB / {total_length / (1024*1024):.1f}MB) @ {speed_mbps:.2f} MB/s")
                                 last_log_time = current_time
                                 last_downloaded = downloaded
 
             # Log final download stats
             total_time = time.time() - start_time
             avg_speed = (downloaded / (1024 * 1024)) / total_time if total_time > 0 else 0
-            app_logger.info(f"Download completed in {total_time:.1f}s @ average {avg_speed:.2f} MB/s")
+            monitor_logger.info(f"Download completed in {total_time:.1f}s @ average {avg_speed:.2f} MB/s")
 
             # Verify download completed successfully
             if total_length > 0 and downloaded != total_length:
@@ -300,9 +310,9 @@ def download_getcomics(url, download_id):
             # Rename temp file to final destination
             try:
                 os.rename(temp_file_path, file_path)
-                app_logger.info(f"Successfully renamed temp file to: {file_path}")
+                monitor_logger.info(f"Successfully renamed temp file to: {file_path}")
             except Exception as rename_err:
-                app_logger.error(f"Failed to rename temp file: {rename_err}")
+                monitor_logger.error(f"Failed to rename temp file: {rename_err}")
                 raise
 
             # Verify final file exists
@@ -310,7 +320,7 @@ def download_getcomics(url, download_id):
                 raise Exception(f"Final file not found after rename: {file_path}")
 
             download_progress[download_id]['progress'] = 100
-            app_logger.info(f"Download completed: {file_path} ({downloaded} bytes)")
+            monitor_logger.info(f"Download completed: {file_path} ({downloaded} bytes)")
 
             # Clean up session
             session.close()
@@ -318,18 +328,18 @@ def download_getcomics(url, download_id):
             return file_path
 
         except (ChunkedEncodingError, ConnectionError, IncompleteRead, RequestException, Exception) as e:
-            app_logger.warning(f"Attempt {attempt + 1} failed with error: {e}")
+            monitor_logger.warning(f"Attempt {attempt + 1} failed with error: {e}")
             last_exception = e
 
             # Clean up the attempt-specific temp file
             if 'temp_file_path' in locals() and os.path.exists(temp_file_path):
                 try:
                     os.remove(temp_file_path)
-                    app_logger.info(f"Cleaned up temp file between retries: {temp_file_path}")
+                    monitor_logger.info(f"Cleaned up temp file between retries: {temp_file_path}")
                 except Exception as cleanup_err:
-                    app_logger.warning(f"Failed to remove temp file: {cleanup_err}")
+                    monitor_logger.warning(f"Failed to remove temp file: {cleanup_err}")
             else:
-                app_logger.debug("No temp file to clean up between retries")
+                monitor_logger.debug("No temp file to clean up between retries")
 
             # Wait before next retry (exponential backoff)
             if attempt < retries - 1:  # Don't sleep after the last attempt
@@ -338,7 +348,7 @@ def download_getcomics(url, download_id):
     # All retries failed - cleanup
     session.close()
 
-    app_logger.error(f"Download failed after {retries} attempts: {last_exception}")
+    monitor_logger.error(f"Download failed after {retries} attempts: {last_exception}")
     download_progress[download_id]['status'] = 'error'
     download_progress[download_id]['progress'] = -1
 
@@ -350,9 +360,9 @@ def download_getcomics(url, download_id):
                 try:
                     os.remove(leftover)
                 except Exception as e:
-                    app_logger.warning(f"Failed to remove stale temp file: {leftover} — {e}")
+                    monitor_logger.warning(f"Failed to remove stale temp file: {leftover} — {e}")
             else:
-                app_logger.debug(f"No leftover temp file to remove: {leftover}")
+                monitor_logger.debug(f"No leftover temp file to remove: {leftover}")
 
     raise Exception(f"Download failed after {retries} attempts for {url}: {last_exception}")
 
@@ -416,7 +426,7 @@ def download_mega(url, download_id, dest_filename=None):
             downloaded = 0
             for chunk in r.iter_content(chunk_size=1 << 20):
                 if download_progress.get(download_id, {}).get('cancelled'):
-                    app_logger.info(f"Download {download_id} cancelled mid-transfer.")
+                    monitor_logger.info(f"Download {download_id} cancelled mid-transfer.")
                     r.close()
                     f.close()
                     os.remove(tmp_path)
@@ -434,11 +444,11 @@ def download_mega(url, download_id, dest_filename=None):
         os.rename(tmp_path, file_path)
         download_progress[download_id]['progress'] = 100
         download_progress[download_id]['status'] = 'complete'
-        app_logger.info(f"Download from Mega complete → {file_path}")
+        monitor_logger.info(f"Download from Mega complete → {file_path}")
         return file_path
 
     except Exception as e:
-        app_logger.error(f"Error downloading from Mega: {e}")
+        monitor_logger.error(f"Error downloading from Mega: {e}")
         download_progress[download_id]['status'] = 'error'
         download_progress[download_id]['progress'] = -1
         raise Exception(f"Error downloading from Mega: {e}")
@@ -567,7 +577,7 @@ def download_pixeldrain(url: str, download_id: str, dest_name: Optional[str] = N
         **range_header,
     }
 
-    app_logger.info(
+    monitor_logger.info(
         f"PixelDrain download → {dl_url} "
         f"({'auth' if auth else 'anon'}; resume={existing>0}; tmp={os.path.basename(tmp_path)})"
     )
@@ -584,7 +594,7 @@ def download_pixeldrain(url: str, download_id: str, dest_name: Optional[str] = N
 
             # If we asked for a range but didn’t get 206, start over
             if existing > 0 and r.status_code != 206:
-                app_logger.info("Server did not honor Range; restarting from 0")
+                monitor_logger.info("Server did not honor Range; restarting from 0")
                 f.close()
                 os.remove(tmp_path)
                 existing = 0
@@ -624,17 +634,17 @@ def download_pixeldrain(url: str, download_id: str, dest_name: Optional[str] = N
 
         os.replace(tmp_path, out_path)
         download_progress[download_id]["progress"] = 100
-        app_logger.info(f"PixelDrain download complete → {out_path}")
+        monitor_logger.info(f"PixelDrain download complete → {out_path}")
         return out_path
 
     except requests.Timeout as e:
-        app_logger.error(f"Timeout during PixelDrain download: {e}")
+        monitor_logger.error(f"Timeout during PixelDrain download: {e}")
         raise Exception(f"Timeout during download: {e}")
     except requests.RequestException as e:
-        app_logger.error(f"Request error during PixelDrain download: {e}")
+        monitor_logger.error(f"Request error during PixelDrain download: {e}")
         raise Exception(f"Request error during download: {e}")
     except Exception as e:
-        app_logger.error(f"Unexpected error during PixelDrain download: {e}")
+        monitor_logger.error(f"Unexpected error during PixelDrain download: {e}")
         raise
 
 # -------------------------------
@@ -659,7 +669,7 @@ def download():
         return jsonify({}), 200
 
     data = request.get_json()
-    app_logger.info("Received Download Request")
+    monitor_logger.info("Received Download Request")
     if not data or 'link' not in data:
         return jsonify({'error': 'Missing "link" in request data'}), 400
 
@@ -725,12 +735,12 @@ def status():
 
 import signal
 def shutdown_handler(signum, frame):
-    app_logger.info("Shutting down download workers...")
+    monitor_logger.info("Shutting down download workers...")
     for _ in worker_threads:
         download_queue.put(None)
     for t in worker_threads:
         t.join()
-    app_logger.info("All workers stopped.")
+    monitor_logger.info("All workers stopped.")
     os._exit(0)
 
 signal.signal(signal.SIGINT, shutdown_handler)

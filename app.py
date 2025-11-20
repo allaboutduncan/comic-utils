@@ -1940,6 +1940,135 @@ def serve_folder_thumbnail():
         app_logger.error(traceback.format_exc())
         return send_file('static/images/error.svg', mimetype='image/svg+xml')
 
+@app.route('/api/read/<path:comic_path>/page/<int:page_num>')
+def read_comic_page(comic_path, page_num):
+    """Serve a specific page from a comic file."""
+    import zipfile
+    import rarfile
+    from PIL import Image
+
+    # Add leading slash if missing (for absolute paths on Unix systems)
+    if not comic_path.startswith('/'):
+        comic_path = '/' + comic_path
+
+    if not os.path.exists(comic_path):
+        app_logger.error(f"Comic file not found: {comic_path}")
+        return send_file('static/images/error.svg', mimetype='image/svg+xml')
+
+    try:
+        # Determine archive type
+        ext = os.path.splitext(comic_path)[1].lower()
+
+        # Get list of image files from archive
+        image_files = []
+        archive = None
+
+        if ext in ['.cbz', '.zip']:
+            archive = zipfile.ZipFile(comic_path, 'r')
+            all_files = archive.namelist()
+        elif ext == '.cbr':
+            archive = rarfile.RarFile(comic_path, 'r')
+            all_files = archive.namelist()
+        else:
+            return jsonify({"error": "Unsupported file format"}), 400
+
+        # Filter for image files
+        image_extensions = ('.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp')
+        for filename in all_files:
+            if filename.lower().endswith(image_extensions):
+                # Skip macOS metadata files
+                if not filename.startswith('__MACOSX') and not os.path.basename(filename).startswith('.'):
+                    image_files.append(filename)
+
+        # Sort naturally
+        import re
+        def natural_sort_key(s):
+            return [int(text) if text.isdigit() else text.lower() for text in re.split('([0-9]+)', s)]
+        image_files.sort(key=natural_sort_key)
+
+        # Check if page number is valid
+        if page_num < 0 or page_num >= len(image_files):
+            return jsonify({"error": "Invalid page number"}), 400
+
+        # Read the requested page
+        target_file = image_files[page_num]
+        image_data = archive.read(target_file)
+
+        # Close archive
+        archive.close()
+
+        # Determine mime type
+        file_ext = os.path.splitext(target_file)[1].lower()
+        mime_types = {
+            '.jpg': 'image/jpeg',
+            '.jpeg': 'image/jpeg',
+            '.png': 'image/png',
+            '.gif': 'image/gif',
+            '.webp': 'image/webp',
+            '.bmp': 'image/bmp'
+        }
+        mime_type = mime_types.get(file_ext, 'image/jpeg')
+
+        # Return image
+        return Response(image_data, mimetype=mime_type)
+
+    except Exception as e:
+        app_logger.error(f"Error reading comic page {page_num} from {comic_path}: {e}")
+        import traceback
+        app_logger.error(traceback.format_exc())
+        if archive:
+            archive.close()
+        return send_file('static/images/error.svg', mimetype='image/svg+xml')
+
+@app.route('/api/read/<path:comic_path>/info')
+def read_comic_info(comic_path):
+    """Get information about a comic file (page count, etc.)."""
+    import zipfile
+    import rarfile
+
+    # Add leading slash if missing (for absolute paths on Unix systems)
+    if not comic_path.startswith('/'):
+        comic_path = '/' + comic_path
+
+    if not os.path.exists(comic_path):
+        return jsonify({"error": "Comic file not found"}), 404
+
+    try:
+        # Determine archive type
+        ext = os.path.splitext(comic_path)[1].lower()
+
+        # Get list of image files from archive
+        image_files = []
+
+        if ext in ['.cbz', '.zip']:
+            with zipfile.ZipFile(comic_path, 'r') as archive:
+                all_files = archive.namelist()
+        elif ext == '.cbr':
+            with rarfile.RarFile(comic_path, 'r') as archive:
+                all_files = archive.namelist()
+        else:
+            return jsonify({"error": "Unsupported file format"}), 400
+
+        # Filter for image files
+        image_extensions = ('.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp')
+        for filename in all_files:
+            if filename.lower().endswith(image_extensions):
+                # Skip macOS metadata files
+                if not filename.startswith('__MACOSX') and not os.path.basename(filename).startswith('.'):
+                    image_files.append(filename)
+
+        return jsonify({
+            "success": True,
+            "page_count": len(image_files),
+            "filename": os.path.basename(comic_path)
+        })
+
+    except Exception as e:
+        app_logger.error(f"Error getting comic info for {comic_path}: {e}")
+        import traceback
+        app_logger.error(traceback.format_exc())
+        return jsonify({"error": str(e)}), 500
+
 def generate_thumbnail_task(file_path, cache_path):
     """Background task to generate thumbnail."""
     app_logger.info(f"Starting thumbnail generation for {file_path}")
