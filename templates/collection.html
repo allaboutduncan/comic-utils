@@ -37,6 +37,17 @@
             </button>
         </div>
     </div>
+    <!-- Filter Bar -->
+    <div class="d-flex flex-wrap flex-md-nowrap gap-2 gap-md-3 mb-3">
+        <div id="gridFilterButtons" style="display: none; flex: 1 1 auto;">
+            <div class="btn-group btn-group-sm" role="group" aria-label="Filter by first letter">
+                <!-- Filter buttons will be dynamically populated by JS -->
+            </div>
+        </div>
+        <div id="gridSearchRow" style="flex: 0 0 auto; width: 100%; max-width: 250px;">
+            <!-- Search input will be dynamically populated by JS -->
+        </div>
+    </div>
     <div id="loading-indicator" class="text-center py-5">
         <div class="spinner-border text-primary" role="status">
             <span class="visually-hidden">Loading...</span>

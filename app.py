@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, Response, send_from_directory, redirect, jsonify, url_for, stream_with_context, render_template_string
+from flask import Flask, render_template, request, Response, send_from_directory, send_file, redirect, jsonify, url_for, stream_with_context, render_template_string
 import subprocess
 import io
 import os
@@ -1735,33 +1735,89 @@ def collection():
     """Render the visual browse page."""
     return render_template('collection.html')
 
+def find_folder_thumbnail(folder_path):
+    """Find a folder/cover image in the given directory.
+
+    Args:
+        folder_path: Path to the directory to search
+
+    Returns:
+        Path to the thumbnail image if found, None otherwise
+    """
+    allowed_extensions = {'.png', '.gif', '.jpg', '.jpeg', '.webp'}
+    allowed_names = {'folder', 'cover'}
+
+    try:
+        entries = os.listdir(folder_path)
+        for entry in entries:
+            name_without_ext, ext = os.path.splitext(entry.lower())
+            if name_without_ext in allowed_names and ext in allowed_extensions:
+                return os.path.join(folder_path, entry)
+    except (OSError, IOError):
+        pass
+
+    return None
+
 @app.route('/api/browse')
 def api_browse():
     """Get directory listing for the browse page."""
     path = request.args.get('path')
     if not path:
         path = DATA_DIR
-    
+
     if not os.path.exists(path):
         return jsonify({"error": "Directory not found"}), 404
-        
+
     try:
         # Use existing list logic
         listing = get_directory_listing(path)
-        
-        # Add thumbnail info
+
+        # Define excluded extensions and prefixes
+        excluded_extensions = {".png", ".jpg", ".jpeg", ".gif", ".txt", ".html", ".css", ".ds_store", "cvinfo", ".json", ".db"}
+
+        # Process directories to add folder thumbnail info
+        processed_directories = []
+        for dir_name in listing['directories']:
+            dir_path = os.path.join(path, dir_name)
+            folder_thumb = find_folder_thumbnail(dir_path)
+
+            dir_info = {
+                'name': dir_name,
+                'has_thumbnail': folder_thumb is not None
+            }
+
+            if folder_thumb:
+                dir_info['thumbnail_url'] = url_for('serve_folder_thumbnail', path=folder_thumb)
+
+            processed_directories.append(dir_info)
+
+        # Filter files
         files = listing['files']
+        filtered_files = []
         for f in files:
-            if f['name'].lower().endswith(('.cbz', '.cbr', '.zip')):
+            filename = f['name']
+            # Get file extension (lowercase)
+            _, ext = os.path.splitext(filename.lower())
+
+            # Check if file should be excluded
+            if ext in excluded_extensions or filename.lower() == "cvinfo":
+                continue
+            if filename.startswith(('.', '-', '_')):
+                continue
+
+            # Add thumbnail info
+            if filename.lower().endswith(('.cbz', '.cbr', '.zip')):
                 f['has_thumbnail'] = True
-                f['thumbnail_url'] = url_for('get_thumbnail', path=os.path.join(path, f['name']))
+                f['thumbnail_url'] = url_for('get_thumbnail', path=os.path.join(path, filename))
             else:
                 f['has_thumbnail'] = False
-                
+
+            filtered_files.append(f)
+
         return jsonify({
             "current_path": path,
-            "directories": listing['directories'],
-            "files": files,
+            "directories": processed_directories,
+            "files": filtered_files,
             "parent": os.path.dirname(path) if path != DATA_DIR else None
         })
     except Exception as e:
@@ -1772,32 +1828,43 @@ def api_browse():
 def api_browse_recursive():
     """Get all files recursively from a directory and subdirectories."""
     import re
-    
+
     path = request.args.get('path', '')
-    
+
     # Use the path directly (like /api/browse does)
     if not path:
         full_path = DATA_DIR
     else:
         full_path = path
-    
+
     if not os.path.exists(full_path) or not os.path.isdir(full_path):
         return jsonify({"error": "Invalid path"}), 400
 
-    
+    # Define excluded extensions and prefixes
+    excluded_extensions = {".png", ".jpg", ".jpeg", ".gif", ".txt", ".html", ".css", ".ds_store", "cvinfo", ".json", ".db"}
+
     files = []
-    
+
     # Recursively walk directory
     for root, dirs, filenames in os.walk(full_path):
         for filename in filenames:
+            # Get file extension (lowercase)
+            _, ext = os.path.splitext(filename.lower())
+
+            # Check if file should be excluded
+            if ext in excluded_extensions or filename.lower() == "cvinfo":
+                continue
+            if filename.startswith(('.', '-', '_')):
+                continue
+
             file_path = os.path.join(root, filename)
-            
+
             # Calculate relative path from DATA_DIR for consistency
             if full_path == DATA_DIR:
                 rel_path = os.path.relpath(file_path, DATA_DIR)
             else:
                 rel_path = os.path.relpath(file_path, DATA_DIR)
-            
+
             try:
                 stat_info = os.stat(file_path)
                 file_info = {
@@ -1807,14 +1874,14 @@ def api_browse_recursive():
                     "modified": stat_info.st_mtime,
                     "type": "file"
                 }
-                
+
                 # Add thumbnail info for comic files
                 if filename.lower().endswith(('.cbz', '.cbr', '.zip')):
                     file_info['has_thumbnail'] = True
                     file_info['thumbnail_url'] = url_for('get_thumbnail', path=file_path)
                 else:
                     file_info['has_thumbnail'] = False
-                
+
                 files.append(file_info)
             except Exception as e:
                 app_logger.warning(f"Error processing file {file_path}: {e}")
@@ -1833,6 +1900,45 @@ def api_browse_recursive():
         "files": files,
         "total": len(files)
     })
+
+@app.route('/api/folder-thumbnail')
+def serve_folder_thumbnail():
+    """Serve a folder thumbnail image."""
+    image_path = request.args.get('path')
+
+    if not image_path:
+        app_logger.error("No path provided for folder thumbnail")
+        return send_file('static/images/error.svg', mimetype='image/svg+xml')
+
+    # Normalize the path
+    image_path = os.path.normpath(image_path)
+
+    if not os.path.exists(image_path):
+        app_logger.error(f"Folder thumbnail path does not exist: {image_path}")
+        return send_file('static/images/error.svg', mimetype='image/svg+xml')
+
+    if not os.path.isfile(image_path):
+        app_logger.error(f"Folder thumbnail path is not a file: {image_path}")
+        return send_file('static/images/error.svg', mimetype='image/svg+xml')
+
+    try:
+        # Determine mime type based on extension
+        ext = os.path.splitext(image_path)[1].lower()
+        mime_types = {
+            '.png': 'image/png',
+            '.jpg': 'image/jpeg',
+            '.jpeg': 'image/jpeg',
+            '.gif': 'image/gif',
+            '.webp': 'image/webp'
+        }
+        mime_type = mime_types.get(ext, 'image/jpeg')
+
+        return send_file(image_path, mimetype=mime_type)
+    except Exception as e:
+        app_logger.error(f"Error serving folder thumbnail {image_path}: {e}")
+        import traceback
+        app_logger.error(traceback.format_exc())
+        return send_file('static/images/error.svg', mimetype='image/svg+xml')
 
 def generate_thumbnail_task(file_path, cache_path):
     """Background task to generate thumbnail."""

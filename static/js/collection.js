@@ -23,6 +23,47 @@ let isAllBooksMode = false;
 let allBooksData = null;
 let folderViewPath = '';
 
+// Filter state
+let currentFilter = 'all';
+let gridSearchTerm = '';
+
+/**
+ * Handle search input changes
+ * @param {string} value - The search term
+ */
+function onGridSearch(value) {
+    gridSearchTerm = value.trim().toLowerCase();
+    currentPage = 1; // Reset to first page when searching
+    renderPage();
+}
+
+/**
+ * Get filtered items based on current filter and search term.
+ * @returns {Array} Filtered items
+ */
+function getFilteredItems() {
+    let filtered = allItems;
+
+    // Apply search filter first
+    if (gridSearchTerm) {
+        filtered = filtered.filter(item =>
+            item.name.toLowerCase().includes(gridSearchTerm)
+        );
+    }
+
+    // Then apply letter filter
+    if (currentFilter !== 'all') {
+        filtered = filtered.filter(item => {
+            if (currentFilter === '#') {
+                return !/^[A-Za-z]/.test(item.name.charAt(0));
+            }
+            return item.name.charAt(0).toUpperCase() === currentFilter;
+        });
+    }
+
+    return filtered;
+}
+
 /**
  * Load and display the contents of a directory.
  * @param {string} path - The directory path to load.
@@ -57,11 +98,23 @@ async function loadDirectory(path) {
         // Process directories
         if (data.directories) {
             data.directories.forEach(dir => {
-                allItems.push({
-                    name: dir,
-                    type: 'folder',
-                    path: data.current_path ? `${data.current_path}/${dir}` : dir
-                });
+                // Handle both string (old format) and object (new format with thumbnails)
+                if (typeof dir === 'string') {
+                    allItems.push({
+                        name: dir,
+                        type: 'folder',
+                        path: data.current_path ? `${data.current_path}/${dir}` : dir,
+                        hasThumbnail: false
+                    });
+                } else {
+                    allItems.push({
+                        name: dir.name,
+                        type: 'folder',
+                        path: data.current_path ? `${data.current_path}/${dir.name}` : dir.name,
+                        hasThumbnail: dir.has_thumbnail || false,
+                        thumbnailUrl: dir.thumbnail_url
+                    });
+                }
             });
         }
 
@@ -81,6 +134,10 @@ async function loadDirectory(path) {
 
         // Reset to first page on new directory load
         currentPage = 1;
+
+        // Reset filter and search when loading a new directory
+        currentFilter = 'all';
+        gridSearchTerm = '';
 
         // Reset All Books mode when loading a new directory
         isAllBooksMode = false;
@@ -151,6 +208,8 @@ async function loadAllBooks() {
         }));
 
         currentPage = 1;
+        currentFilter = 'all'; // Reset filter for All Books mode
+        gridSearchTerm = ''; // Reset search for All Books mode
 
         updateViewButtons(currentPath);
         renderPage();
@@ -181,12 +240,15 @@ function returnToFolderView() {
  * Render the current page of items.
  */
 function renderPage() {
+    const filteredItems = getFilteredItems();
+
     const startIndex = (currentPage - 1) * itemsPerPage;
     const endIndex = startIndex + itemsPerPage;
-    const pageItems = allItems.slice(startIndex, endIndex);
+    const pageItems = filteredItems.slice(startIndex, endIndex);
 
     renderGrid(pageItems);
-    renderPagination();
+    renderPagination(filteredItems.length);
+    updateFilterBar();
 }
 
 /**
@@ -229,11 +291,23 @@ function renderGrid(items) {
 
         if (item.type === 'folder') {
             gridItem.classList.add('folder');
-            icon.className = 'bi bi-folder-fill';
             metaEl.textContent = 'Folder';
 
             // Hide actions for folders
             if (actionsDropdown) actionsDropdown.style.display = 'none';
+
+            // Check if folder has a thumbnail
+            if (item.hasThumbnail && item.thumbnailUrl) {
+                // Use the folder thumbnail image
+                gridItem.classList.add('has-thumbnail');
+                img.src = item.thumbnailUrl;
+                img.style.display = 'block';
+                iconOverlay.style.display = 'none';
+            } else {
+                // Use the default folder icon
+                icon.className = 'bi bi-folder-fill';
+                img.style.display = 'none';
+            }
 
             // Handle click for folders
             gridItem.onclick = () => loadDirectory(item.path);
@@ -342,12 +416,16 @@ function renderGrid(items) {
 
 /**
  * Render pagination controls.
+ * @param {number} totalItems - Total number of items (after filtering)
  */
-function renderPagination() {
+function renderPagination(totalItems) {
     const paginationNav = document.getElementById('pagination-controls');
     const paginationList = document.getElementById('pagination-list');
 
-    if (allItems.length <= itemsPerPage) {
+    // Use totalItems parameter, or default to allItems.length for backward compatibility
+    const itemCount = totalItems !== undefined ? totalItems : allItems.length;
+
+    if (itemCount <= itemsPerPage) {
         paginationNav.style.display = 'none';
         return;
     }
@@ -355,7 +433,7 @@ function renderPagination() {
     paginationNav.style.display = 'block';
     paginationList.innerHTML = '';
 
-    const totalPages = Math.ceil(allItems.length / itemsPerPage);
+    const totalPages = Math.ceil(itemCount / itemsPerPage);
 
     // Previous Button
     const prevLi = document.createElement('li');
@@ -381,7 +459,8 @@ function renderPagination() {
  * @param {number} page - The page number to switch to.
  */
 function changePage(page) {
-    const totalPages = Math.ceil(allItems.length / itemsPerPage);
+    const filteredItems = getFilteredItems();
+    const totalPages = Math.ceil(filteredItems.length / itemsPerPage);
     if (page < 1 || page > totalPages) return;
 
     currentPage = page;
@@ -397,6 +476,112 @@ function changePage(page) {
  */
 function changeItemsPerPage(value) {
     itemsPerPage = parseInt(value);
+    currentPage = 1;
+    renderPage();
+}
+
+/**
+ * Update the filter bar with available letters based on current items.
+ */
+function updateFilterBar() {
+    const filterContainer = document.getElementById('gridFilterButtons');
+    if (!filterContainer) return;
+
+    const btnGroup = filterContainer.querySelector('.btn-group');
+    if (!btnGroup) return;
+
+    // Only filter based on directories and files
+    let availableLetters = new Set();
+    let hasNonAlpha = false;
+
+    allItems.forEach(item => {
+        const firstChar = item.name.charAt(0).toUpperCase();
+        if (firstChar >= 'A' && firstChar <= 'Z') {
+            availableLetters.add(firstChar);
+        } else {
+            hasNonAlpha = true;
+        }
+    });
+
+    // Build filter buttons
+    let buttonsHtml = '';
+    buttonsHtml += `<button type="button" class="btn btn-outline-secondary ${currentFilter === 'all' ? 'active' : ''}" onclick="filterItems('all')">All</button>`;
+
+    if (hasNonAlpha) {
+        buttonsHtml += `<button type="button" class="btn btn-outline-secondary ${currentFilter === '#' ? 'active' : ''}" onclick="filterItems('#')">#</button>`;
+    }
+
+    for (let i = 65; i <= 90; i++) {
+        const letter = String.fromCharCode(i);
+        if (availableLetters.has(letter)) {
+            buttonsHtml += `<button type="button" class="btn btn-outline-secondary ${currentFilter === letter ? 'active' : ''}" onclick="filterItems('${letter}')">${letter}</button>`;
+        }
+    }
+
+    btnGroup.innerHTML = buttonsHtml;
+
+    // Show the filter bar if we have items
+    if (allItems.length > 0) {
+        filterContainer.style.display = 'block';
+    } else {
+        filterContainer.style.display = 'none';
+    }
+
+    // --- SEARCH BOX LOGIC (show if >25 items) ---
+    const searchRow = document.getElementById('gridSearchRow');
+    if (searchRow) {
+        // Check if search input already exists
+        let existingInput = document.getElementById('gridSearch');
+
+        if (allItems.length > 25) {
+            // Only create input if it doesn't exist
+            if (!existingInput) {
+                searchRow.innerHTML = `<input type="text" id="gridSearch" class="form-control form-control-sm" placeholder="Type to filter..." oninput="onGridSearch(this.value)">`;
+                existingInput = document.getElementById('gridSearch');
+            }
+            // Update value if it doesn't match current search term
+            if (existingInput && existingInput.value !== gridSearchTerm) {
+                existingInput.value = gridSearchTerm;
+            }
+        } else {
+            // Remove input if items <= 25
+            if (existingInput) {
+                searchRow.innerHTML = '';
+            }
+        }
+    }
+}
+
+/**
+ * Filter items based on the selected letter.
+ * @param {string} letter - The letter to filter by ('all', '#', or A-Z)
+ */
+function filterItems(letter) {
+    // Toggle: if clicking the same filter, reset to 'all'
+    if (currentFilter === letter) {
+        currentFilter = 'all';
+    } else {
+        currentFilter = letter;
+    }
+
+    // Update button states
+    const filterContainer = document.getElementById('gridFilterButtons');
+    if (filterContainer) {
+        const btnGroup = filterContainer.querySelector('.btn-group');
+        if (btnGroup) {
+            const buttons = btnGroup.querySelectorAll('button');
+            buttons.forEach(btn => {
+                const btnText = btn.textContent.trim();
+                if ((currentFilter === 'all' && btnText === 'All') || btnText === currentFilter) {
+                    btn.classList.add('active');
+                } else {
+                    btn.classList.remove('active');
+                }
+            });
+        }
+    }
+
+    // Reset to first page and re-render
     currentPage = 1;
     renderPage();
 }
