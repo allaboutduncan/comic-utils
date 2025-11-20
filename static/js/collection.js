@@ -2021,6 +2021,9 @@ function confirmFreeFormCrop() {
  * @param {string} filePath - Path to the CBZ file to edit
  */
 function initEditMode(filePath) {
+    // Store the file path for later use when saving
+    currentEditFilePath = filePath;
+
     // Open the edit modal
     const editModal = new bootstrap.Modal(document.getElementById('editCBZModal'));
     const container = document.getElementById('editInlineContainer');
@@ -2095,9 +2098,11 @@ function saveEditedCBZ() {
                 // Clear edit container
                 document.getElementById('editInlineContainer').innerHTML = '';
 
-                // Refresh the current view to show updated thumbnail
+                // Refresh only the thumbnail for this file (like Crop Cover does)
                 setTimeout(() => {
-                    refreshCurrentView();
+                    if (currentEditFilePath) {
+                        refreshThumbnail(currentEditFilePath);
+                    }
                     hideProgressIndicator();
                 }, 500);
             } else {
@@ -2111,6 +2116,12 @@ function saveEditedCBZ() {
             hideProgressIndicator();
         });
 }
+
+// ============================================================================
+// EDIT FILE FUNCTIONALITY
+// ============================================================================
+
+let currentEditFilePath = null; // Store the file path being edited
 
 // ============================================================================
 // COMIC READER FUNCTIONALITY

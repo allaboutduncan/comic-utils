@@ -1773,7 +1773,7 @@ def api_browse():
         listing = get_directory_listing(path)
 
         # Define excluded extensions and prefixes
-        excluded_extensions = {".png", ".jpg", ".jpeg", ".gif", ".txt", ".html", ".css", ".ds_store", "cvinfo", ".json", ".db"}
+        excluded_extensions = {".png", ".jpg", ".jpeg", ".gif", ".txt", ".html", ".css", ".ds_store", "cvinfo", ".json", ".db", ".xml"}
 
         # Process directories to add folder thumbnail info
         processed_directories = []
@@ -1841,7 +1841,7 @@ def api_browse_recursive():
         return jsonify({"error": "Invalid path"}), 400
 
     # Define excluded extensions and prefixes
-    excluded_extensions = {".png", ".jpg", ".jpeg", ".gif", ".txt", ".html", ".css", ".ds_store", "cvinfo", ".json", ".db"}
+    excluded_extensions = {".png", ".jpg", ".jpeg", ".gif", ".txt", ".html", ".css", ".ds_store", "cvinfo", ".json", ".db", ".xml"}
 
     files = []
 
@@ -2083,7 +2083,7 @@ def generate_thumbnail_task(file_path, cache_path):
         with zipfile.ZipFile(file_path, 'r') as zf:
             file_list = zf.namelist()
             image_extensions = {'.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp'}
-            image_files = sorted([f for f in file_list if os.path.splitext(f.lower())[1] in image_extensions])
+            image_files = sorted([f for f in file_list if os.path.splitext(f.lower())[1] in image_extensions], key=str.lower)
             
             if image_files:
                 with zf.open(image_files[0]) as image_file:
