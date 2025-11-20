@@ -4,6 +4,7 @@ import re
 import configparser
 from app_logging import app_logger
 from helpers import is_hidden
+from config import config
 
 # -------------------------------------------------------------------
 #  Pattern for Volume + Issue, e.g.:
@@ -359,27 +360,29 @@ def clean_final_filename(filename):
 
 def load_custom_rename_config():
     """
-    Load custom rename pattern configuration from config.ini
+    Load custom rename pattern configuration from the config module.
     Returns tuple: (enabled, pattern)
     """
     try:
-        config = configparser.ConfigParser()
-        # Try both absolute path (for Docker) and relative path (for local)
-        config_paths = ["/config/config.ini", "config.ini"]
+        # Ensure config is loaded
+        if not config.sections():
+            from config import load_config
+            load_config()
 
-        for config_file in config_paths:
-            if os.path.exists(config_file):
-                config.read(config_file)
-                if "SETTINGS" in config:
-                    enabled = config.getboolean("SETTINGS", "ENABLE_CUSTOM_RENAME", fallback=False)
-                    pattern = config.get("SETTINGS", "CUSTOM_RENAME_PATTERN", fallback="")
-                    app_logger.info(f"Loaded custom rename config from {config_file}: enabled={enabled}, pattern={pattern}")
-                    return enabled, pattern
-
-        app_logger.info("No config file found, custom rename disabled")
-        return False, ""
+        # Use the centralized config module which auto-reloads from config.ini
+        # config is a ConfigParser object, not a dict
+        if "SETTINGS" in config:
+            enabled = config.getboolean("SETTINGS", "ENABLE_CUSTOM_RENAME", fallback=False)
+            pattern = config.get("SETTINGS", "CUSTOM_RENAME_PATTERN", fallback="")
+            app_logger.info(f"Loaded custom rename config: enabled={enabled}, pattern={pattern}")
+            return enabled, pattern
+        else:
+            app_logger.warning("SETTINGS section not found in config")
+            return False, ""
     except Exception as e:
         app_logger.warning(f"Failed to load custom rename config: {e}")
+        import traceback
+        app_logger.warning(traceback.format_exc())
         return False, ""
 
 
@@ -395,6 +398,26 @@ def extract_comic_values(filename):
         'year': '',
         'issue_number': ''
     }
+
+    # NEW: Handle "Series_###_YYYY_ExtraInfo.ext" format with underscores
+    # e.g., "Batman_-_Superman_-_Worlds_Finest_045_2025_Webrip_The_Last_Kryptonian-DCP.cbr"
+    underscore_series_issue_year_match = re.match(
+        r'^(?P<series>.+?)_(?P<issue>\d{3,4})_(?P<year>\d{4})_.*?(?P<ext>\.\w+)$',
+        filename,
+        re.IGNORECASE
+    )
+    if underscore_series_issue_year_match:
+        series_name = underscore_series_issue_year_match.group('series')
+        issue_num = underscore_series_issue_year_match.group('issue')
+        year = underscore_series_issue_year_match.group('year')
+
+        # Replace _-_ with space-hyphen-space, then replace remaining underscores with spaces
+        clean_series = series_name.replace('_-_', ' - ').replace('_', ' ')
+        values['series_name'] = smart_title_case(clean_series.strip())
+        values['issue_number'] = f"{int(issue_num):03d}"  # Zero-pad to 3 digits
+        values['year'] = year
+        app_logger.info(f"Matched underscore pattern: series={values['series_name']}, issue={values['issue_number']}, year={values['year']}")
+        return values
 
     # First, try to match "Series ### extra_info YYYY" format (e.g., "Batman 046 52p ctc 04-05 1948.cbz")
     series_issue_extra_year_match = re.match(

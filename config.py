@@ -50,8 +50,6 @@ def load_config():
         "COMICVINE_API_KEY": "",
         "ENABLE_CUSTOM_RENAME": "False",
         "CUSTOM_RENAME_PATTERN": "",
-        "ENABLE_CUSTOM_RENAME": "False",
-        "CUSTOM_RENAME_PATTERN": "",
         "ENABLE_DEBUG_LOGGING": "False",
         "CACHE_DIR": "/cache"
     }
