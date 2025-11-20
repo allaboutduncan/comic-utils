@@ -1887,12 +1887,30 @@ def api_browse_recursive():
                 app_logger.warning(f"Error processing file {file_path}: {e}")
                 continue
     
-    # Sort files alpha-numerically (natural sort)
+    # Sort files by series name, year, then issue number
     def natural_sort_key(item):
-        """Convert a string into a list of mixed integers and strings for natural sorting."""
-        return [int(text) if text.isdigit() else text.lower() 
-                for text in re.split('([0-9]+)', item['name'])]
-    
+        """
+        Sort comic files by series name, year, then issue number.
+        Example: 'Batgirl 002 (2000).cbz' -> ('batgirl', 2000, 2, 'batgirl 002 (2000).cbz')
+        Falls back to natural sorting if pattern doesn't match.
+        """
+        filename = item['name']
+
+        # Try to extract series name, issue number, and year
+        # Pattern: "Series Name 123 (2000).ext" or "Series Name #123 (2000).ext"
+        match = re.match(r'^(.+?)\s+#?(\d+)\s*\((\d{4})\)', filename, re.IGNORECASE)
+
+        if match:
+            series_name = match.group(1).strip().lower()
+            issue_number = int(match.group(2))
+            year = int(match.group(3))
+            # Return tuple: (series_name, year, issue_number, original_name_for_secondary_sort)
+            return (series_name, year, issue_number, filename.lower())
+
+        # Fallback to natural sorting for non-standard formats
+        return ('', 0, 0, [int(text) if text.isdigit() else text.lower()
+                           for text in re.split('([0-9]+)', filename)])
+
     files.sort(key=natural_sort_key)
     
     return jsonify({
