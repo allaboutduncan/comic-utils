@@ -35,7 +35,7 @@ from collections import OrderedDict
 from version import __version__
 import requests
 from packaging import version as pkg_version
-from database import init_db, get_db_connection, get_recent_file_moves
+from database import init_db, get_db_connection
 from concurrent.futures import ThreadPoolExecutor
 
 load_config()
@@ -1156,64 +1156,6 @@ def list_new_files():
 
     except Exception as e:
         app_logger.error(f"Error in list_new_files for {current_path}: {e}")
-        return jsonify({"error": str(e)}), 500
-
-
-#########################
-#  List Recent Moves    #
-#########################
-@app.route('/list-recent-moves', methods=['GET'])
-def list_recent_moves():
-    """Get the last 100 files that were moved to the target directory."""
-    try:
-        from datetime import datetime
-
-        # Get recent file moves from database
-        recent_moves = get_recent_file_moves(limit=100)
-
-        # Format the data for the frontend
-        files = []
-        for move in recent_moves:
-            # Parse the timestamp
-            moved_at = move.get('moved_at')
-            try:
-                if moved_at:
-                    # SQLite returns timestamp as string
-                    dt = datetime.fromisoformat(moved_at)
-                    moved_at_formatted = dt.isoformat()
-                else:
-                    moved_at_formatted = None
-            except:
-                moved_at_formatted = moved_at
-
-            files.append({
-                "name": move.get('filename'),
-                "path": move.get('target_path'),
-                "source_path": move.get('source_path'),
-                "size": move.get('file_size'),
-                "moved_at": moved_at_formatted
-            })
-
-        # Calculate date range if there are files
-        oldest_date = None
-        newest_date = None
-        if files and files[0].get('moved_at'):
-            try:
-                newest_date = datetime.fromisoformat(files[0]['moved_at'])
-                if files[-1].get('moved_at'):
-                    oldest_date = datetime.fromisoformat(files[-1]['moved_at'])
-            except:
-                pass
-
-        return jsonify({
-            "files": files,
-            "total_count": len(files),
-            "oldest_date": oldest_date.isoformat() if oldest_date else None,
-            "newest_date": newest_date.isoformat() if newest_date else None
-        })
-
-    except Exception as e:
-        app_logger.error(f"Error in list_recent_moves: {e}")
         return jsonify({"error": str(e)}), 500
 
 

@@ -327,7 +327,7 @@
 
 .info-button {
     position: absolute;
-    top: 8px;
+    bottom: 8px;
     right: 8px;
     background: rgba(0, 0, 0, 0.7);
     border: none;
