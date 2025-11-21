@@ -24,6 +24,9 @@ let allBooksData = null;
 let folderViewPath = '';
 let backgroundLoadingActive = false; // Track if background loading is happening
 
+// Recently Added mode state
+let isRecentlyAddedMode = false;
+
 // Filter state
 let currentFilter = 'all';
 let gridSearchTerm = '';
@@ -148,6 +151,12 @@ async function loadDirectory(path) {
         isAllBooksMode = false;
         allBooksData = null;
 
+        // Reset Recently Added mode when loading a new directory
+        isRecentlyAddedMode = false;
+
+        // Update main view button states
+        updateMainViewButtons();
+
         // Update button visibility
         updateViewButtons(path);
 
@@ -162,21 +171,49 @@ async function loadDirectory(path) {
 }
 
 /**
+ * Update main view button states (Directory View vs Recently Added)
+ */
+function updateMainViewButtons() {
+    const directoryViewBtn = document.getElementById('directoryViewBtn');
+    const recentlyAddedBtn = document.getElementById('recentlyAddedBtn');
+
+    if (!directoryViewBtn || !recentlyAddedBtn) return;
+
+    if (isRecentlyAddedMode) {
+        directoryViewBtn.classList.remove('btn-primary');
+        directoryViewBtn.classList.add('btn-outline-primary');
+        recentlyAddedBtn.classList.remove('btn-outline-primary');
+        recentlyAddedBtn.classList.add('btn-primary');
+    } else {
+        directoryViewBtn.classList.remove('btn-outline-primary');
+        directoryViewBtn.classList.add('btn-primary');
+        recentlyAddedBtn.classList.remove('btn-primary');
+        recentlyAddedBtn.classList.add('btn-outline-primary');
+    }
+}
+
+/**
  * Update view toggle button visibility based on current path and mode
  * @param {string} path - Current directory path
  */
 function updateViewButtons(path) {
     const allBooksBtn = document.getElementById('allBooksBtn');
     const folderViewBtn = document.getElementById('folderViewBtn');
+    const viewToggleButtons = document.getElementById('viewToggleButtons');
 
-    if (!allBooksBtn || !folderViewBtn) return;
+    if (!allBooksBtn || !folderViewBtn || !viewToggleButtons) return;
 
-    if (isAllBooksMode) {
+    if (isRecentlyAddedMode) {
+        // Hide all view toggle buttons in recently added mode
+        viewToggleButtons.style.display = 'none';
+    } else if (isAllBooksMode) {
         // In All Books mode: hide All Books, show Folder View
+        viewToggleButtons.style.display = 'block';
         allBooksBtn.style.display = 'none';
         folderViewBtn.style.display = 'inline-block';
     } else {
         // In Folder mode: show All Books (if not root), hide Folder View
+        viewToggleButtons.style.display = 'block';
         if (path === '' || path === '/') {
             allBooksBtn.style.display = 'none';
         } else {
@@ -232,6 +269,7 @@ async function loadAllBooks() {
             currentFilter = 'all';
             gridSearchTerm = '';
 
+            updateMainViewButtons();
             updateViewButtons(currentPath);
             renderPage();
             setLoading(false);
@@ -248,6 +286,7 @@ async function loadAllBooks() {
             currentFilter = 'all';
             gridSearchTerm = '';
 
+            updateMainViewButtons();
             updateViewButtons(currentPath);
             renderPage();
             setLoading(false);
@@ -399,8 +438,110 @@ function returnToFolderView() {
     hideLoadingMoreIndicator();
 
     isAllBooksMode = false;
+    isRecentlyAddedMode = false;
     allBooksData = null;
     loadDirectory(folderViewPath);
+}
+
+/**
+ * Load directory view mode (default view)
+ */
+function loadDirectoryView() {
+    // Update button states
+    document.getElementById('directoryViewBtn').classList.remove('btn-outline-primary');
+    document.getElementById('directoryViewBtn').classList.add('btn-primary');
+    document.getElementById('recentlyAddedBtn').classList.remove('btn-primary');
+    document.getElementById('recentlyAddedBtn').classList.add('btn-outline-primary');
+
+    // If we're already in directory mode and not in recent mode, do nothing
+    if (!isRecentlyAddedMode) {
+        return;
+    }
+
+    // Exit recently added mode
+    isRecentlyAddedMode = false;
+
+    // Return to the last folder view
+    if (folderViewPath) {
+        loadDirectory(folderViewPath);
+    } else {
+        loadDirectory('');
+    }
+}
+
+/**
+ * Load recently added files (last 100 files)
+ */
+async function loadRecentlyAdded() {
+    if (isLoading) return;
+
+    // Update button states
+    document.getElementById('recentlyAddedBtn').classList.remove('btn-outline-primary');
+    document.getElementById('recentlyAddedBtn').classList.add('btn-primary');
+    document.getElementById('directoryViewBtn').classList.remove('btn-primary');
+    document.getElementById('directoryViewBtn').classList.add('btn-outline-primary');
+
+    setLoading(true);
+    folderViewPath = currentPath; // Save current path to return to
+    isRecentlyAddedMode = true;
+
+    try {
+        const response = await fetch('/list-recent-files?limit=100');
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+
+        const data = await response.json();
+
+        // Map the files to grid format
+        const recentFiles = data.files.map(file => ({
+            name: file.file_name,
+            path: file.file_path,
+            size: file.file_size,
+            type: 'file',
+            hasThumbnail: file.file_path.toLowerCase().endsWith('.cbz') || file.file_path.toLowerCase().endsWith('.cbr'),
+            thumbnailUrl: file.file_path.toLowerCase().endsWith('.cbz') || file.file_path.toLowerCase().endsWith('.cbr')
+                ? `/api/thumbnail?path=${encodeURIComponent(file.file_path)}`
+                : null,
+            addedAt: file.added_at
+        }));
+
+        allItems = recentFiles;
+        currentPage = 1;
+        currentFilter = 'all';
+        gridSearchTerm = '';
+
+        // Update breadcrumb
+        updateBreadcrumb('Recently Added');
+
+        // Hide filter buttons and show search
+        document.getElementById('gridFilterButtons').style.display = 'none';
+        document.getElementById('gridSearchRow').style.display = 'block';
+
+        // Update search placeholder
+        const searchInput = document.querySelector('#gridSearchRow input');
+        if (searchInput) {
+            searchInput.placeholder = 'Search recently added files...';
+        }
+
+        // Hide view toggle buttons in recently added mode
+        document.getElementById('viewToggleButtons').style.display = 'none';
+
+        renderPage();
+        setLoading(false);
+
+    } catch (error) {
+        console.error('Error loading recently added files:', error);
+        showError('Failed to load recently added files: ' + error.message);
+        isRecentlyAddedMode = false;
+        setLoading(false);
+
+        // Revert button states
+        document.getElementById('directoryViewBtn').classList.remove('btn-outline-primary');
+        document.getElementById('directoryViewBtn').classList.add('btn-primary');
+        document.getElementById('recentlyAddedBtn').classList.remove('btn-primary');
+        document.getElementById('recentlyAddedBtn').classList.add('btn-outline-primary');
+    }
 }
 
 
@@ -864,6 +1005,20 @@ function pollThumbnail(imgElement) {
  * Update the breadcrumb navigation.
  * @param {string} path - The current directory path.
  */
+/**
+ * Update breadcrumb with a simple title (for special views like Recently Added)
+ * @param {string} title - The title to display
+ */
+function updateBreadcrumb(title) {
+    const breadcrumb = document.getElementById('breadcrumb');
+    breadcrumb.innerHTML = '';
+
+    const li = document.createElement('li');
+    li.className = 'breadcrumb-item active';
+    li.textContent = title;
+    breadcrumb.appendChild(li);
+}
+
 function renderBreadcrumbs(path) {
     const breadcrumb = document.getElementById('breadcrumb');
     breadcrumb.innerHTML = '';

@@ -213,32 +213,43 @@ def update_recent_files_from_scan(comic_files):
             app_logger.debug(f"Recent files already has {current_count} entries, skipping scan update")
             return
 
-        app_logger.info(f"Populating recent_files database with most recently modified files ({current_count} existing)...")
+        app_logger.info(f"Populating recent_files database from {len(comic_files)} scanned files ({current_count} existing)...")
 
-        # Sort by modification time (most recent first)
-        sorted_files = sorted(comic_files, key=lambda x: x['mtime'], reverse=True)
+        # Sort by modification time (most recent first) - use heapq for efficiency with large lists
+        import heapq
+        from datetime import datetime
 
-        # Take top 100
-        top_100 = sorted_files[:100]
+        # If we have a huge number of files, use heapq.nlargest for better performance
+        if len(comic_files) > 10000:
+            app_logger.info("Large library detected, using optimized sorting...")
+            top_100 = heapq.nlargest(100, comic_files, key=lambda x: x['mtime'])
+        else:
+            sorted_files = sorted(comic_files, key=lambda x: x['mtime'], reverse=True)
+            top_100 = sorted_files[:100]
 
         # Clear existing entries and insert fresh data
         c.execute('DELETE FROM recent_files')
 
-        # Insert the 100 most recent files using their modification time
-        from datetime import datetime
-        for file_info in top_100:
-            # Use file modification time as the added_at timestamp
-            added_at = datetime.fromtimestamp(file_info['mtime']).strftime('%Y-%m-%d %H:%M:%S')
+        # Batch insert for better performance
+        records = [
+            (
+                file_info['path'],
+                file_info['name'],
+                file_info['size'],
+                datetime.fromtimestamp(file_info['mtime']).strftime('%Y-%m-%d %H:%M:%S')
+            )
+            for file_info in top_100
+        ]
 
-            c.execute('''
-                INSERT INTO recent_files (file_path, file_name, file_size, added_at)
-                VALUES (?, ?, ?, ?)
-            ''', (file_info['path'], file_info['name'], file_info['size'], added_at))
+        c.executemany('''
+            INSERT INTO recent_files (file_path, file_name, file_size, added_at)
+            VALUES (?, ?, ?, ?)
+        ''', records)
 
         conn.commit()
         conn.close()
 
-        app_logger.info(f"✅ Recent files database populated with {len(top_100)} files based on modification time")
+        app_logger.info(f"✅ Recent files database populated with {len(top_100)} files")
 
     except Exception as e:
         app_logger.error(f"Error updating recent files from scan: {e}")
@@ -5600,18 +5611,22 @@ if __name__ == '__main__':
     threading.Thread(target=cache_maintenance_background, daemon=True).start()
     app_logger.info("🔄 Cache maintenance thread started (checks every hour, rebuilds every 6 hours)...")
 
-    # Start file watcher for /data directory
-    try:
-        app_logger.info(f"Initializing file watcher for {DATA_DIR}...")
-        file_watcher = FileWatcher(watch_path=DATA_DIR, debounce_seconds=2)
-        if file_watcher.start():
-            app_logger.info(f"👁️  File watcher started for {DATA_DIR} (tracking recent files)...")
-        else:
-            app_logger.warning("⚠️  File watcher failed to start")
-    except Exception as e:
-        app_logger.error(f"❌ Failed to initialize file watcher: {e}")
-        import traceback
-        app_logger.error(f"Traceback: {traceback.format_exc()}")
+    # Start file watcher for /data directory in background
+    def start_file_watcher_background():
+        try:
+            app_logger.info(f"Initializing file watcher for {DATA_DIR}...")
+            file_watcher = FileWatcher(watch_path=DATA_DIR, debounce_seconds=2)
+            if file_watcher.start():
+                app_logger.info(f"👁️  File watcher started for {DATA_DIR} (tracking recent files)...")
+            else:
+                app_logger.warning("⚠️  File watcher failed to start")
+        except Exception as e:
+            app_logger.error(f"❌ Failed to initialize file watcher: {e}")
+            import traceback
+            app_logger.error(f"Traceback: {traceback.format_exc()}")
+
+    threading.Thread(target=start_file_watcher_background, daemon=True).start()
+    app_logger.info("🔄 File watcher initialization started in background...")
 
     if os.environ.get("MONITOR", "").strip().lower() == "yes":
         app_logger.info("MONITOR=yes detected. Starting monitor.py...")

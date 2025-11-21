@@ -767,8 +767,8 @@ function loadDirectories(path, panel) {
   console.log("loadDirectories called with path:", path, "panel:", panel);
   document.getElementById('btnDirectories').classList.add('active');
   document.getElementById('btnDownloads').classList.remove('active');
-  const btnNewFiles = document.getElementById('btnNewFiles');
-  if (btnNewFiles) btnNewFiles.classList.remove('active');
+  const btnRecentFiles = document.getElementById('btnRecentFiles');
+  if (btnRecentFiles) btnRecentFiles.classList.remove('active');
 
   // Show filter bar
   const filterBar = document.getElementById(`${panel}-directory-filter`);
@@ -929,8 +929,8 @@ function loadDownloads(path, panel) {
   console.log("loadDownloads called with path:", path, "panel:", panel);
   document.getElementById('btnDownloads').classList.add('active');
   document.getElementById('btnDirectories').classList.remove('active');
-  const btnNewFiles = document.getElementById('btnNewFiles');
-  if (btnNewFiles) btnNewFiles.classList.remove('active');
+  const btnRecentFiles = document.getElementById('btnRecentFiles');
+  if (btnRecentFiles) btnRecentFiles.classList.remove('active');
 
   // Show filter bar
   const filterBar = document.getElementById(`${panel}-directory-filter`);
@@ -1067,27 +1067,198 @@ function loadRecentFiles(panel) {
       // Display files
       if (data.files && Array.isArray(data.files) && data.files.length > 0) {
         data.files.forEach(file => {
-          const fileData = {
-            name: file.file_name,
-            path: file.file_path,
-            size: file.file_size,
-            mtime: file.added_at
-          };
+          // Create custom list item for recent files with enhanced display
+          const fileItem = document.createElement('li');
+          fileItem.className = 'list-group-item list-group-item-action draggable d-flex align-items-start justify-content-between';
+          fileItem.setAttribute('draggable', 'true');
+          fileItem.setAttribute('data-fullpath', file.file_path);
 
-          // Create a list item for each file
-          let fileItem = createListItem(fileData, file.file_path, "file", panel, true);
-
-          // Add a time badge to show when it was added
           const timeAgo = getTimeAgo(file.added_at);
-          const badge = document.createElement('span');
-          badge.className = 'badge bg-secondary ms-2';
-          badge.textContent = timeAgo;
-          badge.title = formatDateTime(file.added_at);
+          const formattedDateTime = formatDateTime(file.added_at);
 
-          const fileNameSpan = fileItem.querySelector('span');
-          if (fileNameSpan) {
-            fileNameSpan.appendChild(badge);
+          // Create left container with file info
+          const leftContainer = document.createElement('div');
+          leftContainer.className = 'd-flex align-items-start flex-grow-1';
+          leftContainer.style.minWidth = '0';
+          leftContainer.innerHTML = `
+            <i class="bi bi-file-earmark-zip me-2 mt-1"></i>
+            <div class="flex-grow-1" style="min-width: 0;">
+              <div class="fw-medium">${escapeHtml(file.file_name)}</div>
+              <div class="small text-muted mt-1">
+                <i class="bi bi-clock me-1"></i>${escapeHtml(timeAgo)}
+                <span class="ms-2" title="${escapeHtml(formattedDateTime)}">(${escapeHtml(formattedDateTime)})</span>
+              </div>
+              <div class="small text-warning mt-1" style="word-break: break-all;">
+                <i class="bi bi-folder me-1"></i>${escapeHtml(file.file_path)}
+              </div>
+            </div>
+          `;
+
+          // Create button group
+          const iconContainer = document.createElement('div');
+          iconContainer.className = 'btn-group';
+          iconContainer.setAttribute('role', 'group');
+          iconContainer.setAttribute('aria-label', 'File actions');
+
+          // Add CBZ info button
+          const infoBtn = document.createElement('button');
+          infoBtn.className = 'btn btn-sm btn-outline-secondary';
+          infoBtn.innerHTML = '<i class="bi bi-eye"></i>';
+          infoBtn.title = 'CBZ Information';
+          infoBtn.setAttribute('type', 'button');
+          infoBtn.onclick = function(e) {
+            e.stopPropagation();
+            // Get the directory path
+            const directoryPath = file.file_path.substring(0, file.file_path.lastIndexOf('/'));
+            // For recent files, we don't have the full directory listing, so pass empty array
+            showCBZInfo(file.file_path, file.file_name, directoryPath, []);
+          };
+          iconContainer.appendChild(infoBtn);
+
+          // Add GCD search button (if available)
+          if (typeof gcdMysqlAvailable !== 'undefined' && gcdMysqlAvailable) {
+            const gcdBtn = document.createElement('button');
+            gcdBtn.className = 'btn btn-sm btn-outline-info';
+            gcdBtn.innerHTML = '<i class="bi bi-cloud-download"></i>';
+            gcdBtn.title = 'Search GCD for Metadata';
+            gcdBtn.setAttribute('type', 'button');
+            gcdBtn.onclick = function(e) {
+              e.stopPropagation();
+              searchGCDMetadata(file.file_path, file.file_name);
+            };
+            iconContainer.appendChild(gcdBtn);
           }
+
+          // Add ComicVine search button (if available)
+          if (typeof comicVineAvailable !== 'undefined' && comicVineAvailable) {
+            const cvBtn = document.createElement('button');
+            cvBtn.className = 'btn btn-sm btn-outline-success';
+            cvBtn.innerHTML = '<i class="bi bi-book"></i>';
+            cvBtn.title = 'Search ComicVine for Metadata';
+            cvBtn.setAttribute('type', 'button');
+            cvBtn.onclick = function(e) {
+              e.stopPropagation();
+              searchComicVineMetadata(file.file_path, file.file_name);
+            };
+            iconContainer.appendChild(cvBtn);
+          }
+
+          // Add edit filename button
+          const pencilBtn = document.createElement('button');
+          pencilBtn.className = 'btn btn-sm btn-outline-secondary';
+          pencilBtn.innerHTML = '<i class="bi bi-pencil"></i>';
+          pencilBtn.title = 'Edit filename';
+          pencilBtn.setAttribute('type', 'button');
+          pencilBtn.addEventListener('click', function(e) {
+            e.stopPropagation();
+            const nameDiv = leftContainer.querySelector('.fw-medium');
+            const oldPath = file.file_path;
+
+            const input = document.createElement('input');
+            input.type = 'text';
+            input.className = 'form-control form-control-sm edit-input';
+            input.value = file.file_name;
+            input.addEventListener('click', ev => ev.stopPropagation());
+
+            input.addEventListener('keypress', ev => {
+              if (ev.key === 'Enter') {
+                const newName = input.value.trim();
+                if (!newName) return alert('Filename cannot be empty.');
+                renameItem(oldPath, newName, panel);
+              }
+            });
+
+            input.addEventListener('blur', () => {
+              nameDiv.innerHTML = escapeHtml(file.file_name);
+            });
+
+            nameDiv.innerHTML = '';
+            nameDiv.appendChild(input);
+            input.focus();
+          });
+          iconContainer.appendChild(pencilBtn);
+
+          // Add delete button
+          const trashBtn = document.createElement('button');
+          trashBtn.className = 'btn btn-sm btn-outline-danger';
+          trashBtn.innerHTML = '<i class="bi bi-trash"></i>';
+          trashBtn.title = 'Delete file';
+          trashBtn.setAttribute('type', 'button');
+          trashBtn.onclick = function(e) {
+            e.stopPropagation();
+            deleteTarget = file.file_path;
+            deletePanel = panel;
+            document.getElementById('deleteItemName').textContent = file.file_name;
+            new bootstrap.Modal(document.getElementById('deleteModal')).show();
+          };
+          iconContainer.appendChild(trashBtn);
+
+          // Append containers to fileItem
+          fileItem.appendChild(leftContainer);
+          fileItem.appendChild(iconContainer);
+
+          // Add drag start handler
+          fileItem.addEventListener("dragstart", function (e) {
+            const fullPath = file.file_path;
+            if (selectedFiles.has(fullPath)) {
+              e.dataTransfer.setData("text/plain", JSON.stringify([...selectedFiles].map(path => ({ path, type: "file" }))));
+              e.dataTransfer.effectAllowed = "move";
+
+              // Create custom drag image showing count
+              const dragCount = selectedFiles.size;
+              if (dragCount > 1) {
+                const dragImage = document.createElement('div');
+                dragImage.className = 'drag-preview';
+                dragImage.textContent = `${dragCount} files`;
+                dragImage.style.cssText = 'position: absolute; top: -1000px; background: #2196f3; color: white; padding: 0.5rem; border-radius: 0.25rem; font-weight: bold;';
+                document.body.appendChild(dragImage);
+                e.dataTransfer.setDragImage(dragImage, 50, 25);
+                setTimeout(() => document.body.removeChild(dragImage), 0);
+              }
+            } else {
+              selectedFiles.clear();
+              document.querySelectorAll("li.list-group-item.selected").forEach(item => {
+                item.classList.remove("selected");
+                item.removeAttribute("data-selection-hint");
+              });
+              selectedFiles.add(fullPath);
+              fileItem.classList.add("selected");
+              fileItem.setAttribute("data-selection-hint", "Drag to move • Right-click for options");
+              if (typeof updateSelectionBadge === 'function') updateSelectionBadge();
+              e.dataTransfer.setData("text/plain", JSON.stringify([{ path: fullPath, type: "file" }]));
+              e.dataTransfer.effectAllowed = "move";
+            }
+
+            fileItem.classList.add("dragging");
+            setTimeout(() => fileItem.classList.remove("dragging"), 50);
+          });
+
+          // Add drag end handler
+          fileItem.addEventListener("dragend", function (e) {
+            setTimeout(() => {
+              if (typeof clearAllDropHoverStates === 'function') {
+                clearAllDropHoverStates();
+              }
+            }, 100);
+          });
+
+          // Add click handler for selection
+          fileItem.addEventListener('click', function(e) {
+            if (e.ctrlKey || e.metaKey) {
+              // Multi-select with Ctrl/Cmd
+              const fullPath = file.file_path;
+              if (selectedFiles.has(fullPath)) {
+                selectedFiles.delete(fullPath);
+                fileItem.classList.remove("selected");
+                fileItem.removeAttribute("data-selection-hint");
+              } else {
+                selectedFiles.add(fullPath);
+                fileItem.classList.add("selected");
+                fileItem.setAttribute("data-selection-hint", "Drag to move • Right-click for options");
+              }
+              if (typeof updateSelectionBadge === 'function') updateSelectionBadge();
+            }
+          });
 
           container.appendChild(fileItem);
         });
@@ -1128,6 +1299,13 @@ function getTimeAgo(dateStr) {
   if (diffHours < 24) return `${diffHours}h ago`;
   if (diffDays < 7) return `${diffDays}d ago`;
   return date.toLocaleDateString();
+}
+
+// Helper function to escape HTML to prevent XSS
+function escapeHtml(text) {
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
 }
 
 // Test function for debugging toast

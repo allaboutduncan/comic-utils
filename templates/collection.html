@@ -12,6 +12,17 @@
                 <li class="breadcrumb-item active">Loading...</li>
             </ol>
         </nav>
+        <!-- Main View Toggle Buttons -->
+        <div class="mx-3">
+            <div class="btn-group btn-group-sm" role="group" aria-label="View selection">
+                <button class="btn btn-primary" id="directoryViewBtn" onclick="loadDirectoryView()">
+                    <i class="bi bi-folder"></i> Directory View
+                </button>
+                <button class="btn btn-outline-primary" id="recentlyAddedBtn" onclick="loadRecentlyAdded()">
+                    <i class="bi bi-clock-history"></i> Recently Added
+                </button>
+            </div>
+        </div>
         <!-- View Toggle Buttons -->
         <div class="mx-3" id="viewToggleButtons">
             <button class="btn btn-outline-primary btn-sm" id="allBooksBtn" onclick="loadAllBooks()"
