@@ -36,7 +36,18 @@ def init_db():
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         ''')
-        
+
+        # Create recent_files table (rotating log of last 100 files added to /data)
+        c.execute('''
+            CREATE TABLE IF NOT EXISTS recent_files (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                file_path TEXT NOT NULL,
+                file_name TEXT NOT NULL,
+                file_size INTEGER,
+                added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+
         # Migration: Check if file_mtime column exists, add if not
         c.execute("PRAGMA table_info(thumbnail_jobs)")
         columns = [column[1] for column in c.fetchall()]
@@ -67,3 +78,99 @@ def get_db_connection():
     except Exception as e:
         app_logger.error(f"Failed to connect to database: {e}")
         return None
+
+def log_recent_file(file_path, file_name=None, file_size=None):
+    """
+    Log a recently added file to the database with rotation (keep only last 100).
+
+    Args:
+        file_path: Full path to the file
+        file_name: Name of the file (optional, will extract from path if not provided)
+        file_size: Size of the file in bytes (optional, will calculate if not provided)
+    """
+    try:
+        if file_name is None:
+            file_name = os.path.basename(file_path)
+
+        if file_size is None and os.path.exists(file_path):
+            file_size = os.path.getsize(file_path)
+
+        conn = get_db_connection()
+        if not conn:
+            app_logger.error("Could not get database connection to log recent file")
+            return False
+
+        c = conn.cursor()
+
+        # Insert the new file
+        c.execute('''
+            INSERT INTO recent_files (file_path, file_name, file_size)
+            VALUES (?, ?, ?)
+        ''', (file_path, file_name, file_size))
+
+        # Count total files
+        c.execute('SELECT COUNT(*) FROM recent_files')
+        count = c.fetchone()[0]
+
+        # If we have more than 100, delete the oldest ones
+        if count > 100:
+            c.execute('''
+                DELETE FROM recent_files
+                WHERE id IN (
+                    SELECT id FROM recent_files
+                    ORDER BY added_at ASC
+                    LIMIT ?
+                )
+            ''', (count - 100,))
+
+        conn.commit()
+        conn.close()
+        app_logger.debug(f"Logged recent file: {file_name}")
+        return True
+
+    except Exception as e:
+        app_logger.error(f"Failed to log recent file {file_path}: {e}")
+        return False
+
+def get_recent_files(limit=100):
+    """
+    Get the most recent files added to the library.
+
+    Args:
+        limit: Maximum number of files to return (default 100)
+
+    Returns:
+        List of dictionaries containing file information, or empty list on error
+    """
+    try:
+        conn = get_db_connection()
+        if not conn:
+            app_logger.error("Could not get database connection to retrieve recent files")
+            return []
+
+        c = conn.cursor()
+        c.execute('''
+            SELECT file_path, file_name, file_size, added_at
+            FROM recent_files
+            ORDER BY added_at DESC
+            LIMIT ?
+        ''', (limit,))
+
+        rows = c.fetchall()
+        conn.close()
+
+        # Convert to list of dictionaries
+        files = []
+        for row in rows:
+            files.append({
+                'file_path': row['file_path'],
+                'file_name': row['file_name'],
+                'file_size': row['file_size'],
+                'added_at': row['added_at']
+            })
+
+        return files
+
+    except Exception as e:
+        app_logger.error(f"Failed to retrieve recent files: {e}")
+        return []

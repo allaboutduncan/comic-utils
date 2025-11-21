@@ -999,6 +999,137 @@ function loadDownloads(path, panel) {
     });
 }
 
+// Function to load recent files from the file watcher
+function loadRecentFiles(panel) {
+  console.log("loadRecentFiles called for panel:", panel);
+
+  // Update button states
+  document.getElementById('btnRecentFiles').classList.add('active');
+  document.getElementById('btnDownloads').classList.remove('active');
+  document.getElementById('btnDirectories').classList.remove('active');
+
+  // Hide filter bar (not needed for recent files)
+  const filterBar = document.getElementById(`${panel}-directory-filter`);
+  if (filterBar) {
+    filterBar.style.display = 'none';
+  }
+
+  // Update breadcrumb to show "Recent Files"
+  updateBreadcrumb(panel, 'Recent Files');
+
+  window.scrollTo({ top: 0, behavior: "smooth" });
+  let container = panel === 'source' ? document.getElementById("source-list")
+    : document.getElementById("destination-list");
+
+  if (!container) {
+    console.error("Container not found for panel:", panel);
+    return;
+  }
+
+  // Show loading spinner
+  container.innerHTML = `<div class="d-flex justify-content-center my-3">
+                          <button class="btn btn-primary" type="button" disabled>
+                            <span class="spinner-grow spinner-grow-sm" role="status" aria-hidden="true"></span>
+                            Loading Recent Files...
+                          </button>
+                        </div>`;
+
+  // Fetch recent files from the API
+  fetch('/list-recent-files?limit=100')
+    .then(response => response.json())
+    .then(data => {
+      console.log("Received recent files data:", data);
+      container.innerHTML = "";
+
+      // Reset file tracking for this panel
+      resetFileTracking(panel, 'recent-files');
+
+      if (panel === 'source') {
+        currentSourcePath = 'recent-files';
+      } else {
+        currentDestinationPath = 'recent-files';
+      }
+
+      // Display date range if available
+      if (data.date_range && data.files.length > 0) {
+        const dateInfo = document.createElement('div');
+        dateInfo.className = 'alert alert-info mb-3';
+        dateInfo.innerHTML = `
+          <i class="bi bi-clock-history me-2"></i>
+          <strong>Recent Files (${data.total_count})</strong>
+          <div class="small mt-1">
+            From ${formatDateTime(data.date_range.oldest)} to ${formatDateTime(data.date_range.newest)}
+          </div>
+        `;
+        container.appendChild(dateInfo);
+      }
+
+      // Display files
+      if (data.files && Array.isArray(data.files) && data.files.length > 0) {
+        data.files.forEach(file => {
+          const fileData = {
+            name: file.file_name,
+            path: file.file_path,
+            size: file.file_size,
+            mtime: file.added_at
+          };
+
+          // Create a list item for each file
+          let fileItem = createListItem(fileData, file.file_path, "file", panel, true);
+
+          // Add a time badge to show when it was added
+          const timeAgo = getTimeAgo(file.added_at);
+          const badge = document.createElement('span');
+          badge.className = 'badge bg-secondary ms-2';
+          badge.textContent = timeAgo;
+          badge.title = formatDateTime(file.added_at);
+
+          const fileNameSpan = fileItem.querySelector('span');
+          if (fileNameSpan) {
+            fileNameSpan.appendChild(badge);
+          }
+
+          container.appendChild(fileItem);
+        });
+      } else {
+        // No recent files
+        const emptyMsg = document.createElement('div');
+        emptyMsg.className = 'alert alert-warning';
+        emptyMsg.innerHTML = '<i class="bi bi-inbox me-2"></i>No recent files found. Files added to /data will appear here.';
+        container.appendChild(emptyMsg);
+      }
+    })
+    .catch(error => {
+      console.error("Error loading recent files:", error);
+      container.innerHTML = `<div class="alert alert-danger" role="alert">
+                              <i class="bi bi-exclamation-triangle me-2"></i>
+                              Error loading recent files: ${error.message}
+                            </div>`;
+    });
+}
+
+// Helper function to format date/time
+function formatDateTime(dateStr) {
+  const date = new Date(dateStr);
+  return date.toLocaleString();
+}
+
+// Helper function to calculate "time ago" string
+function getTimeAgo(dateStr) {
+  const date = new Date(dateStr);
+  const now = new Date();
+  const diffMs = now - date;
+  const diffMins = Math.floor(diffMs / 60000);
+  const diffHours = Math.floor(diffMs / 3600000);
+  const diffDays = Math.floor(diffMs / 86400000);
+
+  if (diffMins < 1) return 'Just now';
+  if (diffMins < 60) return `${diffMins}m ago`;
+  if (diffHours < 24) return `${diffHours}h ago`;
+  if (diffDays < 7) return `${diffDays}d ago`;
+  return date.toLocaleDateString();
+}
+
 // Test function for debugging toast
 function testToast() {
   console.log('testToast() called');

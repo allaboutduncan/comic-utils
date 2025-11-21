@@ -35,8 +35,9 @@ from collections import OrderedDict
 from version import __version__
 import requests
 from packaging import version as pkg_version
-from database import init_db, get_db_connection
+from database import init_db, get_db_connection, get_recent_files, log_recent_file
 from concurrent.futures import ThreadPoolExecutor
+from file_watcher import FileWatcher
 
 load_config()
 
@@ -144,6 +145,105 @@ start_background_scanner()
 
 DATA_DIR = "/data"  # Directory to browse
 TARGET_DIR = config.get("SETTINGS", "TARGET", fallback="/processed")
+
+#########################
+#   Recent Files Helper #
+#########################
+
+def log_file_if_in_data(file_path):
+    """
+    Log a file to recent_files if it's in /data and is a comic file.
+
+    Args:
+        file_path: Full path to the file
+    """
+    try:
+        # Check if file is in /data directory
+        if not file_path.startswith(DATA_DIR):
+            return
+
+        # Check if it's a file (not directory)
+        if not os.path.isfile(file_path):
+            return
+
+        # Check if it's a comic file
+        ext = os.path.splitext(file_path)[1].lower()
+        if ext not in ['.cbz', '.cbr']:
+            return
+
+        # Log the file
+        file_name = os.path.basename(file_path)
+        file_size = os.path.getsize(file_path) if os.path.exists(file_path) else None
+        log_recent_file(file_path, file_name, file_size)
+        app_logger.info(f"📚 Logged recent file to database: {file_name}")
+
+    except Exception as e:
+        app_logger.error(f"Error logging recent file {file_path}: {e}")
+
+def update_recent_files_from_scan(comic_files):
+    """
+    Update the recent_files database with the 100 most recently modified comic files.
+    This is called during index build to capture files added outside the app.
+
+    Args:
+        comic_files: List of dicts with keys: path, name, size, mtime
+    """
+    try:
+        if not comic_files:
+            app_logger.debug("No comic files found during scan")
+            return
+
+        # Get database connection
+        conn = get_db_connection()
+        if not conn:
+            app_logger.error("Could not get database connection for recent files update")
+            return
+
+        c = conn.cursor()
+
+        # Check how many files we currently have
+        c.execute('SELECT COUNT(*) FROM recent_files')
+        current_count = c.fetchone()[0]
+
+        # Only do a full rescan if we have fewer than 100 files
+        # This preserves files added via the app (which have accurate timestamps)
+        # while still populating the list for files added externally
+        if current_count >= 100:
+            conn.close()
+            app_logger.debug(f"Recent files already has {current_count} entries, skipping scan update")
+            return
+
+        app_logger.info(f"Populating recent_files database with most recently modified files ({current_count} existing)...")
+
+        # Sort by modification time (most recent first)
+        sorted_files = sorted(comic_files, key=lambda x: x['mtime'], reverse=True)
+
+        # Take top 100
+        top_100 = sorted_files[:100]
+
+        # Clear existing entries and insert fresh data
+        c.execute('DELETE FROM recent_files')
+
+        # Insert the 100 most recent files using their modification time
+        from datetime import datetime
+        for file_info in top_100:
+            # Use file modification time as the added_at timestamp
+            added_at = datetime.fromtimestamp(file_info['mtime']).strftime('%Y-%m-%d %H:%M:%S')
+
+            c.execute('''
+                INSERT INTO recent_files (file_path, file_name, file_size, added_at)
+                VALUES (?, ?, ?, ?)
+            ''', (file_info['path'], file_info['name'], file_info['size'], added_at))
+
+        conn.commit()
+        conn.close()
+
+        app_logger.info(f"✅ Recent files database populated with {len(top_100)} files based on modification time")
+
+    except Exception as e:
+        app_logger.error(f"Error updating recent files from scan: {e}")
+        import traceback
+        app_logger.error(f"Traceback: {traceback.format_exc()}")
 
 #########################
 #   GCD Search Helpers  #
@@ -906,21 +1006,24 @@ index_built = False
 def build_file_index():
     """Build an in-memory index of all files and directories for fast searching"""
     global file_index, index_built
-    
+
     if index_built:
         return
-    
+
     app_logger.info("Building file index for fast search...")
     start_time = time.time()
-    
+
     file_index.clear()
     excluded_extensions = {".png", ".jpg", ".jpeg", ".gif", ".txt", ".html", ".css", ".ds_store", "cvinfo", ".json", ".db"}
-    
+
+    # Track comic files for recent files database
+    comic_files = []
+
     try:
         for root, dirs, files in os.walk(DATA_DIR):
             # Skip hidden directories
             dirs[:] = [d for d in dirs if not d.startswith('.') and not d.startswith('_')]
-            
+
             # Index directories
             for name in dirs:
                 try:
@@ -933,21 +1036,21 @@ def build_file_index():
                     })
                 except (OSError, IOError):
                     continue
-            
+
             # Index files (excluding certain extensions)
             for name in files:
                 if name.startswith('.') or name.startswith('_'):
                     continue
-                
+
                 # Skip excluded file types
                 if any(name.lower().endswith(ext) for ext in excluded_extensions):
                     continue
-                
+
                 try:
                     full_path = os.path.join(root, name)
                     rel_path = os.path.relpath(full_path, DATA_DIR)
                     file_size = os.path.getsize(full_path)
-                    
+
                     file_index.append({
                         "name": name,
                         "path": f"/data/{rel_path}",
@@ -955,16 +1058,33 @@ def build_file_index():
                         "size": file_size,
                         "parent": f"/data/{os.path.dirname(rel_path)}" if os.path.dirname(rel_path) else "/data"
                     })
+
+                    # Track comic files for recent files list
+                    if name.lower().endswith(('.cbz', '.cbr')):
+                        try:
+                            mtime = os.path.getmtime(full_path)
+                            comic_files.append({
+                                'path': full_path,
+                                'name': name,
+                                'size': file_size,
+                                'mtime': mtime
+                            })
+                        except (OSError, IOError):
+                            pass
+
                 except (OSError, IOError):
                     continue
-    
+
     except Exception as e:
         app_logger.error(f"Error building file index: {e}")
         return
-    
+
     build_time = time.time() - start_time
     app_logger.info(f"File index built successfully: {len(file_index)} items in {build_time:.2f} seconds")
     index_built = True
+
+    # Update recent files database with 100 most recently modified comic files
+    update_recent_files_from_scan(comic_files)
 
 def invalidate_file_index():
     """Invalidate the file index to force rebuild"""
@@ -1214,6 +1334,40 @@ def list_downloads():
         app_logger.error(f"Error in list_downloads for {current_path}: {e}")
         return jsonify({"error": str(e)}), 500
 
+#########################
+#    Recent Files      #
+#########################
+@app.route('/list-recent-files', methods=['GET'])
+def list_recent_files():
+    """Get the last 100 files added to the /data directory (tracked by file watcher)."""
+    try:
+        limit = request.args.get('limit', 100, type=int)
+        if limit > 100:
+            limit = 100  # Cap at 100 files
+
+        recent_files = get_recent_files(limit=limit)
+
+        # Calculate date range
+        date_range = None
+        if recent_files:
+            oldest_date = recent_files[-1]['added_at']
+            newest_date = recent_files[0]['added_at']
+            date_range = {
+                'oldest': oldest_date,
+                'newest': newest_date
+            }
+
+        return jsonify({
+            "success": True,
+            "files": recent_files,
+            "total_count": len(recent_files),
+            "date_range": date_range
+        })
+
+    except Exception as e:
+        app_logger.error(f"Error in list_recent_files: {e}")
+        return jsonify({"error": str(e)}), 500
+
 #####################################
 #  Move Files/Folders (Drag & Drop) #
 #####################################
@@ -1288,6 +1442,10 @@ def move():
                                 yield f"data: {progress}\n\n"
                         os.remove(source)
                         app_logger.info(f"Move complete (streamed): Removed {source}")
+
+                        # Log file to recent_files if it's a comic file moved to /data
+                        log_file_if_in_data(destination)
+
                         yield "data: 100\n\n"
                     except Exception as e:
                         app_logger.exception(f"Error during streaming move from {source} to {destination}")
@@ -1384,11 +1542,20 @@ def move():
                             except Exception as e:
                                 app_logger.warning(f"Could not remove source directory {source}: {e}")
                                 # Continue anyway since files were copied successfully
-                            
+
                             yield "data: 100\n\n"
-                        
+
                         app_logger.info(f"Directory move complete: {source} -> {destination}")
-                        
+
+                        # Log all comic files in the moved directory to recent_files
+                        try:
+                            for root, _, files_in_dir in os.walk(destination):
+                                for file in files_in_dir:
+                                    file_path = os.path.join(root, file)
+                                    log_file_if_in_data(file_path)
+                        except Exception as e:
+                            app_logger.warning(f"Error logging files from directory {destination}: {e}")
+
                         # Invalidate cache for affected directories
                         invalidate_cache_for_path(os.path.dirname(source))
                         invalidate_cache_for_path(os.path.dirname(destination))
@@ -1413,18 +1580,33 @@ def move():
         # Non-streaming move for folders or when streaming is disabled
         with memory_context("file_move"):
             try:
-                if os.path.isfile(source):
+                is_file = os.path.isfile(source)
+
+                if is_file:
                     shutil.move(source, destination)
                 else:
                     shutil.move(source, destination)
                 app_logger.info(f"Move complete: {source} -> {destination}")
-                
+
+                # Log file to recent_files if it's a comic file moved to /data
+                if is_file:
+                    log_file_if_in_data(destination)
+                else:
+                    # For directories, log all comic files inside
+                    try:
+                        for root, _, files in os.walk(destination):
+                            for file in files:
+                                file_path = os.path.join(root, file)
+                                log_file_if_in_data(file_path)
+                    except Exception as e:
+                        app_logger.warning(f"Error logging files from directory {destination}: {e}")
+
                 # Invalidate cache for affected directories
                 invalidate_cache_for_path(os.path.dirname(source))
                 invalidate_cache_for_path(os.path.dirname(destination))
                 # Invalidate search index since files have moved
                 invalidate_file_index()
-                
+
                 return jsonify({"success": True})
             except Exception as e:
                 app_logger.error(f"Error moving {source} to {destination}: {e}")
@@ -5417,7 +5599,20 @@ if __name__ == '__main__':
     # Start cache maintenance in background
     threading.Thread(target=cache_maintenance_background, daemon=True).start()
     app_logger.info("🔄 Cache maintenance thread started (checks every hour, rebuilds every 6 hours)...")
-    
+
+    # Start file watcher for /data directory
+    try:
+        app_logger.info(f"Initializing file watcher for {DATA_DIR}...")
+        file_watcher = FileWatcher(watch_path=DATA_DIR, debounce_seconds=2)
+        if file_watcher.start():
+            app_logger.info(f"👁️  File watcher started for {DATA_DIR} (tracking recent files)...")
+        else:
+            app_logger.warning("⚠️  File watcher failed to start")
+    except Exception as e:
+        app_logger.error(f"❌ Failed to initialize file watcher: {e}")
+        import traceback
+        app_logger.error(f"Traceback: {traceback.format_exc()}")
+
     if os.environ.get("MONITOR", "").strip().lower() == "yes":
         app_logger.info("MONITOR=yes detected. Starting monitor.py...")
         threading.Thread(target=run_monitor, daemon=True).start()

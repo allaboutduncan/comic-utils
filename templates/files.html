@@ -29,6 +29,8 @@
           onclick="loadDirectories('/data', 'source');" data-bs-toggle="button" aria-pressed="true">Directories</button>
         <button type="button" id="btnDownloads" class="btn btn-outline-primary"
           onclick="loadDownloads('{{ target_dir }}', 'source');" data-bs-toggle="button">Downloads</button>
+        <button type="button" id="btnRecentFiles" class="btn btn-outline-primary"
+          onclick="loadRecentFiles('source');" data-bs-toggle="button">Recent Files</button>
       </div>
       <!-- Filter buttons for source panel -->
       <div id="source-directory-filter" class="mb-2">
