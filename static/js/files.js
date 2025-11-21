@@ -829,13 +829,13 @@ function loadDirectories(path, panel) {
 }
 
 // Load new files from the past 7 days
-function loadNewFiles(path, panel) {
-  console.log("loadNewFiles called with path:", path, "panel:", panel);
+function loadRecentMoves(panel) {
+  console.log("loadRecentMoves called with panel:", panel);
 
   // Update button states
   document.getElementById('btnDirectories').classList.remove('active');
   document.getElementById('btnDownloads').classList.remove('active');
-  document.getElementById('btnNewFiles').classList.add('active');
+  document.getElementById('btnRecentMoves').classList.add('active');
 
   window.scrollTo({ top: 0, behavior: "smooth" });
 
@@ -850,27 +850,27 @@ function loadNewFiles(path, panel) {
   container.innerHTML = `<div class="d-flex justify-content-center my-3">
                                 <button class="btn btn-primary" type="button" disabled>
                                   <span class="spinner-grow spinner-grow-sm" role="status" aria-hidden="true"></span>
-                                  Loading new files...
+                                  Loading recent downloads...
                                 </button>
                               </div>`;
 
-  fetch(`/list-new-files?path=${encodeURIComponent(path)}`)
+  fetch('/list-recent-moves')
     .then(response => response.json())
     .then(data => {
-      console.log("Received new files data:", data);
+      console.log("Received recent downloads data:", data);
 
       // Check for server errors
       if (data.error) {
         throw new Error(data.error);
       }
 
-      // Update current path
+      // Update breadcrumb to show "Recent Downloads"
       if (panel === 'source') {
-        currentSourcePath = data.current_path;
-        updateBreadcrumb('source', data.current_path);
+        currentSourcePath = 'Recent Downloads';
+        updateBreadcrumb('source', 'Recent Downloads');
       } else {
-        currentDestinationPath = data.current_path;
-        updateBreadcrumb('destination', data.current_path);
+        currentDestinationPath = 'Recent Downloads';
+        updateBreadcrumb('destination', 'Recent Downloads');
       }
 
       // Clear the container
@@ -878,21 +878,24 @@ function loadNewFiles(path, panel) {
 
       // Add info header showing file count and date range
       const infoHeader = document.createElement("div");
-      infoHeader.className = data.limited ? "alert alert-warning mb-3" : "alert alert-info mb-3";
+      infoHeader.className = "alert alert-info mb-3";
 
       let headerHTML = `
-            <i class="bi bi-info-circle me-2"></i>
-            <strong>${data.total_count}</strong> new file(s) found in the past ${data.days} days
+            <i class="bi bi-clock-history me-2"></i>
+            <strong>${data.total_count}</strong> recent file download(s)
           `;
 
-      // Show warning if results were limited
-      if (data.limited) {
-        headerHTML += `<br><small><i class="bi bi-exclamation-triangle me-1"></i>Showing first ${data.max_results} results only. Scan stopped early to prevent timeout.</small>`;
-      }
-
-      // Show scan stats
-      if (data.scan_stats) {
-        headerHTML += `<br><small class="text-muted">Scanned ${data.scan_stats.files_scanned.toLocaleString()} files in ${data.scan_stats.elapsed_seconds}s</small>`;
+      // Show date range if available
+      if (data.oldest_date && data.newest_date) {
+        const oldestDate = new Date(data.oldest_date);
+        const newestDate = new Date(data.newest_date);
+        const dateFormatter = new Intl.DateTimeFormat('en-US', {
+          month: 'short',
+          day: 'numeric',
+          hour: '2-digit',
+          minute: '2-digit'
+        });
+        headerHTML += `<br><small class="text-muted">From ${dateFormatter.format(oldestDate)} to ${dateFormatter.format(newestDate)}</small>`;
       }
 
       infoHeader.innerHTML = headerHTML;
@@ -908,27 +911,54 @@ function loadNewFiles(path, panel) {
             panel,
             true
           );
+
+          // Add move timestamp info to the file item
+          if (file.moved_at) {
+            const movedDate = new Date(file.moved_at);
+            const timeAgo = getTimeAgo(movedDate);
+            const badge = document.createElement('span');
+            badge.className = 'badge bg-secondary ms-2';
+            badge.textContent = timeAgo;
+            badge.title = `Moved at: ${movedDate.toLocaleString()}`;
+            const nameSpan = fileItem.querySelector('span');
+            if (nameSpan) {
+              nameSpan.appendChild(badge);
+            }
+          }
+
           container.appendChild(fileItem);
         });
       } else {
         const noFilesMsg = document.createElement("div");
         noFilesMsg.className = "alert alert-secondary text-center";
-        noFilesMsg.textContent = "No new files found in the past 7 days";
+        noFilesMsg.textContent = "No recent moves found";
         container.appendChild(noFilesMsg);
       }
 
-      // Hide filter bar for new files view
+      // Hide filter bar for recent moves view
       const filterBar = document.getElementById(`${panel}-directory-filter`);
       if (filterBar) {
         filterBar.style.display = 'none';
       }
     })
     .catch(error => {
-      console.error("Error loading new files:", error);
+      console.error("Error loading recent moves:", error);
       container.innerHTML = `<div class="alert alert-danger" role="alert">
-                                    Error loading new files: ${error.message}
+                                    Error loading recent moves: ${error.message}
                                   </div>`;
     });
+}
+
+// Helper function to format time ago
+function getTimeAgo(date) {
+  const seconds = Math.floor((new Date() - date) / 1000);
+
+  if (seconds < 60) return 'just now';
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
+  if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
+  if (seconds < 604800) return `${Math.floor(seconds / 86400)}d ago`;
+
+  return date.toLocaleDateString();
 }
 
 // Function to render the directory listing.

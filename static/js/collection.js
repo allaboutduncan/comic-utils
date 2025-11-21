@@ -461,8 +461,10 @@ function renderGrid(items) {
             gridItem.classList.add('folder');
             metaEl.textContent = 'Folder';
 
-            // Hide actions for folders
+            // Hide actions and info button for folders
             if (actionsDropdown) actionsDropdown.style.display = 'none';
+            const infoButton = clone.querySelector('.info-button');
+            if (infoButton) infoButton.style.display = 'none';
 
             // Check if folder has a thumbnail
             if (item.hasThumbnail && item.thumbnailUrl) {
@@ -525,7 +527,8 @@ function renderGrid(items) {
                     '.action-remove-first': () => executeScript('remove', item.path),
                     '.action-edit': () => initEditMode(item.path),
                     '.action-rebuild': () => executeScript('single_file', item.path),
-                    '.action-enhance': () => executeScript('enhance_single', item.path)
+                    '.action-enhance': () => executeScript('enhance_single', item.path),
+                    '.action-delete': () => showDeleteConfirmation(item)
                 };
 
                 Object.entries(actions).forEach(([selector, handler]) => {
@@ -578,6 +581,18 @@ function renderGrid(items) {
                     console.log('Clicked file:', item.path);
                 }
             };
+
+            // Add info button event listener for comic files
+            if (item.hasThumbnail) {
+                const infoButton = gridItem.querySelector('.info-button');
+                if (infoButton) {
+                    infoButton.onclick = (e) => {
+                        e.stopPropagation();
+                        e.preventDefault();
+                        showCBZInfo(item.path, item.name);
+                    };
+                }
+            }
         }
 
         fragment.appendChild(clone);
@@ -987,12 +1002,45 @@ function setLoading(loading) {
 }
 
 /**
- * Show error message (simple alert for now).
- * @param {string} message 
+ * Show error message using Bootstrap Toast.
+ * @param {string} message
  */
 function showError(message) {
-    // You could replace this with a Bootstrap toast or alert
-    alert('Error: ' + message);
+    const toastEl = document.getElementById('errorToast');
+    const toastBody = document.getElementById('errorToastBody');
+
+    if (toastEl && toastBody) {
+        toastBody.textContent = message;
+        const toast = new bootstrap.Toast(toastEl, {
+            autohide: true,
+            delay: 5000
+        });
+        toast.show();
+    } else {
+        // Fallback to alert if toast elements not found
+        alert('Error: ' + message);
+    }
+}
+
+/**
+ * Show success message using Bootstrap Toast.
+ * @param {string} message
+ */
+function showSuccess(message) {
+    const toastEl = document.getElementById('successToast');
+    const toastBody = document.getElementById('successToastBody');
+
+    if (toastEl && toastBody) {
+        toastBody.textContent = message;
+        const toast = new bootstrap.Toast(toastEl, {
+            autohide: true,
+            delay: 3000
+        });
+        toast.show();
+    } else {
+        // Fallback to alert if toast elements not found
+        alert(message);
+    }
 }
 
 /**
@@ -2563,3 +2611,287 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 });
+
+// ============================================================================
+// DELETE FILE FUNCTIONALITY
+// ============================================================================
+
+let fileToDelete = null; // Store file to be deleted
+
+/**
+ * Show delete confirmation modal with file details
+ * @param {Object} item - The item object containing file details
+ */
+function showDeleteConfirmation(item) {
+    fileToDelete = item;
+
+    // Populate modal with file details
+    document.getElementById('deleteFileName').textContent = item.name;
+    document.getElementById('deleteFileSize').textContent = formatFileSize(item.size);
+    document.getElementById('deleteFilePath').textContent = item.path;
+
+    // Show the modal
+    const deleteModal = new bootstrap.Modal(document.getElementById('deleteConfirmModal'));
+    deleteModal.show();
+}
+
+/**
+ * Confirm and execute file deletion
+ */
+function confirmDeleteFile() {
+    if (!fileToDelete) {
+        showError('No file selected for deletion');
+        return;
+    }
+
+    // Show progress indicator
+    showProgressIndicator();
+    const progressText = document.getElementById('progress-text');
+    if (progressText) {
+        progressText.textContent = 'Deleting file...';
+    }
+
+    // Call the delete API
+    fetch('/api/delete-file', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path: fileToDelete.path })
+    })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                // Close the modal
+                const modalElement = document.getElementById('deleteConfirmModal');
+                const modalInstance = bootstrap.Modal.getInstance(modalElement);
+                if (modalInstance) {
+                    modalInstance.hide();
+                }
+
+                // Remove the file from allItems array
+                const index = allItems.findIndex(item => item.path === fileToDelete.path);
+                if (index !== -1) {
+                    allItems.splice(index, 1);
+                }
+
+                // Re-render the current page
+                renderPage();
+
+                // Show success message
+                hideProgressIndicator();
+                showSuccess('File deleted successfully');
+
+                // Clear the fileToDelete reference
+                fileToDelete = null;
+            } else {
+                hideProgressIndicator();
+                showError('Error deleting file: ' + (data.error || 'Unknown error'));
+            }
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            hideProgressIndicator();
+            showError('An error occurred while deleting the file.');
+        });
+}
+
+/**
+ * Format file size in human-readable format
+ * @param {number} bytes - File size in bytes
+ * @returns {string} Formatted file size
+ */
+function formatFileSize(bytes) {
+    if (bytes === 0) return '0 Bytes';
+    const k = 1024;
+    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i];
+}
+
+// ============================================================================
+// CBZ INFO MODAL FUNCTIONALITY
+// ============================================================================
+
+/**
+ * Show CBZ information modal
+ * @param {string} filePath - Path to the CBZ file
+ * @param {string} fileName - Name of the file
+ */
+function showCBZInfo(filePath, fileName) {
+    const modalElement = document.getElementById('cbzInfoModal');
+    const content = document.getElementById('cbzInfoContent');
+
+    // Reset content
+    content.innerHTML = `
+        <div class="text-center">
+            <div class="spinner-border" role="status">
+                <span class="visually-hidden">Loading...</span>
+            </div>
+            <p class="mt-2">Loading CBZ information...</p>
+        </div>
+    `;
+
+    // Show modal
+    const modal = new bootstrap.Modal(modalElement);
+    modal.show();
+
+    // Load metadata
+    fetch(`/cbz-metadata?path=${encodeURIComponent(filePath)}`)
+        .then(res => res.json())
+        .then(data => {
+            let html = `
+                <div class="row">
+                    <div class="col-md-7">
+            `;
+
+            // Add ComicInfo section if available
+            if (data.comicinfo) {
+                html += `
+                    <h6 class="mb-3">Comic Information</h6>
+                    <div class="card">
+                        <div class="card-body">
+                            <div class="row">
+                `;
+
+                const comicInfo = data.comicinfo;
+
+                // Define field groups
+                const fieldGroups = [
+                    {
+                        title: "Basic Information",
+                        fields: [
+                            { key: 'Title', label: 'Title' },
+                            { key: 'Series', label: 'Series' },
+                            { key: 'Number', label: 'Number' },
+                            { key: 'Count', label: 'Count' },
+                            { key: 'Volume', label: 'Volume' }
+                        ]
+                    },
+                    {
+                        title: "Publication Details",
+                        fields: [
+                            { key: 'Year', label: 'Year' },
+                            { key: 'Month', label: 'Month' },
+                            { key: 'Publisher', label: 'Publisher' },
+                            { key: 'PageCount', label: 'Page Count' }
+                        ]
+                    },
+                    {
+                        title: "Creative Team",
+                        fields: [
+                            { key: 'Writer', label: 'Writer' },
+                            { key: 'Penciller', label: 'Penciller' },
+                            { key: 'Colorist', label: 'Colorist' },
+                            { key: 'CoverArtist', label: 'Cover Artist' }
+                        ]
+                    }
+                ];
+
+                // Generate HTML for each field group
+                fieldGroups.forEach(group => {
+                    const hasFields = group.fields.some(field => comicInfo[field.key]);
+                    if (hasFields) {
+                        html += `
+                            <div class="col-md-12 mb-3">
+                                <h6 class="text-muted small">${group.title}</h6>
+                                <ul class="list-unstyled small">
+                        `;
+
+                        group.fields.forEach(field => {
+                            if (comicInfo[field.key] && comicInfo[field.key] !== '' && comicInfo[field.key] !== -1) {
+                                let value = comicInfo[field.key];
+
+                                // Format special values
+                                if (field.key === 'PageCount') {
+                                    value = parseInt(value);
+                                }
+
+                                html += `<li><strong>${field.label}:</strong> ${value}</li>`;
+                            }
+                        });
+
+                        html += `
+                                </ul>
+                            </div>
+                        `;
+                    }
+                });
+
+                html += `
+                            </div>
+                        </div>
+                    </div>
+                `;
+            } else {
+                html += `<p class="text-muted">No ComicInfo.xml found</p>`;
+            }
+
+            html += `
+                    </div>
+                    <div class="col-md-5">
+                        <h6>Preview</h6>
+                        <div id="cbzPreviewContainer" class="text-center">
+                            <div class="spinner-border spinner-border-sm" role="status">
+                                <span class="visually-hidden">Loading...</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+
+            // Add File Information below
+            html += `
+                <div class="row mt-4">
+                    <div class="col-12">
+                        <h6>File Information</h6>
+                        <ul class="list-unstyled">
+                            <li><strong>Name:</strong> ${fileName}</li>
+                            <li><strong>Size:</strong> ${formatFileSize(data.file_size)}</li>
+                            <li><strong>Total Files:</strong> ${data.total_files}</li>
+                            <li><strong>Image Files:</strong> ${data.image_files}</li>
+                        </ul>
+
+                        <h6 class="mt-4">First Files</h6>
+                        <ul class="list-unstyled small">
+            `;
+
+            // Add file list
+            if (data.file_list && data.file_list.length > 0) {
+                data.file_list.forEach(file => {
+                    html += `<li><code>${file}</code></li>`;
+                });
+            }
+
+            html += `
+                        </ul>
+                    </div>
+                </div>
+            `;
+
+            content.innerHTML = html;
+
+            // Load preview
+            fetch(`/cbz-preview?path=${encodeURIComponent(filePath)}&size=large`)
+                .then(res => res.json())
+                .then(previewData => {
+                    const previewContainer = document.getElementById('cbzPreviewContainer');
+                    if (previewData.success) {
+                        previewContainer.innerHTML = `
+                            <img src="${previewData.preview}" class="img-fluid" style="max-width: 100%; max-height: 600px;" alt="CBZ Preview">
+                            <p class="small text-muted mt-2">${previewData.file_name}</p>
+                        `;
+                    } else {
+                        previewContainer.innerHTML = '<p class="text-muted">Preview not available</p>';
+                    }
+                })
+                .catch(err => {
+                    document.getElementById('cbzPreviewContainer').innerHTML = '<p class="text-danger">Error loading preview</p>';
+                });
+        })
+        .catch(err => {
+            content.innerHTML = `
+                <div class="alert alert-danger">
+                    Error loading CBZ information: ${err.message}
+                </div>
+            `;
+        });
+}

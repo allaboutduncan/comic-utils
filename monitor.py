@@ -12,8 +12,12 @@ from single_file import convert_to_cbz
 from config import config, load_config
 from helpers import is_hidden
 from app_logging import MONITOR_LOG
+from database import log_file_move, init_db
 
 load_config()
+
+# Initialize database to ensure file_move_history table exists
+init_db()
 
 # These initial reads remain for startup.
 directory = config.get("SETTINGS", "WATCH", fallback="/temp")
@@ -364,6 +368,9 @@ class DownloadCompleteHandler(FileSystemEventHandler):
             # Allow filesystem update
             time.sleep(1)
 
+            # Track the final file path (may change after conversion)
+            final_target_path = target_path
+
             if os.path.exists(target_path):
                 monitor_logger.info(f"Checking if '{target_path}' is a CBR file")
                 if target_path.lower().endswith('.cbr'):
@@ -376,12 +383,27 @@ class DownloadCompleteHandler(FileSystemEventHandler):
                             time.sleep(0.5)
                         try:
                             convert_to_cbz(target_path)
+                            # After conversion, the file will be .cbz
+                            final_target_path = os.path.splitext(target_path)[0] + '.cbz'
+                            monitor_logger.info(f"Converted to: {final_target_path}")
                         except Exception as e:
                             monitor_logger.error(f"Conversion failed for '{target_path}': {e}")
+                            # If conversion failed, keep the original .cbr path
                     else:
                         monitor_logger.info("Auto-conversion is disabled.")
                 else:
                     monitor_logger.info(f"File '{target_path}' is not a CBR file. No conversion needed.")
+
+                # Log the file move to database with the FINAL file path (after conversion)
+                try:
+                    if os.path.exists(final_target_path):
+                        file_size = os.path.getsize(final_target_path)
+                        log_file_move(filepath, final_target_path, file_size)
+                        monitor_logger.info(f"Logged file move to database: {final_target_path}")
+                    else:
+                        monitor_logger.warning(f"Final file does not exist for logging: {final_target_path}")
+                except Exception as e:
+                    monitor_logger.warning(f"Failed to log file move to database: {e}")
             else:
                 monitor_logger.warning(f"File move verification failed: {target_path} not found.")
 

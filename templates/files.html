@@ -4,263 +4,268 @@
 {% block title %}CLU (Comic Library Utilities){% endblock %}
 
 {% block extra_css %}
-  <link rel="stylesheet" href="{{ url_for('static', filename='css/files.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/files.css') }}">
 {% endblock %}
 
 {% block content %}
 
-  <div class="container-lg">
-    <h2 class="text-primary-emphasis">File Manager</h2>
+<div class="container-lg">
+  <h2 class="text-primary-emphasis">File Manager</h2>
 
-    <!-- Selection Count Badge -->
-    <div id="selectionBadge" class="selection-badge">
-      <i class="bi bi-check2-square badge-icon"></i>
-      <span id="selectionCount">0 selected</span>
-      <span class="badge-hint">Drag to move • Right-click for options</span>
-    </div>
-
-    <div class="row">
-      <!-- Source Panel -->  
-      <div class="col-md-6">
-        <h3>Source</h3>
-        <!-- New button group for switching between Directories and Downloads -->
-        <div class="btn-group mb-2" role="group" aria-label="View Options">
-          <button type="button" id="btnDirectories" class="btn btn-outline-primary active" onclick="loadDirectories('/data', 'source');" data-bs-toggle="button" aria-pressed="true">Directories</button>
-          <button type="button" id="btnDownloads" class="btn btn-outline-primary" onclick="loadDownloads('{{ target_dir }}', 'source');"data-bs-toggle="button">Downloads</button>
-          <button type="button" id="btnNewFiles" class="btn btn-outline-primary" onclick="loadNewFiles('/data', 'source');" data-bs-toggle="button">New Files</button>
-        </div>
-        <!-- Filter buttons for source panel -->
-        <div id="source-directory-filter" class="mb-2">
-          <div class="btn-group d-grid grid-filter-buttons" role="group" aria-label="Directory Filter">
-            <!-- Dynamically inserted buttons go here -->
-          </div>
-          <div id="source-directory-search-row" class="pt-2"></div>
-          <div id="source-directory-rename-row" class="pt-2"></div>
-        </div>             
-        <nav aria-label="breadcrumb">
-          <ol id="source-path-display" class="breadcrumb">
-            <li class="breadcrumb-item">
-              <a href="#" onclick="loadDirectories('/data', 'source'); return false;">/data</a>
-            </li>
-          </ol>
-        </nav>
-        <ul id="source-list" class="list-group drop-target"></ul>
-      </div>      
-      <!-- Destination Panel -->
-      <div class="col-md-6">
-        <h3>Destination</h3>
-        <!-- Button Group to Create a Folder and Search -->
-        <div class="btn-group mb-2" role="group" aria-label="Folder Options">
-          <button type="button" class="btn btn-outline-primary" onclick="openCreateFolderModal()"><i class="bi bi-folder-plus"></i> Create Folder</button>
-          <button type="button" class="btn btn-outline-primary" onclick="openSearchModal()"><i class="bi bi-search"></i> Search Files</button>
-        </div>
-
-        <!-- Filter buttons for destination panel -->
-        <div id="destination-directory-filter" class="mb-2">
-          <div class="btn-group d-grid grid-filter-buttons" role="group" aria-label="Directory Filter">
-            <!-- Dynamically inserted buttons go here -->
-          </div>
-          <div id="destination-directory-search-row" class="pt-2"></div>
-          <div id="destination-directory-rename-row" class="pt-2"></div>
-        </div>   
-        <nav aria-label="breadcrumb">
-          <ol id="destination-path-display" class="breadcrumb">
-            <li class="breadcrumb-item">
-              <a href="#" onclick="loadDirectories('/data', 'destination'); return false;">/data</a>
-            </li>
-          </ol>
-        </nav>
-        <ul id="destination-list" class="list-group drop-target"></ul>
-      </div>      
-    </div>
-
-    <!-- Toast Container -->
-    <div class="toast-container position-fixed top-0 end-0 p-3" style="z-index: 1100">
-      <div id="moveErrorToast" class="toast bg-danger text-white" role="alert" aria-live="assertive" aria-atomic="true">
-        <div class="toast-header bg-danger text-white">
-          <strong class="me-auto">Rename Error</strong>
-          <button type="button" class="btn-close btn-close-white" data-bs-dismiss="toast" aria-label="Close"></button>
-        </div>
-        <div class="toast-body" id="moveErrorToastBody">
-          Rename failed.
-        </div>
-      </div>
-
-      <!-- ComicInfo Clear Confirmation Toast -->
-      <div id="clearComicInfoConfirmToast" class="toast bg-warning" role="alert" aria-live="assertive" aria-atomic="true">
-        <div class="toast-header bg-warning">
-          <strong class="me-auto">Confirm Delete</strong>
-          <button type="button" class="btn-close" data-bs-dismiss="toast" aria-label="Close"></button>
-        </div>
-        <div class="toast-body">
-          <p class="mb-2">Are you sure you want to delete ComicInfo.xml? This cannot be undone.</p>
-          <div class="d-flex gap-2">
-            <button type="button" class="btn btn-sm btn-danger" id="confirmClearComicInfoBtn">Delete</button>
-            <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="toast">Cancel</button>
-          </div>
-        </div>
-      </div>
-
-      <!-- ComicInfo Clear Success Toast -->
-      <div id="clearComicInfoSuccessToast" class="toast bg-success text-white" role="alert" aria-live="assertive" aria-atomic="true">
-        <div class="toast-header bg-success text-white">
-          <strong class="me-auto">Success</strong>
-          <button type="button" class="btn-close btn-close-white" data-bs-dismiss="toast" aria-label="Close"></button>
-        </div>
-        <div class="toast-body">
-          ComicInfo.xml has been successfully deleted.
-        </div>
-      </div>
-
-      <!-- ComicInfo Clear Error Toast -->
-      <div id="clearComicInfoErrorToast" class="toast bg-danger text-white" role="alert" aria-live="assertive" aria-atomic="true">
-        <div class="toast-header bg-danger text-white">
-          <strong class="me-auto">Error</strong>
-          <button type="button" class="btn-close btn-close-white" data-bs-dismiss="toast" aria-label="Close"></button>
-        </div>
-        <div class="toast-body" id="clearComicInfoErrorBody">
-          Failed to delete ComicInfo.xml.
-        </div>
-      </div>
-    </div>
-
+  <!-- Selection Count Badge -->
+  <div id="selectionBadge" class="selection-badge">
+    <i class="bi bi-check2-square badge-icon"></i>
+    <span id="selectionCount">0 selected</span>
+    <span class="badge-hint">Drag to move • Right-click for options</span>
   </div>
 
-  <!-- Context Menu for Multi-file Selection -->
-  <div id="fileContextMenu" class="dropdown-menu" style="display: none; position: absolute; z-index: 1050;">
-    <a class="dropdown-item" href="#" id="contextCreateFolder">
-      <i class="bi bi-folder-plus me-2"></i>Create Folder with Selection
-    </a>
-    <a class="dropdown-item text-danger" href="#" id="contextDeleteFiles">
-      <i class="bi bi-trash me-2"></i>Delete Selected Files
-    </a>
+  <div class="row">
+    <!-- Source Panel -->
+    <div class="col-md-6">
+      <h3>Source</h3>
+      <!-- New button group for switching between Directories and Downloads -->
+      <div class="btn-group mb-2" role="group" aria-label="View Options">
+        <button type="button" id="btnDirectories" class="btn btn-outline-primary active"
+          onclick="loadDirectories('/data', 'source');" data-bs-toggle="button" aria-pressed="true">Directories</button>
+        <button type="button" id="btnDownloads" class="btn btn-outline-primary"
+          onclick="loadDownloads('{{ target_dir }}', 'source');" data-bs-toggle="button">Downloads</button>
+        <button type="button" id="btnRecentMoves" class="btn btn-outline-primary" onclick="loadRecentMoves('source');"
+          data-bs-toggle="button">New Files</button>
+      </div>
+      <!-- Filter buttons for source panel -->
+      <div id="source-directory-filter" class="mb-2">
+        <div class="btn-group d-grid grid-filter-buttons" role="group" aria-label="Directory Filter">
+          <!-- Dynamically inserted buttons go here -->
+        </div>
+        <div id="source-directory-search-row" class="pt-2"></div>
+        <div id="source-directory-rename-row" class="pt-2"></div>
+      </div>
+      <nav aria-label="breadcrumb">
+        <ol id="source-path-display" class="breadcrumb">
+          <li class="breadcrumb-item">
+            <a href="#" onclick="loadDirectories('/data', 'source'); return false;">/data</a>
+          </li>
+        </ol>
+      </nav>
+      <ul id="source-list" class="list-group drop-target"></ul>
+    </div>
+    <!-- Destination Panel -->
+    <div class="col-md-6">
+      <h3>Destination</h3>
+      <!-- Button Group to Create a Folder and Search -->
+      <div class="btn-group mb-2" role="group" aria-label="Folder Options">
+        <button type="button" class="btn btn-outline-primary" onclick="openCreateFolderModal()"><i
+            class="bi bi-folder-plus"></i> Create Folder</button>
+        <button type="button" class="btn btn-outline-primary" onclick="openSearchModal()"><i class="bi bi-search"></i>
+          Search Files</button>
+      </div>
+
+      <!-- Filter buttons for destination panel -->
+      <div id="destination-directory-filter" class="mb-2">
+        <div class="btn-group d-grid grid-filter-buttons" role="group" aria-label="Directory Filter">
+          <!-- Dynamically inserted buttons go here -->
+        </div>
+        <div id="destination-directory-search-row" class="pt-2"></div>
+        <div id="destination-directory-rename-row" class="pt-2"></div>
+      </div>
+      <nav aria-label="breadcrumb">
+        <ol id="destination-path-display" class="breadcrumb">
+          <li class="breadcrumb-item">
+            <a href="#" onclick="loadDirectories('/data', 'destination'); return false;">/data</a>
+          </li>
+        </ol>
+      </nav>
+      <ul id="destination-list" class="list-group drop-target"></ul>
+    </div>
   </div>
 
-  <!-- Delete Confirmation Modal (Bootstrap 5.3) -->
-  <div class="modal fade" id="deleteModal" tabindex="-1" aria-labelledby="deleteModalLabel" aria-hidden="true">
-    <div class="modal-dialog">
-      <div class="modal-content">
-        <div class="modal-header">
-          <h5 class="modal-title" id="deleteModalLabel">Confirm Delete</h5>
-          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+  <!-- Toast Container -->
+  <div class="toast-container position-fixed top-0 end-0 p-3" style="z-index: 1100">
+    <div id="moveErrorToast" class="toast bg-danger text-white" role="alert" aria-live="assertive" aria-atomic="true">
+      <div class="toast-header bg-danger text-white">
+        <strong class="me-auto">Rename Error</strong>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="toast" aria-label="Close"></button>
+      </div>
+      <div class="toast-body" id="moveErrorToastBody">
+        Rename failed.
+      </div>
+    </div>
+
+    <!-- ComicInfo Clear Confirmation Toast -->
+    <div id="clearComicInfoConfirmToast" class="toast bg-warning" role="alert" aria-live="assertive" aria-atomic="true">
+      <div class="toast-header bg-warning">
+        <strong class="me-auto">Confirm Delete</strong>
+        <button type="button" class="btn-close" data-bs-dismiss="toast" aria-label="Close"></button>
+      </div>
+      <div class="toast-body">
+        <p class="mb-2">Are you sure you want to delete ComicInfo.xml? This cannot be undone.</p>
+        <div class="d-flex gap-2">
+          <button type="button" class="btn btn-sm btn-danger" id="confirmClearComicInfoBtn">Delete</button>
+          <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="toast">Cancel</button>
         </div>
-        <div class="modal-body">
-          Are you sure you want to delete <strong id="deleteItemName"></strong>?
-        </div>
-        <div class="modal-footer">
-          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-          <button type="button" class="btn btn-danger" id="confirmDeleteBtn">Delete</button>
-        </div>
+      </div>
+    </div>
+
+    <!-- ComicInfo Clear Success Toast -->
+    <div id="clearComicInfoSuccessToast" class="toast bg-success text-white" role="alert" aria-live="assertive"
+      aria-atomic="true">
+      <div class="toast-header bg-success text-white">
+        <strong class="me-auto">Success</strong>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="toast" aria-label="Close"></button>
+      </div>
+      <div class="toast-body">
+        ComicInfo.xml has been successfully deleted.
+      </div>
+    </div>
+
+    <!-- ComicInfo Clear Error Toast -->
+    <div id="clearComicInfoErrorToast" class="toast bg-danger text-white" role="alert" aria-live="assertive"
+      aria-atomic="true">
+      <div class="toast-header bg-danger text-white">
+        <strong class="me-auto">Error</strong>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="toast" aria-label="Close"></button>
+      </div>
+      <div class="toast-body" id="clearComicInfoErrorBody">
+        Failed to delete ComicInfo.xml.
       </div>
     </div>
   </div>
-  <!-- End of Delete Confirmation Modal -->
 
-  <!-- Multi-file Delete Confirmation Modal -->
-  <div class="modal fade" id="deleteMultipleModal" tabindex="-1" aria-labelledby="deleteMultipleModalLabel" aria-hidden="true">
-    <div class="modal-dialog modal-lg">
-      <div class="modal-content">
-        <div class="modal-header">
-          <h5 class="modal-title" id="deleteMultipleModalLabel">Confirm Delete Multiple Files</h5>
-          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-        </div>
-        <div class="modal-body">
-          <p>Are you sure you want to delete <strong id="deleteMultipleCount"></strong> files?</p>
-          <div class="alert alert-warning">
-            <i class="bi bi-exclamation-triangle me-2"></i>This action cannot be undone.
-          </div>
-          <div style="max-height: 300px; overflow-y: auto;">
-            <ul id="deleteMultipleFileList" class="list-group">
-              <!-- File names will be populated here -->
-            </ul>
-          </div>
-        </div>
-        <div class="modal-footer">
-          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-          <button type="button" class="btn btn-danger" id="confirmDeleteMultipleBtn">Delete All</button>
-        </div>
+</div>
+
+<!-- Context Menu for Multi-file Selection -->
+<div id="fileContextMenu" class="dropdown-menu" style="display: none; position: absolute; z-index: 1050;">
+  <a class="dropdown-item" href="#" id="contextCreateFolder">
+    <i class="bi bi-folder-plus me-2"></i>Create Folder with Selection
+  </a>
+  <a class="dropdown-item text-danger" href="#" id="contextDeleteFiles">
+    <i class="bi bi-trash me-2"></i>Delete Selected Files
+  </a>
+</div>
+
+<!-- Delete Confirmation Modal (Bootstrap 5.3) -->
+<div class="modal fade" id="deleteModal" tabindex="-1" aria-labelledby="deleteModalLabel" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="deleteModalLabel">Confirm Delete</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        Are you sure you want to delete <strong id="deleteItemName"></strong>?
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="button" class="btn btn-danger" id="confirmDeleteBtn">Delete</button>
       </div>
     </div>
   </div>
-  <!-- End of Multi-file Delete Confirmation Modal -->
+</div>
+<!-- End of Delete Confirmation Modal -->
 
-  <!-- Folder Name Prompt Modal for Mixed Series -->
-  <div class="modal fade" id="folderNamePromptModal" tabindex="-1" aria-labelledby="folderNamePromptModalLabel" aria-hidden="true">
-    <div class="modal-dialog">
-      <div class="modal-content">
-        <div class="modal-header">
-          <h5 class="modal-title" id="folderNamePromptModalLabel">Enter Folder Name</h5>
-          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+<!-- Multi-file Delete Confirmation Modal -->
+<div class="modal fade" id="deleteMultipleModal" tabindex="-1" aria-labelledby="deleteMultipleModalLabel"
+  aria-hidden="true">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="deleteMultipleModalLabel">Confirm Delete Multiple Files</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <p>Are you sure you want to delete <strong id="deleteMultipleCount"></strong> files?</p>
+        <div class="alert alert-warning">
+          <i class="bi bi-exclamation-triangle me-2"></i>This action cannot be undone.
         </div>
-        <div class="modal-body">
-          <div class="alert alert-info">
-            <i class="bi bi-info-circle me-2"></i>
-            <span id="folderPromptMessage">Selected files have different series names. Please enter a folder name.</span>
-          </div>
-          <div class="mb-3">
-            <label for="customFolderName" class="form-label">Folder Name</label>
-            <input type="text" class="form-control" id="customFolderName" placeholder="Enter folder name" autocomplete="off" />
-          </div>
-          <div id="selectedFilesList" style="max-height: 200px; overflow-y: auto;">
-            <h6 class="text-muted small">Selected files:</h6>
-            <ul id="selectedFilesListItems" class="list-group list-group-flush small">
-              <!-- File names will be populated here -->
-            </ul>
-          </div>
+        <div style="max-height: 300px; overflow-y: auto;">
+          <ul id="deleteMultipleFileList" class="list-group">
+            <!-- File names will be populated here -->
+          </ul>
         </div>
-        <div class="modal-footer">
-          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-          <button type="button" class="btn btn-primary" id="confirmCustomFolderBtn">Create Folder</button>
-        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="button" class="btn btn-danger" id="confirmDeleteMultipleBtn">Delete All</button>
       </div>
     </div>
   </div>
-  <!-- End of Folder Name Prompt Modal -->
+</div>
+<!-- End of Multi-file Delete Confirmation Modal -->
 
-  <!-- Create Folder Modal -->
-  <div class="modal fade" id="createFolderModal" tabindex="-1" aria-labelledby="createFolderModalLabel" aria-hidden="true">
-    <div class="modal-dialog">
-      <div class="modal-content">
-        <div class="modal-header">
-          <h5 class="modal-title" id="createFolderModalLabel">Create New Folder</h5>
-          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+<!-- Folder Name Prompt Modal for Mixed Series -->
+<div class="modal fade" id="folderNamePromptModal" tabindex="-1" aria-labelledby="folderNamePromptModalLabel"
+  aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="folderNamePromptModalLabel">Enter Folder Name</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <div class="alert alert-info">
+          <i class="bi bi-info-circle me-2"></i>
+          <span id="folderPromptMessage">Selected files have different series names. Please enter a folder name.</span>
         </div>
-        <div class="modal-body">
-          <div class="mb-3">
-            <label for="createFolderName" class="form-label">Folder Name</label>
-            <input type="text" class="form-control" id="createFolderName" placeholder="Enter folder name" />
-          </div>
+        <div class="mb-3">
+          <label for="customFolderName" class="form-label">Folder Name</label>
+          <input type="text" class="form-control" id="customFolderName" placeholder="Enter folder name"
+            autocomplete="off" />
         </div>
-        <div class="modal-footer">
-          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-          <button type="button" class="btn btn-primary" id="confirmCreateFolderBtn">Create</button>
+        <div id="selectedFilesList" style="max-height: 200px; overflow-y: auto;">
+          <h6 class="text-muted small">Selected files:</h6>
+          <ul id="selectedFilesListItems" class="list-group list-group-flush small">
+            <!-- File names will be populated here -->
+          </ul>
         </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="button" class="btn btn-primary" id="confirmCustomFolderBtn">Create Folder</button>
       </div>
     </div>
   </div>
-  <!-- End of Create Folder Modal -->
+</div>
+<!-- End of Folder Name Prompt Modal -->
 
-  <!-- Moving Status Modal -->
+<!-- Create Folder Modal -->
+<div class="modal fade" id="createFolderModal" tabindex="-1" aria-labelledby="createFolderModalLabel"
+  aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="createFolderModalLabel">Create New Folder</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <div class="mb-3">
+          <label for="createFolderName" class="form-label">Folder Name</label>
+          <input type="text" class="form-control" id="createFolderName" placeholder="Enter folder name" />
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="button" class="btn btn-primary" id="confirmCreateFolderBtn">Create</button>
+      </div>
+    </div>
+  </div>
+</div>
+<!-- End of Create Folder Modal -->
+
+<!-- Moving Status Modal -->
 <div class="modal fade" id="movingModal" tabindex="-1" aria-labelledby="movingModalLabel" aria-hidden="true">
   <div class="modal-dialog modal-dialog-centered">
     <div class="modal-content">
       <div class="modal-header">
         <h5 class="modal-title" id="movingModalLabel">Moving Items</h5>
         <!-- You can optionally allow closing if desired -->
-        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close" style="display: none;"></button>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"
+          style="display: none;"></button>
       </div>
       <div class="modal-body">
         <p id="movingStatusText">Preparing to move items...</p>
         <div class="progress">
-          <div
-            id="movingProgressBar"
-            class="progress-bar progress-bar-striped progress-bar-animated"
-            role="progressbar"
-            style="width: 0%;"
-            aria-valuenow="0"
-            aria-valuemin="0"
-            aria-valuemax="100"
-          ></div>
+          <div id="movingProgressBar" class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar"
+            style="width: 0%;" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100"></div>
         </div>
       </div>
     </div>
@@ -268,44 +273,45 @@
 </div>
 <!-- End of Moving Status Modal -->
 
-  <!-- CBZ Info Modal -->
-  <div class="modal fade" id="cbzInfoModal" tabindex="-1" aria-labelledby="cbzInfoModalLabel" aria-hidden="true">
-    <div class="modal-dialog modal-lg">
-      <div class="modal-content">
-        <div class="modal-header">
-          <h5 class="modal-title" id="cbzInfoModalLabel">CBZ Information</h5>
-          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+<!-- CBZ Info Modal -->
+<div class="modal fade" id="cbzInfoModal" tabindex="-1" aria-labelledby="cbzInfoModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="cbzInfoModalLabel">CBZ Information</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <!-- Navigation buttons row -->
+        <div id="cbzNavButtons" class="d-flex justify-content-between mb-3" style="display: none !important;">
+          <button type="button" id="cbzPrevBtn" class="btn btn-outline-primary" style="visibility: hidden;">
+            <i class="bi bi-arrow-left"></i> Prev
+          </button>
+          <button type="button" id="cbzNextBtn" class="btn btn-outline-primary" style="visibility: hidden;">
+            Next <i class="bi bi-arrow-right"></i>
+          </button>
         </div>
-        <div class="modal-body">
-          <!-- Navigation buttons row -->
-          <div id="cbzNavButtons" class="d-flex justify-content-between mb-3" style="display: none !important;">
-            <button type="button" id="cbzPrevBtn" class="btn btn-outline-primary" style="visibility: hidden;">
-              <i class="bi bi-arrow-left"></i> Prev
-            </button>
-            <button type="button" id="cbzNextBtn" class="btn btn-outline-primary" style="visibility: hidden;">
-              Next <i class="bi bi-arrow-right"></i>
-            </button>
-          </div>
 
-          <div id="cbzInfoContent">
-            <div class="text-center">
-              <div class="spinner-border" role="status">
-                <span class="visually-hidden">Loading...</span>
-              </div>
-              <p class="mt-2">Loading CBZ information...</p>
+        <div id="cbzInfoContent">
+          <div class="text-center">
+            <div class="spinner-border" role="status">
+              <span class="visually-hidden">Loading...</span>
             </div>
+            <p class="mt-2">Loading CBZ information...</p>
           </div>
         </div>
-        <div class="modal-footer">
-          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
-        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
       </div>
     </div>
   </div>
-  <!-- End of CBZ Info Modal -->
+</div>
+<!-- End of CBZ Info Modal -->
 
 <!-- Custom Remove Text from Filenames Modal -->
-<div class="modal fade" id="customRenameModal" tabindex="-1" aria-labelledby="customRenameModalLabel" aria-hidden="true">
+<div class="modal fade" id="customRenameModal" tabindex="-1" aria-labelledby="customRenameModalLabel"
+  aria-hidden="true">
   <div class="modal-dialog">
     <div class="modal-content">
       <div class="modal-header">
@@ -335,8 +341,10 @@
       </div>
       <div class="modal-footer">
         <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-        <button type="button" class="btn btn-primary" id="previewRenameBtn" onclick="previewCustomRename()">Preview</button>
-        <button type="button" class="btn btn-success" id="executeRenameBtn" onclick="executeCustomRename()" style="display: none;">Execute Rename</button>
+        <button type="button" class="btn btn-primary" id="previewRenameBtn"
+          onclick="previewCustomRename()">Preview</button>
+        <button type="button" class="btn btn-success" id="executeRenameBtn" onclick="executeCustomRename()"
+          style="display: none;">Execute Rename</button>
       </div>
     </div>
   </div>
@@ -361,7 +369,8 @@
         </div>
         <div class="mb-3">
           <label for="replacementText" class="form-label">Replacement Text:</label>
-          <input type="text" class="form-control" id="replacementText" placeholder="e.g., 'Volume 1'" autocomplete="off">
+          <input type="text" class="form-control" id="replacementText" placeholder="e.g., 'Volume 1'"
+            autocomplete="off">
           <div class="form-text">
             The text above will be replaced with this text. Leave blank to remove the text.
           </div>
@@ -382,8 +391,10 @@
       </div>
       <div class="modal-footer">
         <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-        <button type="button" class="btn btn-primary" id="previewReplaceBtn" onclick="previewReplaceText()">Preview</button>
-        <button type="button" class="btn btn-success" id="executeReplaceBtn" onclick="executeReplaceText()" style="display: none;">Execute Replace</button>
+        <button type="button" class="btn btn-primary" id="previewReplaceBtn"
+          onclick="previewReplaceText()">Preview</button>
+        <button type="button" class="btn btn-success" id="executeReplaceBtn" onclick="executeReplaceText()"
+          style="display: none;">Execute Replace</button>
       </div>
     </div>
   </div>
@@ -401,9 +412,11 @@
       <div class="modal-body">
         <div class="mb-3">
           <label for="newSeriesName" class="form-label">New Series Name:</label>
-          <input type="text" class="form-control" id="newSeriesName" placeholder="e.g., 'Saga of the Swamp Thing'" autocomplete="off">
+          <input type="text" class="form-control" id="newSeriesName" placeholder="e.g., 'Saga of the Swamp Thing'"
+            autocomplete="off">
           <div class="form-text">
-            This will replace the series name while preserving issue numbers and years. File extensions will remain unchanged.
+            This will replace the series name while preserving issue numbers and years. File extensions will remain
+            unchanged.
           </div>
         </div>
         <div class="mb-3">
@@ -421,8 +434,10 @@
       </div>
       <div class="modal-footer">
         <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-        <button type="button" class="btn btn-primary" id="previewRenameFilesBtn" onclick="previewRenameFiles()">Preview</button>
-        <button type="button" class="btn btn-success" id="executeRenameFilesBtn" onclick="executeRenameFiles()" style="display: none;">Execute Rename</button>
+        <button type="button" class="btn btn-primary" id="previewRenameFilesBtn"
+          onclick="previewRenameFiles()">Preview</button>
+        <button type="button" class="btn btn-success" id="executeRenameFilesBtn" onclick="executeRenameFiles()"
+          style="display: none;">Execute Rename</button>
       </div>
     </div>
   </div>
@@ -441,7 +456,8 @@
         <div class="mb-3">
           <label for="searchQuery" class="form-label">Search Query:</label>
           <div class="input-group">
-            <input type="text" class="form-control" id="searchQuery" placeholder="Enter search term..." autocomplete="off">
+            <input type="text" class="form-control" id="searchQuery" placeholder="Enter search term..."
+              autocomplete="off">
             <button class="btn btn-outline-secondary" type="button" onclick="performSearch()">
               <i class="bi bi-search"></i>
             </button>
@@ -490,10 +506,12 @@
           <div class="d-flex justify-content-between align-items-center mb-2">
             <p class="mb-0"><strong>Please select the correct series from the GCD database:</strong></p>
             <div class="btn-group" role="group" aria-label="Sort options">
-              <button type="button" class="btn btn-outline-secondary btn-sm" id="sortBySeries" onclick="sortGCDSeries('series')">
+              <button type="button" class="btn btn-outline-secondary btn-sm" id="sortBySeries"
+                onclick="sortGCDSeries('series')">
                 <i class="bi bi-sort-alpha-down me-1"></i>Series
               </button>
-              <button type="button" class="btn btn-outline-secondary btn-sm" id="sortByYear" onclick="sortGCDSeries('year')">
+              <button type="button" class="btn btn-outline-secondary btn-sm" id="sortByYear"
+                onclick="sortGCDSeries('year')">
                 <i class="bi bi-sort-numeric-down me-1"></i>Year
               </button>
             </div>
@@ -512,7 +530,8 @@
 <!-- End of GCD Series Selection Modal -->
 
 <!-- ComicVine Volume Selection Modal -->
-<div class="modal fade" id="comicVineVolumeModal" tabindex="-1" aria-labelledby="comicVineVolumeModalLabel" aria-hidden="true">
+<div class="modal fade" id="comicVineVolumeModal" tabindex="-1" aria-labelledby="comicVineVolumeModalLabel"
+  aria-hidden="true">
   <div class="modal-dialog modal-lg">
     <div class="modal-content">
       <div class="modal-header">
@@ -544,7 +563,8 @@
 <!-- End of ComicVine Volume Selection Modal -->
 
 <!-- Rename Confirmation Modal -->
-<div class="modal fade" id="renameConfirmModal" tabindex="-1" aria-labelledby="renameConfirmModalLabel" aria-hidden="true">
+<div class="modal fade" id="renameConfirmModal" tabindex="-1" aria-labelledby="renameConfirmModalLabel"
+  aria-hidden="true">
   <div class="modal-dialog">
     <div class="modal-content">
       <div class="modal-header">
@@ -570,7 +590,8 @@
 {% endblock %}
 
 {% block scripts %}
-  {{ super() }}
-  <script src="{{ url_for('static', filename='js/files.js') }}?v={{ range(1000, 9999) | random }}&t=202502"></script>
-  <script src="{{ url_for('static', filename='js/files_context_menu.js') }}?v={{ range(1000, 9999) | random }}&t=202502"></script>
+{{ super() }}
+<script src="{{ url_for('static', filename='js/files.js') }}?v={{ range(1000, 9999) | random }}&t=202502"></script>
+<script
+  src="{{ url_for('static', filename='js/files_context_menu.js') }}?v={{ range(1000, 9999) | random }}&t=202502"></script>
 {% endblock %}
