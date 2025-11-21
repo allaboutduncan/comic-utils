@@ -71,8 +71,9 @@ function getFilteredItems() {
 /**
  * Load and display the contents of a directory.
  * @param {string} path - The directory path to load.
+ * @param {boolean} preservePage - If true, keep current page (for refresh). If false, reset to page 1 (default).
  */
-async function loadDirectory(path) {
+async function loadDirectory(path, preservePage = false) {
     if (isLoading) return;
 
     // Cancel any ongoing background loading
@@ -140,12 +141,16 @@ async function loadDirectory(path) {
             });
         }
 
-        // Reset to first page on new directory load
-        currentPage = 1;
+        // Reset to first page on new directory load (unless preserving page)
+        if (!preservePage) {
+            currentPage = 1;
+        }
 
-        // Reset filter and search when loading a new directory
-        currentFilter = 'all';
-        gridSearchTerm = '';
+        // Reset filter and search when loading a new directory (unless preserving page)
+        if (!preservePage) {
+            currentFilter = 'all';
+            gridSearchTerm = '';
+        }
 
         // Reset All Books mode when loading a new directory
         isAllBooksMode = false;
@@ -226,7 +231,7 @@ function updateViewButtons(path) {
 /**
  * Load all books recursively from current directory
  */
-async function loadAllBooks() {
+async function loadAllBooks(preservePage = false) {
     if (isLoading) return;
 
     setLoading(true);
@@ -265,9 +270,11 @@ async function loadAllBooks() {
 
             // Show initial batch immediately
             allItems = allFiles.slice(0, initialBatchSize);
-            currentPage = 1;
-            currentFilter = 'all';
-            gridSearchTerm = '';
+            if (!preservePage) {
+                currentPage = 1;
+                currentFilter = 'all';
+                gridSearchTerm = '';
+            }
 
             updateMainViewButtons();
             updateViewButtons(currentPath);
@@ -282,9 +289,11 @@ async function loadAllBooks() {
         } else {
             // For smaller collections, load everything at once
             allItems = allFiles;
-            currentPage = 1;
-            currentFilter = 'all';
-            gridSearchTerm = '';
+            if (!preservePage) {
+                currentPage = 1;
+                currentFilter = 'all';
+                gridSearchTerm = '';
+            }
 
             updateMainViewButtons();
             updateViewButtons(currentPath);
@@ -471,8 +480,9 @@ function loadDirectoryView() {
 
 /**
  * Load recently added files (last 100 files)
+ * @param {boolean} preservePage - If true, keep current page (for refresh). If false, reset to page 1 (default).
  */
-async function loadRecentlyAdded() {
+async function loadRecentlyAdded(preservePage = false) {
     if (isLoading) return;
 
     // Update button states
@@ -507,9 +517,11 @@ async function loadRecentlyAdded() {
         }));
 
         allItems = recentFiles;
-        currentPage = 1;
-        currentFilter = 'all';
-        gridSearchTerm = '';
+        if (!preservePage) {
+            currentPage = 1;
+            currentFilter = 'all';
+            gridSearchTerm = '';
+        }
 
         // Update breadcrumb
         updateBreadcrumb('Recently Added');
@@ -622,6 +634,9 @@ function renderGrid(items) {
 
             // Handle click for folders
             gridItem.onclick = () => loadDirectory(item.path);
+
+            // Enable drag and drop for folders
+            setupFolderDropZone(gridItem, item.path);
 
         } else {
             gridItem.classList.add('file');
@@ -1128,15 +1143,8 @@ function initLazyLoading() {
 }
 
 /**
- * Refresh the current view.
- */
-function refreshCurrentView() {
-    loadDirectory(currentPath);
-}
-
-/**
  * Toggle loading state UI.
- * @param {boolean} loading 
+ * @param {boolean} loading
  */
 function setLoading(loading) {
     isLoading = loading;
@@ -1473,9 +1481,9 @@ function setupSaveFormHandler() {
                     // Clear edit container
                     document.getElementById('editInlineContainer').innerHTML = '';
 
-                    // Refresh the current view to show updated thumbnail
+                    // Refresh the current view to show updated thumbnail (preserve current page)
                     setTimeout(() => {
-                        refreshCurrentView();
+                        refreshCurrentView(true);
                         hideProgressIndicator();
                     }, 500);
                 } else {
@@ -3049,4 +3057,219 @@ function showCBZInfo(filePath, fileName) {
                 </div>
             `;
         });
+}
+
+/**
+ * Setup drag and drop zone for a folder
+ * @param {HTMLElement} folderElement - The folder grid item element
+ * @param {string} folderPath - The path to the folder
+ */
+function setupFolderDropZone(folderElement, folderPath) {
+    // Prevent default drag behaviors
+    ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+        folderElement.addEventListener(eventName, preventDefaults, false);
+    });
+
+    function preventDefaults(e) {
+        e.preventDefault();
+        e.stopPropagation();
+    }
+
+    // Highlight drop zone when dragging over it
+    ['dragenter', 'dragover'].forEach(eventName => {
+        folderElement.addEventListener(eventName, () => {
+            folderElement.classList.add('drag-over');
+        }, false);
+    });
+
+    ['dragleave', 'drop'].forEach(eventName => {
+        folderElement.addEventListener(eventName, () => {
+            folderElement.classList.remove('drag-over');
+        }, false);
+    });
+
+    // Handle dropped files
+    folderElement.addEventListener('drop', (e) => {
+        const dt = e.dataTransfer;
+        const files = dt.files;
+
+        if (files.length > 0) {
+            handleFileUpload(files, folderPath);
+        }
+    }, false);
+}
+
+/**
+ * Handle file upload to a folder
+ * @param {FileList} files - The files to upload
+ * @param {string} targetPath - The target folder path
+ */
+function handleFileUpload(files, targetPath) {
+    // Validate file types
+    const allowedExtensions = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.cbz', '.cbr'];
+    const validFiles = [];
+    const invalidFiles = [];
+
+    Array.from(files).forEach(file => {
+        const fileName = file.name.toLowerCase();
+        const isValid = allowedExtensions.some(ext => fileName.endsWith(ext));
+
+        if (isValid) {
+            validFiles.push(file);
+        } else {
+            invalidFiles.push(file.name);
+        }
+    });
+
+    // Show error if no valid files
+    if (validFiles.length === 0) {
+        showError(`No valid files to upload. Allowed types: ${allowedExtensions.join(', ')}`);
+        if (invalidFiles.length > 0) {
+            showError(`Skipped files: ${invalidFiles.join(', ')}`);
+        }
+        return;
+    }
+
+    // Prepare form data
+    const formData = new FormData();
+    formData.append('target_dir', targetPath);
+
+    validFiles.forEach(file => {
+        formData.append('files', file);
+    });
+
+    // Show loading indicator
+    showUploadProgress(validFiles.length);
+
+    // Upload files
+    fetch('/upload-to-folder', {
+        method: 'POST',
+        body: formData
+    })
+        .then(response => response.json())
+        .then(data => {
+            hideUploadProgress();
+
+            if (data.success) {
+                let message = `Successfully uploaded ${data.total_uploaded} file(s)`;
+
+                if (data.total_skipped > 0) {
+                    message += `, skipped ${data.total_skipped} file(s)`;
+                }
+
+                if (data.total_errors > 0) {
+                    message += `, ${data.total_errors} error(s)`;
+                }
+
+                showSuccess(message);
+
+                // Show details if there are skipped files or errors
+                if (data.skipped.length > 0) {
+                    console.log('Skipped files:', data.skipped);
+                }
+
+                if (data.errors.length > 0) {
+                    console.error('Upload errors:', data.errors);
+                    showError(`Errors: ${data.errors.map(e => e.name).join(', ')}`);
+                }
+
+                // Refresh the current view if we're in the same directory (preserve current page)
+                if (currentPath === targetPath || currentPath === '') {
+                    refreshCurrentView(true);
+                }
+            } else {
+                showError('Upload failed: ' + (data.error || 'Unknown error'));
+            }
+        })
+        .catch(error => {
+            hideUploadProgress();
+            console.error('Upload error:', error);
+            showError('Upload failed: ' + error.message);
+        });
+}
+
+/**
+ * Show upload progress indicator
+ * @param {number} fileCount - Number of files being uploaded
+ */
+function showUploadProgress(fileCount) {
+    const container = document.createElement('div');
+    container.id = 'upload-progress-indicator';
+    container.className = 'alert alert-info position-fixed bottom-0 end-0 m-3';
+    container.style.zIndex = '9999';
+    container.innerHTML = `
+        <div class="d-flex align-items-center">
+            <div class="spinner-border spinner-border-sm me-2" role="status">
+                <span class="visually-hidden">Uploading...</span>
+            </div>
+            <div>Uploading ${fileCount} file(s)...</div>
+        </div>
+    `;
+    document.body.appendChild(container);
+}
+
+/**
+ * Hide upload progress indicator
+ */
+function hideUploadProgress() {
+    const indicator = document.getElementById('upload-progress-indicator');
+    if (indicator) {
+        indicator.remove();
+    }
+}
+
+/**
+ * Show success message using Bootstrap Toast
+ * @param {string} message - Success message to display
+ */
+function showSuccess(message) {
+    const toastEl = document.getElementById('successToast');
+    const toastBody = document.getElementById('successToastBody');
+
+    if (toastEl && toastBody) {
+        toastBody.textContent = message;
+        const toast = new bootstrap.Toast(toastEl, {
+            autohide: true,
+            delay: 5000
+        });
+        toast.show();
+    } else {
+        // Fallback: create a temporary toast if it doesn't exist
+        const toastContainer = document.createElement('div');
+        toastContainer.className = 'position-fixed top-0 end-0 p-3';
+        toastContainer.style.zIndex = '9999';
+        toastContainer.innerHTML = `
+            <div class="toast align-items-center text-white bg-success border-0" role="alert">
+                <div class="d-flex">
+                    <div class="toast-body">${message}</div>
+                    <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(toastContainer);
+        const toast = new bootstrap.Toast(toastContainer.querySelector('.toast'), {
+            autohide: true,
+            delay: 5000
+        });
+        toast.show();
+
+        // Remove container after toast is hidden
+        toastContainer.querySelector('.toast').addEventListener('hidden.bs.toast', () => {
+            toastContainer.remove();
+        });
+    }
+}
+
+/**
+ * Refresh the current view
+ * @param {boolean} preservePage - If true, keep current page. If false, reset to page 1 (default).
+ */
+function refreshCurrentView(preservePage = false) {
+    if (isRecentlyAddedMode) {
+        loadRecentlyAdded(preservePage);
+    } else if (isAllBooksMode) {
+        loadAllBooks(preservePage);
+    } else {
+        loadDirectory(currentPath, preservePage);
+    }
 }

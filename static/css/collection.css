@@ -166,6 +166,36 @@
     background-color: #343a40;
 }
 
+/* Drag and drop styles */
+.grid-item.drag-over {
+    transform: scale(1.05);
+    box-shadow: 0 8px 16px rgba(13, 110, 253, 0.3);
+    border: 2px solid #0d6efd;
+    background-color: rgba(13, 110, 253, 0.05);
+}
+
+.grid-item.folder.drag-over::after {
+    content: '📁 Drop files here';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background: rgba(13, 110, 253, 0.9);
+    color: white;
+    padding: 8px 16px;
+    border-radius: 4px;
+    font-weight: 500;
+    font-size: 0.9rem;
+    pointer-events: none;
+    z-index: 10;
+}
+
+[data-bs-theme="dark"] .grid-item.drag-over {
+    border-color: #4dabf7;
+    background-color: rgba(77, 171, 247, 0.1);
+    box-shadow: 0 8px 16px rgba(77, 171, 247, 0.3);
+}
+
 /* Comic Reader Modal Styles */
 .comic-reader-modal {
     position: fixed;

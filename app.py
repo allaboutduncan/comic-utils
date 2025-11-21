@@ -1,4 +1,5 @@
 from flask import Flask, render_template, request, Response, send_from_directory, send_file, redirect, jsonify, url_for, stream_with_context, render_template_string
+from werkzeug.utils import secure_filename
 import subprocess
 import io
 import os
@@ -1657,6 +1658,118 @@ def folder_size():
         "comic_count": comic_count,
         "magazine_count": magazine_count
     })
+
+#####################################
+#       Upload Files to Folder      #
+#####################################
+@app.route('/upload-to-folder', methods=['POST'])
+def upload_to_folder():
+    """
+    Upload files to a specific folder.
+    Accepts multiple files and a target directory path.
+    Only allows image files, CBZ, and CBR files.
+    """
+    try:
+        # Get target directory from form data
+        target_dir = request.form.get('target_dir')
+
+        if not target_dir:
+            return jsonify({"success": False, "error": "No target directory specified"}), 400
+
+        # Validate target directory exists
+        if not os.path.exists(target_dir):
+            return jsonify({"success": False, "error": "Target directory does not exist"}), 404
+
+        if not os.path.isdir(target_dir):
+            return jsonify({"success": False, "error": "Target path is not a directory"}), 400
+
+        # Check if files were uploaded
+        if 'files' not in request.files:
+            return jsonify({"success": False, "error": "No files provided"}), 400
+
+        files = request.files.getlist('files')
+
+        if not files or all(f.filename == '' for f in files):
+            return jsonify({"success": False, "error": "No files selected"}), 400
+
+        # Allowed file extensions
+        allowed_extensions = {'.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.cbz', '.cbr'}
+
+        uploaded_files = []
+        skipped_files = []
+        errors = []
+
+        for file in files:
+            if file.filename == '':
+                continue
+
+            # Get file extension
+            filename = secure_filename(file.filename)
+            file_ext = os.path.splitext(filename)[1].lower()
+
+            # Validate file type
+            if file_ext not in allowed_extensions:
+                skipped_files.append({
+                    'name': filename,
+                    'reason': f'File type not allowed ({file_ext})'
+                })
+                continue
+
+            # Construct full path
+            file_path = os.path.join(target_dir, filename)
+
+            # Check if file already exists
+            if os.path.exists(file_path):
+                # Add a number to make it unique
+                base_name, ext = os.path.splitext(filename)
+                counter = 1
+                while os.path.exists(os.path.join(target_dir, f"{base_name}_{counter}{ext}")):
+                    counter += 1
+                filename = f"{base_name}_{counter}{ext}"
+                file_path = os.path.join(target_dir, filename)
+
+            try:
+                # Save the file
+                file.save(file_path)
+                file_size = os.path.getsize(file_path)
+
+                uploaded_files.append({
+                    'name': filename,
+                    'path': file_path,
+                    'size': file_size
+                })
+
+                # Log to recent files if it's a comic file in /data
+                log_file_if_in_data(file_path)
+
+                app_logger.info(f"Uploaded file: {filename} to {target_dir}")
+
+            except Exception as e:
+                errors.append({
+                    'name': filename,
+                    'error': str(e)
+                })
+                app_logger.error(f"Error uploading file {filename}: {e}")
+
+        # Invalidate cache for the target directory
+        invalidate_cache_for_path(target_dir)
+
+        # Return results
+        response = {
+            "success": True,
+            "uploaded": uploaded_files,
+            "skipped": skipped_files,
+            "errors": errors,
+            "total_uploaded": len(uploaded_files),
+            "total_skipped": len(skipped_files),
+            "total_errors": len(errors)
+        }
+
+        return jsonify(response)
+
+    except Exception as e:
+        app_logger.error(f"Error in upload_to_folder: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
 
 #####################################
 #       Search Files in /data       #
