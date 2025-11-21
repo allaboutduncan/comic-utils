@@ -113,7 +113,8 @@ async function loadDirectory(path, preservePage = false) {
                         name: dir,
                         type: 'folder',
                         path: data.current_path ? `${data.current_path}/${dir}` : dir,
-                        hasThumbnail: false
+                        hasThumbnail: false,
+                        hasFiles: false
                     });
                 } else {
                     allItems.push({
@@ -121,7 +122,8 @@ async function loadDirectory(path, preservePage = false) {
                         type: 'folder',
                         path: data.current_path ? `${data.current_path}/${dir.name}` : dir.name,
                         hasThumbnail: dir.has_thumbnail || false,
-                        thumbnailUrl: dir.thumbnail_url
+                        thumbnailUrl: dir.thumbnail_url,
+                        hasFiles: dir.has_files || false
                     });
                 }
             });
@@ -614,10 +616,73 @@ function renderGrid(items) {
             gridItem.classList.add('folder');
             metaEl.textContent = 'Folder';
 
-            // Hide actions and info button for folders
-            if (actionsDropdown) actionsDropdown.style.display = 'none';
+            // Hide info button for folders
             const infoButton = clone.querySelector('.info-button');
             if (infoButton) infoButton.style.display = 'none';
+
+            // Show actions menu only for folders that have files directly
+            if (item.hasFiles && actionsDropdown) {
+                const btn = actionsDropdown.querySelector('button');
+                if (btn) {
+                    btn.onclick = (e) => {
+                        e.stopPropagation();
+                        // Bootstrap handles the dropdown toggle automatically
+                    };
+                }
+
+                // Close dropdown on mouse leave with a small delay
+                let leaveTimeout;
+                actionsDropdown.onmouseleave = () => {
+                    leaveTimeout = setTimeout(() => {
+                        if (btn) {
+                            const dropdown = bootstrap.Dropdown.getInstance(btn);
+                            if (dropdown) {
+                                dropdown.hide();
+                            }
+                        }
+                    }, 300);
+                };
+
+                // Cancel the close if mouse re-enters
+                actionsDropdown.onmouseenter = () => {
+                    if (leaveTimeout) {
+                        clearTimeout(leaveTimeout);
+                    }
+                };
+
+                // Replace menu items with folder-specific options
+                const dropdownMenu = actionsDropdown.querySelector('.dropdown-menu');
+                if (dropdownMenu) {
+                    dropdownMenu.innerHTML = `
+                        <li><a class="dropdown-item folder-action-thumbnail" href="#"><i class="bi bi-image"></i> Generate Thumbnail</a></li>
+                        <li><hr class="dropdown-divider"></li>
+                        <li><a class="dropdown-item folder-action-delete text-danger" href="#"><i class="bi bi-trash"></i> Delete</a></li>
+                    `;
+
+                    // Bind Generate Thumbnail action
+                    const thumbnailAction = dropdownMenu.querySelector('.folder-action-thumbnail');
+                    if (thumbnailAction) {
+                        thumbnailAction.onclick = (e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            generateFolderThumbnail(item.path, item.name);
+                        };
+                    }
+
+                    // Bind Delete action
+                    const deleteAction = dropdownMenu.querySelector('.folder-action-delete');
+                    if (deleteAction) {
+                        deleteAction.onclick = (e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            showDeleteConfirmation(item);
+                        };
+                    }
+                }
+            } else {
+                // Hide actions for folders without files
+                if (actionsDropdown) actionsDropdown.style.display = 'none';
+            }
 
             // Check if folder has a thumbnail
             if (item.hasThumbnail && item.thumbnailUrl) {
@@ -2790,7 +2855,14 @@ function showDeleteConfirmation(item) {
 
     // Populate modal with file details
     document.getElementById('deleteFileName').textContent = item.name;
-    document.getElementById('deleteFileSize').textContent = formatFileSize(item.size);
+
+    // Show size only for files, show "Folder" for folders
+    if (item.type === 'folder') {
+        document.getElementById('deleteFileSize').textContent = 'Folder';
+    } else {
+        document.getElementById('deleteFileSize').textContent = formatFileSize(item.size);
+    }
+
     document.getElementById('deleteFilePath').textContent = item.path;
 
     // Show the modal
@@ -2854,6 +2926,44 @@ function confirmDeleteFile() {
             console.error('Error:', error);
             hideProgressIndicator();
             showError('An error occurred while deleting the file.');
+        });
+}
+
+/**
+ * Generate a fanned stack thumbnail for a folder
+ * @param {string} folderPath - Path to the folder
+ * @param {string} folderName - Name of the folder
+ */
+function generateFolderThumbnail(folderPath, folderName) {
+    // Show progress indicator
+    showProgressIndicator();
+    const progressText = document.getElementById('progress-text');
+    if (progressText) {
+        progressText.textContent = `Generating thumbnail for ${folderName}...`;
+    }
+
+    // Call the generate thumbnail API
+    fetch('/api/generate-folder-thumbnail', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ folder_path: folderPath })
+    })
+        .then(response => response.json())
+        .then(data => {
+            hideProgressIndicator();
+
+            if (data.success) {
+                showSuccess('Folder thumbnail generated successfully');
+                // Refresh the view to show the new thumbnail (preserve page)
+                refreshCurrentView(true);
+            } else {
+                showError('Error generating thumbnail: ' + (data.error || 'Unknown error'));
+            }
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            hideProgressIndicator();
+            showError('An error occurred while generating the thumbnail.');
         });
 }
 

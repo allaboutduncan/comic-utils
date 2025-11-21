@@ -13,6 +13,7 @@ import logging
 import signal
 import psutil
 import select
+from PIL import Image, ImageFilter, ImageDraw
 try:
     import pwd
 except ImportError:
@@ -2081,15 +2082,31 @@ def api_browse():
         # Define excluded extensions and prefixes
         excluded_extensions = {".png", ".jpg", ".jpeg", ".gif", ".txt", ".html", ".css", ".ds_store", "cvinfo", ".json", ".db", ".xml"}
 
-        # Process directories to add folder thumbnail info
+        # Process directories to add folder thumbnail info and check for files
         processed_directories = []
         for dir_name in listing['directories']:
             dir_path = os.path.join(path, dir_name)
             folder_thumb = find_folder_thumbnail(dir_path)
 
+            # Check if this folder directly contains files (not in subfolders)
+            has_files = False
+            try:
+                items = os.listdir(dir_path)
+                for item in items:
+                    item_path = os.path.join(dir_path, item)
+                    if os.path.isfile(item_path):
+                        # Check if it's a valid file (not excluded)
+                        _, ext = os.path.splitext(item.lower())
+                        if ext not in excluded_extensions and item.lower() != "cvinfo" and not item.startswith(('.', '-', '_')):
+                            has_files = True
+                            break
+            except Exception:
+                pass
+
             dir_info = {
                 'name': dir_name,
-                'has_thumbnail': folder_thumb is not None
+                'has_thumbnail': folder_thumb is not None,
+                'has_files': has_files
             }
 
             if folder_thumb:
@@ -2492,8 +2509,150 @@ def get_thumbnail():
 
     # Submit task
     thumbnail_executor.submit(generate_thumbnail_task, file_path, cache_path)
-    
+
     return redirect(url_for('static', filename='images/loading.svg'))
+
+
+@app.route('/api/generate-folder-thumbnail', methods=['POST'])
+def generate_folder_thumbnail():
+    """Generate a fanned stack thumbnail for a folder using cached thumbnails."""
+    data = request.get_json()
+    folder_path = data.get('folder_path')
+
+    if not folder_path:
+        return jsonify({"error": "Missing folder_path"}), 400
+
+    if not os.path.exists(folder_path) or not os.path.isdir(folder_path):
+        return jsonify({"error": "Invalid folder path"}), 400
+
+    try:
+        # Get cache directory
+        cache_dir = config.get("SETTINGS", "CACHE_DIR", fallback="/cache")
+        thumbnails_dir = os.path.join(cache_dir, "thumbnails")
+
+        # Define excluded extensions
+        excluded_extensions = {".png", ".jpg", ".jpeg", ".gif", ".txt", ".html", ".css", ".ds_store", "cvinfo", ".json", ".db", ".xml"}
+
+        # Find comic files in the folder
+        comic_files = []
+        for item in sorted(os.listdir(folder_path)):
+            item_path = os.path.join(folder_path, item)
+            if os.path.isfile(item_path):
+                _, ext = os.path.splitext(item.lower())
+                if ext not in excluded_extensions and not item.startswith(('.', '-', '_')):
+                    if ext in ['.cbz', '.cbr', '.zip']:
+                        comic_files.append(item_path)
+
+        if not comic_files:
+            return jsonify({"error": "No comic files found in folder"}), 400
+
+        # Get cached thumbnail paths for the first 4 comics
+        MAX_COVERS = 4
+        selected_files = comic_files[:MAX_COVERS]
+        cached_thumbs = []
+
+        for file_path in selected_files:
+            # Calculate cache path using same method as get_thumbnail
+            path_hash = hashlib.md5(file_path.encode('utf-8')).hexdigest()
+            shard_dir = path_hash[:2]
+            filename = f"{path_hash}.jpg"
+            cache_path = os.path.join(thumbnails_dir, shard_dir, filename)
+
+            if os.path.exists(cache_path):
+                cached_thumbs.append(cache_path)
+
+        if not cached_thumbs:
+            return jsonify({"error": "No cached thumbnails found. Please wait for thumbnails to generate."}), 400
+
+        # Create fanned stack thumbnail
+        CANVAS_SIZE = (200, 300)
+        THUMB_SIZE = (160, 245)
+
+        final_canvas = Image.new('RGBA', CANVAS_SIZE, (0, 0, 0, 0))
+
+        # Rotation angles for back files (more rotation) - these will be pasted first
+        # Process in reverse so file 001 is pasted LAST (appears on top)
+        angles = [12, -8, 5, 0]  # Back files rotated more, front file at 0°
+        angles = angles[-len(cached_thumbs):]  # Take last N angles
+
+        # Reverse cached_thumbs so we paste from back to front (001 pasted last)
+        reversed_thumbs = list(reversed(cached_thumbs))
+
+        for i, thumb_path in enumerate(reversed_thumbs):
+            try:
+                # Open and resize cached thumbnail
+                img = Image.open(thumb_path).convert("RGBA")
+
+                # Fit to thumb size
+                img.thumbnail(THUMB_SIZE, Image.Resampling.LANCZOS)
+
+                # Create centered image
+                fitted_img = Image.new('RGBA', THUMB_SIZE, (0, 0, 0, 0))
+                paste_x = (THUMB_SIZE[0] - img.width) // 2
+                paste_y = (THUMB_SIZE[1] - img.height) // 2
+                fitted_img.paste(img, (paste_x, paste_y), img if img.mode == 'RGBA' else None)
+
+                # Create layer for rotation and shadow
+                layer_size = (int(THUMB_SIZE[0] * 1.5), int(THUMB_SIZE[1] * 1.5))
+                layer = Image.new('RGBA', layer_size, (0, 0, 0, 0))
+
+                # Calculate center position
+                layer_paste_x = (layer_size[0] - THUMB_SIZE[0]) // 2
+                layer_paste_y = (layer_size[1] - THUMB_SIZE[1]) // 2
+
+                # Add drop shadow
+                shadow = Image.new('RGBA', layer_size, (0, 0, 0, 0))
+                shadow_box = (layer_paste_x + 4, layer_paste_y + 4,
+                             layer_paste_x + THUMB_SIZE[0] + 4, layer_paste_y + THUMB_SIZE[1] + 4)
+
+                d = ImageDraw.Draw(shadow)
+                d.rectangle(shadow_box, fill=(0, 0, 0, 120))
+                shadow = shadow.filter(ImageFilter.GaussianBlur(radius=5))
+
+                # Composite shadow + image
+                layer = Image.alpha_composite(layer, shadow)
+                layer.paste(fitted_img, (layer_paste_x, layer_paste_y), fitted_img)
+
+                # Rotate the layer
+                angle = angles[i]
+                rotated_layer = layer.rotate(angle, resample=Image.Resampling.BICUBIC, expand=False)
+
+                # Position on canvas
+                final_x = (CANVAS_SIZE[0] - rotated_layer.width) // 2
+                final_y = (CANVAS_SIZE[1] - rotated_layer.height) // 2
+
+                # Slight Y offset for stack effect
+                y_offset = (i - len(cached_thumbs)) * 5
+
+                final_canvas.paste(rotated_layer, (final_x, final_y + y_offset), rotated_layer)
+
+            except Exception as e:
+                app_logger.error(f"Error processing thumbnail {thumb_path}: {e}")
+
+        # Remove any existing folder thumbnail files to allow regeneration
+        for ext in ['folder.png', 'folder.jpg', 'folder.jpeg', 'folder.gif']:
+            existing_thumb = os.path.join(folder_path, ext)
+            if os.path.exists(existing_thumb):
+                try:
+                    os.remove(existing_thumb)
+                    app_logger.info(f"Removed existing thumbnail: {existing_thumb}")
+                except Exception as e:
+                    app_logger.error(f"Error removing existing thumbnail {existing_thumb}: {e}")
+
+        # Save to folder
+        output_path = os.path.join(folder_path, "folder.png")
+        final_canvas.save(output_path, "PNG")
+
+        app_logger.info(f"Generated folder thumbnail: {output_path}")
+
+        # Invalidate cache to show new thumbnail
+        invalidate_cache_for_path(folder_path)
+
+        return jsonify({"success": True, "thumbnail_path": output_path})
+
+    except Exception as e:
+        app_logger.error(f"Error generating folder thumbnail: {e}")
+        return jsonify({"error": str(e)}), 500
 
 
 #####################################
