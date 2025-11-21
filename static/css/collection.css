@@ -122,6 +122,12 @@
     display: none;
 }
 
+/* Remove background and shadow for folders with custom images */
+.grid-item.folder.has-thumbnail .thumbnail-container {
+    background-color: transparent;
+    box-shadow: none;
+}
+
 .grid-item.folder .icon-overlay i {
     font-size: 3rem;
     color: #ffc107;
