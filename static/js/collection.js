@@ -628,6 +628,25 @@ function renderPagination(totalItems) {
     nextLi.className = `page-item ${currentPage === totalPages ? 'disabled' : ''}`;
     nextLi.innerHTML = `<a class="page-link" href="#" onclick="changePage(${currentPage + 1}); return false;">Next</a>`;
     paginationList.appendChild(nextLi);
+
+    // Jump To dropdown (only show if there are multiple pages)
+    if (totalPages > 1) {
+        const jumpLi = document.createElement('li');
+        jumpLi.className = 'page-item';
+
+        // Create select dropdown with all pages
+        let optionsHtml = '';
+        for (let i = 1; i <= totalPages; i++) {
+            optionsHtml += `<option value="${i}" ${i === currentPage ? 'selected' : ''}>Page ${i}</option>`;
+        }
+
+        jumpLi.innerHTML = `
+            <select class="form-select form-select-sm" onchange="jumpToPage(this.value)" style="width: auto; border-radius: 0.375rem; margin: 0 0.25rem;">
+                ${optionsHtml}
+            </select>
+        `;
+        paginationList.appendChild(jumpLi);
+    }
 }
 
 /**
@@ -644,6 +663,14 @@ function changePage(page) {
 
     // Scroll to top of grid
     document.getElementById('file-grid').scrollIntoView({ behavior: 'smooth' });
+}
+
+/**
+ * Jump to a specific page from the dropdown selector.
+ * @param {string|number} page - The page number to jump to.
+ */
+function jumpToPage(page) {
+    changePage(parseInt(page));
 }
 
 /**
