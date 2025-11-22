@@ -122,18 +122,6 @@
     display: none;
 }
 
-/* Remove background and shadow for folders with custom images */
-.grid-item.folder.has-thumbnail .thumbnail-container {
-    background-color: transparent;
-    box-shadow: none;
-}
-
-.grid-item.folder .icon-overlay i {
-    font-size: 3rem;
-    color: #ffc107;
-    /* Folder color */
-}
-
 .item-info {
     margin-top: 0.5rem;
 }
@@ -337,6 +325,7 @@
         opacity: 0;
         transform: translateY(20px);
     }
+
     to {
         opacity: 1;
         transform: translateY(0);
@@ -351,6 +340,7 @@
     from {
         opacity: 1;
     }
+
     to {
         opacity: 0;
     }
