@@ -102,11 +102,23 @@ def log_recent_file(file_path, file_name=None, file_size=None):
 
         c = conn.cursor()
 
-        # Insert the new file
-        c.execute('''
-            INSERT INTO recent_files (file_path, file_name, file_size)
-            VALUES (?, ?, ?)
-        ''', (file_path, file_name, file_size))
+        # Check if file already exists
+        c.execute('SELECT id FROM recent_files WHERE file_path = ?', (file_path,))
+        existing = c.fetchone()
+
+        if existing:
+            # Update existing entry with new timestamp
+            c.execute('''
+                UPDATE recent_files
+                SET file_name = ?, file_size = ?, added_at = CURRENT_TIMESTAMP
+                WHERE file_path = ?
+            ''', (file_name, file_size, file_path))
+        else:
+            # Insert new file
+            c.execute('''
+                INSERT INTO recent_files (file_path, file_name, file_size)
+                VALUES (?, ?, ?)
+            ''', (file_path, file_name, file_size))
 
         # Count total files
         c.execute('SELECT COUNT(*) FROM recent_files')

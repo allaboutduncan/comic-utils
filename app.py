@@ -160,8 +160,21 @@ def log_file_if_in_data(file_path):
         file_path: Full path to the file
     """
     try:
-        # Check if file is in /data directory
-        if not file_path.startswith(DATA_DIR):
+        # Normalize paths for comparison (handles different path separators)
+        normalized_file_path = os.path.normpath(file_path)
+        normalized_data_dir = os.path.normpath(DATA_DIR)
+
+        # Check if file is in DATA_DIR directory
+        # Use os.path.commonpath to handle Windows/Unix path differences
+        try:
+            common_path = os.path.commonpath([normalized_file_path, normalized_data_dir])
+            is_in_data_dir = os.path.samefile(common_path, normalized_data_dir)
+        except (ValueError, OSError):
+            # Fallback: Check if normalized path starts with DATA_DIR
+            is_in_data_dir = normalized_file_path.startswith(normalized_data_dir)
+
+        if not is_in_data_dir:
+            app_logger.debug(f"File not in DATA_DIR ({DATA_DIR}): {file_path}")
             return
 
         # Check if it's a file (not directory)
@@ -176,8 +189,11 @@ def log_file_if_in_data(file_path):
         # Log the file
         file_name = os.path.basename(file_path)
         file_size = os.path.getsize(file_path) if os.path.exists(file_path) else None
-        log_recent_file(file_path, file_name, file_size)
-        app_logger.info(f"📚 Logged recent file to database: {file_name}")
+        success = log_recent_file(file_path, file_name, file_size)
+        if success:
+            app_logger.info(f"📚 Logged recent file to database: {file_name}")
+        else:
+            app_logger.warning(f"Failed to log recent file: {file_name}")
 
     except Exception as e:
         app_logger.error(f"Error logging recent file {file_path}: {e}")
