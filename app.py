@@ -37,14 +37,94 @@ from collections import OrderedDict
 from version import __version__
 import requests
 from packaging import version as pkg_version
-from database import init_db, get_db_connection, get_recent_files, log_recent_file
+from database import (init_db, get_db_connection, get_recent_files, log_recent_file,
+                      get_file_index_from_db, save_file_index_to_db, update_file_index_entry,
+                      add_file_index_entry, delete_file_index_entry, search_file_index,
+                      get_search_cache, save_search_cache, clear_search_cache,
+                      get_rebuild_schedule, save_rebuild_schedule as db_save_rebuild_schedule, update_last_rebuild)
 from concurrent.futures import ThreadPoolExecutor
 from file_watcher import FileWatcher
+from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.triggers.cron import CronTrigger
 
 load_config()
 
 # Initialize Database
 init_db()
+
+# Initialize APScheduler for scheduled file index rebuilds
+rebuild_scheduler = BackgroundScheduler(daemon=True)
+rebuild_scheduler.start()
+app_logger.info("📅 Rebuild scheduler initialized")
+
+# Function to perform scheduled file index rebuild
+def scheduled_file_index_rebuild():
+    """Rebuild the file index on schedule."""
+    try:
+        app_logger.info("🔄 Starting scheduled file index rebuild...")
+        start_time = time.time()
+
+        # Clear and rebuild the file index
+        file_index.clear()
+        build_file_index()
+
+        # Update last rebuild timestamp
+        update_last_rebuild()
+
+        elapsed = time.time() - start_time
+        app_logger.info(f"✅ Scheduled file index rebuild completed in {elapsed:.2f}s")
+    except Exception as e:
+        app_logger.error(f"❌ Scheduled file index rebuild failed: {e}")
+
+# Function to configure scheduled rebuild based on database settings
+def configure_rebuild_schedule():
+    """Configure the rebuild schedule based on database settings."""
+    try:
+        schedule = get_rebuild_schedule()
+        if not schedule:
+            app_logger.warning("No rebuild schedule found in database")
+            return
+
+        # Remove existing jobs
+        rebuild_scheduler.remove_all_jobs()
+
+        if schedule['frequency'] == 'disabled':
+            app_logger.info("📅 Scheduled rebuilds are disabled")
+            return
+
+        # Parse time
+        time_parts = schedule['time'].split(':')
+        hour = int(time_parts[0])
+        minute = int(time_parts[1])
+
+        if schedule['frequency'] == 'daily':
+            # Daily at specified time
+            trigger = CronTrigger(hour=hour, minute=minute)
+            rebuild_scheduler.add_job(
+                scheduled_file_index_rebuild,
+                trigger=trigger,
+                id='file_index_rebuild',
+                name='Daily File Index Rebuild',
+                replace_existing=True
+            )
+            app_logger.info(f"📅 Scheduled daily file index rebuild at {schedule['time']}")
+
+        elif schedule['frequency'] == 'weekly':
+            # Weekly on specified day at specified time
+            weekday = int(schedule['weekday'])
+            trigger = CronTrigger(day_of_week=weekday, hour=hour, minute=minute)
+            rebuild_scheduler.add_job(
+                scheduled_file_index_rebuild,
+                trigger=trigger,
+                id='file_index_rebuild',
+                name='Weekly File Index Rebuild',
+                replace_existing=True
+            )
+            days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+            app_logger.info(f"📅 Scheduled weekly file index rebuild on {days[weekday]} at {schedule['time']}")
+
+    except Exception as e:
+        app_logger.error(f"Failed to configure rebuild schedule: {e}")
 
 # Thread pool for thumbnail generation
 thumbnail_executor = ThreadPoolExecutor(max_workers=2)
@@ -457,29 +537,33 @@ def cleanup_cache():
             cache_timestamps.pop(oldest_path, None)
             cache_stats['evictions'] += 1
 
-# LRU cache for search results (cache last 100 searches)
-@lru_cache(maxsize=100)
 def cached_search(query):
-    """Cached search function for repeated queries"""
+    """
+    Search function with SQLite-backed caching.
+    Checks cache first, then queries database, then falls back to filesystem.
+    """
     global file_index, index_built
-    
-    # If index is not built yet, fall back to filesystem search
-    if not index_built:
-        app_logger.info("Search index not ready, using filesystem search...")
-        return filesystem_search(query)
-    
-    query_lower = query.lower()
-    results = []
-    
-    for item in file_index:
-        if query_lower in item["name"].lower():
-            results.append(item)
-            if len(results) >= 100:  # Limit results
-                break
-    
-    # Sort results: directories first, then files, both alphabetically
-    results.sort(key=lambda x: (x["type"] != "directory", x["name"].lower()))
-    
+
+    # Try to get from cache first
+    cached_results = get_search_cache(query)
+    if cached_results is not None:
+        app_logger.debug(f"Search cache hit for query: '{query}'")
+        return cached_results
+
+    # If index is built (loaded from DB), search in database
+    if index_built:
+        app_logger.debug(f"Searching file index database for: '{query}'")
+        results = search_file_index(query, limit=100)
+
+        # Cache the results for future queries
+        save_search_cache(query, results)
+        return results
+
+    # Fallback to filesystem search if index not ready
+    app_logger.info("Search index not ready, using filesystem search...")
+    results = filesystem_search(query)
+
+    # Don't cache filesystem search results (may be incomplete)
     return results
 
 def filesystem_search(query):
@@ -942,6 +1026,147 @@ def get_cache_debug():
         }
     })
 
+#########################
+#   File Index Routes   #
+#########################
+
+@app.route('/api/rebuild-file-index', methods=['POST'])
+def api_rebuild_file_index():
+    """Manually rebuild the file index."""
+    try:
+        app_logger.info("🔄 Manual file index rebuild requested...")
+        start_time = time.time()
+
+        # Clear and rebuild the file index
+        file_index.clear()
+        build_file_index()
+
+        # Update last rebuild timestamp
+        update_last_rebuild()
+
+        elapsed = time.time() - start_time
+        app_logger.info(f"✅ Manual file index rebuild completed in {elapsed:.2f}s")
+
+        return jsonify({
+            "success": True,
+            "message": f"File index rebuilt successfully in {elapsed:.2f} seconds",
+            "total_files": len([e for e in file_index if e['type'] == 'file']),
+            "total_directories": len([e for e in file_index if e['type'] == 'directory'])
+        })
+    except Exception as e:
+        app_logger.error(f"❌ File index rebuild failed: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+@app.route('/api/file-index-status', methods=['GET'])
+def api_file_index_status():
+    """Get the current status of the file index."""
+    try:
+        schedule = get_rebuild_schedule()
+
+        total_files = len([e for e in file_index if e['type'] == 'file'])
+        total_directories = len([e for e in file_index if e['type'] == 'directory'])
+
+        last_rebuild = None
+        if schedule and schedule.get('last_rebuild'):
+            # Format last rebuild timestamp
+            try:
+                rebuild_dt = datetime.fromisoformat(schedule['last_rebuild'])
+                time_diff = datetime.now() - rebuild_dt
+                if time_diff.days > 0:
+                    last_rebuild = f"{time_diff.days} day(s) ago"
+                elif time_diff.seconds >= 3600:
+                    hours = time_diff.seconds // 3600
+                    last_rebuild = f"{hours} hour(s) ago"
+                elif time_diff.seconds >= 60:
+                    minutes = time_diff.seconds // 60
+                    last_rebuild = f"{minutes} minute(s) ago"
+                else:
+                    last_rebuild = "Just now"
+            except Exception:
+                last_rebuild = schedule['last_rebuild']
+
+        return jsonify({
+            "success": True,
+            "total_files": total_files,
+            "total_directories": total_directories,
+            "last_rebuild": last_rebuild,
+            "index_built": index_built
+        })
+    except Exception as e:
+        app_logger.error(f"Failed to get file index status: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+@app.route('/api/get-rebuild-schedule', methods=['GET'])
+def api_get_rebuild_schedule():
+    """Get the current rebuild schedule configuration."""
+    try:
+        schedule = get_rebuild_schedule()
+        if not schedule:
+            return jsonify({
+                "success": True,
+                "schedule": {
+                    "frequency": "disabled",
+                    "time": "02:00",
+                    "weekday": 0
+                },
+                "next_run": "Not scheduled"
+            })
+
+        # Calculate next run time
+        next_run = "Not scheduled"
+        if schedule['frequency'] != 'disabled':
+            try:
+                jobs = rebuild_scheduler.get_jobs()
+                if jobs:
+                    next_run_time = jobs[0].next_run_time
+                    if next_run_time:
+                        next_run = next_run_time.strftime('%Y-%m-%d %H:%M:%S')
+            except Exception:
+                pass
+
+        return jsonify({
+            "success": True,
+            "schedule": {
+                "frequency": schedule['frequency'],
+                "time": schedule['time'],
+                "weekday": schedule['weekday']
+            },
+            "next_run": next_run
+        })
+    except Exception as e:
+        app_logger.error(f"Failed to get rebuild schedule: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+@app.route('/api/save-rebuild-schedule', methods=['POST'])
+def api_save_rebuild_schedule():
+    """Save the rebuild schedule configuration."""
+    try:
+        data = request.get_json()
+        frequency = data.get('frequency', 'disabled')
+        time_str = data.get('time', '02:00')
+        weekday = int(data.get('weekday', 0))
+
+        # Validate inputs
+        if frequency not in ['disabled', 'daily', 'weekly']:
+            return jsonify({"success": False, "error": "Invalid frequency"}), 400
+
+        # Save to database
+        if not db_save_rebuild_schedule(frequency, time_str, weekday):
+            return jsonify({"success": False, "error": "Failed to save schedule to database"}), 500
+
+        # Reconfigure the scheduler
+        configure_rebuild_schedule()
+
+        app_logger.info(f"✅ Rebuild schedule saved: {frequency} at {time_str}")
+
+        return jsonify({
+            "success": True,
+            "message": f"Rebuild schedule saved successfully: {frequency} at {time_str}"
+        })
+    except Exception as e:
+        app_logger.error(f"Failed to save rebuild schedule: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
 # Cache for directory statistics to avoid repeated filesystem walks
 _data_dir_stats_cache = {}
 _data_dir_stats_last_update = 0
@@ -1039,7 +1264,20 @@ def build_file_index():
     if index_built:
         return
 
-    app_logger.info("Building file index for fast search...")
+    # Try to load from database first
+    app_logger.info("Loading file index from database...")
+    start_time = time.time()
+
+    db_index = get_file_index_from_db()
+    if db_index and len(db_index) > 0:
+        file_index = db_index
+        index_built = True
+        load_time = time.time() - start_time
+        app_logger.info(f"✅ File index loaded from database: {len(file_index)} items in {load_time:.2f} seconds")
+        return
+
+    # Database empty, build from filesystem
+    app_logger.info("Database empty, building file index from filesystem...")
     start_time = time.time()
 
     file_index.clear()
@@ -1112,14 +1350,210 @@ def build_file_index():
     app_logger.info(f"File index built successfully: {len(file_index)} items in {build_time:.2f} seconds")
     index_built = True
 
+    # Save index to database for persistence
+    app_logger.info("Saving file index to database...")
+    save_start = time.time()
+    if save_file_index_to_db(file_index):
+        save_time = time.time() - save_start
+        app_logger.info(f"✅ File index saved to database in {save_time:.2f} seconds")
+    else:
+        app_logger.warning("Failed to save file index to database")
+
     # Update recent files database with 100 most recently modified comic files
     update_recent_files_from_scan(comic_files)
 
 def invalidate_file_index():
-    """Invalidate the file index to force rebuild"""
-    global index_built
-    index_built = False
-    app_logger.info("File index invalidated")
+    """
+    Invalidate the file index search cache.
+    Note: With SQLite-backed index, we no longer need full rebuilds.
+    This just clears the search cache to reflect updates.
+    """
+    clear_search_cache()
+    app_logger.info("Search cache cleared")
+
+def update_index_on_move(old_path, new_path):
+    """
+    Update file index when a file or directory is moved.
+    Handles three scenarios:
+    1. Move from outside /data to /data -> ADD to index
+    2. Move within /data -> UPDATE in index
+    3. Move from /data to outside /data -> DELETE from index
+
+    Args:
+        old_path: Original path
+        new_path: New path after move
+    """
+    try:
+        # Normalize paths for comparison
+        normalized_old = os.path.normpath(old_path)
+        normalized_new = os.path.normpath(new_path)
+        normalized_data_dir = os.path.normpath(DATA_DIR)
+
+        # Check if old and new paths are in DATA_DIR using robust comparison
+        # Same logic as log_file_if_in_data() for consistency
+        def is_in_data_dir(path):
+            try:
+                common_path = os.path.commonpath([path, normalized_data_dir])
+                return os.path.samefile(common_path, normalized_data_dir)
+            except (ValueError, OSError):
+                # Fallback: Check if normalized path starts with DATA_DIR
+                return path.startswith(normalized_data_dir)
+
+        old_in_data = is_in_data_dir(normalized_old)
+        new_in_data = is_in_data_dir(normalized_new)
+
+        # Debug logging to help diagnose path comparison issues
+        app_logger.debug(f"Path comparison - Old: {normalized_old} (in_data: {old_in_data})")
+        app_logger.debug(f"Path comparison - New: {normalized_new} (in_data: {new_in_data})")
+        app_logger.debug(f"Path comparison - DATA_DIR: {normalized_data_dir}")
+
+        # Scenario 1: Moving INTO /data (from WATCH/TEMP) -> ADD to index
+        if not old_in_data and new_in_data:
+            app_logger.info(f"📥 Adding to index (moved into /data): {new_path}")
+            update_index_on_create(new_path)
+            return
+
+        # Scenario 2: Moving OUT OF /data -> DELETE from index
+        if old_in_data and not new_in_data:
+            app_logger.info(f"📤 Removing from index (moved out of /data): {old_path}")
+            update_index_on_delete(old_path)
+            return
+
+        # Scenario 3: Moving WITHIN /data -> UPDATE in index
+        if old_in_data and new_in_data:
+            app_logger.info(f"🔄 Updating index (moved within /data): {old_path} -> {new_path}")
+
+            excluded_extensions = {".png", ".jpg", ".jpeg", ".gif", ".txt", ".html", ".css", ".ds_store", "cvinfo", ".json", ".db", ".xml"}
+            is_file = os.path.isfile(new_path)
+
+            if is_file:
+                # Update single file entry
+                file_name = os.path.basename(new_path)
+                _, ext = os.path.splitext(file_name.lower())
+
+                # Skip excluded files
+                if ext in excluded_extensions or file_name.startswith(('.', '-', '_')):
+                    return
+
+                parent = os.path.dirname(new_path)
+                update_file_index_entry(old_path, name=file_name, new_path=new_path, parent=parent)
+                app_logger.debug(f"Updated file index for moved file: {old_path} -> {new_path}")
+
+            else:
+                # Update directory and all children
+                # First update the directory itself
+                dir_name = os.path.basename(new_path)
+                parent = os.path.dirname(new_path)
+                update_file_index_entry(old_path, name=dir_name, new_path=new_path, parent=parent)
+
+                # Update all children paths
+                # We need to update paths that start with old_path to start with new_path
+                conn = get_db_connection()
+                if conn:
+                    c = conn.cursor()
+                    # Update all entries whose path starts with old_path
+                    c.execute('''
+                        UPDATE file_index
+                        SET path = ? || SUBSTR(path, ?),
+                            parent = ? || SUBSTR(parent, ?)
+                        WHERE path LIKE ?
+                    ''', (new_path, len(old_path) + 1, new_path, len(old_path) + 1, f"{old_path}/%"))
+
+                    conn.commit()
+                    rows_affected = c.rowcount
+                    conn.close()
+                    app_logger.debug(f"Updated {rows_affected} child entries for moved directory: {old_path} -> {new_path}")
+
+            # Clear search cache
+            clear_search_cache()
+            return
+
+        # Scenario 4: Both outside /data -> do nothing
+        app_logger.debug(f"File moved outside /data, no index update needed: {old_path} -> {new_path}")
+
+    except Exception as e:
+        app_logger.error(f"Failed to update index on move {old_path} -> {new_path}: {e}")
+
+def update_index_on_delete(path):
+    """
+    Update file index when a file or directory is deleted.
+
+    Args:
+        path: Path of deleted item
+    """
+    try:
+        delete_file_index_entry(path)
+        clear_search_cache()
+        app_logger.debug(f"Updated file index for deleted item: {path}")
+    except Exception as e:
+        app_logger.error(f"Failed to update index on delete {path}: {e}")
+
+def update_index_on_create(path):
+    """
+    Update file index when a file or directory is created.
+    If it's a directory, recursively indexes all contents.
+
+    Args:
+        path: Path of new item
+    """
+    try:
+        excluded_extensions = {".png", ".jpg", ".jpeg", ".gif", ".txt", ".html", ".css", ".ds_store", "cvinfo", ".json", ".db", ".xml"}
+
+        is_file = os.path.isfile(path)
+        name = os.path.basename(path)
+        parent = os.path.dirname(path)
+
+        if is_file:
+            # Check if file should be indexed
+            _, ext = os.path.splitext(name.lower())
+            if ext in excluded_extensions or name.startswith(('.', '-', '_')):
+                return
+
+            size = os.path.getsize(path) if os.path.exists(path) else None
+            add_file_index_entry(name, path, 'file', size=size, parent=parent)
+            app_logger.debug(f"Added file to index: {path}")
+        else:
+            # Directory - add it and recursively add all contents
+            add_file_index_entry(name, path, 'directory', parent=parent)
+            app_logger.debug(f"Added directory to index: {path}")
+
+            # Recursively index all files and subdirectories
+            try:
+                for root, dirs, files in os.walk(path):
+                    # Skip hidden directories
+                    dirs[:] = [d for d in dirs if not d.startswith('.') and not d.startswith('_')]
+
+                    # Index subdirectories
+                    for dir_name in dirs:
+                        dir_path = os.path.join(root, dir_name)
+                        dir_parent = os.path.dirname(dir_path)
+                        add_file_index_entry(dir_name, dir_path, 'directory', parent=dir_parent)
+
+                    # Index files
+                    for file_name in files:
+                        if file_name.startswith('.') or file_name.startswith('_'):
+                            continue
+
+                        _, ext = os.path.splitext(file_name.lower())
+                        if ext in excluded_extensions:
+                            continue
+
+                        file_path = os.path.join(root, file_name)
+                        file_parent = os.path.dirname(file_path)
+                        try:
+                            file_size = os.path.getsize(file_path)
+                            add_file_index_entry(file_name, file_path, 'file', size=file_size, parent=file_parent)
+                        except (OSError, IOError):
+                            continue
+
+                app_logger.info(f"Recursively indexed directory and contents: {path}")
+            except Exception as e:
+                app_logger.error(f"Error recursively indexing directory {path}: {e}")
+
+        clear_search_cache()
+
+    except Exception as e:
+        app_logger.error(f"Failed to update index on create {path}: {e}")
 
 @app.context_processor
 def inject_monitor():
@@ -1588,8 +2022,8 @@ def move():
                         # Invalidate cache for affected directories
                         invalidate_cache_for_path(os.path.dirname(source))
                         invalidate_cache_for_path(os.path.dirname(destination))
-                        # Invalidate search index since files have moved
-                        invalidate_file_index()
+                        # Update file index incrementally
+                        update_index_on_move(source, destination)
                         
                     except Exception as e:
                         app_logger.exception(f"Error during streaming directory move from {source} to {destination}")
@@ -1633,8 +2067,8 @@ def move():
                 # Invalidate cache for affected directories
                 invalidate_cache_for_path(os.path.dirname(source))
                 invalidate_cache_for_path(os.path.dirname(destination))
-                # Invalidate search index since files have moved
-                invalidate_file_index()
+                # Update file index incrementally
+                update_index_on_move(source, destination)
 
                 return jsonify({"success": True})
             except Exception as e:
@@ -2714,11 +3148,13 @@ def rename():
 
     try:
         os.rename(old_path, new_path)
-        
+
         # Invalidate cache for affected directories
         invalidate_cache_for_path(os.path.dirname(old_path))
         invalidate_cache_for_path(os.path.dirname(new_path))
-        
+        # Update file index incrementally
+        update_index_on_move(old_path, new_path)
+
         return jsonify({"success": True})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -2938,9 +3374,9 @@ def delete():
         
         # Invalidate cache for the directory containing the deleted item
         invalidate_cache_for_path(os.path.dirname(target))
-        # Invalidate search index since files have been deleted
-        invalidate_file_index()
-        
+        # Update file index incrementally
+        update_index_on_delete(target)
+
         return jsonify({"success": True})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -2978,8 +3414,8 @@ def api_delete_file():
 
         # Invalidate cache for the directory containing the deleted item
         invalidate_cache_for_path(os.path.dirname(target))
-        # Invalidate search index since files have been deleted
-        invalidate_file_index()
+        # Update file index incrementally
+        update_index_on_delete(target)
 
         return jsonify({"success": True})
     except Exception as e:
@@ -3025,12 +3461,12 @@ def custom_rename():
 
     try:
         os.rename(old_path, new_path)
-        
+
         # Invalidate cache for affected directories
         invalidate_cache_for_path(os.path.dirname(old_path))
         invalidate_cache_for_path(os.path.dirname(new_path))
-        # Invalidate search index since files have been renamed
-        invalidate_file_index()
+        # Update file index incrementally
+        update_index_on_move(old_path, new_path)
         
         app_logger.info(f"Custom rename successful: {old_path} -> {new_path}")
         return jsonify({"success": True})
@@ -3692,10 +4128,12 @@ def create_folder():
     
     try:
         os.makedirs(path)
-        
+
         # Invalidate cache for the parent directory
         invalidate_cache_for_path(os.path.dirname(path))
-        
+        # Update file index incrementally
+        update_index_on_create(path)
+
         return jsonify({"success": True}), 200
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500
@@ -5915,6 +6353,9 @@ if __name__ == '__main__':
 
     threading.Thread(target=start_file_watcher_background, daemon=True).start()
     app_logger.info("🔄 File watcher initialization started in background...")
+
+    # Configure rebuild schedule from database
+    configure_rebuild_schedule()
 
     if os.environ.get("MONITOR", "").strip().lower() == "yes":
         app_logger.info("MONITOR=yes detected. Starting monitor.py...")

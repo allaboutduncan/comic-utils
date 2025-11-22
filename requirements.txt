@@ -17,3 +17,4 @@ playwright==1.40.0
 urllib3==2.1.0
 packaging==23.2
 simyan==1.1.0
+apscheduler==3.10.4

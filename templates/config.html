@@ -270,52 +270,37 @@
             </div>
         </div>
 
-        <!-- Cache Management Settings -->
+        <!-- File Index Management Settings -->
         <div class="container p-4 border rounded shadow-sm mb-4">
-            <h4>Cache Management</h4>
+            <h4>File Index Management</h4>
             <p class="text-muted">
-                Manage the application's directory cache and search index. The cache automatically rebuilds every 6 hours to ensure data accuracy.
+                Manage the application's file search index stored in SQLite. The index provides fast searching across your entire library.
                 <br><br>
-                <strong>How it works:</strong> When you browse directories, the app caches the listing for 5 seconds to improve performance. 
-                If files change (downloads, moves, etc.), the cache is automatically invalidated. The search index provides fast file searching 
-                across your entire data directory.
+                <strong>How it works:</strong> The file index is stored persistently in the database and automatically updates when you move, rename, or delete files.
+                You can manually rebuild it or schedule automatic rebuilds to ensure data accuracy.
             </p>
 
-            <!-- Cache Status Display -->
+            <!-- Index Status Display -->
             <div class="row mb-3">
                 <div class="col-md-12">
                     <div class="alert alert-info">
                         <div class="row">
                             <div class="col-md-4">
-                                <strong>Cache Status:</strong><br>
-                                <span id="cacheStatus">Checking...</span>
+                                <strong>Index Status:</strong><br>
+                                <span id="indexStatus">Checking...</span>
                             </div>
                             <div class="col-md-4">
-                                <strong>Data Directory:</strong><br>
-                                <span id="dataDirStatus">Checking...</span>
+                                <strong>Last Rebuild:</strong><br>
+                                <span id="lastRebuild">Checking...</span>
                             </div>
                             <div class="col-md-4">
-                                <strong>Next Rebuild:</strong><br>
-                                <span id="nextRebuild">Calculating...</span>
-                            </div>
-                        </div>
-                        <div class="row mt-2">
-                            <div class="col-md-12">
-                                <small class="text-muted">
-                                    <span id="cacheDetails">Loading cache details...</span>
-                                </small>
-                            </div>
-                        </div>
-                        <div class="row mt-1">
-                            <div class="col-md-12">
-                                <small class="text-muted">
-                                    <span id="cachePerformance">Loading performance info...</span>
-                                </small>
+                                <strong>Next Scheduled:</strong><br>
+                                <span id="nextScheduled">Not scheduled</span>
                             </div>
                         </div>
                         <div class="row mt-2">
                             <div class="col-md-12 text-center">
-                                <button type="button" class="btn btn-sm btn-outline-info" onclick="updateCacheStatus()" title="Refresh cache status">
+                                <button type="button" class="btn btn-sm btn-outline-info" onclick="updateIndexStatus()" title="Refresh index status">
                                     <i class="bi bi-arrow-clockwise"></i> Refresh Status
                                 </button>
                             </div>
@@ -324,51 +309,66 @@
                 </div>
             </div>
 
-            <!-- Cache Management Buttons -->
-            <div class="row">
-                <div class="col-md-6">
-                    <button type="button" class="btn btn-outline-primary w-100" onclick="rebuildCache()" title="Rebuild cache and search index">
-                        <i class="bi bi-arrow-clockwise"></i> Rebuild Cache
+            <!-- Manual Rebuild Button -->
+            <div class="row mb-3">
+                <div class="col-md-12">
+                    <button type="button" class="btn btn-primary w-100" onclick="rebuildFileIndex()" title="Manually rebuild the file index">
+                        <i class="bi bi-arrow-clockwise"></i> Rebuild File Index Now
                     </button>
                     <small class="form-text text-muted">
-                        Manually rebuild the entire directory cache and search index. This will clear all cached data and rebuild it from scratch.
-                    </small>
-                </div>
-
-                <div class="col-md-6">
-                    <button type="button" class="btn btn-outline-secondary w-100" onclick="clearCache()" title="Clear directory cache">
-                        <i class="bi bi-trash"></i> Clear Cache
-                    </button>
-                    <small class="form-text text-muted">
-                        Clear the directory cache only. This will force the next directory listing to rebuild the cache, but won't affect the search index.
+                        Manually rebuild the entire file index. This scans all files in your data directory and updates the database. Use this if search results seem outdated.
                     </small>
                 </div>
             </div>
 
-            <!-- Cache Configuration -->
+            <!-- Scheduled Rebuild Configuration -->
+            <hr>
+            <h5 class="mt-3 mb-3">Automatic Rebuild Schedule</h5>
+            <p class="text-muted">Configure automatic file index rebuilds to keep your search results up-to-date.</p>
+
+            <div class="row">
+                <div class="col-md-4">
+                    <label for="rebuildFrequency" class="form-label">Rebuild Frequency:</label>
+                    <select class="form-select" id="rebuildFrequency" name="rebuildFrequency">
+                        <option value="disabled">Disabled</option>
+                        <option value="daily">Daily</option>
+                        <option value="weekly">Weekly</option>
+                    </select>
+                    <small class="form-text text-muted">
+                        How often the file index should automatically rebuild.
+                    </small>
+                </div>
+
+                <div class="col-md-4">
+                    <label for="rebuildTime" class="form-label">Rebuild Time:</label>
+                    <input type="time" class="form-control" id="rebuildTime" name="rebuildTime" value="02:00">
+                    <small class="form-text text-muted">
+                        Time of day to run the rebuild (24-hour format).
+                    </small>
+                </div>
+
+                <div class="col-md-4" id="weekdaySelectContainer" style="display: none;">
+                    <label for="rebuildWeekday" class="form-label">Day of Week:</label>
+                    <select class="form-select" id="rebuildWeekday" name="rebuildWeekday">
+                        <option value="0">Monday</option>
+                        <option value="1">Tuesday</option>
+                        <option value="2">Wednesday</option>
+                        <option value="3">Thursday</option>
+                        <option value="4">Friday</option>
+                        <option value="5">Saturday</option>
+                        <option value="6">Sunday</option>
+                    </select>
+                    <small class="form-text text-muted">
+                        Which day of the week to run the rebuild.
+                    </small>
+                </div>
+            </div>
+
             <div class="row mt-3">
-                <div class="col-md-4">
-                    <label for="cacheRebuildInterval" class="form-label">Cache Rebuild Interval (hours):</label>
-                    <input type="number" name="cacheRebuildInterval" id="cacheRebuildInterval" value="6" class="form-control" min="1" max="24" readonly>
-                    <small class="form-text text-muted">
-                        How often the cache automatically rebuilds. Currently set to 6 hours and cannot be changed from the UI.
-                    </small>
-                </div>
-
-                <div class="col-md-4">
-                    <label for="cacheDuration" class="form-label">Cache Duration (seconds):</label>
-                    <input type="number" name="cacheDuration" id="cacheDuration" value="5" class="form-control" min="1" max="60" readonly>
-                    <small class="form-text text-muted">
-                        How long individual directory listings are cached. Currently set to 5 seconds and cannot be changed from the UI.
-                    </small>
-                </div>
-
-                <div class="col-md-4">
-                    <label for="maxCacheSize" class="form-label">Maximum Cache Size:</label>
-                    <input type="number" name="maxCacheSize" id="maxCacheSize" value="100" class="form-control" readonly>
-                    <small class="form-text text-muted">
-                        Maximum number of directories that can be cached in memory. Currently set to 100 and cannot be changed from the UI.
-                    </small>
+                <div class="col-md-12">
+                    <button type="button" class="btn btn-success w-100" onclick="saveRebuildSchedule()" title="Save the rebuild schedule">
+                        <i class="bi bi-floppy"></i> Save Schedule
+                    </button>
                 </div>
             </div>
         </div>
@@ -572,39 +572,49 @@
         // Initialize custom rename pattern preview
         initializeRenamePreview();
 
-        // Initialize cache status display with a slight delay to avoid blocking page load
-        setTimeout(updateCacheStatus, 1000);
-        
-        // Update cache status every 5 minutes instead of every minute to reduce server load
-        setInterval(updateCacheStatus, 300000);
+        // Initialize file index status display
+        setTimeout(updateIndexStatus, 1000);
+
+        // Load current schedule configuration
+        setTimeout(loadRebuildSchedule, 1500);
+
+        // Show/hide weekday selector based on frequency
+        document.getElementById('rebuildFrequency').addEventListener('change', function() {
+            const weekdayContainer = document.getElementById('weekdaySelectContainer');
+            if (this.value === 'weekly') {
+                weekdayContainer.style.display = 'block';
+            } else {
+                weekdayContainer.style.display = 'none';
+            }
+        });
     });
 
-    // Cache Management Functions
-    function rebuildCache() {
+    // File Index Management Functions
+    function rebuildFileIndex() {
         const button = event.target.closest('button');
         const originalText = button.innerHTML;
-        
+
         // Show loading state
-        button.innerHTML = '<i class="bi bi-arrow-clockwise spin"></i> Rebuilding...';
+        button.innerHTML = '<i class="bi bi-arrow-clockwise spin"></i> Rebuilding Index...';
         button.disabled = true;
-        
-        fetch('/rebuild-cache', {
+
+        fetch('/api/rebuild-file-index', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' }
         })
         .then(response => response.json())
         .then(data => {
             if (data.success) {
-                showToast('Cache Rebuilt', data.message, 'success');
-                // Update cache status display
-                updateCacheStatus();
+                showToast('File Index Rebuilt', data.message, 'success');
+                // Update index status display
+                updateIndexStatus();
             } else {
-                showToast('Cache Rebuild Failed', data.error || 'Unknown error', 'error');
+                showToast('File Index Rebuild Failed', data.error || 'Unknown error', 'error');
             }
         })
         .catch(error => {
-            console.error('Error rebuilding cache:', error);
-            showToast('Cache Rebuild Failed', 'Network error occurred', 'error');
+            console.error('Error rebuilding file index:', error);
+            showToast('File Index Rebuild Failed', 'Network error occurred', 'error');
         })
         .finally(() => {
             // Restore button state
@@ -613,263 +623,108 @@
         });
     }
 
-    function clearCache() {
-        const button = event.target.closest('button');
-        const originalText = button.innerHTML;
-        
-        // Show loading state
-        button.innerHTML = '<i class="bi bi-trash"></i> Clearing...';
-        button.disabled = true;
-        
-        fetch('/clear-cache', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' }
+    function updateIndexStatus() {
+        const indexStatusEl = document.getElementById('indexStatus');
+        const lastRebuildEl = document.getElementById('lastRebuild');
+
+        if (indexStatusEl) {
+            indexStatusEl.innerHTML = '<i class="bi bi-arrow-clockwise spin"></i> Checking...';
+        }
+
+        fetch('/api/file-index-status', {
+            headers: { 'Cache-Control': 'no-cache' }
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (indexStatusEl) {
+                indexStatusEl.textContent = `${data.total_files || 0} files | ${data.total_directories || 0} directories`;
+            }
+            if (lastRebuildEl) {
+                if (data.last_rebuild) {
+                    lastRebuildEl.textContent = data.last_rebuild;
+                } else {
+                    lastRebuildEl.textContent = 'Never';
+                }
+            }
+        })
+        .catch(error => {
+            console.error('Error fetching index status:', error);
+            if (indexStatusEl) {
+                indexStatusEl.innerHTML = '<i class="bi bi-exclamation-triangle"></i> Error';
+            }
+        });
+    }
+
+    function loadRebuildSchedule() {
+        fetch('/api/get-rebuild-schedule', {
+            headers: { 'Cache-Control': 'no-cache' }
         })
         .then(response => response.json())
         .then(data => {
             if (data.success) {
-                showToast('Cache Cleared', 'Directory cache cleared successfully', 'success');
-                // Update cache status display
-                updateCacheStatus();
-            } else {
-                showToast('Cache Clear Failed', data.error || 'Unknown error', 'error');
+                const schedule = data.schedule;
+                document.getElementById('rebuildFrequency').value = schedule.frequency || 'disabled';
+                document.getElementById('rebuildTime').value = schedule.time || '02:00';
+                document.getElementById('rebuildWeekday').value = schedule.weekday || '0';
+
+                // Show weekday selector if weekly
+                const weekdayContainer = document.getElementById('weekdaySelectContainer');
+                if (schedule.frequency === 'weekly') {
+                    weekdayContainer.style.display = 'block';
+                } else {
+                    weekdayContainer.style.display = 'none';
+                }
+
+                // Update next scheduled display
+                const nextScheduledEl = document.getElementById('nextScheduled');
+                if (nextScheduledEl && data.next_run) {
+                    nextScheduledEl.textContent = data.next_run;
+                } else if (nextScheduledEl) {
+                    nextScheduledEl.textContent = 'Not scheduled';
+                }
             }
         })
         .catch(error => {
-            console.error('Error clearing cache:', error);
-            showToast('Cache Clear Failed', 'Network error occurred', 'error');
-        })
-        .finally(() => {
-            // Restore button state
-            button.innerHTML = originalText;
-            button.disabled = false;
+            console.error('Error loading rebuild schedule:', error);
         });
     }
 
-    // Update cache status display
-    function updateCacheStatus() {
-        // First try the lightweight endpoint for quick response
-        updateCacheStatusLight();
-    }
-    
-    function updateCacheStatusLight() {
-        // Show loading state
-        const cacheStatusEl = document.getElementById('cacheStatus');
-        if (cacheStatusEl) {
-            cacheStatusEl.innerHTML = '<i class="bi bi-arrow-clockwise spin"></i> Updating...';
-        }
-        
-        // Add timeout to prevent hanging requests
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 second timeout for light endpoint
-        
-        fetch('/cache-status-light', { 
-            signal: controller.signal,
-            headers: { 'Cache-Control': 'no-cache' } // Ensure fresh data
+    function saveRebuildSchedule() {
+        const button = event.target.closest('button');
+        const originalText = button.innerHTML;
+
+        button.innerHTML = '<i class="bi bi-floppy spin"></i> Saving...';
+        button.disabled = true;
+
+        const schedule = {
+            frequency: document.getElementById('rebuildFrequency').value,
+            time: document.getElementById('rebuildTime').value,
+            weekday: document.getElementById('rebuildWeekday').value
+        };
+
+        fetch('/api/save-rebuild-schedule', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(schedule)
         })
-            .then(response => {
-                clearTimeout(timeoutId);
-                if (!response.ok) {
-                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-                }
-                return response.json();
-            })
-            .then(data => {
-                // Update basic cache status immediately
-                updateBasicCacheStatus(data);
-                
-                // Then try to get full statistics in background
-                setTimeout(() => updateCacheStatusFull(), 1000);
-                
-                // Set a fallback timeout in case detailed stats take too long
-                setTimeout(() => {
-                    const dataDirStatusEl = document.getElementById('dataDirStatus');
-                    if (dataDirStatusEl && dataDirStatusEl.textContent.includes('Loading detailed stats')) {
-                        dataDirStatusEl.innerHTML = '<i class="bi bi-exclamation-triangle"></i> Detailed stats unavailable (timeout)';
-                    }
-                }, 10000); // 10 second fallback
-            })
-            .catch(error => {
-                clearTimeout(timeoutId);
-                console.error('Error fetching light cache status:', error);
-                
-                // Show error state briefly
-                const cacheStatusEl = document.getElementById('cacheStatus');
-                if (cacheStatusEl) {
-                    cacheStatusEl.innerHTML = '<i class="bi bi-exclamation-triangle"></i> Update failed';
-                }
-                
-                // If light endpoint fails, try the full endpoint as fallback after a delay
-                setTimeout(() => updateCacheStatusFull(), 2000);
-                
-                // Retry the light endpoint after a longer delay
-                setTimeout(() => updateCacheStatusLight(), 30000);
-            });
-    }
-    
-    function updateCacheStatusFull() {
-        // Add timeout to prevent hanging requests
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 15000); // 15 second timeout for full endpoint
-        
-        fetch('/cache-status', { 
-            signal: controller.signal,
-            headers: { 'Cache-Control': 'no-cache' } // Ensure fresh data
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                showToast('Schedule Saved', data.message, 'success');
+                // Reload schedule to update next run time
+                setTimeout(loadRebuildSchedule, 500);
+            } else {
+                showToast('Schedule Save Failed', data.error || 'Unknown error', 'error');
+            }
         })
-            .then(response => {
-                clearTimeout(timeoutId);
-                if (!response.ok) {
-                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-                }
-                return response.json();
-            })
-            .then(data => {
-                updateFullCacheStatus(data);
-            })
-            .catch(error => {
-                clearTimeout(timeoutId);
-                console.error('Error fetching full cache status:', error);
-                
-                // Don't show error for full endpoint failure, just log it
-                // The basic status should already be displayed from the light endpoint
-            });
-    }
-    
-    function updateBasicCacheStatus(data) {
-        const cacheStatusEl = document.getElementById('cacheStatus');
-        const nextRebuildEl = document.getElementById('nextRebuild');
-        const cacheDetailsEl = document.getElementById('cacheDetails');
-        const cachePerformanceEl = document.getElementById('cachePerformance');
-        
-        if (cacheStatusEl && nextRebuildEl && cacheDetailsEl && cachePerformanceEl) {
-            // Update basic cache status
-            const cachedDirs = data.cache_size;
-            const statusText = `${cachedDirs} dirs cached | Last: ${data.formatted_since} ago`;
-            cacheStatusEl.textContent = statusText;
-            
-            // Update next rebuild time
-            if (data.time_until_next > 0) {
-                nextRebuildEl.textContent = `in ${data.formatted_until}`;
-            } else {
-                nextRebuildEl.textContent = 'Due now';
-            }
-            
-            // Update cache details
-            let detailsText = '';
-            if (data.cache_invalidated) {
-                detailsText += '⚠️ Cache was recently invalidated by file changes. ';
-            }
-            if (data.index_built) {
-                detailsText += '✅ Search index is ready. ';
-            } else {
-                detailsText += '⏳ Building search index... ';
-            }
-            detailsText += `Cache duration: ${data.cache_duration || 5}s | Max cache size: ${data.max_cache_size || 100}`;
-            
-            cacheDetailsEl.textContent = detailsText;
-            
-            // Update basic cache performance information
-            let performanceText = `Cache efficiency: ${cachedDirs}/${data.max_cache_size || 100}`;
-            
-            if (cachedDirs >= (data.max_cache_size || 100)) {
-                performanceText += ' | ⚠️ Cache at maximum size';
-            }
-            
-            if (cachedDirs === 0) {
-                performanceText = '🔄 Cache is empty, will rebuild on next access';
-            }
-            
-            cachePerformanceEl.textContent = performanceText;
-            
-            // Set data directory status to loading
-            const dataDirStatusEl = document.getElementById('dataDirStatus');
-            if (dataDirStatusEl) {
-                dataDirStatusEl.innerHTML = '<i class="bi bi-arrow-clockwise spin"></i> Loading detailed stats...';
-            }
-        }
-    }
-    
-    function updateFullCacheStatus(data) {
-        const cacheStatusEl = document.getElementById('cacheStatus');
-        const dataDirStatusEl = document.getElementById('dataDirStatus');
-        const nextRebuildEl = document.getElementById('nextRebuild');
-        const cacheDetailsEl = document.getElementById('cacheDetails');
-        const cachePerformanceEl = document.getElementById('cachePerformance');
-        
-        if (cacheStatusEl && nextRebuildEl && dataDirStatusEl && cacheDetailsEl && cachePerformanceEl) {
-            // Update cache status with more detail
-            const cachedDirs = data.cache_size;
-            const totalDirs = data.total_directories || 'Unknown';
-            const statusText = `${cachedDirs}/${totalDirs} dirs cached | Last: ${data.formatted_since} ago`;
-            cacheStatusEl.textContent = statusText;
-            
-            // Update data directory status
-            if (data.data_dir_stats) {
-                const stats = data.data_dir_stats;
-                let dirStatusText = `${stats.subdir_count} subdirs | ${stats.total_files} files`;
-                
-                // Add indicators for limited scans
-                if (stats.scan_limited) {
-                    dirStatusText += ' (scan limited)';
-                }
-                if (stats.max_depth_reached > 0) {
-                    dirStatusText += ` | Max depth: ${stats.max_depth_reached}`;
-                }
-                if (stats.scan_time > 0) {
-                    dirStatusText += ` | Scan time: ${stats.scan_time}s`;
-                }
-                
-                dataDirStatusEl.textContent = dirStatusText;
-                
-                // Show response time if available
-                if (data.response_time) {
-                    const cacheDetailsEl = document.getElementById('cacheDetails');
-                    if (cacheDetailsEl) {
-                        cacheDetailsEl.textContent += ` | Response time: ${data.response_time}s`;
-                    }
-                }
-            } else {
-                dataDirStatusEl.textContent = 'Stats unavailable';
-            }
-            
-            // Update next rebuild time
-            if (data.time_until_next > 0) {
-                nextRebuildEl.textContent = `in ${data.formatted_until}`;
-            } else {
-                nextRebuildEl.textContent = 'Due now';
-            }
-            
-            // Update cache details
-            let detailsText = '';
-            if (data.cache_invalidated) {
-                detailsText += '⚠️ Cache was recently invalidated by file changes. ';
-            }
-            if (data.index_built) {
-                detailsText += '✅ Search index is ready. ';
-            } else {
-                detailsText += '⏳ Building search index... ';
-            }
-            detailsText += `Cache duration: ${data.cache_duration || 5}s | Max cache size: ${data.max_cache_size || 100}`;
-            
-            cacheDetailsEl.textContent = detailsText;
-            
-            // Update cache performance information
-            const cacheHitRate = data.total_directories > 0 ? 
-                Math.round((data.cache_size / data.total_directories) * 100) : 0;
-            let performanceText = `Cache hit rate: ${cacheHitRate}% | `;
-            
-            if (data.cache_size >= data.max_cache_size) {
-                performanceText += '⚠️ Cache at maximum size | ';
-            }
-            
-            if (data.cache_size === 0) {
-                performanceText += '🔄 Cache is empty, will rebuild on next access';
-            } else {
-                performanceText += `Cache efficiency: ${data.cache_size}/${data.max_cache_size}`;
-            }
-            
-            cachePerformanceEl.textContent = performanceText;
-        }
+        .catch(error => {
+            console.error('Error saving schedule:', error);
+            showToast('Schedule Save Failed', 'Network error occurred', 'error');
+        })
+        .finally(() => {
+            button.innerHTML = originalText;
+            button.disabled = false;
+        });
     }
 
     // Helper function to show toast notifications
