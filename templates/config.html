@@ -605,16 +605,16 @@
         .then(response => response.json())
         .then(data => {
             if (data.success) {
-                showToast('File Index Rebuilt', data.message, 'success');
+                showToast(data.message, 'success');
                 // Update index status display
                 updateIndexStatus();
             } else {
-                showToast('File Index Rebuild Failed', data.error || 'Unknown error', 'error');
+                showToast(data.error || 'Unknown error', 'error');
             }
         })
         .catch(error => {
             console.error('Error rebuilding file index:', error);
-            showToast('File Index Rebuild Failed', 'Network error occurred', 'error');
+            showToast('Network error occurred', 'error');
         })
         .finally(() => {
             // Restore button state
@@ -710,58 +710,20 @@
         .then(response => response.json())
         .then(data => {
             if (data.success) {
-                showToast('Schedule Saved', data.message, 'success');
+                showToast(data.message, 'success');
                 // Reload schedule to update next run time
                 setTimeout(loadRebuildSchedule, 500);
             } else {
-                showToast('Schedule Save Failed', data.error || 'Unknown error', 'error');
+                showToast(data.error || 'Unknown error', 'error');
             }
         })
         .catch(error => {
             console.error('Error saving schedule:', error);
-            showToast('Schedule Save Failed', 'Network error occurred', 'error');
+            showToast('Network error occurred', 'error');
         })
         .finally(() => {
             button.innerHTML = originalText;
             button.disabled = false;
-        });
-    }
-
-    // Helper function to show toast notifications
-    function showToast(title, message, type = 'info') {
-        // Create toast element
-        const toastHtml = `
-            <div class="toast bg-${type === 'error' ? 'danger' : type === 'success' ? 'success' : 'info'} text-white" role="alert" aria-live="assertive" aria-atomic="true">
-                <div class="toast-header bg-${type === 'error' ? 'danger' : type === 'success' ? 'success' : 'info'} text-white">
-                    <strong class="me-auto">${title}</strong>
-                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="toast" aria-label="Close"></button>
-                </div>
-                <div class="toast-body">
-                    ${message}
-                </div>
-            </div>
-        `;
-        
-        // Create toast container if it doesn't exist
-        let toastContainer = document.querySelector('.toast-container');
-        if (!toastContainer) {
-            toastContainer = document.createElement('div');
-            toastContainer.className = 'toast-container position-fixed top-0 end-0 p-3';
-            toastContainer.style.zIndex = '1100';
-            document.body.appendChild(toastContainer);
-        }
-        
-        const toastElement = document.createElement('div');
-        toastElement.innerHTML = toastHtml;
-        toastContainer.appendChild(toastElement.firstElementChild);
-        
-        // Show the toast
-        const toast = new bootstrap.Toast(toastElement.firstElementChild);
-        toast.show();
-        
-        // Remove toast element after it's hidden
-        toastElement.firstElementChild.addEventListener('hidden.bs.toast', function() {
-            toastElement.remove();
         });
     }
 

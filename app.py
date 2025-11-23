@@ -498,21 +498,37 @@ def get_directory_hash(path):
         app_logger.debug(f"Error generating hash for {path}: {e}")
         return "error"
 
-def is_cache_valid(path):
+def is_cache_valid(cache_key):
     """Check if cached data is still valid with thread safety."""
     with cache_lock:
-        if path not in cache_timestamps:
+        if cache_key not in cache_timestamps:
+            app_logger.debug(f"Cache key not found in timestamps: {cache_key}")
             return False
 
         # Check if cache has expired
-        if time.time() - cache_timestamps[path] > CACHE_DURATION:
+        age = time.time() - cache_timestamps[cache_key]
+        if age > CACHE_DURATION:
+            app_logger.debug(f"Cache expired for {cache_key} (age: {age:.1f}s > {CACHE_DURATION}s)")
             return False
 
-        # Check if directory has changed
-        current_hash = get_directory_hash(path)
-        cached_data = directory_cache.get(path, {})
+        # For browse: cache, just use TTL validation (no hash check)
+        # The hash changes on directory access which causes false invalidations
+        # We have automatic invalidation on file operations, so TTL is sufficient
+        if cache_key.startswith("browse:"):
+            app_logger.debug(f"Browse cache valid for {cache_key} (age: {age:.1f}s)")
+            return True
+
+        # For regular directory listings, still use hash validation
+        actual_path = cache_key
+        current_hash = get_directory_hash(actual_path)
+        cached_data = directory_cache.get(cache_key, {})
         cached_hash = cached_data.get('hash') if isinstance(cached_data, dict) else None
-        return current_hash == cached_hash
+
+        if current_hash != cached_hash:
+            app_logger.debug(f"Hash mismatch for {cache_key}: current={current_hash}, cached={cached_hash}")
+            return False
+
+        return True
 
 def cleanup_cache():
     """Remove expired entries from cache with improved LRU management."""
@@ -644,8 +660,23 @@ def filesystem_search(query):
 
 
 def get_directory_listing(path):
-    """Get directory listing with optimized file system operations and memory awareness."""
+    """Get directory listing with optimized file system operations, caching, and memory awareness."""
     try:
+        # Check if we have valid cached data
+        if is_cache_valid(path):
+            with cache_lock:
+                cached_data = directory_cache.get(path)
+                if cached_data:
+                    cache_stats['hits'] += 1
+                    app_logger.debug(f"Cache HIT for directory: {path}")
+                    # Move to end for LRU
+                    directory_cache.move_to_end(path)
+                    return cached_data
+
+        # Cache miss - need to read from filesystem
+        cache_stats['misses'] += 1
+        app_logger.debug(f"Cache MISS for directory: {path}")
+
         # Check memory before operation and adjust cache size if needed
         monitor = get_global_monitor()
         memory_usage = monitor.get_memory_usage()
@@ -662,16 +693,16 @@ def get_directory_listing(path):
 
         with memory_context("list_directories"):
             entries = os.listdir(path)
-            
+
             # Single pass to categorize entries
             directories = []
             files = []
             excluded_extensions = {".png", ".jpg", ".jpeg", ".gif", ".txt", ".html", ".css", ".ds_store", "cvinfo", ".json", ".db"}
-            
+
             for entry in entries:
                 if entry.startswith(('.', '_')):
                     continue
-                    
+
                 full_path = os.path.join(path, entry)
                 try:
                     stat = os.stat(full_path)
@@ -687,16 +718,36 @@ def get_directory_listing(path):
                 except (OSError, IOError):
                     # Skip files we can't access
                     continue
-            
+
             # Sort both lists
             directories.sort(key=lambda s: s.lower())
             files.sort(key=lambda f: f["name"].lower())
-            
-            return {
+
+            result = {
                 "directories": directories,
                 "files": files,
                 "hash": get_directory_hash(path)
             }
+
+            # Store in cache
+            with cache_lock:
+                directory_cache[path] = result
+                cache_timestamps[path] = time.time()
+                # Move to end for LRU
+                directory_cache.move_to_end(path)
+
+                # Enforce cache size limit
+                while len(directory_cache) > MAX_CACHE_SIZE:
+                    oldest_path = next(iter(directory_cache))
+                    directory_cache.pop(oldest_path, None)
+                    cache_timestamps.pop(oldest_path, None)
+                    cache_stats['evictions'] += 1
+
+            # Cleanup expired entries periodically
+            if cache_stats['misses'] % 10 == 0:
+                cleanup_cache()
+
+            return result
     except Exception as e:
         app_logger.error(f"Error getting directory listing for {path}: {e}")
         raise
@@ -713,28 +764,47 @@ def invalidate_cache_for_path(path):
     with cache_lock:
         invalidated_count = 0
 
-        # Invalidate the specific path
+        # Invalidate the specific path (both regular and browse: prefixed)
         if path in directory_cache:
             directory_cache.pop(path, None)
             cache_timestamps.pop(path, None)
             invalidated_count += 1
 
-        # Also invalidate parent directory cache
-        parent = os.path.dirname(path)
-        if parent and parent in directory_cache:
-            directory_cache.pop(parent, None)
-            cache_timestamps.pop(parent, None)
+        browse_key = f"browse:{path}"
+        if browse_key in directory_cache:
+            directory_cache.pop(browse_key, None)
+            cache_timestamps.pop(browse_key, None)
             invalidated_count += 1
 
-        # Invalidate any child directory caches
-        paths_to_invalidate = []
-        for cached_path in directory_cache.keys():
-            if cached_path.startswith(path + os.sep):
-                paths_to_invalidate.append(cached_path)
+        # Also invalidate parent directory cache (both regular and browse: prefixed)
+        parent = os.path.dirname(path)
+        if parent:
+            if parent in directory_cache:
+                directory_cache.pop(parent, None)
+                cache_timestamps.pop(parent, None)
+                invalidated_count += 1
 
-        for cached_path in paths_to_invalidate:
-            directory_cache.pop(cached_path, None)
-            cache_timestamps.pop(cached_path, None)
+            parent_browse_key = f"browse:{parent}"
+            if parent_browse_key in directory_cache:
+                directory_cache.pop(parent_browse_key, None)
+                cache_timestamps.pop(parent_browse_key, None)
+                invalidated_count += 1
+
+        # Invalidate any child directory caches (both regular and browse: prefixed)
+        paths_to_invalidate = []
+        for cached_key in directory_cache.keys():
+            # Handle both regular paths and browse: prefixed keys
+            if cached_key.startswith("browse:"):
+                cached_path = cached_key[7:]
+            else:
+                cached_path = cached_key
+
+            if cached_path.startswith(path + os.sep):
+                paths_to_invalidate.append(cached_key)
+
+        for cached_key in paths_to_invalidate:
+            directory_cache.pop(cached_key, None)
+            cache_timestamps.pop(cached_key, None)
             invalidated_count += 1
 
         cache_stats['invalidations'] += invalidated_count
@@ -2517,7 +2587,9 @@ def find_folder_thumbnail(folder_path):
 
 @app.route('/api/browse')
 def api_browse():
-    """Get directory listing for the browse page."""
+    """Get directory listing for the browse page with full result caching."""
+    request_start = time.time()
+
     path = request.args.get('path')
     if not path:
         path = DATA_DIR
@@ -2526,6 +2598,27 @@ def api_browse():
         return jsonify({"error": "Directory not found"}), 404
 
     try:
+        # Check if we have a cached browse result for this path
+        cache_key = f"browse:{path}"
+        app_logger.info(f"🔍 /api/browse request for path: {path} (cache_key: {cache_key})")
+
+        if is_cache_valid(cache_key):
+            with cache_lock:
+                cached_result = directory_cache.get(cache_key)
+                if cached_result:
+                    cache_stats['hits'] += 1
+                    elapsed = time.time() - request_start
+                    app_logger.info(f"✅ Cache HIT for browse: {path} (returned in {elapsed:.3f}s)")
+                    # Move to end for LRU
+                    directory_cache.move_to_end(cache_key)
+                    return jsonify(cached_result)
+        else:
+            app_logger.info(f"❌ Cache validation failed for: {cache_key}")
+
+        # Cache miss - need to build the response
+        cache_stats['misses'] += 1
+        app_logger.info(f"⚠️ Cache MISS for browse: {path} - building response...")
+
         # Use existing list logic
         listing = get_directory_listing(path)
 
@@ -2587,12 +2680,32 @@ def api_browse():
 
             filtered_files.append(f)
 
-        return jsonify({
+        result = {
             "current_path": path,
             "directories": processed_directories,
             "files": filtered_files,
-            "parent": os.path.dirname(path) if path != DATA_DIR else None
-        })
+            "parent": os.path.dirname(path) if path != DATA_DIR else None,
+            "hash": get_directory_hash(path)  # Always use fresh hash for validation
+        }
+
+        # Store the complete result in cache
+        with cache_lock:
+            directory_cache[cache_key] = result
+            cache_timestamps[cache_key] = time.time()
+            # Move to end for LRU
+            directory_cache.move_to_end(cache_key)
+
+            # Enforce cache size limit
+            while len(directory_cache) > MAX_CACHE_SIZE:
+                oldest_key = next(iter(directory_cache))
+                directory_cache.pop(oldest_key, None)
+                cache_timestamps.pop(oldest_key, None)
+                cache_stats['evictions'] += 1
+
+        elapsed = time.time() - request_start
+        app_logger.info(f"📦 Built and cached browse response for: {path} ({len(result['directories'])} dirs, {len(result['files'])} files) in {elapsed:.3f}s")
+
+        return jsonify(result)
     except Exception as e:
         app_logger.error(f"Error browsing {path}: {e}")
         return jsonify({"error": str(e)}), 500

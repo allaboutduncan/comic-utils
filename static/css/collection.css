@@ -122,6 +122,12 @@
     display: none;
 }
 
+.grid-item.folder .icon-overlay i {
+    font-size: 3rem;
+    color: #ffc107;
+    /* Folder color */
+}
+
 .item-info {
     margin-top: 0.5rem;
 }
