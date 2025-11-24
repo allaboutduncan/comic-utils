@@ -589,7 +589,7 @@ def filesystem_search(query):
     
     query_lower = query.lower()
     results = []
-    excluded_extensions = {".png", ".jpg", ".jpeg", ".gif", ".txt", ".html", ".css", ".ds_store", "cvinfo", ".json", ".db"}
+    excluded_extensions = {".png", ".jpg", ".jpeg", ".gif", ".html", ".css", ".ds_store", "cvinfo", ".json", ".db"}
     
     try:
         for root, dirs, files in os.walk(DATA_DIR):
@@ -698,7 +698,7 @@ def get_directory_listing(path):
             # Single pass to categorize entries
             directories = []
             files = []
-            excluded_extensions = {".png", ".jpg", ".jpeg", ".gif", ".txt", ".html", ".css", ".ds_store", "cvinfo", ".json", ".db"}
+            excluded_extensions = {".png", ".jpg", ".jpeg", ".gif", ".html", ".css", ".ds_store", "cvinfo", ".json", ".db"}
 
             for entry in entries:
                 if entry.startswith(('.', '_')):
@@ -1355,7 +1355,7 @@ def build_file_index():
     start_time = time.time()
 
     file_index.clear()
-    excluded_extensions = {".png", ".jpg", ".jpeg", ".gif", ".txt", ".html", ".css", ".ds_store", "cvinfo", ".json", ".db"}
+    excluded_extensions = {".png", ".jpg", ".jpeg", ".gif", ".html", ".css", ".ds_store", "cvinfo", ".json", ".db"}
 
     # Track comic files for recent files database
     comic_files = []
@@ -1497,7 +1497,7 @@ def update_index_on_move(old_path, new_path):
         if old_in_data and new_in_data:
             app_logger.info(f"🔄 Updating index (moved within /data): {old_path} -> {new_path}")
 
-            excluded_extensions = {".png", ".jpg", ".jpeg", ".gif", ".txt", ".html", ".css", ".ds_store", "cvinfo", ".json", ".db", ".xml"}
+            excluded_extensions = {".png", ".jpg", ".jpeg", ".gif", ".html", ".css", ".ds_store", "cvinfo", ".json", ".db", ".xml"}
             is_file = os.path.isfile(new_path)
 
             if is_file:
@@ -1571,7 +1571,7 @@ def update_index_on_create(path):
         path: Path of new item
     """
     try:
-        excluded_extensions = {".png", ".jpg", ".jpeg", ".gif", ".txt", ".html", ".css", ".ds_store", "cvinfo", ".json", ".db", ".xml"}
+        excluded_extensions = {".png", ".jpg", ".jpeg", ".gif", ".html", ".css", ".ds_store", "cvinfo", ".json", ".db", ".xml"}
 
         is_file = os.path.isfile(path)
         name = os.path.basename(path)
@@ -2621,7 +2621,7 @@ def api_browse():
         listing = get_directory_listing(path)
 
         # Define excluded extensions and prefixes
-        excluded_extensions = {".png", ".jpg", ".jpeg", ".gif", ".txt", ".html", ".css", ".ds_store", "cvinfo", ".json", ".db", ".xml"}
+        excluded_extensions = {".png", ".jpg", ".jpeg", ".gif" ".html", ".css", ".ds_store", "cvinfo", ".json", ".db", ".xml"}
 
         # Process directories to add folder thumbnail info and check for files
         processed_directories = []
@@ -2740,7 +2740,7 @@ def api_browse_recursive():
         return jsonify({"error": "Invalid path"}), 400
 
     # Define excluded extensions and prefixes
-    excluded_extensions = {".png", ".jpg", ".jpeg", ".gif", ".txt", ".html", ".css", ".ds_store", "cvinfo", ".json", ".db", ".xml"}
+    excluded_extensions = {".png", ".jpg", ".jpeg", ".gif", ".html", ".css", ".ds_store", "cvinfo", ".json", ".db", ".xml"}
 
     files = []
 
@@ -3107,7 +3107,7 @@ def generate_folder_thumbnail():
         thumbnails_dir = os.path.join(cache_dir, "thumbnails")
 
         # Define excluded extensions
-        excluded_extensions = {".png", ".jpg", ".jpeg", ".gif", ".txt", ".html", ".css", ".ds_store", "cvinfo", ".json", ".db", ".xml"}
+        excluded_extensions = {".png", ".jpg", ".jpeg", ".gif" ".html", ".css", ".ds_store", "cvinfo", ".json", ".db", ".xml"}
 
         # Find comic files in the folder
         comic_files = []
@@ -3228,6 +3228,94 @@ def generate_folder_thumbnail():
 
     except Exception as e:
         app_logger.error(f"Error generating folder thumbnail: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/check-missing-files', methods=['POST'])
+def check_missing_files():
+    """Check for missing comic files in a folder."""
+    from missing import check_missing_issues
+
+    data = request.get_json()
+    folder_path = data.get('folder_path')
+
+    if not folder_path:
+        return jsonify({"error": "Missing folder_path"}), 400
+
+    if not os.path.exists(folder_path) or not os.path.isdir(folder_path):
+        return jsonify({"error": "Invalid folder path"}), 400
+
+    try:
+        app_logger.info(f"Running missing file check on: {folder_path}")
+
+        # Run the missing file check
+        check_missing_issues(folder_path)
+
+        # Read the missing.txt file to count missing issues
+        missing_file_path = os.path.join(folder_path, "missing.txt")
+        missing_count = 0
+        summary_message = ""
+
+        if os.path.exists(missing_file_path):
+            with open(missing_file_path, 'r') as f:
+                content = f.read()
+                # Count lines that contain '.cbz' or '.cbr' to get missing issue count
+                # Exclude lines that are just headers or blank
+                lines = content.strip().split('\n')
+                for line in lines:
+                    if '.cbz' in line or '.cbr' in line:
+                        missing_count += 1
+                    elif '[Total missing:' in line:
+                        # Extract count from condensed format
+                        import re
+                        match = re.search(r'\[Total missing: (\d+)\]', line)
+                        if match:
+                            missing_count += int(match.group(1))
+
+        if missing_count == 0:
+            summary_message = "No missing issues found."
+        else:
+            summary_message = f"Found {missing_count} missing issue(s) in {os.path.basename(folder_path)}."
+
+        app_logger.info(f"Missing file check complete. {summary_message}")
+
+        # Get relative path for the missing.txt file
+        relative_missing_file = os.path.relpath(missing_file_path, DATA_DIR)
+
+        return jsonify({
+            "success": True,
+            "missing_count": missing_count,
+            "missing_file": missing_file_path,
+            "relative_missing_file": relative_missing_file,
+            "folder_name": os.path.basename(folder_path),
+            "summary": summary_message
+        })
+
+    except Exception as e:
+        app_logger.error(f"Error checking missing files: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/download')
+def download_file():
+    """Download or view a file from the server."""
+    file_path = request.args.get('path')
+
+    if not file_path:
+        return jsonify({"error": "Missing path parameter"}), 400
+
+    # Security: Ensure the file path is within allowed directories
+    normalized_path = os.path.normpath(file_path)
+    if not (normalized_path.startswith(os.path.normpath(DATA_DIR)) or
+            normalized_path.startswith(os.path.normpath(TEMP_DIR)) or
+            normalized_path.startswith(os.path.normpath(WATCH_DIR))):
+        return jsonify({"error": "Access denied"}), 403
+
+    if not os.path.exists(file_path) or not os.path.isfile(file_path):
+        return jsonify({"error": "File not found"}), 404
+
+    try:
+        return send_file(file_path, as_attachment=False, mimetype='text/plain')
+    except Exception as e:
+        app_logger.error(f"Error serving file {file_path}: {e}")
         return jsonify({"error": str(e)}), 500
 
 

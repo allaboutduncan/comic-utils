@@ -621,8 +621,13 @@ function renderGrid(items) {
             const infoButton = clone.querySelector('.info-button');
             if (infoButton) infoButton.style.display = 'none';
 
-            // Show actions menu only for folders that have files directly
-            if (item.hasFiles && actionsDropdown) {
+            // Determine if we're at root level (folders directly off /data)
+            const isRootLevel = !currentPath || currentPath === '' || currentPath === '/data';
+
+            // Show actions menu for:
+            // 1. Folders at root level (only Missing File Check)
+            // 2. Folders with files directly (full menu)
+            if ((isRootLevel || item.hasFiles) && actionsDropdown) {
                 const btn = actionsDropdown.querySelector('button');
                 if (btn) {
                     btn.onclick = (e) => {
@@ -654,34 +659,53 @@ function renderGrid(items) {
                 // Replace menu items with folder-specific options
                 const dropdownMenu = actionsDropdown.querySelector('.dropdown-menu');
                 if (dropdownMenu) {
-                    dropdownMenu.innerHTML = `
-                        <li><a class="dropdown-item folder-action-thumbnail" href="#"><i class="bi bi-image"></i> Generate Thumbnail</a></li>
-                        <li><hr class="dropdown-divider"></li>
-                        <li><a class="dropdown-item folder-action-delete text-danger" href="#"><i class="bi bi-trash"></i> Delete</a></li>
-                    `;
+                    // If at root level, only show Missing File Check
+                    if (isRootLevel) {
+                        dropdownMenu.innerHTML = `
+                            <li><a class="dropdown-item folder-action-missing" href="#"><i class="bi bi-file-earmark-text"></i> Missing File Check</a></li>
+                        `;
+                    } else {
+                        // For folders with files, show full menu
+                        dropdownMenu.innerHTML = `
+                            <li><a class="dropdown-item folder-action-thumbnail" href="#"><i class="bi bi-image"></i> Generate Thumbnail</a></li>
+                            <li><a class="dropdown-item folder-action-missing" href="#"><i class="bi bi-file-earmark-text"></i> Missing File Check</a></li>
+                            <li><hr class="dropdown-divider"></li>
+                            <li><a class="dropdown-item folder-action-delete text-danger" href="#"><i class="bi bi-trash"></i> Delete</a></li>
+                        `;
 
-                    // Bind Generate Thumbnail action
-                    const thumbnailAction = dropdownMenu.querySelector('.folder-action-thumbnail');
-                    if (thumbnailAction) {
-                        thumbnailAction.onclick = (e) => {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            generateFolderThumbnail(item.path, item.name);
-                        };
+                        // Bind Generate Thumbnail action
+                        const thumbnailAction = dropdownMenu.querySelector('.folder-action-thumbnail');
+                        if (thumbnailAction) {
+                            thumbnailAction.onclick = (e) => {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                generateFolderThumbnail(item.path, item.name);
+                            };
+                        }
+
+                        // Bind Delete action
+                        const deleteAction = dropdownMenu.querySelector('.folder-action-delete');
+                        if (deleteAction) {
+                            deleteAction.onclick = (e) => {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                showDeleteConfirmation(item);
+                            };
+                        }
                     }
 
-                    // Bind Delete action
-                    const deleteAction = dropdownMenu.querySelector('.folder-action-delete');
-                    if (deleteAction) {
-                        deleteAction.onclick = (e) => {
+                    // Bind Missing File Check action (available for both root and folders with files)
+                    const missingAction = dropdownMenu.querySelector('.folder-action-missing');
+                    if (missingAction) {
+                        missingAction.onclick = (e) => {
                             e.preventDefault();
                             e.stopPropagation();
-                            showDeleteConfirmation(item);
+                            checkMissingFiles(item.path, item.name);
                         };
                     }
                 }
             } else {
-                // Hide actions for folders without files
+                // Hide actions for folders without files (and not at root)
                 if (actionsDropdown) actionsDropdown.style.display = 'none';
             }
 
@@ -2966,6 +2990,74 @@ function generateFolderThumbnail(folderPath, folderName) {
             hideProgressIndicator();
             showError('An error occurred while generating the thumbnail.');
         });
+}
+
+/**
+ * Check for missing files in a folder
+ * @param {string} folderPath - Path to the folder
+ * @param {string} folderName - Name of the folder
+ */
+function checkMissingFiles(folderPath, folderName) {
+    // Show progress indicator
+    showProgressIndicator();
+    const progressText = document.getElementById('progress-text');
+    if (progressText) {
+        progressText.textContent = `Checking for missing files in ${folderName}...`;
+    }
+
+    // Call the missing file check API
+    fetch('/api/check-missing-files', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ folder_path: folderPath })
+    })
+        .then(response => response.json())
+        .then(data => {
+            hideProgressIndicator();
+
+            if (data.success) {
+                // Show modal with results
+                showMissingFileCheckModal(data);
+                // Refresh the view (preserve page)
+                refreshCurrentView(true);
+            } else {
+                showError('Error checking missing files: ' + (data.error || 'Unknown error'));
+            }
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            hideProgressIndicator();
+            showError('An error occurred while checking for missing files.');
+        });
+}
+
+/**
+ * Show the missing file check results modal
+ * @param {Object} data - The response data from the API
+ */
+function showMissingFileCheckModal(data) {
+    // Update summary
+    const summaryEl = document.getElementById('missingFileCheckSummary');
+    if (summaryEl) {
+        summaryEl.textContent = data.summary || 'Check complete.';
+    }
+
+    // Update file path
+    const pathEl = document.getElementById('missingFileCheckPath');
+    if (pathEl) {
+        pathEl.textContent = data.relative_missing_file || 'missing.txt';
+    }
+
+    // Update file link
+    const linkEl = document.getElementById('missingFileCheckLink');
+    if (linkEl) {
+        // Create a link to download/view the missing.txt file
+        linkEl.href = `/api/download?path=${encodeURIComponent(data.missing_file)}`;
+    }
+
+    // Show the modal
+    const modal = new bootstrap.Modal(document.getElementById('missingFileCheckModal'));
+    modal.show();
 }
 
 /**

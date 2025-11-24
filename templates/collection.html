@@ -245,6 +245,58 @@
     </div>
 </div>
 <!-- End of CBZ Info Modal -->
+<!-- Missing File Check Results Modal -->
+<div class="modal fade" id="missingFileCheckModal" tabindex="-1" aria-labelledby="missingFileCheckModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="missingFileCheckModalLabel">Missing File Check Results</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div id="missingFileCheckContent">
+                    <!-- Summary Section -->
+                    <div class="alert alert-info mb-3">
+                        <h6 class="alert-heading mb-2">
+                            <i class="bi bi-info-circle"></i> Summary
+                        </h6>
+                        <p class="mb-0" id="missingFileCheckSummary"></p>
+                    </div>
+
+                    <!-- File Link Section -->
+                    <div class="card">
+                        <div class="card-body">
+                            <h6 class="card-title">
+                                <i class="bi bi-file-earmark-text"></i> Missing Issues File
+                            </h6>
+                            <p class="card-text">
+                                A detailed list of missing issues has been saved to:
+                            </p>
+                            <div class="bg-light p-2 rounded mb-2">
+                                <code id="missingFileCheckPath"></code>
+                            </div>
+                            <a href="#" id="missingFileCheckLink" class="btn btn-sm btn-primary" target="_blank">
+                                <i class="bi bi-box-arrow-up-right"></i> View File
+                            </a>
+                        </div>
+                    </div>
+
+                    <!-- Info Section -->
+                    <div class="alert alert-secondary mt-3 mb-0">
+                        <small>
+                            <i class="bi bi-lightbulb"></i>
+                            This file will remain in the directory for your reference. You can access it anytime by navigating to the folder.
+                        </small>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+<!-- End of Missing File Check Results Modal -->
 <!-- Toast Container -->
 <div class="toast-container position-fixed top-0 end-0 p-3" style="z-index: 9999;">
     <div id="successToast" class="toast align-items-center text-bg-success border-0" role="alert" aria-live="assertive" aria-atomic="true">
