@@ -41,7 +41,8 @@ from database import (init_db, get_db_connection, get_recent_files, log_recent_f
                       get_file_index_from_db, save_file_index_to_db, update_file_index_entry,
                       add_file_index_entry, delete_file_index_entry, search_file_index,
                       get_search_cache, save_search_cache, clear_search_cache,
-                      get_rebuild_schedule, save_rebuild_schedule as db_save_rebuild_schedule, update_last_rebuild)
+                      get_rebuild_schedule, save_rebuild_schedule as db_save_rebuild_schedule, update_last_rebuild,
+                      get_browse_cache, save_browse_cache, invalidate_browse_cache, clear_browse_cache)
 from concurrent.futures import ThreadPoolExecutor
 from file_watcher import FileWatcher
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -761,6 +762,9 @@ def invalidate_cache_for_path(path):
         app_logger.debug(f"Skipping cache invalidation for critical path: {path}")
         return
 
+    # Invalidate database browse cache
+    invalidate_browse_cache(path)
+
     with cache_lock:
         invalidated_count = 0
 
@@ -816,7 +820,7 @@ def invalidate_cache_for_path(path):
     last_cache_invalidation = time.time()
 
     if invalidated_count > 0:
-        app_logger.debug(f"Invalidated {invalidated_count} cache entries for path: {path}")
+        app_logger.debug(f"Invalidated {invalidated_count} memory cache entries for path: {path}")
 
 def rebuild_entire_cache():
     """Rebuild the entire directory cache and search index."""
@@ -2587,10 +2591,12 @@ def find_folder_thumbnail(folder_path):
 
 @app.route('/api/browse')
 def api_browse():
-    """Get directory listing for the browse page with full result caching."""
+    """Get directory listing for the browse page with database-backed caching."""
     request_start = time.time()
 
     path = request.args.get('path')
+    force_refresh = request.args.get('refresh', '').lower() == 'true'
+
     if not path:
         path = DATA_DIR
 
@@ -2598,26 +2604,18 @@ def api_browse():
         return jsonify({"error": "Directory not found"}), 404
 
     try:
-        # Check if we have a cached browse result for this path
-        cache_key = f"browse:{path}"
-        app_logger.info(f"🔍 /api/browse request for path: {path} (cache_key: {cache_key})")
+        app_logger.info(f"🔍 /api/browse request for path: {path} (force_refresh: {force_refresh})")
 
-        if is_cache_valid(cache_key):
-            with cache_lock:
-                cached_result = directory_cache.get(cache_key)
-                if cached_result:
-                    cache_stats['hits'] += 1
-                    elapsed = time.time() - request_start
-                    app_logger.info(f"✅ Cache HIT for browse: {path} (returned in {elapsed:.3f}s)")
-                    # Move to end for LRU
-                    directory_cache.move_to_end(cache_key)
-                    return jsonify(cached_result)
-        else:
-            app_logger.info(f"❌ Cache validation failed for: {cache_key}")
+        # Check database cache first (unless force refresh)
+        if not force_refresh:
+            cached_result = get_browse_cache(path)
+            if cached_result:
+                elapsed = time.time() - request_start
+                app_logger.info(f"✅ DB Cache HIT for browse: {path} (returned in {elapsed:.3f}s)")
+                return jsonify(cached_result)
 
-        # Cache miss - need to build the response
-        cache_stats['misses'] += 1
-        app_logger.info(f"⚠️ Cache MISS for browse: {path} - building response...")
+        # Cache miss or force refresh - need to build the response
+        app_logger.info(f"⚠️ DB Cache MISS for browse: {path} - building response...")
 
         # Use existing list logic
         listing = get_directory_listing(path)
@@ -2684,31 +2682,46 @@ def api_browse():
             "current_path": path,
             "directories": processed_directories,
             "files": filtered_files,
-            "parent": os.path.dirname(path) if path != DATA_DIR else None,
-            "hash": get_directory_hash(path)  # Always use fresh hash for validation
+            "parent": os.path.dirname(path) if path != DATA_DIR else None
         }
 
-        # Store the complete result in cache
-        with cache_lock:
-            directory_cache[cache_key] = result
-            cache_timestamps[cache_key] = time.time()
-            # Move to end for LRU
-            directory_cache.move_to_end(cache_key)
-
-            # Enforce cache size limit
-            while len(directory_cache) > MAX_CACHE_SIZE:
-                oldest_key = next(iter(directory_cache))
-                directory_cache.pop(oldest_key, None)
-                cache_timestamps.pop(oldest_key, None)
-                cache_stats['evictions'] += 1
+        # Save to database cache
+        save_browse_cache(path, result)
 
         elapsed = time.time() - request_start
-        app_logger.info(f"📦 Built and cached browse response for: {path} ({len(result['directories'])} dirs, {len(result['files'])} files) in {elapsed:.3f}s")
+        app_logger.info(f"📦 Built and cached browse response in DB for: {path} ({len(result['directories'])} dirs, {len(result['files'])} files) in {elapsed:.3f}s")
 
         return jsonify(result)
     except Exception as e:
         app_logger.error(f"Error browsing {path}: {e}")
         return jsonify({"error": str(e)}), 500
+
+@app.route('/api/clear-browse-cache', methods=['POST'])
+def api_clear_browse_cache():
+    """Clear the browse cache to force refresh on next load."""
+    try:
+        data = request.get_json() or {}
+        path = data.get('path')
+
+        if path:
+            # Clear specific path
+            invalidate_browse_cache(path)
+            app_logger.info(f"Cleared browse cache for: {path}")
+            return jsonify({
+                "success": True,
+                "message": f"Browse cache cleared for {path}"
+            })
+        else:
+            # Clear all browse cache
+            clear_browse_cache()
+            app_logger.info("Cleared all browse cache")
+            return jsonify({
+                "success": True,
+                "message": "All browse cache cleared"
+            })
+    except Exception as e:
+        app_logger.error(f"Error clearing browse cache: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
 
 @app.route('/api/browse-recursive')
 def api_browse_recursive():
@@ -6442,10 +6455,26 @@ if __name__ == '__main__':
             except Exception as e:
                 app_logger.error(f"Error in cache maintenance thread: {e}")
     
+    # Pre-build browse cache for root directory
+    def prebuild_browse_cache():
+        """Pre-build browse cache for DATA_DIR root on startup."""
+        try:
+            app_logger.info(f"🔄 Pre-building browse cache for {DATA_DIR}...")
+            # Trigger a browse request internally to build and cache
+            with app.test_request_context(f'/api/browse?path={DATA_DIR}'):
+                api_browse()
+            app_logger.info(f"✅ Browse cache pre-built for {DATA_DIR}")
+        except Exception as e:
+            app_logger.error(f"❌ Error pre-building browse cache: {e}")
+
     # Start index building in background
     threading.Thread(target=build_index_background, daemon=True).start()
     app_logger.info("🔄 Building search index in background...")
-    
+
+    # Pre-build browse cache in background
+    threading.Thread(target=prebuild_browse_cache, daemon=True).start()
+    app_logger.info("🔄 Pre-building browse cache for root directory...")
+
     # Start cache maintenance in background
     threading.Thread(target=cache_maintenance_background, daemon=True).start()
     app_logger.info("🔄 Cache maintenance thread started (checks every hour, rebuilds every 6 hours)...")

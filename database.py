@@ -96,6 +96,19 @@ def init_db():
                 VALUES (1, 'disabled', '02:00', 0)
             ''')
 
+        # Create browse_cache table (cache pre-computed browse results)
+        c.execute('''
+            CREATE TABLE IF NOT EXISTS browse_cache (
+                path TEXT PRIMARY KEY,
+                result TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+
+        # Create index for faster lookups
+        c.execute('CREATE INDEX IF NOT EXISTS idx_browse_cache_path ON browse_cache(path)')
+
         # Migration: Check if file_mtime column exists, add if not
         c.execute("PRAGMA table_info(thumbnail_jobs)")
         columns = [column[1] for column in c.fetchall()]
@@ -728,4 +741,143 @@ def update_last_rebuild():
 
     except Exception as e:
         app_logger.error(f"Failed to update last rebuild timestamp: {e}")
+        return False
+
+#########################
+#   Browse Cache        #
+#########################
+
+def get_browse_cache(path):
+    """
+    Get cached browse result for a path.
+
+    Args:
+        path: Directory path
+
+    Returns:
+        Dictionary with browse result, or None if not cached
+    """
+    try:
+        import json
+
+        conn = get_db_connection()
+        if not conn:
+            return None
+
+        c = conn.cursor()
+        c.execute('''
+            SELECT result, updated_at
+            FROM browse_cache
+            WHERE path = ?
+        ''', (path,))
+
+        row = c.fetchone()
+        conn.close()
+
+        if row:
+            return json.loads(row['result'])
+        return None
+
+    except Exception as e:
+        app_logger.error(f"Failed to get browse cache for '{path}': {e}")
+        return None
+
+def save_browse_cache(path, result):
+    """
+    Save browse result to cache.
+
+    Args:
+        path: Directory path
+        result: Dictionary with browse result
+
+    Returns:
+        True if successful, False otherwise
+    """
+    try:
+        import json
+
+        conn = get_db_connection()
+        if not conn:
+            return False
+
+        c = conn.cursor()
+        c.execute('''
+            INSERT OR REPLACE INTO browse_cache (path, result, updated_at)
+            VALUES (?, ?, CURRENT_TIMESTAMP)
+        ''', (path, json.dumps(result)))
+
+        conn.commit()
+        conn.close()
+
+        app_logger.debug(f"Saved browse cache for: {path}")
+        return True
+
+    except Exception as e:
+        app_logger.error(f"Failed to save browse cache for '{path}': {e}")
+        return False
+
+def invalidate_browse_cache(path):
+    """
+    Invalidate browse cache for a specific path.
+
+    Args:
+        path: Directory path to invalidate
+
+    Returns:
+        True if successful, False otherwise
+    """
+    try:
+        conn = get_db_connection()
+        if not conn:
+            return False
+
+        c = conn.cursor()
+
+        # Delete the specific path
+        c.execute('DELETE FROM browse_cache WHERE path = ?', (path,))
+
+        # Also delete parent path (so parent sees new subdirectory)
+        parent = os.path.dirname(path)
+        if parent:
+            c.execute('DELETE FROM browse_cache WHERE path = ?', (parent,))
+
+        # Delete any child paths
+        c.execute('DELETE FROM browse_cache WHERE path LIKE ?', (f"{path}/%",))
+
+        conn.commit()
+        rows_affected = c.rowcount
+        conn.close()
+
+        if rows_affected > 0:
+            app_logger.debug(f"Invalidated {rows_affected} browse cache entries for: {path}")
+        return True
+
+    except Exception as e:
+        app_logger.error(f"Failed to invalidate browse cache for '{path}': {e}")
+        return False
+
+def clear_browse_cache():
+    """
+    Clear all browse cache entries.
+
+    Returns:
+        True if successful, False otherwise
+    """
+    try:
+        conn = get_db_connection()
+        if not conn:
+            return False
+
+        c = conn.cursor()
+        c.execute('DELETE FROM browse_cache')
+
+        conn.commit()
+        count = c.rowcount
+        conn.close()
+
+        app_logger.info(f"Cleared browse cache ({count} entries)")
+        return True
+
+    except Exception as e:
+        app_logger.error(f"Failed to clear browse cache: {e}")
         return False

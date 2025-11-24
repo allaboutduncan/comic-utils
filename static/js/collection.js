@@ -73,7 +73,7 @@ function getFilteredItems() {
  * @param {string} path - The directory path to load.
  * @param {boolean} preservePage - If true, keep current page (for refresh). If false, reset to page 1 (default).
  */
-async function loadDirectory(path, preservePage = false) {
+async function loadDirectory(path, preservePage = false, forceRefresh = false) {
     if (isLoading) return;
 
     // Cancel any ongoing background loading
@@ -93,7 +93,8 @@ async function loadDirectory(path, preservePage = false) {
     window.history.pushState({ path }, '', newUrl);
 
     try {
-        const response = await fetch(`/api/browse?path=${encodeURIComponent(path)}`);
+        const url = `/api/browse?path=${encodeURIComponent(path)}${forceRefresh ? '&refresh=true' : ''}`;
+        const response = await fetch(url);
         if (!response.ok) {
             throw new Error(`HTTP error! status: ${response.status}`);
         }
@@ -3374,12 +3375,12 @@ function showSuccess(message) {
  * Refresh the current view
  * @param {boolean} preservePage - If true, keep current page. If false, reset to page 1 (default).
  */
-function refreshCurrentView(preservePage = false) {
+function refreshCurrentView(preservePage = false, forceRefresh = false) {
     if (isRecentlyAddedMode) {
         loadRecentlyAdded(preservePage);
     } else if (isAllBooksMode) {
         loadAllBooks(preservePage);
     } else {
-        loadDirectory(currentPath, preservePage);
+        loadDirectory(currentPath, preservePage, forceRefresh);
     }
 }
