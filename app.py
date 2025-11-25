@@ -4152,6 +4152,9 @@ def config_page():
         config["SETTINGS"]["GCD_METADATA_LANGUAGES"] = request.form.get("gcdLanguages", "en")
         config["SETTINGS"]["ENABLE_CUSTOM_RENAME"] = str(request.form.get("enableCustomRename") == "on")
         config["SETTINGS"]["CUSTOM_RENAME_PATTERN"] = request.form.get("customRenamePattern", "")
+        config["SETTINGS"]["ENABLE_AUTO_RENAME"] = str(request.form.get("enableAutoRename") == "on")
+        config["SETTINGS"]["ENABLE_AUTO_MOVE"] = str(request.form.get("enableAutoMove") == "on")
+        config["SETTINGS"]["CUSTOM_MOVE_PATTERN"] = request.form.get("customMovePattern", "{publisher}/{series_name}/v{year}")
         config["SETTINGS"]["ENABLE_DEBUG_LOGGING"] = str(request.form.get("enableDebugLogging") == "on")
 
         write_config()  # Save changes to config.ini
@@ -4198,6 +4201,9 @@ def config_page():
         gcdLanguages=settings.get("GCD_METADATA_LANGUAGES", "en"),
         enableCustomRename=settings.get("ENABLE_CUSTOM_RENAME", "False") == "True",
         customRenamePattern=settings.get("CUSTOM_RENAME_PATTERN", ""),
+        enableAutoRename=settings.get("ENABLE_AUTO_RENAME", "False") == "True",
+        enableAutoMove=settings.get("ENABLE_AUTO_MOVE", "False") == "True",
+        customMovePattern=settings.get("CUSTOM_MOVE_PATTERN", "{publisher}/{series_name}/v{year}"),
         enableDebugLogging=settings.get("ENABLE_DEBUG_LOGGING", "False") == "True",
         config=settings,  # Pass full settings dictionary
     )

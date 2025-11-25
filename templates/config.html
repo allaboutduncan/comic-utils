@@ -244,6 +244,60 @@
                     </small>
                 </div>
             </div>
+
+            <hr class="my-4">
+
+            <!-- Auto Rename and Auto Move Options -->
+            <div class="row">
+                <div class="col-md-6">
+                    <div class="form-check form-switch">
+                        <input class="form-check-input" type="checkbox" role="switch" id="enableAutoRename" name="enableAutoRename" {% if enableAutoRename %}checked{% endif %}>
+                        <label class="form-check-label" for="enableAutoRename">{% if enableAutoRename %}Disable{% else %}Enable{% endif %} Auto Rename File</label>
+                        <small class="form-text text-muted">
+                            <br />Automatically rename files after metadata is fetched from the API.
+                        </small>
+                    </div>
+                </div>
+
+                <div class="col-md-6">
+                    <div class="form-check form-switch">
+                        <input class="form-check-input" type="checkbox" role="switch" id="enableAutoMove" name="enableAutoMove" {% if enableAutoMove %}checked{% endif %}>
+                        <label class="form-check-label" for="enableAutoMove">{% if enableAutoMove %}Disable{% else %}Enable{% endif %} Auto Move Files</label>
+                        <small class="form-text text-muted">
+                            <br />Automatically move files to organized folders after metadata is fetched.
+                        </small>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Custom Move Pattern -->
+            <div class="row mt-3">
+                <div class="col-md-8">
+                    <label for="customMovePattern" class="form-label">Custom Move Pattern:</label>
+                    <input type="text" name="customMovePattern" id="customMovePattern" value="{{ customMovePattern }}" class="form-control" placeholder="e.g., {publisher}/{series_name}/v{year}">
+                    <small class="form-text text-muted">
+                        Define the folder structure for auto-moved files. Available variables: <code>{publisher}</code>, <code>{series_name}</code>, <code>{volume_number}</code>, <code>{year}</code>, <code>{issue_number}</code>
+                    </small>
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label">Example Preview:</label>
+                    <div class="border rounded p-2 bg-light">
+                        <small id="movePreview">Enter a pattern to see preview...</small>
+                    </div>
+                </div>
+            </div>
+
+            <div class="row mt-2">
+                <div class="col-md-12">
+                    <small class="text-muted">
+                        <strong>Examples:</strong><br>
+                        • <code>{publisher}/{series_name}/v{year}</code> → <code>Marvel/Spider-Man 2099/v1992/</code><br>
+                        • <code>{publisher}/{series_name}</code> → <code>Marvel/Spider-Man 2099/</code><br>
+                        • <code>{series_name} [{year}]</code> → <code>Spider-Man 2099 [1992]/</code><br>
+                        • <code>{publisher}/{volume_number}</code> → <code>Marvel/v2/</code>
+                    </small>
+                </div>
+            </div>
         </div>
 
         <!-- Performance & Timeout Settings -->
@@ -572,6 +626,9 @@
         // Initialize custom rename pattern preview
         initializeRenamePreview();
 
+        // Initialize custom move pattern preview
+        initializeMovePreview();
+
         // Initialize file index status display
         setTimeout(updateIndexStatus, 1000);
 
@@ -756,12 +813,13 @@
         
         // Sample values for preview
         const sampleValues = {
+            publisher: 'Marvel',
             series_name: 'Spider-Man 2099',
             volume_number: 'v2',
             year: '1992',
             issue_number: '044'
         };
-        
+
         try {
             const preview = applyCustomPattern(sampleValues, pattern);
             previewElement.textContent = preview + '.cbz';
@@ -773,17 +831,62 @@
     function applyCustomPattern(values, pattern) {
         // Simple pattern replacement for preview
         let result = pattern;
-        
+
         // Replace variables with sample values
+        result = result.replace(/\{publisher\}/g, values.publisher || '');
         result = result.replace(/\{series_name\}/g, values.series_name || '');
         result = result.replace(/\{volume_number\}/g, values.volume_number || '');
         result = result.replace(/\{year\}/g, values.year || '');
         result = result.replace(/\{issue_number\}/g, values.issue_number || '');
-        
+
         // Clean up extra spaces
         result = result.replace(/\s+/g, ' ').trim();
-        
+
         return result;
+    }
+
+    // Custom Move Pattern Preview Functions
+    function initializeMovePreview() {
+        const patternInput = document.getElementById('customMovePattern');
+        const previewElement = document.getElementById('movePreview');
+
+        if (patternInput && previewElement) {
+            // Add event listeners for live preview
+            patternInput.addEventListener('input', updateMovePreview);
+            patternInput.addEventListener('change', updateMovePreview);
+
+            // Initial preview
+            updateMovePreview();
+        }
+    }
+
+    function updateMovePreview() {
+        const patternInput = document.getElementById('customMovePattern');
+        const previewElement = document.getElementById('movePreview');
+
+        if (!patternInput || !previewElement) return;
+
+        const pattern = patternInput.value.trim();
+        if (!pattern) {
+            previewElement.textContent = 'Enter a pattern to see preview...';
+            return;
+        }
+
+        // Sample values for preview
+        const sampleValues = {
+            publisher: 'Marvel',
+            series_name: 'Spider-Man 2099',
+            volume_number: 'v2',
+            year: '1992',
+            issue_number: '044'
+        };
+
+        try {
+            const preview = applyCustomPattern(sampleValues, pattern);
+            previewElement.textContent = preview + '/';
+        } catch (error) {
+            previewElement.textContent = 'Invalid pattern';
+        }
     }
 </script>
 {% endblock %}

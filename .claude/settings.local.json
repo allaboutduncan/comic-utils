@@ -28,7 +28,9 @@
       "Bash(cat:*)",
       "Bash(C:/Users/phill/Documents/GitHub/comic-utils/static/js/files.js)",
       "WebFetch(domain:simyan.readthedocs.io)",
-      "Bash(find:*)"
+      "Bash(find:*)",
+      "Bash(claude config get:*)",
+      "Bash(claude config:*)"
     ],
     "deny": [],
     "ask": []
