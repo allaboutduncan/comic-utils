@@ -823,11 +823,14 @@ function renderGrid(items) {
                 img.style.display = 'none';
             }
 
-            // Handle click for files - open comic reader for comic files
+            // Handle click for files - open comic reader for comic files, text viewer for .txt files
             gridItem.onclick = () => {
                 if (item.hasThumbnail) {
                     // Open comic reader for CBZ/CBR/ZIP files
                     openComicReader(item.path);
+                } else if (item.name.toLowerCase().endsWith('.txt')) {
+                    // Open text file viewer for .txt files
+                    openTextFileViewer(item.path, item.name);
                 } else {
                     console.log('Clicked file:', item.path);
                 }
@@ -3265,6 +3268,69 @@ function showCBZInfo(filePath, fileName) {
                 </div>
             `;
         });
+}
+
+// ============================================================================
+// TEXT FILE VIEWER FUNCTIONALITY
+// ============================================================================
+
+/**
+ * Open text file viewer modal
+ * @param {string} filePath - Path to the text file
+ * @param {string} fileName - Name of the file
+ */
+function openTextFileViewer(filePath, fileName) {
+    const modalElement = document.getElementById('textFileViewerModal');
+    const fileNameEl = document.getElementById('textFileName');
+    const content = document.getElementById('textFileContent');
+
+    // Set file name
+    fileNameEl.textContent = fileName;
+
+    // Reset content to loading state
+    content.innerHTML = `
+        <div class="text-center">
+            <div class="spinner-border" role="status">
+                <span class="visually-hidden">Loading...</span>
+            </div>
+            <p class="mt-2">Loading text file...</p>
+        </div>
+    `;
+
+    // Show modal
+    const modal = new bootstrap.Modal(modalElement);
+    modal.show();
+
+    // Fetch text file content
+    fetch(`/api/read-text-file?path=${encodeURIComponent(filePath)}`)
+        .then(response => {
+            if (!response.ok) {
+                throw new Error('Failed to load text file');
+            }
+            return response.text();
+        })
+        .then(textContent => {
+            // Display the text content
+            content.innerHTML = `<pre>${escapeHtml(textContent)}</pre>`;
+        })
+        .catch(err => {
+            content.innerHTML = `
+                <div class="alert alert-danger">
+                    <i class="bi bi-exclamation-triangle"></i> Error loading text file: ${err.message}
+                </div>
+            `;
+        });
+}
+
+/**
+ * Escape HTML to prevent XSS
+ * @param {string} text - The text to escape
+ * @returns {string} Escaped text
+ */
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
 }
 
 /**

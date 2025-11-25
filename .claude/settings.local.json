@@ -30,7 +30,8 @@
       "WebFetch(domain:simyan.readthedocs.io)",
       "Bash(find:*)",
       "Bash(claude config get:*)",
-      "Bash(claude config:*)"
+      "Bash(claude config:*)",
+      "Bash(echo:*)"
     ],
     "deny": [],
     "ask": []

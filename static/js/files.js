@@ -2607,6 +2607,15 @@ function trackFileForRename(panel) {
   updateRenameButtonVisibility(panel);
 }
 
+// Function to track file removals and update rename button
+function trackFileRemovalForRename(panel) {
+  if (fileTracking[panel].fileCount > 0) {
+    fileTracking[panel].fileCount--;
+    console.log(`File removed from ${panel}: count now ${fileTracking[panel].fileCount}`);
+    updateRenameButtonVisibility(panel);
+  }
+}
+
 // Function to reset file tracking for a panel
 function resetFileTracking(panel, currentPath) {
   fileTracking[panel].fileCount = 0;
@@ -4913,6 +4922,51 @@ function renderSeriesList(seriesData) {
 
 
 
+// Helper function to remove a file from the UI after it's been moved
+function removeFileFromUI(filePath) {
+  console.log('Removing file from UI:', filePath);
+
+  // Check both source and destination lists
+  const sourceLi = document.querySelector(`#source-list li[data-fullpath="${filePath}"]`);
+  const destLi = document.querySelector(`#destination-list li[data-fullpath="${filePath}"]`);
+
+  const itemToRemove = sourceLi || destLi;
+  const panel = sourceLi ? 'source' : 'destination';
+
+  if (itemToRemove) {
+    console.log(`Found item to remove in ${panel} panel`);
+
+    // Add fade-out animation
+    itemToRemove.classList.add('deleting');
+
+    // Remove after animation
+    setTimeout(() => {
+      itemToRemove.remove();
+      console.log('File removed from UI');
+
+      // After removal, check if we need to show the drop target in destination panel
+      if (panel === 'destination') {
+        let container = document.getElementById("destination-list");
+        let remainingItems = container.querySelectorAll("li:not(.drop-target-item)");
+
+        // If no items left (excluding drop target), add the drop target
+        if (remainingItems.length === 0) {
+          createDropTargetItem(container, currentDestinationPath, panel);
+        }
+      }
+
+      // Update file count tracker
+      if (panel === 'source') {
+        trackFileRemovalForRename('source');
+      } else {
+        trackFileRemovalForRename('destination');
+      }
+    }, 200); // Match the CSS transition duration
+  } else {
+    console.log('Item not found in UI, may already be removed or in a different location');
+  }
+}
+
 // ComicVine metadata search function
 function searchComicVineMetadata(filePath, fileName) {
   console.log('ComicVine Search Called with:', { filePath, fileName });
@@ -5014,9 +5068,16 @@ function searchComicVineMetadata(filePath, fileName) {
           }
         }, 5000);
 
-        // Ask if user wants to rename file
+        // Remove file from UI if it was moved to a new location
+        if (data.moved) {
+          console.log('File was moved, removing from current panel');
+          removeFileFromUI(filePath);
+        }
+
+        // Handle file rename if configured
         if (data.metadata && data.metadata.Series) {
-          promptRenameAfterMetadata(filePath, fileName, data.metadata, data.rename_config);
+          const actualFilePath = data.moved ? data.new_file_path : filePath;
+          promptRenameAfterMetadata(actualFilePath, fileName, data.metadata, data.rename_config);
         }
       } else if (data.requires_selection) {
         // Show volume selection modal
@@ -5229,9 +5290,16 @@ function selectComicVineVolume(filePath, fileName, volumeId, publisherName, issu
           }
         }, 5000);
 
-        // Ask if user wants to rename file
+        // Remove file from UI if it was moved to a new location
+        if (data.moved) {
+          console.log('File was moved, removing from current panel');
+          removeFileFromUI(filePath);
+        }
+
+        // Handle file rename if configured
         if (data.metadata?.Series) {
-          promptRenameAfterMetadata(filePath, fileName, data.metadata, data.rename_config);
+          const actualFilePath = data.moved ? data.new_file_path : filePath;
+          promptRenameAfterMetadata(actualFilePath, fileName, data.metadata, data.rename_config);
         }
       } else {
         showToast('ComicVine Error', data.error || 'Failed to retrieve metadata', 'error');
@@ -5293,29 +5361,21 @@ function promptRenameAfterMetadata(filePath, fileName, metadata, renameConfig) {
     suggestedName = `${series} ${number}${ext}`;
   }
 
-  // Only prompt if the name would actually change
+  // Only proceed if the name would actually change
   if (suggestedName === fileName) {
     return;
   }
 
-  // Populate modal with current and suggested names
-  document.getElementById('renameCurrentName').textContent = fileName;
-  document.getElementById('renameSuggestedName').textContent = suggestedName;
-
-  // Store the rename data for the confirmation button
-  const confirmBtn = document.getElementById('confirmRenameBtn');
-  confirmBtn.onclick = function () {
-    // Close the modal
-    const modal = bootstrap.Modal.getInstance(document.getElementById('renameConfirmModal'));
-    modal.hide();
-
-    // Execute rename
+  // Check if auto-rename is enabled
+  if (renameConfig && renameConfig.auto_rename) {
+    console.log('Auto-rename is enabled, renaming file automatically');
+    // Automatically rename without prompting
     renameFileAfterMetadata(filePath, fileName, suggestedName);
-  };
-
-  // Show the modal
-  const renameModal = new bootstrap.Modal(document.getElementById('renameConfirmModal'));
-  renameModal.show();
+  } else {
+    console.log('Auto-rename is disabled, skipping rename');
+    // Auto-rename is disabled, do nothing (no prompt, no rename)
+    return;
+  }
 }
 
 function renameFileAfterMetadata(filePath, oldName, newName) {

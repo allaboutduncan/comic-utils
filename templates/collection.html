@@ -297,6 +297,33 @@
     </div>
 </div>
 <!-- End of Missing File Check Results Modal -->
+<!-- Text File Viewer Modal -->
+<div class="modal fade" id="textFileViewerModal" tabindex="-1" aria-labelledby="textFileViewerModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="textFileViewerModalLabel">
+                    <i class="bi bi-file-earmark-text"></i> <span id="textFileName">Text File</span>
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div id="textFileContent" class="text-file-content">
+                    <div class="text-center">
+                        <div class="spinner-border" role="status">
+                            <span class="visually-hidden">Loading...</span>
+                        </div>
+                        <p class="mt-2">Loading text file...</p>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+<!-- End of Text File Viewer Modal -->
 <!-- Toast Container -->
 <div class="toast-container position-fixed top-0 end-0 p-3" style="z-index: 9999;">
     <div id="successToast" class="toast align-items-center text-bg-success border-0" role="alert" aria-live="assertive" aria-atomic="true">

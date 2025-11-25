@@ -816,7 +816,7 @@
             publisher: 'Marvel',
             series_name: 'Spider-Man 2099',
             volume_number: 'v2',
-            start_year: '1992',
+            year: '1992',
             issue_number: '044'
         };
 
@@ -836,7 +836,8 @@
         result = result.replace(/\{publisher\}/g, values.publisher || '');
         result = result.replace(/\{series_name\}/g, values.series_name || '');
         result = result.replace(/\{volume_number\}/g, values.volume_number || '');
-        result = result.replace(/\{start_year\}/g, values.start_year || '');
+        result = result.replace(/\{year\}/g, values.year || '');  // For rename patterns
+        result = result.replace(/\{start_year\}/g, values.start_year || '');  // For move patterns
         result = result.replace(/\{issue_number\}/g, values.issue_number || '');
 
         // Clean up extra spaces

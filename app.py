@@ -3322,6 +3322,43 @@ def download_file():
         app_logger.error(f"Error serving file {file_path}: {e}")
         return jsonify({"error": str(e)}), 500
 
+@app.route('/api/read-text-file')
+def read_text_file():
+    """Read and return the contents of a text file."""
+    file_path = request.args.get('path')
+
+    if not file_path:
+        return "Missing path parameter", 400
+
+    # Security: Ensure the file path is within allowed directories
+    normalized_path = os.path.normpath(file_path)
+    if not (normalized_path.startswith(os.path.normpath(DATA_DIR)) or
+            normalized_path.startswith(os.path.normpath(TEMP_DIR)) or
+            normalized_path.startswith(os.path.normpath(WATCH_DIR))):
+        return "Access denied", 403
+
+    if not os.path.exists(file_path) or not os.path.isfile(file_path):
+        return "File not found", 404
+
+    # Check if file is a text file
+    if not file_path.lower().endswith('.txt'):
+        return "Only .txt files are supported", 400
+
+    try:
+        # Read the file with UTF-8 encoding, falling back to latin-1 if needed
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+        except UnicodeDecodeError:
+            # Try with latin-1 encoding if UTF-8 fails
+            with open(file_path, 'r', encoding='latin-1') as f:
+                content = f.read()
+
+        return content, 200, {'Content-Type': 'text/plain; charset=utf-8'}
+    except Exception as e:
+        app_logger.error(f"Error reading text file {file_path}: {e}")
+        return f"Error reading file: {str(e)}", 500
+
 
 #####################################
 #       Rename Files/Folders        #
@@ -6426,8 +6463,16 @@ def search_comicvine_metadata():
         # Add ComicInfo.xml to the CBZ file
         add_comicinfo_to_cbz(file_path, comicinfo_xml)
 
+        # Auto-move file if enabled
+        new_file_path = None
+        try:
+            new_file_path = comicvine.auto_move_file(file_path, selected_volume, app.config)
+        except Exception as move_error:
+            app_logger.error(f"Auto-move failed but metadata was added successfully: {str(move_error)}")
+            # Continue execution - metadata was added successfully even if move failed
+
         # Return success with metadata and rename configuration
-        return jsonify({
+        response_data = {
             "success": True,
             "metadata": comicinfo_data,
             "image_url": issue_data.get('image_url'),
@@ -6438,9 +6483,18 @@ def search_comicvine_metadata():
             },
             "rename_config": {
                 "enabled": app.config.get("ENABLE_CUSTOM_RENAME", False),
-                "pattern": app.config.get("CUSTOM_RENAME_PATTERN", "")
+                "pattern": app.config.get("CUSTOM_RENAME_PATTERN", ""),
+                "auto_rename": app.config.get("ENABLE_AUTO_RENAME", False)
             }
-        })
+        }
+
+        # Add new file path to response if file was moved
+        if new_file_path:
+            response_data["moved"] = True
+            response_data["new_file_path"] = new_file_path
+            app_logger.info(f"✅ File moved to: {new_file_path}")
+
+        return jsonify(response_data)
 
     except Exception as e:
         app_logger.error(f"Error in ComicVine search: {str(e)}")
@@ -6493,9 +6547,12 @@ def search_comicvine_metadata_with_selection():
             }), 404
 
         # Create volume_data dict with the volume ID and publisher for metadata
+        # Also include name and start_year for auto-move functionality
         volume_data = {
             'id': volume_id,
-            'publisher_name': publisher_name
+            'publisher_name': publisher_name,
+            'name': issue_data.get('volume_name'),  # Series name from issue data
+            'start_year': issue_data.get('year')  # Use issue year as fallback for start_year
         }
 
         # Map to ComicInfo format
@@ -6507,16 +6564,33 @@ def search_comicvine_metadata_with_selection():
         # Add ComicInfo.xml to the CBZ file
         add_comicinfo_to_cbz(file_path, comicinfo_xml)
 
+        # Auto-move file if enabled
+        new_file_path = None
+        try:
+            new_file_path = comicvine.auto_move_file(file_path, volume_data, app.config)
+        except Exception as move_error:
+            app_logger.error(f"Auto-move failed but metadata was added successfully: {str(move_error)}")
+            # Continue execution - metadata was added successfully even if move failed
+
         # Return success with metadata and rename configuration
-        return jsonify({
+        response_data = {
             "success": True,
             "metadata": comicinfo_data,
             "image_url": issue_data.get('image_url'),
             "rename_config": {
                 "enabled": app.config.get("ENABLE_CUSTOM_RENAME", False),
-                "pattern": app.config.get("CUSTOM_RENAME_PATTERN", "")
+                "pattern": app.config.get("CUSTOM_RENAME_PATTERN", ""),
+                "auto_rename": app.config.get("ENABLE_AUTO_RENAME", False)
             }
-        })
+        }
+
+        # Add new file path to response if file was moved
+        if new_file_path:
+            response_data["moved"] = True
+            response_data["new_file_path"] = new_file_path
+            app_logger.info(f"✅ File moved to: {new_file_path}")
+
+        return jsonify(response_data)
 
     except Exception as e:
         app_logger.error(f"Error in ComicVine search with selection: {str(e)}")

@@ -8,6 +8,8 @@ including volume (series) search, issue search, and metadata mapping to ComicInf
 from app_logging import app_logger
 from datetime import datetime, date
 from typing import Optional, Dict, List, Any
+import os
+import shutil
 
 try:
     from simyan.comicvine import Comicvine
@@ -440,4 +442,96 @@ def search_and_get_metadata(api_key: str, series_name: str, issue_number: str, y
 
     except Exception as e:
         app_logger.error(f"Error in search_and_get_metadata: {str(e)}")
+        raise
+
+
+def auto_move_file(file_path: str, volume_data: Dict[str, Any], config: Dict[str, Any]) -> Optional[str]:
+    """
+    Automatically move a file to an organized location based on the custom move pattern.
+
+    Args:
+        file_path: Current absolute path to the file
+        volume_data: Volume data containing 'name', 'start_year', 'publisher_name'
+        config: Flask app config with ENABLE_AUTO_MOVE and CUSTOM_MOVE_PATTERN
+
+    Returns:
+        New file path if moved successfully, None if not moved
+
+    Raises:
+        Exception: If file move fails
+    """
+    try:
+        # Check if auto-move is enabled
+        if not config.get("ENABLE_AUTO_MOVE", False):
+            app_logger.debug("Auto-move is disabled in config")
+            return None
+
+        # Get the custom move pattern
+        move_pattern = config.get("CUSTOM_MOVE_PATTERN", "")
+        if not move_pattern:
+            app_logger.warning("CUSTOM_MOVE_PATTERN is empty, skipping auto-move")
+            return None
+
+        # Extract metadata values for pattern replacement
+        series_name = volume_data.get('name', '')
+        start_year = str(volume_data.get('start_year', '')) if volume_data.get('start_year') else ''
+        publisher = volume_data.get('publisher_name', '')
+
+        # Log the metadata values
+        app_logger.info(f"📦 Auto-move preparation - series_name: '{series_name}', start_year: '{start_year}', publisher: '{publisher}'")
+
+        # Replace pattern placeholders with actual values
+        folder_structure = move_pattern
+        folder_structure = folder_structure.replace('{series_name}', series_name)
+        folder_structure = folder_structure.replace('{start_year}', start_year)
+        folder_structure = folder_structure.replace('{publisher}', publisher)
+
+        # Handle other optional placeholders that might be in the pattern
+        # These won't have values from volume data, so we'll just remove them or keep them as-is
+        folder_structure = folder_structure.replace('{volume_number}', '')
+        folder_structure = folder_structure.replace('{issue_number}', '')
+
+        # Clean up any double slashes or trailing slashes
+        folder_structure = folder_structure.replace('//', '/').strip('/')
+
+        app_logger.info(f"📂 Computed folder structure: '{folder_structure}'")
+
+        # Construct the target directory path
+        # Base directory is /data
+        base_dir = '/data'
+        target_dir = os.path.join(base_dir, folder_structure)
+
+        app_logger.info(f"🎯 Target directory: '{target_dir}'")
+
+        # Create target directory if it doesn't exist
+        os.makedirs(target_dir, exist_ok=True)
+        app_logger.info(f"✅ Target directory created/verified: '{target_dir}'")
+
+        # Get the filename from the current path
+        filename = os.path.basename(file_path)
+
+        # Construct the new file path
+        new_file_path = os.path.join(target_dir, filename)
+
+        # Check if source file exists
+        if not os.path.exists(file_path):
+            app_logger.error(f"❌ Source file does not exist: '{file_path}'")
+            return None
+
+        # Check if a file with the same name already exists at the target
+        if os.path.exists(new_file_path):
+            app_logger.warning(f"⚠️ File already exists at target location: '{new_file_path}', skipping move")
+            return None
+
+        # Move the file
+        app_logger.info(f"🚚 Moving file from '{file_path}' to '{new_file_path}'")
+        shutil.move(file_path, new_file_path)
+        app_logger.info(f"✅ File successfully moved to: '{new_file_path}'")
+
+        return new_file_path
+
+    except Exception as e:
+        app_logger.error(f"❌ Error during auto-move: {str(e)}")
+        import traceback
+        app_logger.error(f"Traceback: {traceback.format_exc()}")
         raise
