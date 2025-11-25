@@ -5,7 +5,7 @@ This module provides functions to search for and retrieve comic metadata from Co
 including volume (series) search, issue search, and metadata mapping to ComicInfo.xml format.
 """
 
-import logging
+from app_logging import app_logger
 from datetime import datetime, date
 from typing import Optional, Dict, List, Any
 
@@ -16,9 +16,6 @@ try:
     SIMYAN_AVAILABLE = True
 except ImportError:
     SIMYAN_AVAILABLE = False
-
-logger = logging.getLogger(__name__)
-
 
 def is_simyan_available() -> bool:
     """Check if the Simyan library is available."""
@@ -44,7 +41,7 @@ def search_volumes(api_key: str, series_name: str, year: Optional[int] = None) -
         raise Exception("Simyan library not installed. Install with: pip install simyan")
 
     try:
-        logger.info(f"Searching ComicVine for volume: '{series_name}' (year: {year})")
+        app_logger.info(f"Searching ComicVine for volume: '{series_name}' (year: {year})")
 
         # Initialize ComicVine API client
         cv = Comicvine(api_key=api_key)
@@ -53,7 +50,7 @@ def search_volumes(api_key: str, series_name: str, year: Optional[int] = None) -
         volumes = cv.search(resource=ComicvineResource.VOLUME, query=series_name)
 
         if not volumes:
-            logger.info(f"No volumes found for '{series_name}'")
+            app_logger.info(f"No volumes found for '{series_name}'")
             return []
 
         # Convert to simple dict format
@@ -73,7 +70,7 @@ def search_volumes(api_key: str, series_name: str, year: Optional[int] = None) -
                 vol_dict["description"] = vol_dict["description"][:200] + "..."
             results.append(vol_dict)
 
-        logger.info(f"Found {len(results)} volumes")
+        app_logger.info(f"Found {len(results)} volumes")
 
         # If year is provided, sort by closest year match
         if year:
@@ -82,7 +79,7 @@ def search_volumes(api_key: str, series_name: str, year: Optional[int] = None) -
         return results
 
     except Exception as e:
-        logger.error(f"Error searching ComicVine volumes: {str(e)}")
+        app_logger.error(f"Error searching ComicVine volumes: {str(e)}")
         raise
 
 
@@ -125,7 +122,7 @@ def get_issue_by_number(api_key: str, volume_id: int, issue_number: str, year: O
         raise Exception("Simyan library not installed. Install with: pip install simyan")
 
     try:
-        logger.info(f"Searching for issue #{issue_number} in volume {volume_id} (year: {year})")
+        app_logger.info(f"Searching for issue #{issue_number} in volume {volume_id} (year: {year})")
 
         # Initialize ComicVine API client
         cv = Comicvine(api_key=api_key)
@@ -137,7 +134,7 @@ def get_issue_by_number(api_key: str, volume_id: int, issue_number: str, year: O
         issues = cv.list_issues(params={"filter": filter_str})
 
         if not issues:
-            logger.info(f"No issues found for volume {volume_id}, issue #{issue_number}")
+            app_logger.info(f"No issues found for volume {volume_id}, issue #{issue_number}")
             return None
 
         # If year is provided and multiple issues found, filter by year
@@ -146,7 +143,7 @@ def get_issue_by_number(api_key: str, volume_id: int, issue_number: str, year: O
 
         # If still multiple issues, take the first one
         if not issues:
-            logger.info(f"No issues found matching year {year}")
+            app_logger.info(f"No issues found matching year {year}")
             return None
 
         basic_issue = issues[0]
@@ -157,12 +154,12 @@ def get_issue_by_number(api_key: str, volume_id: int, issue_number: str, year: O
         # Convert to dict format
         issue_dict = _issue_to_dict(issue)
 
-        logger.info(f"Found issue: {issue_dict['name']} (ID: {issue_dict['id']})")
+        app_logger.info(f"Found issue: {issue_dict['name']} (ID: {issue_dict['id']})")
 
         return issue_dict
 
     except Exception as e:
-        logger.error(f"Error getting ComicVine issue: {str(e)}")
+        app_logger.error(f"Error getting ComicVine issue: {str(e)}")
         raise
 
 
@@ -220,25 +217,25 @@ def _issue_to_dict(issue: Any) -> Dict[str, Any]:
             month = date_value.month
             day = date_value.day
             date_str = date_value.strftime("%Y-%m-%d")
-            logger.info(f"DEBUG _issue_to_dict: date/datetime object - year={year}, month={month}, day={day}")
+            app_logger.info(f"DEBUG _issue_to_dict: date/datetime object - year={year}, month={month}, day={day}")
         elif isinstance(date_value, str):
             # String format
             date_str = date_value
             year = _extract_year_from_date(date_str)
-            logger.info(f"DEBUG _issue_to_dict: date_str={date_str}, extracted year={year}")
+            app_logger.info(f"DEBUG _issue_to_dict: date_str={date_str}, extracted year={year}")
             try:
                 date_obj = datetime.strptime(date_str, "%Y-%m-%d")
                 month = date_obj.month
                 day = date_obj.day
-                logger.info(f"DEBUG _issue_to_dict: parsed month={month}, day={day}")
+                app_logger.info(f"DEBUG _issue_to_dict: parsed month={month}, day={day}")
             except (ValueError, TypeError):
-                logger.warning(f"DEBUG _issue_to_dict: Failed to parse date_str={date_str}")
+                app_logger.warning(f"DEBUG _issue_to_dict: Failed to parse date_str={date_str}")
                 pass
         else:
             # Unknown type - try converting to string
             date_str = str(date_value)
             year = _extract_year_from_date(date_str)
-            logger.info(f"DEBUG _issue_to_dict: unknown type {type(date_value)}, converted to string={date_str}, year={year}")
+            app_logger.info(f"DEBUG _issue_to_dict: unknown type {type(date_value)}, converted to string={date_str}, year={year}")
 
     # Extract person credits (creators)
     writers = []
@@ -391,7 +388,7 @@ def map_to_comicinfo(issue_data: Dict[str, Any], volume_data: Optional[Dict[str,
     }
 
     # Debug logging for date fields
-    logger.info(f"DEBUG map_to_comicinfo: cover_date={issue_data.get('cover_date')}, year={issue_data.get('year')}, month={issue_data.get('month')}, day={issue_data.get('day')}")
+    app_logger.info(f"DEBUG map_to_comicinfo: cover_date={issue_data.get('cover_date')}, year={issue_data.get('year')}, month={issue_data.get('month')}, day={issue_data.get('day')}")
 
     # Remove None values
     return {k: v for k, v in comicinfo.items() if v is not None}
@@ -418,12 +415,12 @@ def search_and_get_metadata(api_key: str, series_name: str, issue_number: str, y
         volumes = search_volumes(api_key, series_name, year)
 
         if not volumes:
-            logger.info(f"No volumes found for '{series_name}'")
+            app_logger.info(f"No volumes found for '{series_name}'")
             return None
 
         # Auto-select first volume (already sorted by year if provided)
         selected_volume = volumes[0]
-        logger.info(f"Auto-selected volume: {selected_volume['name']} ({selected_volume['start_year']})")
+        app_logger.info(f"Auto-selected volume: {selected_volume['name']} ({selected_volume['start_year']})")
 
         # Get the issue
         issue_data = get_issue_by_number(api_key, selected_volume['id'], issue_number, year)
@@ -442,5 +439,5 @@ def search_and_get_metadata(api_key: str, series_name: str, issue_number: str, y
         return comicinfo
 
     except Exception as e:
-        logger.error(f"Error in search_and_get_metadata: {str(e)}")
+        app_logger.error(f"Error in search_and_get_metadata: {str(e)}")
         raise

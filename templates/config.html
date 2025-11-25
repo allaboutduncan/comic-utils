@@ -274,9 +274,9 @@
             <div class="row mt-3">
                 <div class="col-md-8">
                     <label for="customMovePattern" class="form-label">Custom Move Pattern:</label>
-                    <input type="text" name="customMovePattern" id="customMovePattern" value="{{ customMovePattern }}" class="form-control" placeholder="e.g., {publisher}/{series_name}/v{year}">
+                    <input type="text" name="customMovePattern" id="customMovePattern" value="{{ customMovePattern }}" class="form-control" placeholder="e.g., {publisher}/{series_name}/v{start_year}">
                     <small class="form-text text-muted">
-                        Define the folder structure for auto-moved files. Available variables: <code>{publisher}</code>, <code>{series_name}</code>, <code>{volume_number}</code>, <code>{year}</code>, <code>{issue_number}</code>
+                        Define the folder structure for auto-moved files. Available variables: <code>{publisher}</code>, <code>{series_name}</code>, <code>{volume_number}</code>, <code>{start_year}</code>, <code>{issue_number}</code>
                     </small>
                 </div>
                 <div class="col-md-4">
@@ -291,9 +291,9 @@
                 <div class="col-md-12">
                     <small class="text-muted">
                         <strong>Examples:</strong><br>
-                        • <code>{publisher}/{series_name}/v{year}</code> → <code>Marvel/Spider-Man 2099/v1992/</code><br>
+                        • <code>{publisher}/{series_name}/v{start_year}</code> → <code>Marvel/Spider-Man 2099/v1992/</code><br>
                         • <code>{publisher}/{series_name}</code> → <code>Marvel/Spider-Man 2099/</code><br>
-                        • <code>{series_name} [{year}]</code> → <code>Spider-Man 2099 [1992]/</code><br>
+                        • <code>{series_name} [{start_year}]</code> → <code>Spider-Man 2099 [1992]/</code><br>
                         • <code>{publisher}/{volume_number}</code> → <code>Marvel/v2/</code>
                     </small>
                 </div>
@@ -802,21 +802,21 @@
     function updateRenamePreview() {
         const patternInput = document.getElementById('customRenamePattern');
         const previewElement = document.getElementById('renamePreview');
-        
+
         if (!patternInput || !previewElement) return;
-        
+
         const pattern = patternInput.value.trim();
         if (!pattern) {
             previewElement.textContent = 'Enter a pattern to see preview...';
             return;
         }
-        
+
         // Sample values for preview
         const sampleValues = {
             publisher: 'Marvel',
             series_name: 'Spider-Man 2099',
             volume_number: 'v2',
-            year: '1992',
+            start_year: '1992',
             issue_number: '044'
         };
 
@@ -836,7 +836,7 @@
         result = result.replace(/\{publisher\}/g, values.publisher || '');
         result = result.replace(/\{series_name\}/g, values.series_name || '');
         result = result.replace(/\{volume_number\}/g, values.volume_number || '');
-        result = result.replace(/\{year\}/g, values.year || '');
+        result = result.replace(/\{start_year\}/g, values.start_year || '');
         result = result.replace(/\{issue_number\}/g, values.issue_number || '');
 
         // Clean up extra spaces
@@ -877,7 +877,7 @@
             publisher: 'Marvel',
             series_name: 'Spider-Man 2099',
             volume_number: 'v2',
-            year: '1992',
+            start_year: '1992',
             issue_number: '044'
         };
 

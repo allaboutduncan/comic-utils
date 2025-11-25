@@ -52,7 +52,7 @@ def load_config():
         "CUSTOM_RENAME_PATTERN": "",
         "ENABLE_AUTO_RENAME": "False",
         "ENABLE_AUTO_MOVE": "False",
-        "CUSTOM_MOVE_PATTERN": "{publisher}/{series_name}/v{year}",
+        "CUSTOM_MOVE_PATTERN": "{publisher}/{series_name}/v{start_year}",
         "ENABLE_DEBUG_LOGGING": "False",
         "CACHE_DIR": "/cache"
     }
@@ -124,7 +124,7 @@ def load_flask_config(app, logger=None):
     app.config["CUSTOM_RENAME_PATTERN"] = settings.get("CUSTOM_RENAME_PATTERN", "")
     app.config["ENABLE_AUTO_RENAME"] = config.getboolean("SETTINGS", "ENABLE_AUTO_RENAME", fallback=False)
     app.config["ENABLE_AUTO_MOVE"] = config.getboolean("SETTINGS", "ENABLE_AUTO_MOVE", fallback=False)
-    app.config["CUSTOM_MOVE_PATTERN"] = settings.get("CUSTOM_MOVE_PATTERN", "{publisher}/{series_name}/v{year}")
+    app.config["CUSTOM_MOVE_PATTERN"] = settings.get("CUSTOM_MOVE_PATTERN", "{publisher}/{series_name}/v{start_year}")
     app.config["ENABLE_DEBUG_LOGGING"] = config.getboolean("SETTINGS", "ENABLE_DEBUG_LOGGING", fallback=False)
     app.config["CACHE_DIR"] = settings.get("CACHE_DIR", "/cache")
 
