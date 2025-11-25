@@ -439,7 +439,7 @@ def cropCenter(image_path):
 def cropFreeForm(image_path, x, y, width, height):
     """
     Crop an image using custom coordinates.
-    Saves the cropped version as {filename}-a{ext} and keeps the original as {filename}{ext}.
+    Renames the original to {filename}-a{ext} as backup and saves cropped as {filename}{ext}.
 
     Args:
         image_path: Full path to the image file
@@ -449,9 +449,12 @@ def cropFreeForm(image_path, x, y, width, height):
         height: Height of the crop area
 
     Returns:
-        Path to the new cropped image
+        Tuple of (cropped_image_path, backup_image_path)
+        - cropped_image_path: Path to the cropped image (same as original filename)
+        - backup_image_path: Path to the backup of the original image (with -a suffix)
     """
     file_name, file_extension = os.path.splitext(image_path)
+    backup_image_path = f"{file_name}-a{file_extension}"
 
     try:
         # Open the image
@@ -481,13 +484,16 @@ def cropFreeForm(image_path, x, y, width, height):
             # Crop the image
             cropped_img = img.crop(crop_box)
 
-            # Save the cropped image with -a suffix
-            cropped_image_path = f"{file_name}-a{file_extension}"
-            cropped_img.save(cropped_image_path)
+            # Rename original to backup (with -a suffix)
+            os.rename(image_path, backup_image_path)
 
-        app_logger.info(f"Free form crop processed: {os.path.basename(image_path)}, cropped saved as {cropped_image_path}")
+            # Save the cropped image with the original filename
+            cropped_img.save(image_path)
 
-        return cropped_image_path, image_path
+        app_logger.info(f"Free form crop processed: {os.path.basename(image_path)}, original backed up as {os.path.basename(backup_image_path)}")
+
+        # Return: cropped image path (original name), backup path (with -a suffix)
+        return image_path, backup_image_path
 
     except Exception as e:
         app_logger.error(f"Error processing free form crop: {e}")

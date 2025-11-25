@@ -5814,23 +5814,33 @@ function deleteCardImage(buttonElement) {
     return;
   }
 
-  // Check for full path first (newly created files), then fall back to relative path (original files)
+  // Check for full path first (newly created files from JS)
   let fullPath = span.dataset.fullPath || span.getAttribute('data-full-path');
 
   if (!fullPath) {
-    // Fall back to constructing from folder + relative path for original cards
-    const folderName = document.getElementById('editInlineFolderName').value;
-    if (!folderName) {
-      console.error("Folder name not found in #editInlineFolderName.");
-      return;
-    }
+    // Check data-rel-path attribute
     const relPath = span.dataset.relPath || span.getAttribute('data-rel-path');
     if (!relPath) {
       console.error("No path found in span:", span);
       return;
     }
-    fullPath = `${folderName}/${relPath}`;
+
+    // Check if relPath is actually a full path (starts with /)
+    if (relPath.startsWith('/')) {
+      // Server-side HTML sets data-rel-path to full path
+      fullPath = relPath;
+    } else {
+      // It's a real relative path, construct full path
+      const folderName = document.getElementById('editInlineFolderName').value;
+      if (!folderName) {
+        console.error("Folder name not found in #editInlineFolderName.");
+        return;
+      }
+      fullPath = `${folderName}/${relPath}`;
+    }
   }
+
+  console.log('Deleting file:', fullPath);
 
   fetch('/delete', {
     method: 'POST',
@@ -5896,30 +5906,37 @@ function processCropImage(buttonElement, cropType) {
     return;
   }
 
-  // Check for full path first (newly created files), then fall back to relative path (original files)
+  // Check for full path first (newly created files from JS)
   let fullPath = span.dataset.fullPath || span.getAttribute('data-full-path');
 
   if (!fullPath) {
-    // Fall back to constructing from folder + relative path for original cards
-    const folderElement = document.getElementById('editInlineFolderName');
-    if (!folderElement) {
-      console.error("Folder name input element not found.");
-      return;
-    }
-
-    const folderName = folderElement.value;
-    if (!folderName) {
-      console.error("Folder name is empty.");
-      return;
-    }
-
+    // Check data-rel-path attribute
     const relPath = span.dataset.relPath || span.getAttribute('data-rel-path');
     if (!relPath) {
       console.error("No path found in span:", span);
       return;
     }
 
-    fullPath = `${folderName}/${relPath}`;
+    // Check if relPath is actually a full path (starts with /)
+    if (relPath.startsWith('/')) {
+      // Server-side HTML sets data-rel-path to full path
+      fullPath = relPath;
+    } else {
+      // It's a real relative path, construct full path
+      const folderElement = document.getElementById('editInlineFolderName');
+      if (!folderElement) {
+        console.error("Folder name input element not found.");
+        return;
+      }
+
+      const folderName = folderElement.value;
+      if (!folderName) {
+        console.error("Folder name is empty.");
+        return;
+      }
+
+      fullPath = `${folderName}/${relPath}`;
+    }
   }
 
   fetch('/crop', {
@@ -6071,34 +6088,54 @@ function performRename(input) {
     const dirPath = oldPath.substring(0, oldPath.lastIndexOf('/'));
     newPath = `${dirPath}/${newFilename}`;
   } else {
-    // For original files with relative path
-    const folderName = document.getElementById('editInlineFolderName').value;
+    // Check data-rel-path attribute
     const oldRelPath = input.dataset.relPath || input.getAttribute('data-rel-path');
     if (!oldRelPath) {
       console.error("No path found in input:", input);
       return;
     }
 
-    // Extract just the filename from the relative path for comparison
-    oldFilename = oldRelPath.includes('/')
-      ? oldRelPath.substring(oldRelPath.lastIndexOf('/') + 1)
-      : oldRelPath;
+    // Check if oldRelPath is actually a full path (starts with /)
+    if (oldRelPath.startsWith('/')) {
+      // Server-side HTML sets data-rel-path to full path
+      oldFilename = oldRelPath.substring(oldRelPath.lastIndexOf('/') + 1);
 
-    // Cancel if the filename hasn't changed
-    if (newFilename === oldFilename) {
-      input.classList.add('d-none');
-      input.previousElementSibling.classList.remove('d-none');
-      return;
+      // Cancel if the filename hasn't changed
+      if (newFilename === oldFilename) {
+        input.classList.add('d-none');
+        input.previousElementSibling.classList.remove('d-none');
+        return;
+      }
+
+      // Construct new path by replacing the filename
+      const dirPath = oldRelPath.substring(0, oldRelPath.lastIndexOf('/'));
+      oldPath = oldRelPath;
+      newPath = `${dirPath}/${newFilename}`;
+    } else {
+      // It's a real relative path, construct full path
+      const folderName = document.getElementById('editInlineFolderName').value;
+
+      // Extract just the filename from the relative path for comparison
+      oldFilename = oldRelPath.includes('/')
+        ? oldRelPath.substring(oldRelPath.lastIndexOf('/') + 1)
+        : oldRelPath;
+
+      // Cancel if the filename hasn't changed
+      if (newFilename === oldFilename) {
+        input.classList.add('d-none');
+        input.previousElementSibling.classList.remove('d-none');
+        return;
+      }
+
+      // Construct new relative path (preserve subdirectory if any)
+      const dirPath = oldRelPath.includes('/')
+        ? oldRelPath.substring(0, oldRelPath.lastIndexOf('/'))
+        : '';
+      const newRelPath = dirPath ? `${dirPath}/${newFilename}` : newFilename;
+
+      oldPath = `${folderName}/${oldRelPath}`;
+      newPath = `${folderName}/${newRelPath}`;
     }
-
-    // Construct new relative path (preserve subdirectory if any)
-    const dirPath = oldRelPath.includes('/')
-      ? oldRelPath.substring(0, oldRelPath.lastIndexOf('/'))
-      : '';
-    const newRelPath = dirPath ? `${dirPath}/${newFilename}` : newFilename;
-
-    oldPath = `${folderName}/${oldRelPath}`;
-    newPath = `${folderName}/${newRelPath}`;
   }
 
   console.log("Renaming", oldPath, "to", newPath);
@@ -6186,24 +6223,31 @@ function cropImageFreeForm(buttonElement) {
     return;
   }
 
-  // Check for full path first (newly created files), then fall back to relative path (original files)
+  // Check for full path first (newly created files from JS)
   let fullPath = span.dataset.fullPath || span.getAttribute('data-full-path');
 
   if (!fullPath) {
-    // Fall back to constructing from folder + relative path for original cards
-    const folderName = document.getElementById('editInlineFolderName').value;
-    if (!folderName) {
-      console.error("Folder name not found.");
-      return;
-    }
-
+    // Check data-rel-path attribute
     const relPath = span.dataset.relPath || span.getAttribute('data-rel-path');
     if (!relPath) {
       console.error("Unable to determine file path.");
       return;
     }
 
-    fullPath = `${folderName}/${relPath}`;
+    // Check if relPath is actually a full path (starts with /)
+    if (relPath.startsWith('/')) {
+      // Server-side HTML sets data-rel-path to full path
+      fullPath = relPath;
+    } else {
+      // It's a real relative path, construct full path
+      const folderName = document.getElementById('editInlineFolderName').value;
+      if (!folderName) {
+        console.error("Folder name not found.");
+        return;
+      }
+
+      fullPath = `${folderName}/${relPath}`;
+    }
   }
 
   // Store the data for later use
@@ -6252,74 +6296,341 @@ function cropImageFreeForm(buttonElement) {
 
 /**
  * Setup crop handlers for the modal
+ * Note: All handler functions are defined inside this function to create proper closures
+ * Features:
+ * - Click and drag to draw crop selection
+ * - Hold SPACE to pan/reposition the selection
+ * - Hold SHIFT to constrain to 2:3 aspect ratio
  */
 function setupCropHandlers() {
   const cropImage = document.getElementById('cropImage');
   const cropContainer = document.getElementById('cropImageContainer');
   const cropSelection = document.getElementById('cropSelection');
+  const confirmBtn = document.getElementById('confirmCropBtn');
 
   // Replace image element to remove old listeners
   const newCropImage = cropImage.cloneNode(true);
   cropImage.parentNode.replaceChild(newCropImage, cropImage);
   cropData.imageElement = newCropImage;
 
-  // Setup mouse events for cropping
+  // Keyboard handler for spacebar (pan mode)
+  function handleKeyDown(e) {
+    if (e.key === ' ' || e.code === 'Space') {
+      e.preventDefault();
+
+      // Don't change mode if already in spacebar mode
+      if (cropData.spacebarPressed) return;
+
+      cropData.spacebarPressed = true;
+      cropContainer.style.cursor = 'move';
+
+      // If we're currently drawing, pause drawing and switch to panning
+      if (cropData.isDragging) {
+        cropData.wasDrawingBeforePan = true;
+        cropData.isDragging = false;
+        cropData.isPanning = false;
+
+        // Save current selection dimensions
+        cropData.savedWidth = Math.abs(cropData.endX - cropData.startX);
+        cropData.savedHeight = Math.abs(cropData.endY - cropData.startY);
+      }
+    }
+  }
+
+  function handleKeyUp(e) {
+    if (e.key === ' ' || e.code === 'Space') {
+      e.preventDefault();
+      cropData.spacebarPressed = false;
+      cropContainer.style.cursor = 'crosshair';
+
+      // If we were panning, stop panning
+      if (cropData.isPanning) {
+        cropData.isPanning = false;
+      }
+
+      // If we were drawing before pan, resume drawing
+      if (cropData.wasDrawingBeforePan) {
+        cropData.isDragging = true;
+        cropData.wasDrawingBeforePan = false;
+      }
+    }
+  }
+
+  function startPan(e) {
+    e.preventDefault();
+    e.stopPropagation();
+
+    cropData.isPanning = true;
+    cropData.panStartX = e.clientX;
+    cropData.panStartY = e.clientY;
+
+    // Get current position
+    cropData.selectionLeft = parseInt(cropSelection.style.left) || 0;
+    cropData.selectionTop = parseInt(cropSelection.style.top) || 0;
+
+    document.addEventListener('mousemove', updatePan);
+    document.addEventListener('mouseup', endPan);
+  }
+
+  function updatePan(e) {
+    if (!cropData.isPanning) return;
+
+    e.preventDefault();
+    const deltaX = e.clientX - cropData.panStartX;
+    const deltaY = e.clientY - cropData.panStartY;
+
+    const newLeft = cropData.selectionLeft + deltaX;
+    const newTop = cropData.selectionTop + deltaY;
+
+    // Get container bounds
+    const containerRect = cropContainer.getBoundingClientRect();
+    const selectionWidth = parseInt(cropSelection.style.width) || 0;
+    const selectionHeight = parseInt(cropSelection.style.height) || 0;
+
+    // Constrain to container bounds
+    const constrainedLeft = Math.max(0, Math.min(newLeft, containerRect.width - selectionWidth));
+    const constrainedTop = Math.max(0, Math.min(newTop, containerRect.height - selectionHeight));
+
+    cropSelection.style.left = constrainedLeft + 'px';
+    cropSelection.style.top = constrainedTop + 'px';
+
+    // Update crop data coordinates
+    cropData.startX = constrainedLeft;
+    cropData.startY = constrainedTop;
+    cropData.endX = constrainedLeft + selectionWidth;
+    cropData.endY = constrainedTop + selectionHeight;
+  }
+
+  function endPan(e) {
+    cropData.isPanning = false;
+    document.removeEventListener('mousemove', updatePan);
+    document.removeEventListener('mouseup', endPan);
+  }
+
+  function startCrop(e) {
+    // Check if clicking on the selection box with spacebar pressed
+    if (e.target === cropSelection && cropData.spacebarPressed) {
+      startPan(e);
+      return;
+    }
+
+    // If spacebar is pressed and we have a selection, start panning
+    if (cropData.spacebarPressed && cropSelection.style.display !== 'none') {
+      startPan(e);
+      return;
+    }
+
+    if (e.button !== 0) return; // Only left click
+    e.preventDefault();
+
+    cropData.isDragging = true;
+
+    const imageRect = newCropImage.getBoundingClientRect();
+    const containerRect = newCropImage.parentElement.getBoundingClientRect();
+
+    // Calculate image offset within container
+    const imageOffsetX = imageRect.left - containerRect.left;
+    const imageOffsetY = imageRect.top - containerRect.top;
+
+    // Calculate position relative to the image container
+    let startX = e.clientX - containerRect.left;
+    let startY = e.clientY - containerRect.top;
+
+    // Constrain starting position to image bounds
+    startX = Math.max(imageOffsetX, Math.min(startX, imageOffsetX + imageRect.width));
+    startY = Math.max(imageOffsetY, Math.min(startY, imageOffsetY + imageRect.height));
+
+    cropData.startX = startX;
+    cropData.startY = startY;
+
+    cropSelection.style.left = cropData.startX + 'px';
+    cropSelection.style.top = cropData.startY + 'px';
+    cropSelection.style.width = '0px';
+    cropSelection.style.height = '0px';
+    cropSelection.style.display = 'block';
+
+    confirmBtn.disabled = true;
+  }
+
+  function updateCrop(e) {
+    // Handle panning mode if spacebar is pressed during dragging
+    if (cropData.spacebarPressed && cropSelection.style.display !== 'none') {
+      if (!cropData.isPanning) {
+        // Start panning
+        cropData.isPanning = true;
+        cropData.panStartX = e.clientX;
+        cropData.panStartY = e.clientY;
+        cropData.selectionLeft = parseInt(cropSelection.style.left) || 0;
+        cropData.selectionTop = parseInt(cropSelection.style.top) || 0;
+      }
+
+      // Pan the selection
+      e.preventDefault();
+      const deltaX = e.clientX - cropData.panStartX;
+      const deltaY = e.clientY - cropData.panStartY;
+
+      const newLeft = cropData.selectionLeft + deltaX;
+      const newTop = cropData.selectionTop + deltaY;
+
+      const imageRect = newCropImage.getBoundingClientRect();
+      const containerRect = cropContainer.getBoundingClientRect();
+
+      // Calculate image offset within container
+      const imageOffsetX = imageRect.left - containerRect.left;
+      const imageOffsetY = imageRect.top - containerRect.top;
+
+      const selectionWidth = parseInt(cropSelection.style.width) || 0;
+      const selectionHeight = parseInt(cropSelection.style.height) || 0;
+
+      // Constrain to image bounds
+      const constrainedLeft = Math.max(imageOffsetX, Math.min(newLeft, imageOffsetX + imageRect.width - selectionWidth));
+      const constrainedTop = Math.max(imageOffsetY, Math.min(newTop, imageOffsetY + imageRect.height - selectionHeight));
+
+      cropSelection.style.left = constrainedLeft + 'px';
+      cropSelection.style.top = constrainedTop + 'px';
+
+      // Update crop data coordinates (relative to container)
+      cropData.startX = constrainedLeft;
+      cropData.startY = constrainedTop;
+      cropData.endX = constrainedLeft + selectionWidth;
+      cropData.endY = constrainedTop + selectionHeight;
+
+      return;
+    }
+
+    if (!cropData.isDragging) return;
+
+    e.preventDefault();
+
+    // Get both container and image bounds
+    const containerRect = newCropImage.parentElement.getBoundingClientRect();
+    const imageRect = newCropImage.getBoundingClientRect();
+
+    // Calculate image offset within container
+    const imageOffsetX = imageRect.left - containerRect.left;
+    const imageOffsetY = imageRect.top - containerRect.top;
+
+    // Get current mouse position relative to container
+    let currentX = e.clientX - containerRect.left;
+    let currentY = e.clientY - containerRect.top;
+
+    // Constrain current position to image bounds
+    currentX = Math.max(imageOffsetX, Math.min(currentX, imageOffsetX + imageRect.width));
+    currentY = Math.max(imageOffsetY, Math.min(currentY, imageOffsetY + imageRect.height));
+
+    let width = currentX - cropData.startX;
+    let height = currentY - cropData.startY;
+
+    // Apply aspect ratio constraint if Shift is pressed (2:3 ratio)
+    if (e.shiftKey) {
+      const aspectRatio = 2 / 3;
+
+      // Determine which dimension to constrain based on which is larger
+      if (Math.abs(width / height) > aspectRatio) {
+        // Width is too large, constrain it
+        width = height * aspectRatio;
+        currentX = cropData.startX + width;
+        // Re-constrain after aspect ratio adjustment
+        if (width > 0) {
+          currentX = Math.min(currentX, imageOffsetX + imageRect.width);
+          width = currentX - cropData.startX;
+        } else {
+          currentX = Math.max(currentX, imageOffsetX);
+          width = currentX - cropData.startX;
+        }
+      } else {
+        // Height is too large, constrain it
+        height = width / aspectRatio;
+        currentY = cropData.startY + height;
+        // Re-constrain after aspect ratio adjustment
+        if (height > 0) {
+          currentY = Math.min(currentY, imageOffsetY + imageRect.height);
+          height = currentY - cropData.startY;
+        } else {
+          currentY = Math.max(currentY, imageOffsetY);
+          height = currentY - cropData.startY;
+        }
+      }
+    }
+
+    // Handle negative width/height (dragging in different directions)
+    // Constrain the selection box to stay within image bounds
+    let finalLeft, finalTop, finalWidth, finalHeight;
+
+    if (width < 0) {
+      finalLeft = Math.max(imageOffsetX, cropData.startX + width);
+      finalWidth = cropData.startX - finalLeft;
+      cropData.endX = finalLeft;
+    } else {
+      finalLeft = cropData.startX;
+      finalWidth = Math.min(width, (imageOffsetX + imageRect.width) - cropData.startX);
+      cropData.endX = finalLeft + finalWidth;
+    }
+
+    if (height < 0) {
+      finalTop = Math.max(imageOffsetY, cropData.startY + height);
+      finalHeight = cropData.startY - finalTop;
+      cropData.endY = finalTop;
+    } else {
+      finalTop = cropData.startY;
+      finalHeight = Math.min(height, (imageOffsetY + imageRect.height) - cropData.startY);
+      cropData.endY = finalTop + finalHeight;
+    }
+
+    // Apply the constrained values to the selection box
+    cropSelection.style.left = finalLeft + 'px';
+    cropSelection.style.top = finalTop + 'px';
+    cropSelection.style.width = finalWidth + 'px';
+    cropSelection.style.height = finalHeight + 'px';
+  }
+
+  function endCrop(e) {
+    if (!cropData.isDragging) return;
+
+    cropData.isDragging = false;
+
+    // Enable confirm button if a valid selection was made
+    const width = Math.abs(cropData.endX - cropData.startX);
+    const height = Math.abs(cropData.endY - cropData.startY);
+
+    if (width > 10 && height > 10) {
+      confirmBtn.disabled = false;
+    } else {
+      cropSelection.style.display = 'none';
+    }
+  }
+
+  // Add keyboard listeners for spacebar
+  document.addEventListener('keydown', handleKeyDown);
+  document.addEventListener('keyup', handleKeyUp);
+
+  // Attach mouse events to the container for better coverage
   cropContainer.addEventListener('mousedown', startCrop);
   document.addEventListener('mousemove', updateCrop);
   document.addEventListener('mouseup', endCrop);
-}
 
-function startCrop(e) {
-  if (e.button !== 0) return; // Only left click
+  // Add mousedown listener to selection box for panning
+  cropSelection.addEventListener('mousedown', function (e) {
+    if (cropData.spacebarPressed) {
+      startPan(e);
+    }
+  });
 
-  const rect = document.getElementById('cropImageContainer').getBoundingClientRect();
-  cropData.isDragging = true;
-  cropData.startX = e.clientX - rect.left;
-  cropData.startY = e.clientY - rect.top;
-
-  const cropSelection = document.getElementById('cropSelection');
-  cropSelection.style.display = 'block';
-  cropSelection.style.left = cropData.startX + 'px';
-  cropSelection.style.top = cropData.startY + 'px';
-  cropSelection.style.width = '0px';
-  cropSelection.style.height = '0px';
-}
-
-function updateCrop(e) {
-  if (!cropData.isDragging) return;
-
-  const rect = document.getElementById('cropImageContainer').getBoundingClientRect();
-  cropData.endX = e.clientX - rect.left;
-  cropData.endY = e.clientY - rect.top;
-
-  const cropSelection = document.getElementById('cropSelection');
-  const left = Math.min(cropData.startX, cropData.endX);
-  const top = Math.min(cropData.startY, cropData.endY);
-  const width = Math.abs(cropData.endX - cropData.startX);
-  const height = Math.abs(cropData.endY - cropData.startY);
-
-  cropSelection.style.left = left + 'px';
-  cropSelection.style.top = top + 'px';
-  cropSelection.style.width = width + 'px';
-  cropSelection.style.height = height + 'px';
-}
-
-function endCrop() {
-  if (!cropData.isDragging) return;
-
-  cropData.isDragging = false;
-
-  const width = Math.abs(cropData.endX - cropData.startX);
-  const height = Math.abs(cropData.endY - cropData.startY);
-
-  // Enable confirm button if selection is valid
-  if (width > 10 && height > 10) {
-    document.getElementById('confirmCropBtn').disabled = false;
-  }
+  // Clean up all event listeners when modal is closed
+  const modal = document.getElementById('freeFormCropModal');
+  modal.addEventListener('hidden.bs.modal', function cleanupCropHandlers() {
+    document.removeEventListener('keydown', handleKeyDown);
+    document.removeEventListener('keyup', handleKeyUp);
+    document.removeEventListener('mousemove', updateCrop);
+    document.removeEventListener('mouseup', endCrop);
+    cropContainer.removeEventListener('mousedown', startCrop);
+    modal.removeEventListener('hidden.bs.modal', cleanupCropHandlers);
+  });
 }
 
 /**
  * Confirm and execute free-form crop
+ * Updates the original image with the cropped version and adds the original as a backup
  */
 function confirmFreeFormCrop() {
   const cropImage = document.getElementById('cropImage');
@@ -6374,23 +6685,36 @@ function confirmFreeFormCrop() {
     .then(response => response.json())
     .then(data => {
       if (data.success) {
-        showToast('Success', 'Image cropped successfully!', 'success');
-
-        // Close the crop modal
-        const cropModal = bootstrap.Modal.getInstance(document.getElementById('freeFormCropModal'));
+        // Close the crop modal ONLY (not the edit modal)
+        const cropModalElement = document.getElementById('freeFormCropModal');
+        const cropModal = bootstrap.Modal.getInstance(cropModalElement);
         if (cropModal) {
           cropModal.hide();
         }
 
-        // Reload the image in the edit modal
-        if (cropData.colElement) {
-          const img = cropData.colElement.querySelector('img');
-          if (img) {
-            // Force reload with cache busting
-            const timestamp = new Date().getTime();
-            img.src = img.src.split('?')[0] + '?' + timestamp;
-          }
+        // Update the cropped image in the existing card
+        const cardImg = cropData.colElement.querySelector('img');
+        if (cardImg && data.newImageData) {
+          cardImg.src = data.newImageData;
         }
+
+        // Add the backup image as a new card (if server provides it)
+        // The backup is the ORIGINAL image renamed (e.g., 026.jpg -> 026-a.jpg)
+        if (data.backupImagePath && data.backupImageData) {
+          const container = document.getElementById('editInlineContainer');
+
+          // Debug: Log the backup path to verify server response
+          console.log('Backup image path from server:', data.backupImagePath);
+          console.log('Backup filename:', data.backupImagePath.split('/').pop());
+
+          const newCardHTML = generateCardHTML(data.backupImagePath, data.backupImageData);
+          container.insertAdjacentHTML('beforeend', newCardHTML);
+
+          // Sort the cards after adding the new one
+          sortInlineEditCards();
+        }
+
+        showToast('Success', 'Free form crop completed successfully!', 'success');
       } else {
         showToast('Error', data.error || 'Failed to crop image', 'error');
       }
