@@ -624,6 +624,11 @@ function renderGrid(items) {
             // Determine if we're at root level (folders directly off /data)
             const isRootLevel = !currentPath || currentPath === '' || currentPath === '/data';
 
+            // Add root-folder class for CSS targeting
+            if (isRootLevel) {
+                gridItem.classList.add('root-folder');
+            }
+
             // Show actions menu for:
             // 1. Folders at root level (only Missing File Check)
             // 2. Folders with files directly (full menu)

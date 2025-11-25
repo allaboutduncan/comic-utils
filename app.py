@@ -13,6 +13,7 @@ import logging
 import signal
 import psutil
 import select
+import random
 from PIL import Image, ImageFilter, ImageDraw
 try:
     import pwd
@@ -3142,17 +3143,23 @@ def generate_folder_thumbnail():
 
         # Create fanned stack thumbnail
         CANVAS_SIZE = (200, 300)
-        THUMB_SIZE = (160, 245)
+        THUMB_SIZE = (150, 245)
+        ROTATION_LIMIT = 10
+        Y_OFFSET = 0
 
         final_canvas = Image.new('RGBA', CANVAS_SIZE, (0, 0, 0, 0))
 
-        # Rotation angles for back files (more rotation) - these will be pasted first
-        # Process in reverse so file 001 is pasted LAST (appears on top)
-        angles = [12, -8, 5, 0]  # Back files rotated more, front file at 0°
-        angles = angles[-len(cached_thumbs):]  # Take last N angles
-
-        # Reverse cached_thumbs so we paste from back to front (001 pasted last)
+        # Reverse cached_thumbs so we paste from back to front (001 pasted last/on top)
         reversed_thumbs = list(reversed(cached_thumbs))
+
+        # --- 3. Define Angles ---
+        angles = []
+        for i in range(len(reversed_thumbs)):
+            if i == len(reversed_thumbs) - 1:
+                angles.append(0)
+            else:
+                # Randomize rotation for background images
+                angles.append(random.randint(-ROTATION_LIMIT, ROTATION_LIMIT))
 
         for i, thumb_path in enumerate(reversed_thumbs):
             try:
@@ -3193,14 +3200,11 @@ def generate_folder_thumbnail():
                 angle = angles[i]
                 rotated_layer = layer.rotate(angle, resample=Image.Resampling.BICUBIC, expand=False)
 
-                # Position on canvas
+                # Position on canvas with Y_OFFSET to move stack down
                 final_x = (CANVAS_SIZE[0] - rotated_layer.width) // 2
-                final_y = (CANVAS_SIZE[1] - rotated_layer.height) // 2
+                final_y = ((CANVAS_SIZE[1] - rotated_layer.height) // 2) + Y_OFFSET
 
-                # Slight Y offset for stack effect
-                y_offset = (i - len(cached_thumbs)) * 5
-
-                final_canvas.paste(rotated_layer, (final_x, final_y + y_offset), rotated_layer)
+                final_canvas.paste(rotated_layer, (final_x, final_y), rotated_layer)
 
             except Exception as e:
                 app_logger.error(f"Error processing thumbnail {thumb_path}: {e}")
