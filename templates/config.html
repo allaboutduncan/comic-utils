@@ -9,534 +9,679 @@
     .spin {
         animation: spin 1s linear infinite;
     }
-    
+
     @keyframes spin {
-        from { transform: rotate(0deg); }
-        to { transform: rotate(360deg); }
+        from {
+            transform: rotate(0deg);
+        }
+
+        to {
+            transform: rotate(360deg);
+        }
     }
 </style>
 
 <div class="container-lg">
     <h2 class="text-primary-emphasis">App Settings</h2>
     <form method="POST" class="mt-4">
-        
-        <!-- Missing Issue Configuration -->
-        <div class="container p-4 border rounded shadow-sm mb-4">
-            <h4>Missing Issue Configuration</h4>
-            <p class="text-muted">Update these settings to ignore terms or files when the app is performing a <strong>Missing Issue</strong> scan.</p>
 
-            <div class="row">
-                <div class="col-md-6">
-                    <label for="ignored_terms" class="form-label">IGNORED TERMS:</label>
-                    <input type="text" name="ignored_terms" id="ignored_terms" value="{{ ignored_terms }}" class="form-control">
-                    <small class="form-text text-muted">
-                        Enter words or terms to ignore while performing a Missing Issue search. Terms must be comma-separated.
-                    </small>
-                </div>
+        <!-- Navigation Tabs -->
+        <ul class="nav nav-tabs mb-4" id="configTabs" role="tablist">
+            <li class="nav-item" role="presentation">
+                <button class="nav-link active" id="file-processing-tab" data-bs-toggle="tab"
+                    data-bs-target="#file-processing" type="button" role="tab" aria-controls="file-processing"
+                    aria-selected="true">File Processing</button>
+            </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link" id="download-api-tab" data-bs-toggle="tab" data-bs-target="#download-api"
+                    type="button" role="tab" aria-controls="download-api" aria-selected="false">Download and
+                    API</button>
+            </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link" id="system-perf-tab" data-bs-toggle="tab" data-bs-target="#system-perf"
+                    type="button" role="tab" aria-controls="system-perf" aria-selected="false">System and
+                    Performance</button>
+            </li>
+        </ul>
 
-                <div class="col-md-6">
-                    <label for="ignored_files" class="form-label">IGNORED FILES:</label>
-                    <input type="text" name="ignored_files" id="ignored_files" value="{{ ignored_files }}" class="form-control">
-                    <small class="form-text text-muted">
-                        Enter comma-separated file names to ignore when checking for missing issues (e.g., cover.jpg, cvinfo).
-                    </small>
-                </div>
-            </div>
-        </div>
+        <div class="tab-content" id="configTabsContent">
 
-        <!-- Directory Processing Configuration -->
-        <div class="container p-4 border rounded shadow-sm mb-4">
-            <h4>Directory & File Processing Settings</h4>
-            <p class="text-muted">Settings related to Directory processing features.</p>
+            <!-- ========================================== -->
+            <!-- TAB 1: File Processing -->
+            <!-- ========================================== -->
+            <div class="tab-pane fade show active" id="file-processing" role="tabpanel"
+                aria-labelledby="file-processing-tab">
 
-             <!-- Checkboxes for Traverse Subdirectories -->
-             <div class="row">
-                <div class="col-md-6">
-                    <div class="form-check form-switch">
-                        <input class="form-check-input" type="checkbox" role="switch" id="convertSubdirectories" name="convertSubdirectories" {% if convertSubdirectories %}checked{% endif %}>
-                        <label class="form-check-label" for="convertSubdirectories">{% if convertSubdirectories %}Disable{% else %}Enable{% endif %} Subdirectories for Conversion</label>
-                        <small class="form-text text-muted">
-                            <br />If enabled, when performing CBR --> CBZ conversion on a directory, CLU will convert all files in subdirectories as well.
-                        </small>
+                <!-- Folder Monitoring Configuration -->
+                <div class="container p-4 border rounded shadow-sm mb-4">
+                    <h4>Folder Monitoring</h4>
+                    <p class="text-muted">Configure the <code>Watched</code> and <code>Target</code> folders. Other
+                        monitoring features can be adjusted here as well.</p>
+
+                    <div class="row">
+                        <div class="col-md-6">
+                            <label for="watch" class="form-label">WATCH:</label>
+                            <input type="text" name="watch" id="watch" value="{{ watch }}" class="form-control">
+                            <small class="form-text text-muted">
+                                Enter the path to the directory to monitor for downloaded files.
+                            </small>
+                        </div>
+
+                        <div class="col-md-6">
+                            <label for="target" class="form-label">TARGET:</label>
+                            <input type="text" name="target" id="target" value="{{ target }}" class="form-control">
+                            <small class="form-text text-muted">
+                                Enter the path where renamed files will be moved.
+                            </small>
+                        </div>
                     </div>
-                </div>
 
-                <!-- Placeholder 
-                <div class="col-md-6">
-                    <div class="form-check form-switch">
-                        <input class="form-check-input" type="checkbox" role="switch" id="readSubdirectories" name="readSubdirectories" {% if readSubdirectories %}checked{% endif %}>
-                        <label class="form-check-label" for="readSubdirectories">{% if readSubdirectories %}Disable{% else %}Enable{% endif %} Processing Sub-Directories</label>
-                        <small class="form-text text-muted">
-                            <br />If enabled, the app will process files in sub-directories of your <code>{{ watch }}</code> folder.
-                        </small>
-                    </div>
-                </div> -->
-            </div>
-            <p class="text-muted">Settings related to Directory & File processing features.</p>
-            <div class="row">
-                <div class="col-md-6">
-                    <label for="skippedFiles" class="form-label">SKIPPED FILE TYPES:</label>
-                    <input type="text" name="skippedFiles" id="skippedFiles" value="{{ skippedFiles }}" class="form-control">
-                    <small class="form-text text-muted">
-                        When any operation unpacks a RAR/ZIP File, files with these extensions will be skipped. They will be re-added to the archive.
-                    </small>
-                </div>
+                    <hr>
 
-                <div class="col-md-6">
-                    <label for="deletedFiles" class="form-label">DELETED FILE TYPES:</label>
-                    <input type="text" name="deletedFiles" id="deletedFiles" value="{{ deletedFiles }}" class="form-control">
-                    <small class="form-text text-muted">
-                        When any operation unpacks a RAR/ZIP File, files with these extensions will deleted before the file is re-packed.
-                    </small>
-                </div>
-            </div>
-
-        </div>
-
-        <!-- Folder Monitoring Configuration -->
-        <div class="container p-4 border rounded shadow-sm mb-4">
-            <h4>Folder Monitoring</h4>
-            <p class="text-muted">Configure the <code>Watched</code> and <code>Target</code> folders. Other monitoring features can be adjusted here as well.</p>
-
-            <div class="row">
-                <div class="col-md-6">
-                    <label for="watch" class="form-label">WATCH:</label>
-                    <input type="text" name="watch" id="watch" value="{{ watch }}" class="form-control">
-                    <small class="form-text text-muted">
-                        Enter the path to the directory to monitor for downloaded files.
-                    </small>
-                </div>
-
-                <div class="col-md-6">
-                    <label for="target" class="form-label">TARGET:</label>
-                    <input type="text" name="target" id="target" value="{{ target }}" class="form-control">
-                    <small class="form-text text-muted">
-                        Enter the path where renamed files will be moved.
-                    </small>
-                </div>
-            </div>
-
-            <hr>
-
-            <!-- Checkboxes for AutoConvert & Subdirectories -->
-            <div class="row">
-                <div class="col-md-6">
-                    <div class="form-check form-switch">
-                        <input class="form-check-input" type="checkbox" role="switch" id="autoConvert" name="autoConvert" {% if autoConvert %}checked{% endif %}>
-                        <label class="form-check-label" for="autoConvert">{% if autoConvert %}Disable{% else %}Enable{% endif %} Auto CBZ Conversion</label>
-                        <small class="form-text text-muted">
-                            <br />Enables auto-conversion of CBR/RAR files to CBZ in your Watch folder.
-                        </small>
-                    </div>
-                </div>
-
-                <div class="col-md-6">
-                    <div class="form-check form-switch">
-                        <input class="form-check-input" type="checkbox" role="switch" id="readSubdirectories" name="readSubdirectories" {% if readSubdirectories %}checked{% endif %}>
-                        <label class="form-check-label" for="readSubdirectories">{% if readSubdirectories %}Disable{% else %}Enable{% endif %} Processing Sub-Directories</label>
-                        <small class="form-text text-muted">
-                            <br />If enabled, the app will process files in sub-directories of your <code>{{ watch }}</code> folder.
-                        </small>
-                    </div>
-                </div>
-            </div>
-
-            <div class="row">
-                <div class="col-md-6">
-                    <div class="form-check form-switch">
-                        <input class="form-check-input" type="checkbox" role="switch" id="autoUnpack" name="autoUnpack" {% if autoUnpack %}checked{% endif %}>
-                        <label class="form-check-label" for="autoUnpack">{% if autoUnpack %}Disable{% else %}Enable{% endif %} Auto ZIP Extraction</label>
-                        <small class="form-text text-muted">
-                            <br />When enabled, ZIP files placed in the Watch folder will automatically be unzipped.
-                        </small>
-                    </div>
-                </div>
-
-                <div class="col-md-6">
-                    <div class="form-check form-switch">
-                        <input class="form-check-input" type="checkbox" role="switch" id="moveDirectory" name="moveDirectory" {% if moveDirectory %}checked{% endif %}>
-                        <label class="form-check-label" for="moveDirectory">{% if moveDirectory %}Disable{% else %}Enable{% endif %} Move Sub-Directories</label>
-                        <small class="form-text text-muted">
-                            <br />If enabled, when processing files in your <code>{{ watch }}</code> folder, the sub-dirctories will be moved as well.
-                        </small>
-                    </div>
-                </div>
-            </div>
-
-            <div class="row">
-                <div class="col-md-12">
-                    <label for="ignored_extensions" class="form-label">IGNORED EXTENSIONS:</label>
-                    <input type="text" name="ignored_extensions" id="ignored_extensions" value="{{ ignored_extensions }}" class="form-control">
-                    <small class="form-text text-muted">
-                        Enter extensions to ignore when monitoring files (e.g., .tmp, .crdownload).
-                    </small>
-                </div>
-            </div>
-
-            <hr>
-
-            <!-- Cleanup Configuration -->
-            <div class="row">
-                <div class="col-md-6">
-                    <div class="form-check form-switch">
-                        <input class="form-check-input" type="checkbox" role="switch" id="autoCleanupOrphanFiles" name="autoCleanupOrphanFiles" {% if autoCleanupOrphanFiles %}checked{% endif %}>
-                        <label class="form-check-label" for="autoCleanupOrphanFiles">{% if autoCleanupOrphanFiles %}Disable{% else %}Enable{% endif %} Auto Cleanup Orphan Files</label>
-                        <small class="form-text text-muted">
-                            <br />Automatically removes temporary download files (.crdownload, .tmp, .part) from the downloads folder.
-                        </small>
-                    </div>
-                </div>
-
-                <div class="col-md-6">
-                    <label for="cleanupIntervalHours" class="form-label">CLEANUP INTERVAL (HOURS):</label>
-                    <input type="number" name="cleanupIntervalHours" id="cleanupIntervalHours" value="{{ cleanupIntervalHours }}" class="form-control" min="1" max="24">
-                    <small class="form-text text-muted">
-                        How often to automatically clean up orphan files (1-24 hours).
-                    </small>
-                </div>
-            </div>
-
-        </div>
-
-        <!-- Download API Settings -->
-        <div class="container p-4 border rounded shadow-sm mb-4">
-            <h4>API Download Configuration</h4>
-            <p class="text-muted">These options, along with the Chrome extension, will let you `right-click` links and send them to CLU to be downloaded to your <code>/watch</code> folder.</p>
-
-            <div class="row">
-                <div class="col-md-6">
-                    <label for="customHeaders" class="form-label">Custom Headers (JSON)</label>
-                    <textarea class="form-control" id="customHeaders" name="customHeaders" rows="4" placeholder="JSON Custom Headers">{{ customHeaders }}</textarea>
-                    <small class="form-text text-muted">
-                        Similar to the Chrome Extension, enter any authentication details here that need to be passed to your URL/domain/Tunnel/VPN.
-                    </small>
-                </div>
-
-                <div class="col-md-6">
-                    <label for="pixeldrainApiKey" class="form-label">PixelDrain API Key</label>
-                    <input type="password" name="pixeldrainApiKey" id="pixeldrainApiKey" value="{{ pixeldrainApiKey }}" class="form-control" placeholder="Enter your PixelDrain API key">
-                    <small class="form-text text-muted">
-                        Optional: Enter your PixelDrain API key for authenticated downloads. This enables access to private files and higher download limits.
-                    </small>
-                </div>
-            </div>
-        </div>
-
-        <!-- Metadata API Settings -->
-        <div class="container p-4 border rounded shadow-sm mb-4">
-            <h4>Metadata API Configuration</h4>
-            <p class="text-muted">Configure API keys for metadata providers to enrich your comics with detailed information.</p>
-
-            <div class="row">
-                <div class="col-md-6">
-                    <label for="comicvineApiKey" class="form-label">ComicVine API Key</label>
-                    <input type="password" name="comicvineApiKey" id="comicvineApiKey" value="{{ comicvineApiKey }}" class="form-control" placeholder="Enter your ComicVine API key">
-                    <small class="form-text text-muted">
-                        Optional: Enter your ComicVine API key to enable metadata lookup from ComicVine. Get your API key at <a href="https://comicvine.gamespot.com/api/" target="_blank">comicvine.gamespot.com/api</a>
-                    </small>
-                </div>
-
-                <div class="col-md-6">
-                    <label for="gcdLanguages" class="form-label">GCD Metadata Languages</label>
-                    <input type="text" name="gcdLanguages" id="gcdLanguages" value="{{ gcdLanguages }}" class="form-control" placeholder="en">
-                    <small class="form-text text-muted">
-                        Comma-separated list of language codes for Grand Comics Database metadata (e.g., "en,es,fr"). Default: "en"
-                    </small>
-                </div>
-            </div>
-
-            <hr class="my-4">
-
-            <!-- Auto Rename and Auto Move Options -->
-            <div class="row">
-                <div class="col-md-6">
-                    <div class="form-check form-switch">
-                        <input class="form-check-input" type="checkbox" role="switch" id="enableAutoRename" name="enableAutoRename" {% if enableAutoRename %}checked{% endif %}>
-                        <label class="form-check-label" for="enableAutoRename">{% if enableAutoRename %}Disable{% else %}Enable{% endif %} Auto Rename File</label>
-                        <small class="form-text text-muted">
-                            <br />Automatically rename files after metadata is fetched from the API.
-                        </small>
-                    </div>
-                </div>
-
-                <div class="col-md-6">
-                    <div class="form-check form-switch">
-                        <input class="form-check-input" type="checkbox" role="switch" id="enableAutoMove" name="enableAutoMove" {% if enableAutoMove %}checked{% endif %}>
-                        <label class="form-check-label" for="enableAutoMove">{% if enableAutoMove %}Disable{% else %}Enable{% endif %} Auto Move Files</label>
-                        <small class="form-text text-muted">
-                            <br />Automatically move files to organized folders after metadata is fetched.
-                        </small>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Custom Move Pattern -->
-            <div class="row mt-3">
-                <div class="col-md-8">
-                    <label for="customMovePattern" class="form-label">Custom Move Pattern:</label>
-                    <input type="text" name="customMovePattern" id="customMovePattern" value="{{ customMovePattern }}" class="form-control" placeholder="e.g., {publisher}/{series_name}/v{start_year}">
-                    <small class="form-text text-muted">
-                        Define the folder structure for auto-moved files. Available variables: <code>{publisher}</code>, <code>{series_name}</code>, <code>{volume_number}</code>, <code>{start_year}</code>, <code>{issue_number}</code>
-                    </small>
-                </div>
-                <div class="col-md-4">
-                    <label class="form-label">Example Preview:</label>
-                    <div class="border rounded p-2 bg-light">
-                        <small id="movePreview">Enter a pattern to see preview...</small>
-                    </div>
-                </div>
-            </div>
-
-            <div class="row mt-2">
-                <div class="col-md-12">
-                    <small class="text-muted">
-                        <strong>Examples:</strong><br>
-                        • <code>{publisher}/{series_name}/v{start_year}</code> → <code>Marvel/Spider-Man 2099/v1992/</code><br>
-                        • <code>{publisher}/{series_name}</code> → <code>Marvel/Spider-Man 2099/</code><br>
-                        • <code>{series_name} [{start_year}]</code> → <code>Spider-Man 2099 [1992]/</code><br>
-                        • <code>{publisher}/{volume_number}</code> → <code>Marvel/v2/</code>
-                    </small>
-                </div>
-            </div>
-        </div>
-
-        <!-- Performance & Timeout Settings -->
-        <div class="container p-4 border rounded shadow-sm mb-4">
-            <h4>Performance & Timeout Settings</h4>
-            <p class="text-muted">Configure timeout settings for large file operations and performance optimizations.</p>
-
-            <div class="row">
-                <div class="col-md-6">
-                    <label for="operationTimeout" class="form-label">Operation Timeout (seconds):</label>
-                    <input type="number" name="operationTimeout" id="operationTimeout" value="{{ operationTimeout }}" class="form-control" min="300" max="7200">
-                    <small class="form-text text-muted">
-                        Timeout for large file operations (convert, rebuild). Default: 3600 seconds (1 hour). Minimum: 300 seconds (5 minutes).
-                    </small>
-                </div>
-
-                <div class="col-md-6">
-                    <label for="largeFileThreshold" class="form-label">Large File Threshold (MB):</label>
-                    <input type="number" name="largeFileThreshold" id="largeFileThreshold" value="{{ largeFileThreshold }}" class="form-control" min="100" max="2000">
-                    <small class="form-text text-muted">
-                        Files larger than this size (in MB) will get enhanced progress reporting. Default: 500 MB.
-                    </small>
-                </div>
-            </div>
-        </div>
-
-        <!-- File Index Management Settings -->
-        <div class="container p-4 border rounded shadow-sm mb-4">
-            <h4>File Index Management</h4>
-            <p class="text-muted">
-                Manage the application's file search index stored in SQLite. The index provides fast searching across your entire library.
-                <br><br>
-                <strong>How it works:</strong> The file index is stored persistently in the database and automatically updates when you move, rename, or delete files.
-                You can manually rebuild it or schedule automatic rebuilds to ensure data accuracy.
-            </p>
-
-            <!-- Index Status Display -->
-            <div class="row mb-3">
-                <div class="col-md-12">
-                    <div class="alert alert-info">
-                        <div class="row">
-                            <div class="col-md-4">
-                                <strong>Index Status:</strong><br>
-                                <span id="indexStatus">Checking...</span>
-                            </div>
-                            <div class="col-md-4">
-                                <strong>Last Rebuild:</strong><br>
-                                <span id="lastRebuild">Checking...</span>
-                            </div>
-                            <div class="col-md-4">
-                                <strong>Next Scheduled:</strong><br>
-                                <span id="nextScheduled">Not scheduled</span>
+                    <!-- Checkboxes for AutoConvert & Subdirectories -->
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="form-check form-switch">
+                                <input class="form-check-input" type="checkbox" role="switch" id="autoConvert"
+                                    name="autoConvert" {% if autoConvert %}checked{% endif %}>
+                                <label class="form-check-label" for="autoConvert">{% if autoConvert %}Disable{% else
+                                    %}Enable{% endif %} Auto CBZ Conversion</label>
+                                <small class="form-text text-muted">
+                                    <br />Enables auto-conversion of CBR/RAR files to CBZ in your Watch folder.
+                                </small>
                             </div>
                         </div>
-                        <div class="row mt-2">
-                            <div class="col-md-12 text-center">
-                                <button type="button" class="btn btn-sm btn-outline-info" onclick="updateIndexStatus()" title="Refresh index status">
-                                    <i class="bi bi-arrow-clockwise"></i> Refresh Status
-                                </button>
+
+                        <div class="col-md-6">
+                            <div class="form-check form-switch">
+                                <input class="form-check-input" type="checkbox" role="switch" id="readSubdirectories"
+                                    name="readSubdirectories" {% if readSubdirectories %}checked{% endif %}>
+                                <label class="form-check-label" for="readSubdirectories">{% if readSubdirectories
+                                    %}Disable{% else %}Enable{% endif %} Processing Sub-Directories</label>
+                                <small class="form-text text-muted">
+                                    <br />If enabled, the app will process files in sub-directories of your
+                                    <code>{{ watch }}</code> folder.
+                                </small>
                             </div>
                         </div>
                     </div>
-                </div>
-            </div>
 
-            <!-- Manual Rebuild Button -->
-            <div class="row mb-3">
-                <div class="col-md-12">
-                    <button type="button" class="btn btn-primary w-100" onclick="rebuildFileIndex()" title="Manually rebuild the file index">
-                        <i class="bi bi-arrow-clockwise"></i> Rebuild File Index Now
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="form-check form-switch">
+                                <input class="form-check-input" type="checkbox" role="switch" id="autoUnpack"
+                                    name="autoUnpack" {% if autoUnpack %}checked{% endif %}>
+                                <label class="form-check-label" for="autoUnpack">{% if autoUnpack %}Disable{% else
+                                    %}Enable{% endif %} Auto ZIP Extraction</label>
+                                <small class="form-text text-muted">
+                                    <br />When enabled, ZIP files placed in the Watch folder will automatically be
+                                    unzipped.
+                                </small>
+                            </div>
+                        </div>
+
+                        <div class="col-md-6">
+                            <div class="form-check form-switch">
+                                <input class="form-check-input" type="checkbox" role="switch" id="moveDirectory"
+                                    name="moveDirectory" {% if moveDirectory %}checked{% endif %}>
+                                <label class="form-check-label" for="moveDirectory">{% if moveDirectory %}Disable{% else
+                                    %}Enable{% endif %} Move Sub-Directories</label>
+                                <small class="form-text text-muted">
+                                    <br />If enabled, when processing files in your <code>{{ watch }}</code> folder, the
+                                    sub-dirctories will be moved as well.
+                                </small>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="row">
+                        <div class="col-md-12">
+                            <label for="ignored_extensions" class="form-label">IGNORED EXTENSIONS:</label>
+                            <input type="text" name="ignored_extensions" id="ignored_extensions"
+                                value="{{ ignored_extensions }}" class="form-control">
+                            <small class="form-text text-muted">
+                                Enter extensions to ignore when monitoring files (e.g., .tmp, .crdownload).
+                            </small>
+                        </div>
+                    </div>
+
+                    <hr>
+
+                    <!-- Cleanup Configuration -->
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="form-check form-switch">
+                                <input class="form-check-input" type="checkbox" role="switch"
+                                    id="autoCleanupOrphanFiles" name="autoCleanupOrphanFiles" {% if
+                                    autoCleanupOrphanFiles %}checked{% endif %}>
+                                <label class="form-check-label" for="autoCleanupOrphanFiles">{% if
+                                    autoCleanupOrphanFiles %}Disable{% else %}Enable{% endif %} Auto Cleanup Orphan
+                                    Files</label>
+                                <small class="form-text text-muted">
+                                    <br />Automatically removes temporary download files (.crdownload, .tmp, .part) from
+                                    the downloads folder.
+                                </small>
+                            </div>
+                        </div>
+
+                        <div class="col-md-6">
+                            <label for="cleanupIntervalHours" class="form-label">CLEANUP INTERVAL (HOURS):</label>
+                            <input type="number" name="cleanupIntervalHours" id="cleanupIntervalHours"
+                                value="{{ cleanupIntervalHours }}" class="form-control" min="1" max="24">
+                            <small class="form-text text-muted">
+                                How often to automatically clean up orphan files (1-24 hours).
+                            </small>
+                        </div>
+                    </div>
+
+                </div>
+
+                <!-- Directory Processing Configuration -->
+                <div class="container p-4 border rounded shadow-sm mb-4">
+                    <h4>Directory & File Processing Settings</h4>
+                    <p class="text-muted">Settings related to Directory processing features.</p>
+
+                    <!-- Checkboxes for Traverse Subdirectories -->
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="form-check form-switch">
+                                <input class="form-check-input" type="checkbox" role="switch" id="convertSubdirectories"
+                                    name="convertSubdirectories" {% if convertSubdirectories %}checked{% endif %}>
+                                <label class="form-check-label" for="convertSubdirectories">{% if convertSubdirectories
+                                    %}Disable{% else %}Enable{% endif %} Subdirectories for Conversion</label>
+                                <small class="form-text text-muted">
+                                    <br />If enabled, when performing CBR --> CBZ conversion on a directory, CLU will
+                                    convert all files in subdirectories as well.
+                                </small>
+                            </div>
+                        </div>
+                    </div>
+                    <p class="text-muted">Settings related to Directory & File processing features.</p>
+                    <div class="row">
+                        <div class="col-md-6">
+                            <label for="skippedFiles" class="form-label">SKIPPED FILE TYPES:</label>
+                            <input type="text" name="skippedFiles" id="skippedFiles" value="{{ skippedFiles }}"
+                                class="form-control">
+                            <small class="form-text text-muted">
+                                When any operation unpacks a RAR/ZIP File, files with these extensions will be skipped.
+                                They will be re-added to the archive.
+                            </small>
+                        </div>
+
+                        <div class="col-md-6">
+                            <label for="deletedFiles" class="form-label">DELETED FILE TYPES:</label>
+                            <input type="text" name="deletedFiles" id="deletedFiles" value="{{ deletedFiles }}"
+                                class="form-control">
+                            <small class="form-text text-muted">
+                                When any operation unpacks a RAR/ZIP File, files with these extensions will deleted
+                                before the file is re-packed.
+                            </small>
+                        </div>
+                    </div>
+
+                </div>
+
+                <!-- Custom Rename Pattern Configuration -->
+                <div class="container p-4 border rounded shadow-sm mb-4">
+                    <h4>Custom Rename Pattern Settings</h4>
+                    <p class="text-muted">Configure custom patterns for renaming comic files. You can use variables to
+                        create your own naming convention, or leave empty to use the default rename logic.</p>
+
+                    <div class="row">
+                        <div class="col-md-12">
+                            <div class="form-check form-switch mb-3">
+                                <input class="form-check-input" type="checkbox" role="switch" id="enableCustomRename"
+                                    name="enableCustomRename" {% if enableCustomRename %}checked{% endif %}>
+                                <label class="form-check-label" for="enableCustomRename">{% if enableCustomRename
+                                    %}Disable{% else %}Enable{% endif %} Custom Rename Patterns</label>
+                                <small class="form-text text-muted">
+                                    <br />If enabled, files will be renamed using your custom pattern instead of the
+                                    default rename logic.
+                                </small>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="row">
+                        <div class="col-md-8">
+                            <label for="customRenamePattern" class="form-label">Custom Rename Pattern:</label>
+                            <input type="text" name="customRenamePattern" id="customRenamePattern"
+                                value="{{ customRenamePattern }}" class="form-control"
+                                placeholder="e.g., {series_name} {issue_number} ({year})">
+                            <small class="form-text text-muted">
+                                Use variables to create your naming pattern. Available variables:
+                                <code>{series_name}</code>, <code>{volume_number}</code>, <code>{year}</code>,
+                                <code>{issue_number}</code>
+                            </small>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">Example Preview:</label>
+                            <div class="border rounded p-2 bg-light">
+                                <small id="renamePreview">Enter a pattern to see preview...</small>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="row mt-2">
+                        <div class="col-md-12">
+                            <small class="text-muted">
+                                <strong>Examples:</strong><br>
+                                • <code>{series_name} {issue_number} ({year})</code> →
+                                <code>Spider-Man 2099 044 (1992).cbz</code><br>
+                                • <code>{series_name} [{year}] {issue_number}</code> →
+                                <code>Spider-Man 2099 [1992] 044.cbz</code><br>
+                                • <code>issue{issue_number}</code> → <code>issue001.cbz</code><br>
+                                • <code>{volume_number}_{issue_number}</code> → <code>v2_044.cbz</code>
+                            </small>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Save Button for Tab 1 -->
+                <div class="mb-3 text-center">
+                    <button type="submit" class="btn btn-primary">
+                        <i class="bi bi-floppy"></i> Save File Processing Settings
                     </button>
-                    <small class="form-text text-muted">
-                        Manually rebuild the entire file index. This scans all files in your data directory and updates the database. Use this if search results seem outdated.
-                    </small>
                 </div>
+
             </div>
 
-            <!-- Scheduled Rebuild Configuration -->
-            <hr>
-            <h5 class="mt-3 mb-3">Automatic Rebuild Schedule</h5>
-            <p class="text-muted">Configure automatic file index rebuilds to keep your search results up-to-date.</p>
+            <!-- ========================================== -->
+            <!-- TAB 2: Download and API -->
+            <!-- ========================================== -->
+            <div class="tab-pane fade" id="download-api" role="tabpanel" aria-labelledby="download-api-tab">
 
-            <div class="row">
-                <div class="col-md-4">
-                    <label for="rebuildFrequency" class="form-label">Rebuild Frequency:</label>
-                    <select class="form-select" id="rebuildFrequency" name="rebuildFrequency">
-                        <option value="disabled">Disabled</option>
-                        <option value="daily">Daily</option>
-                        <option value="weekly">Weekly</option>
-                    </select>
-                    <small class="form-text text-muted">
-                        How often the file index should automatically rebuild.
-                    </small>
+                <!-- Download API Settings -->
+                <div class="container p-4 border rounded shadow-sm mb-4">
+                    <h4>API Download Configuration</h4>
+                    <p class="text-muted">These options, along with the Chrome extension, will let you `right-click`
+                        links and send them to CLU to be downloaded to your <code>/watch</code> folder.</p>
+
+                    <div class="row">
+                        <div class="col-md-6">
+                            <label for="customHeaders" class="form-label">Custom Headers (JSON)</label>
+                            <textarea class="form-control" id="customHeaders" name="customHeaders" rows="4"
+                                placeholder="JSON Custom Headers">{{ customHeaders }}</textarea>
+                            <small class="form-text text-muted">
+                                Similar to the Chrome Extension, enter any authentication details here that need to be
+                                passed to your URL/domain/Tunnel/VPN.
+                            </small>
+                        </div>
+
+                        <div class="col-md-6">
+                            <label for="pixeldrainApiKey" class="form-label">PixelDrain API Key</label>
+                            <input type="password" name="pixeldrainApiKey" id="pixeldrainApiKey"
+                                value="{{ pixeldrainApiKey }}" class="form-control"
+                                placeholder="Enter your PixelDrain API key">
+                            <small class="form-text text-muted">
+                                Optional: Enter your PixelDrain API key for authenticated downloads. This enables access
+                                to private files and higher download limits.
+                            </small>
+                        </div>
+                    </div>
                 </div>
 
-                <div class="col-md-4">
-                    <label for="rebuildTime" class="form-label">Rebuild Time:</label>
-                    <input type="time" class="form-control" id="rebuildTime" name="rebuildTime" value="02:00">
-                    <small class="form-text text-muted">
-                        Time of day to run the rebuild (24-hour format).
-                    </small>
+                <!-- Metadata API Settings -->
+                <div class="container p-4 border rounded shadow-sm mb-4">
+                    <h4>Metadata API Configuration</h4>
+                    <p class="text-muted">Configure API keys for metadata providers to enrich your comics with detailed
+                        information.</p>
+
+                    <div class="row">
+                        <div class="col-md-6">
+                            <label for="comicvineApiKey" class="form-label">ComicVine API Key</label>
+                            <input type="password" name="comicvineApiKey" id="comicvineApiKey"
+                                value="{{ comicvineApiKey }}" class="form-control"
+                                placeholder="Enter your ComicVine API key">
+                            <small class="form-text text-muted">
+                                Optional: Enter your ComicVine API key to enable metadata lookup from ComicVine. Get
+                                your API key at <a href="https://comicvine.gamespot.com/api/"
+                                    target="_blank">comicvine.gamespot.com/api</a>
+                            </small>
+                        </div>
+
+                        <div class="col-md-6">
+                            <label for="gcdLanguages" class="form-label">GCD Metadata Languages</label>
+                            <input type="text" name="gcdLanguages" id="gcdLanguages" value="{{ gcdLanguages }}"
+                                class="form-control" placeholder="en">
+                            <small class="form-text text-muted">
+                                Comma-separated list of language codes for Grand Comics Database metadata (e.g.,
+                                "en,es,fr"). Default: "en"
+                            </small>
+                        </div>
+                    </div>
+
+                    <hr class="my-4">
+
+                    <!-- Auto Rename and Auto Move Options -->
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="form-check form-switch">
+                                <input class="form-check-input" type="checkbox" role="switch" id="enableAutoRename"
+                                    name="enableAutoRename" {% if enableAutoRename %}checked{% endif %}>
+                                <label class="form-check-label" for="enableAutoRename">{% if enableAutoRename
+                                    %}Disable{% else %}Enable{% endif %} Auto Rename File</label>
+                                <small class="form-text text-muted">
+                                    <br />Automatically rename files after metadata is fetched from the API.
+                                </small>
+                            </div>
+                        </div>
+
+                        <div class="col-md-6">
+                            <div class="form-check form-switch">
+                                <input class="form-check-input" type="checkbox" role="switch" id="enableAutoMove"
+                                    name="enableAutoMove" {% if enableAutoMove %}checked{% endif %}>
+                                <label class="form-check-label" for="enableAutoMove">{% if enableAutoMove %}Disable{%
+                                    else %}Enable{% endif %} Auto Move Files</label>
+                                <small class="form-text text-muted">
+                                    <br />Automatically move files to organized folders after metadata is fetched.
+                                </small>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Custom Move Pattern -->
+                    <div class="row mt-3">
+                        <div class="col-md-8">
+                            <label for="customMovePattern" class="form-label">Custom Move Pattern:</label>
+                            <input type="text" name="customMovePattern" id="customMovePattern"
+                                value="{{ customMovePattern }}" class="form-control"
+                                placeholder="e.g., {publisher}/{series_name}/v{start_year}">
+                            <small class="form-text text-muted">
+                                Define the folder structure for auto-moved files. Available variables:
+                                <code>{publisher}</code>, <code>{series_name}</code>, <code>{volume_number}</code>,
+                                <code>{start_year}</code>, <code>{issue_number}</code>
+                            </small>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">Example Preview:</label>
+                            <div class="border rounded p-2 bg-light">
+                                <small id="movePreview">Enter a pattern to see preview...</small>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="row mt-2">
+                        <div class="col-md-12">
+                            <small class="text-muted">
+                                <strong>Examples:</strong><br>
+                                • <code>{publisher}/{series_name}/v{start_year}</code> →
+                                <code>Marvel/Spider-Man 2099/v1992/</code><br>
+                                • <code>{publisher}/{series_name}</code> → <code>Marvel/Spider-Man 2099/</code><br>
+                                • <code>{series_name} [{start_year}]</code> → <code>Spider-Man 2099 [1992]/</code><br>
+                                • <code>{publisher}/{volume_number}</code> → <code>Marvel/v2/</code>
+                            </small>
+                        </div>
+                    </div>
                 </div>
 
-                <div class="col-md-4" id="weekdaySelectContainer" style="display: none;">
-                    <label for="rebuildWeekday" class="form-label">Day of Week:</label>
-                    <select class="form-select" id="rebuildWeekday" name="rebuildWeekday">
-                        <option value="0">Monday</option>
-                        <option value="1">Tuesday</option>
-                        <option value="2">Wednesday</option>
-                        <option value="3">Thursday</option>
-                        <option value="4">Friday</option>
-                        <option value="5">Saturday</option>
-                        <option value="6">Sunday</option>
-                    </select>
-                    <small class="form-text text-muted">
-                        Which day of the week to run the rebuild.
-                    </small>
-                </div>
-            </div>
-
-            <div class="row mt-3">
-                <div class="col-md-12">
-                    <button type="button" class="btn btn-success w-100" onclick="saveRebuildSchedule()" title="Save the rebuild schedule">
-                        <i class="bi bi-floppy"></i> Save Schedule
+                <!-- Save Button for Tab 2 -->
+                <div class="mb-3 text-center">
+                    <button type="submit" class="btn btn-primary">
+                        <i class="bi bi-floppy"></i> Save Download & API Settings
                     </button>
                 </div>
+
             </div>
+
+            <!-- ========================================== -->
+            <!-- TAB 3: System and Performance -->
+            <!-- ========================================== -->
+            <div class="tab-pane fade" id="system-perf" role="tabpanel" aria-labelledby="system-perf-tab">
+
+                <!-- Performance & Timeout Settings -->
+                <div class="container p-4 border rounded shadow-sm mb-4">
+                    <h4>Performance & Timeout Settings</h4>
+                    <p class="text-muted">Configure timeout settings for large file operations and performance
+                        optimizations.</p>
+
+                    <div class="row">
+                        <div class="col-md-6">
+                            <label for="operationTimeout" class="form-label">Operation Timeout (seconds):</label>
+                            <input type="number" name="operationTimeout" id="operationTimeout"
+                                value="{{ operationTimeout }}" class="form-control" min="300" max="7200">
+                            <small class="form-text text-muted">
+                                Timeout for large file operations (convert, rebuild). Default: 3600 seconds (1 hour).
+                                Minimum: 300 seconds (5 minutes).
+                            </small>
+                        </div>
+
+                        <div class="col-md-6">
+                            <label for="largeFileThreshold" class="form-label">Large File Threshold (MB):</label>
+                            <input type="number" name="largeFileThreshold" id="largeFileThreshold"
+                                value="{{ largeFileThreshold }}" class="form-control" min="100" max="2000">
+                            <small class="form-text text-muted">
+                                Files larger than this size (in MB) will get enhanced progress reporting. Default: 500
+                                MB.
+                            </small>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- File Index Management Settings -->
+                <div class="container p-4 border rounded shadow-sm mb-4">
+                    <h4>File Index Management</h4>
+                    <p class="text-muted">
+                        Manage the application's file search index stored in SQLite. The index provides fast searching
+                        across your entire library.
+                        <br><br>
+                        <strong>How it works:</strong> The file index is stored persistently in the database and
+                        automatically updates when you move, rename, or delete files.
+                        You can manually rebuild it or schedule automatic rebuilds to ensure data accuracy.
+                    </p>
+
+                    <!-- Index Status Display -->
+                    <div class="row mb-3">
+                        <div class="col-md-12">
+                            <div class="alert alert-info">
+                                <div class="row">
+                                    <div class="col-md-4">
+                                        <strong>Index Status:</strong><br>
+                                        <span id="indexStatus">Checking...</span>
+                                    </div>
+                                    <div class="col-md-4">
+                                        <strong>Last Rebuild:</strong><br>
+                                        <span id="lastRebuild">Checking...</span>
+                                    </div>
+                                    <div class="col-md-4">
+                                        <strong>Next Scheduled:</strong><br>
+                                        <span id="nextScheduled">Not scheduled</span>
+                                    </div>
+                                </div>
+                                <div class="row mt-2">
+                                    <div class="col-md-12 text-center">
+                                        <button type="button" class="btn btn-sm btn-outline-info"
+                                            onclick="updateIndexStatus()" title="Refresh index status">
+                                            <i class="bi bi-arrow-clockwise"></i> Refresh Status
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Manual Rebuild Button -->
+                    <div class="row mb-3">
+                        <div class="col-md-12">
+                            <button type="button" class="btn btn-primary w-100" onclick="rebuildFileIndex()"
+                                title="Manually rebuild the file index">
+                                <i class="bi bi-arrow-clockwise"></i> Rebuild File Index Now
+                            </button>
+                            <small class="form-text text-muted">
+                                Manually rebuild the entire file index. This scans all files in your data directory and
+                                updates the database. Use this if search results seem outdated.
+                            </small>
+                        </div>
+                    </div>
+
+                    <!-- Scheduled Rebuild Configuration -->
+                    <hr>
+                    <h5 class="mt-3 mb-3">Automatic Rebuild Schedule</h5>
+                    <p class="text-muted">Configure automatic file index rebuilds to keep your search results
+                        up-to-date.</p>
+
+                    <div class="row">
+                        <div class="col-md-4">
+                            <label for="rebuildFrequency" class="form-label">Rebuild Frequency:</label>
+                            <select class="form-select" id="rebuildFrequency" name="rebuildFrequency">
+                                <option value="disabled">Disabled</option>
+                                <option value="daily">Daily</option>
+                                <option value="weekly">Weekly</option>
+                            </select>
+                            <small class="form-text text-muted">
+                                How often the file index should automatically rebuild.
+                            </small>
+                        </div>
+
+                        <div class="col-md-4">
+                            <label for="rebuildTime" class="form-label">Rebuild Time:</label>
+                            <input type="time" class="form-control" id="rebuildTime" name="rebuildTime" value="02:00">
+                            <small class="form-text text-muted">
+                                Time of day to run the rebuild (24-hour format).
+                            </small>
+                        </div>
+
+                        <div class="col-md-4" id="weekdaySelectContainer" style="display: none;">
+                            <label for="rebuildWeekday" class="form-label">Day of Week:</label>
+                            <select class="form-select" id="rebuildWeekday" name="rebuildWeekday">
+                                <option value="0">Monday</option>
+                                <option value="1">Tuesday</option>
+                                <option value="2">Wednesday</option>
+                                <option value="3">Thursday</option>
+                                <option value="4">Friday</option>
+                                <option value="5">Saturday</option>
+                                <option value="6">Sunday</option>
+                            </select>
+                            <small class="form-text text-muted">
+                                Which day of the week to run the rebuild.
+                            </small>
+                        </div>
+                    </div>
+
+                    <div class="row mt-3">
+                        <div class="col-md-12">
+                            <button type="button" class="btn btn-success w-100" onclick="saveRebuildSchedule()"
+                                title="Save the rebuild schedule">
+                                <i class="bi bi-floppy"></i> Save Schedule
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Missing Issue Configuration -->
+                <div class="container p-4 border rounded shadow-sm mb-4">
+                    <h4>Missing Issue Configuration</h4>
+                    <p class="text-muted">Update these settings to ignore terms or files when the app is performing a
+                        <strong>Missing Issue</strong> scan.</p>
+
+                    <div class="row">
+                        <div class="col-md-6">
+                            <label for="ignored_terms" class="form-label">IGNORED TERMS:</label>
+                            <input type="text" name="ignored_terms" id="ignored_terms" value="{{ ignored_terms }}"
+                                class="form-control">
+                            <small class="form-text text-muted">
+                                Enter words or terms to ignore while performing a Missing Issue search. Terms must be
+                                comma-separated.
+                            </small>
+                        </div>
+
+                        <div class="col-md-6">
+                            <label for="ignored_files" class="form-label">IGNORED FILES:</label>
+                            <input type="text" name="ignored_files" id="ignored_files" value="{{ ignored_files }}"
+                                class="form-control">
+                            <small class="form-text text-muted">
+                                Enter comma-separated file names to ignore when checking for missing issues (e.g.,
+                                cover.jpg, cvinfo).
+                            </small>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Logging & Debugging Configuration -->
+                <div class="container p-4 border rounded shadow-sm mb-4">
+                    <h4>Logging & Debugging</h4>
+                    <p class="text-muted">Configure application logging settings. Debug logging provides detailed
+                        diagnostic information useful for troubleshooting.</p>
+
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="form-check form-switch">
+                                <input class="form-check-input" type="checkbox" role="switch" id="enableDebugLogging"
+                                    name="enableDebugLogging" {% if enableDebugLogging %}checked{% endif %}>
+                                <label class="form-check-label" for="enableDebugLogging">{% if enableDebugLogging
+                                    %}Disable{% else %}Enable{% endif %} Debug Logging</label>
+                                <small class="form-text text-muted">
+                                    <br />When enabled, detailed debug messages will appear in the <a href="/app-logs"
+                                        target="_blank">App Logs</a>. This can help with troubleshooting but may
+                                    increase log file size. Changes take effect after saving.
+                                </small>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ComicInfo XML editing Configuration -->
+                <div class="container p-4 border rounded shadow-sm mb-4">
+                    <h4>ComicInfo.XML Update Settings</h4>
+                    <p class="text-muted">Enable/Disable features for updating or cleaning <code>ComicInfo.xml</code>
+                        files. This proecess runs on a single directory, extracts the <code>ComicInfo.xml</code> file,
+                        reads and makes updates and then recompresses the file.</p>
+
+                    <!-- Checkboxes for ComicInfo.xml options -->
+                    <div class="row">
+                        <div class="col-md-4">
+                            <div class="form-check form-switch">
+                                <input class="form-check-input" type="checkbox" role="switch" id="xmlYear"
+                                    name="xmlYear" {% if xmlYear %}checked{% endif %}>
+                                <label class="form-check-label" for="xmlYear">{% if xmlYear %}Disable{% else %}Enable{%
+                                    endif %} Update Volume to First Issue Year</label>
+                                <small class="form-text text-muted">
+                                    <br />Reads the alpha-numeric first file in the directory and attempts to extract
+                                    the 4-digit year from the filename.
+                                </small>
+                            </div>
+                        </div>
+
+                        <div class="col-md-4">
+                            <div class="form-check form-switch">
+                                <input class="form-check-input xml-checkbox" type="checkbox" role="switch"
+                                    id="xmlMarkdown" name="xmlMarkdown" {% if xmlMarkdown %}checked{% endif %}>
+                                <label class="form-check-label" for="xmlMarkdown">{% if xmlMarkdown %}Disable{% else
+                                    %}Enable{% endif %} Removing ALL Markdown Content from Comments</label>
+                                <small class="form-text text-muted">
+                                    <br />If enabled, when the ComicInfo.xml update function is run, the
+                                    <code>Comments</code> will have all headers, bold text and tables removed.
+                                </small>
+                            </div>
+                        </div>
+
+                        <div class="col-md-4">
+                            <div class="form-check form-switch">
+                                <input class="form-check-input xml-checkbox" type="checkbox" role="switch" id="xmlList"
+                                    name="xmlList" {% if xmlList %}checked{% endif %}>
+                                <label class="form-check-label" for="xmlList">{% if xmlList %}Disable{% else %}Enable{%
+                                    endif %} Removing 'Covers & Creators' table from Comments</label>
+                                <small class="form-text text-muted">
+                                    <br />If enabled, when the ComicInfo.xml update function is run, 'Covers & Creators'
+                                    tables will be removed from the <code>Comments</code>.
+                                </small>
+                            </div>
+                        </div>
+
+                    </div>
+                </div>
+
+                <!-- Save Button for Tab 3 -->
+                <div class="mb-3 text-center">
+                    <button type="submit" class="btn btn-primary">
+                        <i class="bi bi-floppy"></i> Save System & Performance Settings
+                    </button>
+                </div>
+
+            </div>
+
         </div>
 
-        <!-- Custom Rename Pattern Configuration -->
-        <div class="container p-4 border rounded shadow-sm mb-4">
-            <h4>Custom Rename Pattern Settings</h4>
-            <p class="text-muted">Configure custom patterns for renaming comic files. You can use variables to create your own naming convention, or leave empty to use the default rename logic.</p>
-
-            <div class="row">
-                <div class="col-md-12">
-                    <div class="form-check form-switch mb-3">
-                        <input class="form-check-input" type="checkbox" role="switch" id="enableCustomRename" name="enableCustomRename" {% if enableCustomRename %}checked{% endif %}>
-                        <label class="form-check-label" for="enableCustomRename">{% if enableCustomRename %}Disable{% else %}Enable{% endif %} Custom Rename Patterns</label>
-                        <small class="form-text text-muted">
-                            <br />If enabled, files will be renamed using your custom pattern instead of the default rename logic.
-                        </small>
-                    </div>
-                </div>
-            </div>
-
-            <div class="row">
-                <div class="col-md-8">
-                    <label for="customRenamePattern" class="form-label">Custom Rename Pattern:</label>
-                    <input type="text" name="customRenamePattern" id="customRenamePattern" value="{{ customRenamePattern }}" class="form-control" placeholder="e.g., {series_name} {issue_number} ({year})">
-                    <small class="form-text text-muted">
-                        Use variables to create your naming pattern. Available variables: <code>{series_name}</code>, <code>{volume_number}</code>, <code>{year}</code>, <code>{issue_number}</code>
-                    </small>
-                </div>
-                <div class="col-md-4">
-                    <label class="form-label">Example Preview:</label>
-                    <div class="border rounded p-2 bg-light">
-                        <small id="renamePreview">Enter a pattern to see preview...</small>
-                    </div>
-                </div>
-            </div>
-
-            <div class="row mt-2">
-                <div class="col-md-12">
-                    <small class="text-muted">
-                        <strong>Examples:</strong><br>
-                        • <code>{series_name} {issue_number} ({year})</code> → <code>Spider-Man 2099 044 (1992).cbz</code><br>
-                        • <code>{series_name} [{year}] {issue_number}</code> → <code>Spider-Man 2099 [1992] 044.cbz</code><br>
-                        • <code>issue{issue_number}</code> → <code>issue001.cbz</code><br>
-                        • <code>{volume_number}_{issue_number}</code> → <code>v2_044.cbz</code>
-                    </small>
-                </div>
-            </div>
-        </div>
-
-        <!-- Logging & Debugging Configuration -->
-        <div class="container p-4 border rounded shadow-sm mb-4">
-            <h4>Logging & Debugging</h4>
-            <p class="text-muted">Configure application logging settings. Debug logging provides detailed diagnostic information useful for troubleshooting.</p>
-
-            <div class="row">
-                <div class="col-md-6">
-                    <div class="form-check form-switch">
-                        <input class="form-check-input" type="checkbox" role="switch" id="enableDebugLogging" name="enableDebugLogging" {% if enableDebugLogging %}checked{% endif %}>
-                        <label class="form-check-label" for="enableDebugLogging">{% if enableDebugLogging %}Disable{% else %}Enable{% endif %} Debug Logging</label>
-                        <small class="form-text text-muted">
-                            <br />When enabled, detailed debug messages will appear in the <a href="/app-logs" target="_blank">App Logs</a>. This can help with troubleshooting but may increase log file size. Changes take effect after saving.
-                        </small>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- ComicInfo XML editing Configuration -->
-        <div class="container p-4 border rounded shadow-sm mb-4">
-            <h4>ComicInfo.XML Update Settings</h4>
-            <p class="text-muted">Enable/Disable features for updating or cleaning <code>ComicInfo.xml</code> files. This proecess runs on a single directory, extracts the <code>ComicInfo.xml</code> file, reads and makes updates and then recompresses the file.</p>
-
-            <!-- Checkboxes for ComicInfo.xml options -->
-            <div class="row">
-                <div class="col-md-4">
-                    <div class="form-check form-switch">
-                        <input class="form-check-input" type="checkbox" role="switch" id="xmlYear" name="xmlYear" {% if xmlYear %}checked{% endif %}>
-                        <label class="form-check-label" for="xmlYear">{% if xmlYear %}Disable{% else %}Enable{% endif %} Update Volume to First Issue Year</label>
-                        <small class="form-text text-muted">
-                            <br />Reads the alpha-numeric first file in the directory and attempts to extract the 4-digit year from the filename.
-                        </small>
-                    </div>
-                </div>
-
-                <div class="col-md-4">
-                    <div class="form-check form-switch">
-                        <input class="form-check-input xml-checkbox" type="checkbox" role="switch" id="xmlMarkdown" name="xmlMarkdown" {% if xmlMarkdown %}checked{% endif %}>
-                        <label class="form-check-label" for="xmlMarkdown">{% if xmlMarkdown %}Disable{% else %}Enable{% endif %} Removing ALL Markdown Content from Comments</label>
-                        <small class="form-text text-muted">
-                            <br />If enabled, when the ComicInfo.xml update function is run, the <code>Comments</code> will have all headers, bold text and tables removed.
-                        </small>
-                    </div>
-                </div>
-
-                <div class="col-md-4">
-                    <div class="form-check form-switch">
-                        <input class="form-check-input xml-checkbox" type="checkbox" role="switch" id="xmlList" name="xmlList" {% if xmlList %}checked{% endif %}>
-                        <label class="form-check-label" for="xmlList">{% if xmlList %}Disable{% else %}Enable{% endif %} Removing 'Covers & Creators' table from Comments</label>
-                        <small class="form-text text-muted">
-                            <br />If enabled, when the ComicInfo.xml update function is run, 'Covers & Creators' tables will be removed from the <code>Comments</code>.
-                        </small>
-                    </div>
-                </div>
-
-            </div>
-        </div>
-
-        <!-- Save Button -->
-        <div class="mb-3 text-center">
-            <button type="submit" class="btn btn-primary">
-                <i class="bi bi-floppy"></i> Save
-            </button>
-        </div>
     </form>
 
     <!-- Restart Button -->
@@ -603,15 +748,15 @@
 
     function restartApp() {
         fetch('/restart', { method: 'POST' })
-        .then(response => response.json())
-        .then(data => showToast(data.message, 'success'))
-        .catch(error => console.error('Error:', error));
+            .then(response => response.json())
+            .then(data => showToast(data.message, 'success'))
+            .catch(error => console.error('Error:', error));
     }
-    
+
     document.addEventListener("DOMContentLoaded", function () {
         const xmlCheckboxes = document.querySelectorAll(".xml-checkbox");
 
-       xmlCheckboxes.forEach(checkbox => {
+        xmlCheckboxes.forEach(checkbox => {
             checkbox.addEventListener("change", function () {
                 if (this.checked) {
                     xmlCheckboxes.forEach(cb => {
@@ -636,7 +781,7 @@
         setTimeout(loadRebuildSchedule, 1500);
 
         // Show/hide weekday selector based on frequency
-        document.getElementById('rebuildFrequency').addEventListener('change', function() {
+        document.getElementById('rebuildFrequency').addEventListener('change', function () {
             const weekdayContainer = document.getElementById('weekdaySelectContainer');
             if (this.value === 'weekly') {
                 weekdayContainer.style.display = 'block';
@@ -659,25 +804,25 @@
             method: 'POST',
             headers: { 'Content-Type': 'application/json' }
         })
-        .then(response => response.json())
-        .then(data => {
-            if (data.success) {
-                showToast(data.message, 'success');
-                // Update index status display
-                updateIndexStatus();
-            } else {
-                showToast(data.error || 'Unknown error', 'error');
-            }
-        })
-        .catch(error => {
-            console.error('Error rebuilding file index:', error);
-            showToast('Network error occurred', 'error');
-        })
-        .finally(() => {
-            // Restore button state
-            button.innerHTML = originalText;
-            button.disabled = false;
-        });
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    showToast(data.message, 'success');
+                    // Update index status display
+                    updateIndexStatus();
+                } else {
+                    showToast(data.error || 'Unknown error', 'error');
+                }
+            })
+            .catch(error => {
+                console.error('Error rebuilding file index:', error);
+                showToast('Network error occurred', 'error');
+            })
+            .finally(() => {
+                // Restore button state
+                button.innerHTML = originalText;
+                button.disabled = false;
+            });
     }
 
     function updateIndexStatus() {
@@ -691,59 +836,59 @@
         fetch('/api/file-index-status', {
             headers: { 'Cache-Control': 'no-cache' }
         })
-        .then(response => response.json())
-        .then(data => {
-            if (indexStatusEl) {
-                indexStatusEl.textContent = `${data.total_files || 0} files | ${data.total_directories || 0} directories`;
-            }
-            if (lastRebuildEl) {
-                if (data.last_rebuild) {
-                    lastRebuildEl.textContent = data.last_rebuild;
-                } else {
-                    lastRebuildEl.textContent = 'Never';
+            .then(response => response.json())
+            .then(data => {
+                if (indexStatusEl) {
+                    indexStatusEl.textContent = `${data.total_files || 0} files | ${data.total_directories || 0} directories`;
                 }
-            }
-        })
-        .catch(error => {
-            console.error('Error fetching index status:', error);
-            if (indexStatusEl) {
-                indexStatusEl.innerHTML = '<i class="bi bi-exclamation-triangle"></i> Error';
-            }
-        });
+                if (lastRebuildEl) {
+                    if (data.last_rebuild) {
+                        lastRebuildEl.textContent = data.last_rebuild;
+                    } else {
+                        lastRebuildEl.textContent = 'Never';
+                    }
+                }
+            })
+            .catch(error => {
+                console.error('Error fetching index status:', error);
+                if (indexStatusEl) {
+                    indexStatusEl.innerHTML = '<i class="bi bi-exclamation-triangle"></i> Error';
+                }
+            });
     }
 
     function loadRebuildSchedule() {
         fetch('/api/get-rebuild-schedule', {
             headers: { 'Cache-Control': 'no-cache' }
         })
-        .then(response => response.json())
-        .then(data => {
-            if (data.success) {
-                const schedule = data.schedule;
-                document.getElementById('rebuildFrequency').value = schedule.frequency || 'disabled';
-                document.getElementById('rebuildTime').value = schedule.time || '02:00';
-                document.getElementById('rebuildWeekday').value = schedule.weekday || '0';
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    const schedule = data.schedule;
+                    document.getElementById('rebuildFrequency').value = schedule.frequency || 'disabled';
+                    document.getElementById('rebuildTime').value = schedule.time || '02:00';
+                    document.getElementById('rebuildWeekday').value = schedule.weekday || '0';
 
-                // Show weekday selector if weekly
-                const weekdayContainer = document.getElementById('weekdaySelectContainer');
-                if (schedule.frequency === 'weekly') {
-                    weekdayContainer.style.display = 'block';
-                } else {
-                    weekdayContainer.style.display = 'none';
-                }
+                    // Show weekday selector if weekly
+                    const weekdayContainer = document.getElementById('weekdaySelectContainer');
+                    if (schedule.frequency === 'weekly') {
+                        weekdayContainer.style.display = 'block';
+                    } else {
+                        weekdayContainer.style.display = 'none';
+                    }
 
-                // Update next scheduled display
-                const nextScheduledEl = document.getElementById('nextScheduled');
-                if (nextScheduledEl && data.next_run) {
-                    nextScheduledEl.textContent = data.next_run;
-                } else if (nextScheduledEl) {
-                    nextScheduledEl.textContent = 'Not scheduled';
+                    // Update next scheduled display
+                    const nextScheduledEl = document.getElementById('nextScheduled');
+                    if (nextScheduledEl && data.next_run) {
+                        nextScheduledEl.textContent = data.next_run;
+                    } else if (nextScheduledEl) {
+                        nextScheduledEl.textContent = 'Not scheduled';
+                    }
                 }
-            }
-        })
-        .catch(error => {
-            console.error('Error loading rebuild schedule:', error);
-        });
+            })
+            .catch(error => {
+                console.error('Error loading rebuild schedule:', error);
+            });
     }
 
     function saveRebuildSchedule() {
@@ -764,41 +909,41 @@
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(schedule)
         })
-        .then(response => response.json())
-        .then(data => {
-            if (data.success) {
-                showToast(data.message, 'success');
-                // Reload schedule to update next run time
-                setTimeout(loadRebuildSchedule, 500);
-            } else {
-                showToast(data.error || 'Unknown error', 'error');
-            }
-        })
-        .catch(error => {
-            console.error('Error saving schedule:', error);
-            showToast('Network error occurred', 'error');
-        })
-        .finally(() => {
-            button.innerHTML = originalText;
-            button.disabled = false;
-        });
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    showToast(data.message, 'success');
+                    // Reload schedule to update next run time
+                    setTimeout(loadRebuildSchedule, 500);
+                } else {
+                    showToast(data.error || 'Unknown error', 'error');
+                }
+            })
+            .catch(error => {
+                console.error('Error saving schedule:', error);
+                showToast('Network error occurred', 'error');
+            })
+            .finally(() => {
+                button.innerHTML = originalText;
+                button.disabled = false;
+            });
     }
 
     // Custom Rename Pattern Preview Functions
     function initializeRenamePreview() {
         const patternInput = document.getElementById('customRenamePattern');
         const previewElement = document.getElementById('renamePreview');
-        
+
         if (patternInput && previewElement) {
             // Add event listeners for live preview
             patternInput.addEventListener('input', updateRenamePreview);
             patternInput.addEventListener('change', updateRenamePreview);
-            
+
             // Initial preview
             updateRenamePreview();
         }
     }
-    
+
     function updateRenamePreview() {
         const patternInput = document.getElementById('customRenamePattern');
         const previewElement = document.getElementById('renamePreview');
@@ -827,7 +972,7 @@
             previewElement.textContent = 'Invalid pattern';
         }
     }
-    
+
     function applyCustomPattern(values, pattern) {
         // Simple pattern replacement for preview
         let result = pattern;
