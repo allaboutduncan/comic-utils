@@ -484,6 +484,32 @@ def delete_file_index_entry(path):
         app_logger.error(f"Failed to delete file index entry {path}: {e}")
         return False
 
+def clear_file_index_from_db():
+    """
+    Clear all entries from the file index database.
+
+    Returns:
+        True if successful, False otherwise
+    """
+    try:
+        conn = get_db_connection()
+        if not conn:
+            return False
+
+        c = conn.cursor()
+        c.execute('DELETE FROM file_index')
+
+        conn.commit()
+        rows_affected = c.rowcount
+        conn.close()
+
+        app_logger.info(f"Cleared {rows_affected} entries from file index database")
+        return True
+
+    except Exception as e:
+        app_logger.error(f"Failed to clear file index database: {e}")
+        return False
+
 def search_file_index(query, limit=100):
     """
     Search the file index for entries matching the query.

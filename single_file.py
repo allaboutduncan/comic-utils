@@ -320,6 +320,12 @@ def rebuild_single_cbz_file(cbz_path):
                 # Clean up temp directory
                 if os.path.exists(temp_extraction_dir):
                     shutil.rmtree(temp_extraction_dir)
+
+                # Invalidate browse cache for parent directory
+                from database import invalidate_browse_cache
+                invalidate_browse_cache(directory)
+                app_logger.info(f"Invalidated browse cache for: {directory}")
+
                 app_logger.info(f"Successfully converted {filename} (was actually a RAR file)")
                 return True
             else:
@@ -361,28 +367,51 @@ def convert_to_cbz(file_path):
     """
     app_logger.info(f"********************// Single File Conversion //********************")
     app_logger.info(f"-- Path to file: {file_path}")
-    
+
     # Check if the file exists
     if not os.path.exists(file_path):
         app_logger.error(f"File does not exist: {file_path}")
         return
-    
+
     # Check if it's a .rar or .cbr file
     if file_path.lower().endswith(('.rar', '.cbr')):
         app_logger.info("Converting RAR/CBR to CBZ format")
-        
+
         base_name = os.path.splitext(file_path)[0]  # Removes the extension
         temp_extraction_dir = f"temp_{base_name}"
         cbz_file_path = base_name + '.cbz'
 
+        # Get parent directory for cache invalidation
+        parent_dir = os.path.dirname(file_path)
+
         success = convert_single_rar_file(file_path, cbz_file_path, temp_extraction_dir)
-        
+
         if success:
             # Delete the original file (RAR or CBR)
             os.remove(file_path)
+
+            # Invalidate browse cache for parent directory
+            from database import invalidate_browse_cache, delete_file_index_entry, add_file_index_entry
+            invalidate_browse_cache(parent_dir)
+            app_logger.info(f"Invalidated browse cache for: {parent_dir}")
+
+            # Update file index: remove old CBR entry and add new CBZ entry
+            try:
+                delete_file_index_entry(file_path)
+                file_size = os.path.getsize(cbz_file_path) if os.path.exists(cbz_file_path) else None
+                add_file_index_entry(
+                    name=os.path.basename(cbz_file_path),
+                    path=cbz_file_path,
+                    entry_type='file',
+                    size=file_size,
+                    parent=parent_dir
+                )
+                app_logger.info(f"Updated file index: removed CBR, added CBZ")
+            except Exception as index_error:
+                app_logger.warning(f"Failed to update file index: {index_error}")
         else:
             app_logger.error(f"Failed to convert {file_path}")
-        
+
         # Clean up temporary extraction directory
         if os.path.exists(temp_extraction_dir):
             try:

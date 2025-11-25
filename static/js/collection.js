@@ -821,15 +821,27 @@ function renderGrid(items) {
                 gridItem.classList.add('folder'); // Use folder style for icon overlay
                 icon.className = 'bi bi-file-earmark-text';
                 img.style.display = 'none';
+
+                // Hide info button and actions menu for non-comic files
+                const infoButton = clone.querySelector('.info-button');
+                if (infoButton) infoButton.style.display = 'none';
+
+                // Hide actions dropdown for .txt files (those actions don't apply)
+                if (item.name.toLowerCase().endsWith('.txt')) {
+                    const actionsDropdown = clone.querySelector('.item-actions');
+                    if (actionsDropdown) actionsDropdown.style.display = 'none';
+                }
             }
 
             // Handle click for files - open comic reader for comic files, text viewer for .txt files
-            gridItem.onclick = () => {
+            gridItem.onclick = (e) => {
+                console.log('Grid item clicked:', item.name, 'hasThumbnail:', item.hasThumbnail);
                 if (item.hasThumbnail) {
                     // Open comic reader for CBZ/CBR/ZIP files
                     openComicReader(item.path);
                 } else if (item.name.toLowerCase().endsWith('.txt')) {
                     // Open text file viewer for .txt files
+                    console.log('Opening text file viewer for:', item.path);
                     openTextFileViewer(item.path, item.name);
                 } else {
                     console.log('Clicked file:', item.path);

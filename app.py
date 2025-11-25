@@ -40,7 +40,7 @@ import requests
 from packaging import version as pkg_version
 from database import (init_db, get_db_connection, get_recent_files, log_recent_file,
                       get_file_index_from_db, save_file_index_to_db, update_file_index_entry,
-                      add_file_index_entry, delete_file_index_entry, search_file_index,
+                      add_file_index_entry, delete_file_index_entry, clear_file_index_from_db, search_file_index,
                       get_search_cache, save_search_cache, clear_search_cache,
                       get_rebuild_schedule, save_rebuild_schedule as db_save_rebuild_schedule, update_last_rebuild,
                       get_browse_cache, save_browse_cache, invalidate_browse_cache, clear_browse_cache)
@@ -1108,12 +1108,24 @@ def get_cache_debug():
 @app.route('/api/rebuild-file-index', methods=['POST'])
 def api_rebuild_file_index():
     """Manually rebuild the file index."""
+    global index_built
+
     try:
         app_logger.info("🔄 Manual file index rebuild requested...")
         start_time = time.time()
 
-        # Clear and rebuild the file index
+        # Reset the index_built flag to force a full rebuild
+        index_built = False
+
+        # Clear the database so build_file_index() will scan the filesystem
+        app_logger.info("Clearing file index database...")
+        clear_file_index_from_db()
+
+        # Clear the in-memory file index
         file_index.clear()
+
+        # Build from filesystem (will scan since database is now empty)
+        app_logger.info("Scanning filesystem to rebuild index...")
         build_file_index()
 
         # Update last rebuild timestamp
