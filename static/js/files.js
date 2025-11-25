@@ -532,6 +532,126 @@ function createListItem(itemName, fullPath, type, panel, isDraggable) {
 
     iconContainer.appendChild(pencil);
     iconContainer.appendChild(trash);
+
+    // Add three-dots menu for CBZ/CBR files (same as collection.html)
+    // Only add if this is a CBZ/CBR/ZIP file
+    if (
+      type === "file" &&
+      ['.cbz', '.cbr', '.zip'].some(ext => fileData.name.toLowerCase().endsWith(ext))
+    ) {
+      const dropdownContainer = document.createElement("div");
+      dropdownContainer.className = "dropdown d-inline-block";
+
+      const dropdownBtn = document.createElement("button");
+      dropdownBtn.className = "btn btn-sm";
+      dropdownBtn.setAttribute("type", "button");
+      dropdownBtn.setAttribute("data-bs-toggle", "dropdown");
+      dropdownBtn.setAttribute("aria-expanded", "false");
+      dropdownBtn.innerHTML = '<i class="bi bi-three-dots-vertical"></i>';
+      dropdownBtn.title = "More options";
+      dropdownBtn.onclick = (e) => e.stopPropagation();
+
+      const dropdownMenu = document.createElement("ul");
+      dropdownMenu.className = "dropdown-menu dropdown-menu-end shadow";
+
+      // Crop Cover option
+      const cropItem = document.createElement("li");
+      const cropLink = document.createElement("a");
+      cropLink.className = "dropdown-item";
+      cropLink.href = "#";
+      cropLink.textContent = "Crop Cover";
+      cropLink.onclick = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        executeScriptOnFile('crop', fullPath, panel);
+      };
+      cropItem.appendChild(cropLink);
+      dropdownMenu.appendChild(cropItem);
+
+      // Remove 1st Image option
+      const removeFirstItem = document.createElement("li");
+      const removeFirstLink = document.createElement("a");
+      removeFirstLink.className = "dropdown-item";
+      removeFirstLink.href = "#";
+      removeFirstLink.textContent = "Remove 1st Image";
+      removeFirstLink.onclick = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        executeScriptOnFile('remove', fullPath, panel);
+      };
+      removeFirstItem.appendChild(removeFirstLink);
+      dropdownMenu.appendChild(removeFirstItem);
+
+      // Edit File option
+      const editItem = document.createElement("li");
+      const editLink = document.createElement("a");
+      editLink.className = "dropdown-item";
+      editLink.href = "#";
+      editLink.textContent = "Edit File";
+      editLink.onclick = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        openEditModal(fullPath);
+      };
+      editItem.appendChild(editLink);
+      dropdownMenu.appendChild(editItem);
+
+      // Rebuild option
+      const rebuildItem = document.createElement("li");
+      const rebuildLink = document.createElement("a");
+      rebuildLink.className = "dropdown-item";
+      rebuildLink.href = "#";
+      rebuildLink.textContent = "Rebuild";
+      rebuildLink.onclick = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        executeScriptOnFile('single_file', fullPath, panel);
+      };
+      rebuildItem.appendChild(rebuildLink);
+      dropdownMenu.appendChild(rebuildItem);
+
+      // Enhance option
+      const enhanceItem = document.createElement("li");
+      const enhanceLink = document.createElement("a");
+      enhanceLink.className = "dropdown-item";
+      enhanceLink.href = "#";
+      enhanceLink.textContent = "Enhance";
+      enhanceLink.onclick = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        executeScriptOnFile('enhance_single', fullPath, panel);
+      };
+      enhanceItem.appendChild(enhanceLink);
+      dropdownMenu.appendChild(enhanceItem);
+
+      // Divider
+      const divider = document.createElement("li");
+      const hr = document.createElement("hr");
+      hr.className = "dropdown-divider";
+      divider.appendChild(hr);
+      dropdownMenu.appendChild(divider);
+
+      // Delete option (in red)
+      const deleteDropdownItem = document.createElement("li");
+      const deleteDropdownLink = document.createElement("a");
+      deleteDropdownLink.className = "dropdown-item text-danger";
+      deleteDropdownLink.href = "#";
+      deleteDropdownLink.innerHTML = '<i class="bi bi-trash"></i> Delete';
+      deleteDropdownLink.onclick = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        deleteTarget = fullPath;
+        deletePanel = panel;
+        document.getElementById("deleteItemName").textContent = fileData.name;
+        new bootstrap.Modal(document.getElementById("deleteModal")).show();
+      };
+      deleteDropdownItem.appendChild(deleteDropdownLink);
+      dropdownMenu.appendChild(deleteDropdownItem);
+
+      dropdownContainer.appendChild(dropdownBtn);
+      dropdownContainer.appendChild(dropdownMenu);
+      iconContainer.appendChild(dropdownContainer);
+    }
   }
 
   li.appendChild(leftContainer);
@@ -1106,7 +1226,7 @@ function loadRecentFiles(panel) {
           infoBtn.innerHTML = '<i class="bi bi-eye"></i>';
           infoBtn.title = 'CBZ Information';
           infoBtn.setAttribute('type', 'button');
-          infoBtn.onclick = function(e) {
+          infoBtn.onclick = function (e) {
             e.stopPropagation();
             // Get the directory path
             const directoryPath = file.file_path.substring(0, file.file_path.lastIndexOf('/'));
@@ -1122,7 +1242,7 @@ function loadRecentFiles(panel) {
             gcdBtn.innerHTML = '<i class="bi bi-cloud-download"></i>';
             gcdBtn.title = 'Search GCD for Metadata';
             gcdBtn.setAttribute('type', 'button');
-            gcdBtn.onclick = function(e) {
+            gcdBtn.onclick = function (e) {
               e.stopPropagation();
               searchGCDMetadata(file.file_path, file.file_name);
             };
@@ -1136,7 +1256,7 @@ function loadRecentFiles(panel) {
             cvBtn.innerHTML = '<i class="bi bi-book"></i>';
             cvBtn.title = 'Search ComicVine for Metadata';
             cvBtn.setAttribute('type', 'button');
-            cvBtn.onclick = function(e) {
+            cvBtn.onclick = function (e) {
               e.stopPropagation();
               searchComicVineMetadata(file.file_path, file.file_name);
             };
@@ -1149,7 +1269,7 @@ function loadRecentFiles(panel) {
           pencilBtn.innerHTML = '<i class="bi bi-pencil"></i>';
           pencilBtn.title = 'Edit filename';
           pencilBtn.setAttribute('type', 'button');
-          pencilBtn.addEventListener('click', function(e) {
+          pencilBtn.addEventListener('click', function (e) {
             e.stopPropagation();
             const nameDiv = leftContainer.querySelector('.fw-medium');
             const oldPath = file.file_path;
@@ -1184,7 +1304,7 @@ function loadRecentFiles(panel) {
           trashBtn.innerHTML = '<i class="bi bi-trash"></i>';
           trashBtn.title = 'Delete file';
           trashBtn.setAttribute('type', 'button');
-          trashBtn.onclick = function(e) {
+          trashBtn.onclick = function (e) {
             e.stopPropagation();
             deleteTarget = file.file_path;
             deletePanel = panel;
@@ -1243,7 +1363,7 @@ function loadRecentFiles(panel) {
           });
 
           // Add click handler for selection
-          fileItem.addEventListener('click', function(e) {
+          fileItem.addEventListener('click', function (e) {
             if (e.ctrlKey || e.metaKey) {
               // Multi-select with Ctrl/Cmd
               const fullPath = file.file_path;
@@ -5476,4 +5596,807 @@ function updateRenamedFileInDOM(oldPath, newPath, newName) {
       }
     }
   });
+}
+
+// ============================================================================
+// THREE-DOTS MENU ACTIONS (FROM COLLECTION.HTML)
+// ============================================================================
+
+/**
+ * Execute a script action on a file (crop, remove first image, rebuild, enhance)
+ * @param {string} scriptType - The type of script (crop, remove, single_file, enhance_single)
+ * @param {string} filePath - Path to the file
+ * @param {string} panel - Which panel the file is in (source or destination)
+ */
+function executeScriptOnFile(scriptType, filePath, panel) {
+  if (!filePath) {
+    showToast('Error', 'No file path provided', 'error');
+    return;
+  }
+
+  const url = `/stream/${scriptType}?file_path=${encodeURIComponent(filePath)}`;
+  console.log(`Executing ${scriptType} on: ${filePath}`);
+
+  // Show a toast notification that the process has started
+  showToast('Processing', `Starting ${scriptType} operation...`, 'info');
+
+  // Use EventSource for streaming progress
+  const eventSource = new EventSource(url);
+  let operationCompleted = false; // Flag to track if operation finished successfully
+
+  // Listen for regular message events (log output)
+  eventSource.onmessage = (event) => {
+    console.log('Progress:', event.data);
+    // Just log the progress, don't try to parse as JSON
+  };
+
+  // Listen for the custom "completed" event sent by the server
+  eventSource.addEventListener('completed', (event) => {
+    operationCompleted = true;
+    console.log('Operation completed:', event.data);
+    showToast('Success', `Operation completed successfully!`, 'success');
+    eventSource.close();
+
+    // Reload the directory to show changes
+    const currentPath = panel === 'source' ? currentSourcePath : currentDestinationPath;
+    loadDirectories(currentPath, panel);
+  });
+
+  eventSource.onerror = (error) => {
+    console.error('EventSource error:', error);
+
+    // Close the connection
+    eventSource.close();
+
+    // Give a small delay for any pending messages to be processed
+    // before showing an error toast
+    setTimeout(() => {
+      // Only show error toast if the operation hasn't completed
+      // (EventSource fires onerror when connection closes, even after successful completion)
+      if (!operationCompleted) {
+        showToast('Error', 'Connection error during operation', 'error');
+      }
+    }, 100);
+  };
+}
+
+// Store the current file being edited
+let currentEditFilePath = null;
+
+/**
+ * Open the edit modal for a CBZ file
+ * @param {string} filePath - Path to the CBZ file to edit
+ */
+function openEditModal(filePath) {
+  // Store the file path for later use when saving
+  currentEditFilePath = filePath;
+
+  // Open the edit modal
+  const editModal = new bootstrap.Modal(document.getElementById('editCBZModal'));
+  const container = document.getElementById('editInlineContainer');
+
+  // Show loading spinner
+  container.innerHTML = `<div class="d-flex justify-content-center my-3">
+                              <button class="btn btn-primary" type="button" disabled>
+                                  <span class="spinner-grow spinner-grow-sm" role="status" aria-hidden="true"></span>
+                                  Unpacking CBZ File ...
+                              </button>
+                          </div>`;
+
+  editModal.show();
+
+  // Load CBZ contents
+  fetch(`/edit?file_path=${encodeURIComponent(filePath)}`)
+    .then(response => {
+      if (!response.ok) {
+        throw new Error("Failed to load edit content.");
+      }
+      return response.json();
+    })
+    .then(data => {
+      document.getElementById('editInlineContainer').innerHTML = data.modal_body;
+      document.getElementById('editInlineFolderName').value = data.folder_name;
+      document.getElementById('editInlineZipFilePath').value = data.zip_file_path;
+      document.getElementById('editInlineOriginalFilePath').value = data.original_file_path;
+      sortInlineEditCards();
+    })
+    .catch(error => {
+      container.innerHTML = `<div class="alert alert-danger" role="alert">
+                                  <strong>Error:</strong> ${error.message}
+                              </div>`;
+      showToast('Error', error.message, 'error');
+    });
+}
+
+/**
+ * Sort the inline edit cards in natural order
+ */
+function sortInlineEditCards() {
+  const container = document.getElementById('editInlineContainer');
+  if (!container) return;
+
+  // Get all card elements as an array
+  const cards = Array.from(container.children);
+
+  // Regex to check if the filename starts with a letter or a digit
+  const alphanumRegex = /^[a-z0-9]/i;
+
+  // Create an Intl.Collator instance for natural (alpha-numeric) sorting
+  const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
+
+  cards.sort((a, b) => {
+    const inputA = a.querySelector('.filename-input');
+    const inputB = b.querySelector('.filename-input');
+    const filenameA = inputA ? inputA.value : "";
+    const filenameB = inputB ? inputB.value : "";
+
+    // Determine if the filename starts with a letter or digit
+    const aIsAlphaNum = alphanumRegex.test(filenameA);
+    const bIsAlphaNum = alphanumRegex.test(filenameB);
+
+    // Files starting with special characters should sort before those starting with letters or digits
+    if (!aIsAlphaNum && bIsAlphaNum) return -1;
+    if (aIsAlphaNum && !bIsAlphaNum) return 1;
+
+    // Otherwise, use natural (alpha-numeric) sort order
+    return collator.compare(filenameA, filenameB);
+  });
+
+  // Re-append cards in sorted order
+  cards.forEach(card => container.appendChild(card));
+}
+
+/**
+ * Save the edited CBZ file - sends form data and closes modal
+ */
+function saveEditedCBZ() {
+  const form = document.getElementById('editInlineSaveForm');
+  if (!form) {
+    showToast('Error', 'Form not found', 'error');
+    return;
+  }
+
+  // Show a loading toast
+  showToast('Saving', 'Saving CBZ file...', 'info');
+
+  // Create FormData from the form (sends as form data, not JSON)
+  const formData = new FormData(form);
+
+  fetch('/save', {
+    method: 'POST',
+    body: formData  // Send as form data, not JSON
+  })
+    .then(response => response.json())
+    .then(data => {
+      if (data.success) {
+        showToast('Success', 'CBZ file saved successfully!', 'success');
+
+        // Close the modal
+        const editModal = bootstrap.Modal.getInstance(document.getElementById('editCBZModal'));
+        if (editModal) {
+          editModal.hide();
+        }
+
+        // Refresh the directory listing to show updated file
+        // Determine which panel the file is in and reload it
+        if (currentSourcePath && currentEditFilePath && currentEditFilePath.startsWith(currentSourcePath)) {
+          loadDirectories(currentSourcePath, 'source');
+        } else if (currentDestinationPath && currentEditFilePath && currentEditFilePath.startsWith(currentDestinationPath)) {
+          loadDirectories(currentDestinationPath, 'destination');
+        }
+      } else {
+        showToast('Error', data.error || 'Failed to save CBZ file', 'error');
+      }
+    })
+    .catch(error => {
+      console.error('Save error:', error);
+      showToast('Error', error.message, 'error');
+    });
+}
+
+// ============================================================================
+// EDIT MODAL CARD FUNCTIONS
+// ============================================================================
+
+/**
+ * Delete an image from the edit modal
+ * @param {HTMLElement} buttonElement - The delete button element
+ */
+function deleteCardImage(buttonElement) {
+  const colElement = buttonElement.closest('.col');
+  if (!colElement) {
+    console.error("Unable to locate column container for deletion.");
+    return;
+  }
+  const span = colElement.querySelector('.editable-filename');
+  if (!span) {
+    console.error("No file reference found in column:", colElement);
+    return;
+  }
+
+  // Check for full path first (newly created files), then fall back to relative path (original files)
+  let fullPath = span.dataset.fullPath || span.getAttribute('data-full-path');
+
+  if (!fullPath) {
+    // Fall back to constructing from folder + relative path for original cards
+    const folderName = document.getElementById('editInlineFolderName').value;
+    if (!folderName) {
+      console.error("Folder name not found in #editInlineFolderName.");
+      return;
+    }
+    const relPath = span.dataset.relPath || span.getAttribute('data-rel-path');
+    if (!relPath) {
+      console.error("No path found in span:", span);
+      return;
+    }
+    fullPath = `${folderName}/${relPath}`;
+  }
+
+  fetch('/delete', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ target: fullPath })
+  })
+    .then(response => response.json())
+    .then(data => {
+      if (data.success) {
+        colElement.classList.add("fade-out");
+        setTimeout(() => {
+          colElement.remove();
+        }, 300);
+      } else {
+        showToast('Error', "Error deleting image: " + data.error, 'error');
+      }
+    })
+    .catch(error => {
+      console.error("Error:", error);
+      showToast('Error', "An error occurred while deleting the image.", 'error');
+    });
+}
+
+/**
+ * Crop left portion of image
+ * @param {HTMLElement} buttonElement - The crop button element
+ */
+function cropImageLeft(buttonElement) {
+  processCropImage(buttonElement, 'left');
+}
+
+/**
+ * Crop center of image (splits into two)
+ * @param {HTMLElement} buttonElement - The crop button element
+ */
+function cropImageCenter(buttonElement) {
+  processCropImage(buttonElement, 'center');
+}
+
+/**
+ * Crop right portion of image
+ * @param {HTMLElement} buttonElement - The crop button element
+ */
+function cropImageRight(buttonElement) {
+  processCropImage(buttonElement, 'right');
+}
+
+/**
+ * Process crop operation
+ * @param {HTMLElement} buttonElement - The crop button element
+ * @param {string} cropType - Type of crop: 'left', 'center', or 'right'
+ */
+function processCropImage(buttonElement, cropType) {
+  const colElement = buttonElement.closest('.col');
+  if (!colElement) {
+    console.error("Unable to locate column container.");
+    return;
+  }
+
+  const span = colElement.querySelector('.editable-filename');
+  if (!span) {
+    console.error("No file reference found in column:", colElement);
+    return;
+  }
+
+  // Check for full path first (newly created files), then fall back to relative path (original files)
+  let fullPath = span.dataset.fullPath || span.getAttribute('data-full-path');
+
+  if (!fullPath) {
+    // Fall back to constructing from folder + relative path for original cards
+    const folderElement = document.getElementById('editInlineFolderName');
+    if (!folderElement) {
+      console.error("Folder name input element not found.");
+      return;
+    }
+
+    const folderName = folderElement.value;
+    if (!folderName) {
+      console.error("Folder name is empty.");
+      return;
+    }
+
+    const relPath = span.dataset.relPath || span.getAttribute('data-rel-path');
+    if (!relPath) {
+      console.error("No path found in span:", span);
+      return;
+    }
+
+    fullPath = `${folderName}/${relPath}`;
+  }
+
+  fetch('/crop', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ target: fullPath, cropType: cropType })
+  })
+    .then(response => response.json())
+    .then(data => {
+      if (data.success) {
+        const container = document.getElementById('editInlineContainer');
+
+        // Remove the original card from the DOM
+        colElement.remove();
+
+        if (data.html) {
+          // Center crop returns full HTML cards
+          container.insertAdjacentHTML('beforeend', data.html);
+        } else {
+          // Left/right crop returns single image + base64
+          const newCardHTML = generateCardHTML(data.newImagePath, data.newImageData);
+          container.insertAdjacentHTML('beforeend', newCardHTML);
+        }
+
+        // After insertion, sort the updated cards
+        sortInlineEditCards();
+
+      } else {
+        showToast('Error', "Error cropping image: " + data.error, 'error');
+      }
+    })
+    .catch(error => {
+      console.error("Error:", error);
+      showToast('Error', "An error occurred while cropping the image.", 'error');
+    });
+}
+
+/**
+ * Generate HTML for an image card
+ * @param {string} imagePath - Full path to the image (including temp folder if applicable)
+ * @param {string} imageData - Base64 encoded image data
+ * @returns {string} HTML string for the card
+ */
+function generateCardHTML(imagePath, imageData) {
+  // Extract filename only from the full path for display purposes
+  const filenameOnly = imagePath.split('/').pop();
+
+  // Store the FULL path in data-full-path for operations (delete, crop, etc.)
+  // This is crucial for newly created files that are in temp folders
+  return `
+  <div class="col">
+      <div class="card h-100 shadow-sm">
+          <div class="row g-0">
+              <div class="col-3">
+                  <img src="${imageData}" class="img-fluid rounded-start object-fit-scale border rounded" alt="${filenameOnly}">
+              </div>
+              <div class="col-9">
+                  <div class="card-body">
+                      <p class="card-text small">
+                          <span class="editable-filename" data-full-path="${imagePath}" onclick="enableFilenameEdit(this)">
+                              ${filenameOnly}
+                          </span>
+                          <input type="text" class="form-control d-none filename-input form-control-sm" value="${filenameOnly}" data-full-path="${imagePath}">
+                      </p>
+                      <div class="d-flex justify-content-end">
+                          <div class="btn-group" role="group" aria-label="Basic example">
+                              <button type="button" class="btn btn-outline-primary btn-sm" onclick="cropImageFreeForm(this)" title="Free Form Crop">
+                                  <i class="bi bi-crop"></i> Free
+                              </button>
+                              <button type="button" class="btn btn-outline-secondary btn-sm" onclick="cropImageLeft(this)" title="Crop Image Left">
+                                  <i class="bi bi-arrow-bar-left"></i> Left
+                              </button>
+                              <button type="button" class="btn btn-outline-secondary" onclick="cropImageCenter(this)" title="Crop Image Center">Middle</button>
+                              <button type="button" class="btn btn-outline-secondary btn-sm" onclick="cropImageRight(this)" title="Crop Image Right">
+                                  Right <i class="bi bi-arrow-bar-right"></i>
+                              </button>
+                              <button type="button" class="btn btn-outline-danger btn-sm" onclick="deleteCardImage(this)">
+                                  <i class="bi bi-trash"></i>
+                              </button>
+                          </div>
+                      </div>
+                  </div>
+              </div>
+          </div>
+      </div>
+  </div>`;
+}
+
+/**
+ * Enable filename editing in the edit modal
+ * @param {HTMLElement} element - The filename span element
+ */
+function enableFilenameEdit(element) {
+  console.log("enableFilenameEdit called");
+  const input = element.nextElementSibling;
+  if (!input) {
+    console.error("No adjacent input found for", element);
+    return;
+  }
+  element.classList.add('d-none');
+  input.classList.remove('d-none');
+  input.focus();
+  input.select();
+
+  let renameProcessed = false;
+
+  function processRename(event) {
+    if (renameProcessed) return;
+    renameProcessed = true;
+    performRename(input);
+  }
+
+  input.addEventListener('keydown', function (event) {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      processRename(event);
+      input.blur();
+    }
+  });
+
+  input.addEventListener('blur', function (event) {
+    processRename(event);
+  }, { once: true });
+}
+
+/**
+ * Perform the rename operation
+ * @param {HTMLElement} input - The input element containing the new filename
+ */
+function performRename(input) {
+  const newFilename = input.value.trim();
+
+  // Check for full path first (newly created files), then fall back to relative path (original files)
+  let oldPath = input.dataset.fullPath || input.getAttribute('data-full-path');
+  let oldFilename, newPath;
+
+  if (oldPath) {
+    // For newly created files with full path
+    oldFilename = oldPath.substring(oldPath.lastIndexOf('/') + 1);
+
+    // Cancel if the filename hasn't changed
+    if (newFilename === oldFilename) {
+      input.classList.add('d-none');
+      input.previousElementSibling.classList.remove('d-none');
+      return;
+    }
+
+    // Construct new path by replacing the filename
+    const dirPath = oldPath.substring(0, oldPath.lastIndexOf('/'));
+    newPath = `${dirPath}/${newFilename}`;
+  } else {
+    // For original files with relative path
+    const folderName = document.getElementById('editInlineFolderName').value;
+    const oldRelPath = input.dataset.relPath || input.getAttribute('data-rel-path');
+    if (!oldRelPath) {
+      console.error("No path found in input:", input);
+      return;
+    }
+
+    // Extract just the filename from the relative path for comparison
+    oldFilename = oldRelPath.includes('/')
+      ? oldRelPath.substring(oldRelPath.lastIndexOf('/') + 1)
+      : oldRelPath;
+
+    // Cancel if the filename hasn't changed
+    if (newFilename === oldFilename) {
+      input.classList.add('d-none');
+      input.previousElementSibling.classList.remove('d-none');
+      return;
+    }
+
+    // Construct new relative path (preserve subdirectory if any)
+    const dirPath = oldRelPath.includes('/')
+      ? oldRelPath.substring(0, oldRelPath.lastIndexOf('/'))
+      : '';
+    const newRelPath = dirPath ? `${dirPath}/${newFilename}` : newFilename;
+
+    oldPath = `${folderName}/${oldRelPath}`;
+    newPath = `${folderName}/${newRelPath}`;
+  }
+
+  console.log("Renaming", oldPath, "to", newPath);
+
+  fetch('/rename', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ old: oldPath, new: newPath })
+  })
+    .then(response => response.json())
+    .then(data => {
+      if (data.success) {
+        const span = input.previousElementSibling;
+        span.textContent = newFilename;
+
+        // Update the appropriate path attribute
+        if (input.dataset.fullPath || input.getAttribute('data-full-path')) {
+          // Update full path for newly created files
+          span.setAttribute('data-full-path', newPath);
+          input.setAttribute('data-full-path', newPath);
+        } else {
+          // Update relative path for original files
+          const newRelPath = newPath.substring(newPath.indexOf('/') + 1);
+          span.setAttribute('data-rel-path', newRelPath);
+          input.setAttribute('data-rel-path', newRelPath);
+        }
+
+        span.classList.remove('d-none');
+        input.classList.add('d-none');
+        // After updating the filename, re-sort the inline edit cards.
+        sortInlineEditCards();
+      } else {
+        showToast('Error', "Error renaming file: " + data.error, 'error');
+        input.classList.add('d-none');
+        input.previousElementSibling.classList.remove('d-none');
+      }
+    })
+    .catch(error => {
+      console.error("Error:", error);
+      showToast('Error', "An error occurred while renaming the file.", 'error');
+      input.classList.add('d-none');
+      input.previousElementSibling.classList.remove('d-none');
+    });
+}
+
+// ============================================================================
+// FREE-FORM CROP FUNCTIONALITY
+// ============================================================================
+
+// Crop state management
+let cropData = {
+  imagePath: null,
+  startX: 0,
+  startY: 0,
+  endX: 0,
+  endY: 0,
+  isDragging: false,
+  imageElement: null,
+  colElement: null,
+  isPanning: false,
+  panStartX: 0,
+  panStartY: 0,
+  selectionLeft: 0,
+  selectionTop: 0,
+  spacebarPressed: false,
+  wasDrawingBeforePan: false,
+  savedWidth: 0,
+  savedHeight: 0
+};
+
+/**
+ * Open free-form crop modal for an image from edit mode
+ * @param {HTMLElement} buttonElement - The free crop button element
+ */
+function cropImageFreeForm(buttonElement) {
+  const colElement = buttonElement.closest('.col');
+  if (!colElement) {
+    console.error("Unable to locate column container.");
+    return;
+  }
+
+  const span = colElement.querySelector('.editable-filename');
+  if (!span) {
+    console.error("No file reference found in column:", colElement);
+    return;
+  }
+
+  // Check for full path first (newly created files), then fall back to relative path (original files)
+  let fullPath = span.dataset.fullPath || span.getAttribute('data-full-path');
+
+  if (!fullPath) {
+    // Fall back to constructing from folder + relative path for original cards
+    const folderName = document.getElementById('editInlineFolderName').value;
+    if (!folderName) {
+      console.error("Folder name not found.");
+      return;
+    }
+
+    const relPath = span.dataset.relPath || span.getAttribute('data-rel-path');
+    if (!relPath) {
+      console.error("Unable to determine file path.");
+      return;
+    }
+
+    fullPath = `${folderName}/${relPath}`;
+  }
+
+  // Store the data for later use
+  cropData.imagePath = fullPath;
+  cropData.colElement = colElement;
+
+  // Get the image source from the card
+  const cardImg = colElement.querySelector('img');
+  if (!cardImg) {
+    console.error("No image found in card");
+    return;
+  }
+
+  // Load the full-size image into the modal
+  const cropImage = document.getElementById('cropImage');
+  const cropModal = new bootstrap.Modal(document.getElementById('freeFormCropModal'));
+
+  // Reset crop selection
+  const cropSelection = document.getElementById('cropSelection');
+  cropSelection.style.display = 'none';
+  document.getElementById('confirmCropBtn').disabled = true;
+
+  // Load image from the server
+  fetch('/get-image-data', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ target: fullPath })
+  })
+    .then(response => response.json())
+    .then(data => {
+      if (data.success) {
+        cropImage.src = data.imageData;
+        cropImage.onload = function () {
+          setupCropHandlers();
+          cropModal.show();
+        };
+      } else {
+        showToast('Error', data.error || 'Failed to load image', 'error');
+      }
+    })
+    .catch(error => {
+      console.error('Error loading image:', error);
+      showToast('Error', 'Failed to load image for cropping', 'error');
+    });
+}
+
+/**
+ * Setup crop handlers for the modal
+ */
+function setupCropHandlers() {
+  const cropImage = document.getElementById('cropImage');
+  const cropContainer = document.getElementById('cropImageContainer');
+  const cropSelection = document.getElementById('cropSelection');
+
+  // Replace image element to remove old listeners
+  const newCropImage = cropImage.cloneNode(true);
+  cropImage.parentNode.replaceChild(newCropImage, cropImage);
+  cropData.imageElement = newCropImage;
+
+  // Setup mouse events for cropping
+  cropContainer.addEventListener('mousedown', startCrop);
+  document.addEventListener('mousemove', updateCrop);
+  document.addEventListener('mouseup', endCrop);
+}
+
+function startCrop(e) {
+  if (e.button !== 0) return; // Only left click
+
+  const rect = document.getElementById('cropImageContainer').getBoundingClientRect();
+  cropData.isDragging = true;
+  cropData.startX = e.clientX - rect.left;
+  cropData.startY = e.clientY - rect.top;
+
+  const cropSelection = document.getElementById('cropSelection');
+  cropSelection.style.display = 'block';
+  cropSelection.style.left = cropData.startX + 'px';
+  cropSelection.style.top = cropData.startY + 'px';
+  cropSelection.style.width = '0px';
+  cropSelection.style.height = '0px';
+}
+
+function updateCrop(e) {
+  if (!cropData.isDragging) return;
+
+  const rect = document.getElementById('cropImageContainer').getBoundingClientRect();
+  cropData.endX = e.clientX - rect.left;
+  cropData.endY = e.clientY - rect.top;
+
+  const cropSelection = document.getElementById('cropSelection');
+  const left = Math.min(cropData.startX, cropData.endX);
+  const top = Math.min(cropData.startY, cropData.endY);
+  const width = Math.abs(cropData.endX - cropData.startX);
+  const height = Math.abs(cropData.endY - cropData.startY);
+
+  cropSelection.style.left = left + 'px';
+  cropSelection.style.top = top + 'px';
+  cropSelection.style.width = width + 'px';
+  cropSelection.style.height = height + 'px';
+}
+
+function endCrop() {
+  if (!cropData.isDragging) return;
+
+  cropData.isDragging = false;
+
+  const width = Math.abs(cropData.endX - cropData.startX);
+  const height = Math.abs(cropData.endY - cropData.startY);
+
+  // Enable confirm button if selection is valid
+  if (width > 10 && height > 10) {
+    document.getElementById('confirmCropBtn').disabled = false;
+  }
+}
+
+/**
+ * Confirm and execute free-form crop
+ */
+function confirmFreeFormCrop() {
+  const cropImage = document.getElementById('cropImage');
+  const cropContainer = document.getElementById('cropImageContainer');
+  const imageRect = cropImage.getBoundingClientRect();
+  const containerRect = cropContainer.getBoundingClientRect();
+
+  // Calculate image offset within container
+  const imageOffsetX = imageRect.left - containerRect.left;
+  const imageOffsetY = imageRect.top - containerRect.top;
+
+  // Calculate the scale factor between displayed image and actual image
+  const scaleX = cropImage.naturalWidth / cropImage.width;
+  const scaleY = cropImage.naturalHeight / cropImage.height;
+
+  // Get the crop coordinates relative to the container
+  const displayX = Math.min(cropData.startX, cropData.endX);
+  const displayY = Math.min(cropData.startY, cropData.endY);
+  const displayWidth = Math.abs(cropData.endX - cropData.startX);
+  const displayHeight = Math.abs(cropData.endY - cropData.startY);
+
+  // Convert to coordinates relative to the image (subtract image offset)
+  const imageRelativeX = displayX - imageOffsetX;
+  const imageRelativeY = displayY - imageOffsetY;
+
+  // Convert to actual image coordinates
+  let actualX = imageRelativeX * scaleX;
+  let actualY = imageRelativeY * scaleY;
+  let actualWidth = displayWidth * scaleX;
+  let actualHeight = displayHeight * scaleY;
+
+  // Clamp coordinates to ensure they don't exceed actual image dimensions
+  actualX = Math.max(0, Math.min(actualX, cropImage.naturalWidth));
+  actualY = Math.max(0, Math.min(actualY, cropImage.naturalHeight));
+  actualWidth = Math.min(actualWidth, cropImage.naturalWidth - actualX);
+  actualHeight = Math.min(actualHeight, cropImage.naturalHeight - actualY);
+
+  console.log('Actual crop coordinates:', { x: actualX, y: actualY, width: actualWidth, height: actualHeight });
+
+  // Send the crop request
+  fetch('/crop-freeform', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      target: cropData.imagePath,
+      x: actualX,
+      y: actualY,
+      width: actualWidth,
+      height: actualHeight
+    })
+  })
+    .then(response => response.json())
+    .then(data => {
+      if (data.success) {
+        showToast('Success', 'Image cropped successfully!', 'success');
+
+        // Close the crop modal
+        const cropModal = bootstrap.Modal.getInstance(document.getElementById('freeFormCropModal'));
+        if (cropModal) {
+          cropModal.hide();
+        }
+
+        // Reload the image in the edit modal
+        if (cropData.colElement) {
+          const img = cropData.colElement.querySelector('img');
+          if (img) {
+            // Force reload with cache busting
+            const timestamp = new Date().getTime();
+            img.src = img.src.split('?')[0] + '?' + timestamp;
+          }
+        }
+      } else {
+        showToast('Error', data.error || 'Failed to crop image', 'error');
+      }
+    })
+    .catch(error => {
+      console.error('Error:', error);
+      showToast('Error', 'An error occurred while cropping the image', 'error');
+    });
 }

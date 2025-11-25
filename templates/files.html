@@ -29,8 +29,8 @@
           onclick="loadDirectories('/data', 'source');" data-bs-toggle="button" aria-pressed="true">Directories</button>
         <button type="button" id="btnDownloads" class="btn btn-outline-primary"
           onclick="loadDownloads('{{ target_dir }}', 'source');" data-bs-toggle="button">Downloads</button>
-        <button type="button" id="btnRecentFiles" class="btn btn-outline-primary"
-          onclick="loadRecentFiles('source');" data-bs-toggle="button">Recent Files</button>
+        <button type="button" id="btnRecentFiles" class="btn btn-outline-primary" onclick="loadRecentFiles('source');"
+          data-bs-toggle="button">Recent Files</button>
       </div>
       <!-- Filter buttons for source panel -->
       <div id="source-directory-filter" class="mb-2">
@@ -586,6 +586,64 @@
   </div>
 </div>
 <!-- End of Rename Confirmation Modal -->
+
+<!-- Edit CBZ Modal -->
+<div class="modal fade" id="editCBZModal" tabindex="-1" aria-labelledby="editCBZModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-fullscreen">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="editCBZModalLabel">Editing CBZ File</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <div id="editInlineContainer" class="row row-cols-1 row-cols-sm-2 row-cols-md-3 g-3">
+          <!-- Inline editing content (cards) will be dynamically loaded here -->
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-primary" id="saveEditBtn" onclick="saveEditedCBZ()">
+          <i class="bi bi-floppy2-fill"></i> Save
+        </button>
+        <form action="/save" method="post" id="editInlineSaveForm" style="display: none;">
+          <input type="hidden" name="folder_name" id="editInlineFolderName">
+          <input type="hidden" name="zip_file_path" id="editInlineZipFilePath">
+          <input type="hidden" name="original_file_path" id="editInlineOriginalFilePath">
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+<!-- Free Form Crop Modal -->
+<div class="modal fade" id="freeFormCropModal" tabindex="-1" aria-labelledby="freeFormCropModalLabel"
+  aria-hidden="true">
+  <div class="modal-dialog modal-fullscreen">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="freeFormCropModalLabel">Free Form Crop - Click and drag to select area</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body d-flex justify-content-center align-items-center bg-dark"
+        style="overflow: hidden; position: relative;">
+        <div id="cropImageContainer"
+          style="position: relative; display: inline-block; max-width: 100%; max-height: 100%; cursor: crosshair;">
+          <img id="cropImage" src="" alt="Image to crop"
+            style="max-width: 100%; max-height: 90vh; display: block; user-select: none;">
+          <div id="cropSelection"
+            style="position: absolute; border: 3px dashed #ff0000; background-color: rgba(255, 0, 0, 0.1); display: none; pointer-events: none;">
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="button" class="btn btn-primary" id="confirmCropBtn" onclick="confirmFreeFormCrop()"
+          disabled>Confirm Crop</button>
+      </div>
+    </div>
+  </div>
+</div>
+<!-- End of Free Form Crop Modal -->
+
+
 
 {% endblock %}
 
