@@ -88,6 +88,18 @@
   <!-- Bootstrap JS (Required for Modal functionality) -->
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 
+  <!-- Environment-based console logging -->
+  <script>
+    (function() {
+      const isProduction = '{{ config.get("ENV", "development") }}' === 'production' ||
+                           '{{ config.get("FLASK_ENV", "development") }}' === 'production';
+      if (isProduction) {
+        // Mute console.log in production, but keep error and warn
+        console.log = function() {};
+      }
+    })();
+  </script>
+
   {% block scripts %}
   <script>
     let lastFileWatchCount = 0;

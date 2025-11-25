@@ -4530,7 +4530,7 @@ def index():
     # These environment variables are set/updated by load_config_into_env()
     watch = config.get("SETTINGS", "WATCH", fallback="/temp")
     convert_subdirectories = config.getboolean('SETTINGS', 'CONVERT_SUBDIRECTORIES', fallback=False)
-    return render_template('index.html', watch=watch, config=app.config, convertSubdirectories=convert_subdirectories)
+    return render_template('collection.html', watch=watch, config=app.config, convertSubdirectories=convert_subdirectories)
     
 #########################
 #        App Logs       #

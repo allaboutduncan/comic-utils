@@ -97,6 +97,10 @@ def load_flask_config(app, logger=None):
     if logger:
         logger.info("Loading config file values...")
 
+    # Load FLASK_ENV from environment variable (for production/development mode)
+    app.config["FLASK_ENV"] = os.environ.get("FLASK_ENV", "development")
+    app.config["ENV"] = app.config["FLASK_ENV"]  # Also set ENV for compatibility
+
     # **Ensure SETTINGS is a dictionary before accessing**
     settings = config["SETTINGS"] if "SETTINGS" in config else {}
 
