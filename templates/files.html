@@ -12,6 +12,28 @@
 <div class="container-lg">
   <h2 class="text-primary-emphasis">File Manager</h2>
 
+  <!-- Progress indicator -->
+  <div class="row p-3" id="progress-container" style="display: none;">
+    <div class="col-12">
+      <div class="card border-primary">
+        <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center">
+          <h5 class="card-title mb-0"><i class="bi bi-hourglass-split me-2"></i>Processing Progress</h5>
+          <button type="button" class="btn-close btn-close-white" onclick="hideProgressIndicator()"
+            aria-label="Close"></button>
+        </div>
+        <div class="card-body">
+          <div class="progress mb-3" style="height: 25px;">
+            <div id="progress-bar" class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar"
+              style="width: 0%" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100">
+              0%
+            </div>
+          </div>
+          <div id="progress-text" class="text-muted">Initializing...</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- Selection Count Badge -->
   <div id="selectionBadge" class="selection-badge">
     <i class="bi bi-check2-square badge-icon"></i>
@@ -614,8 +636,8 @@
   </div>
 </div>
 <!-- Free Form Crop Modal -->
-<div class="modal fade" id="freeFormCropModal" tabindex="-1" aria-labelledby="freeFormCropModalLabel"
-  aria-hidden="true" data-bs-backdrop="static">
+<div class="modal fade" id="freeFormCropModal" tabindex="-1" aria-labelledby="freeFormCropModalLabel" aria-hidden="true"
+  data-bs-backdrop="static">
   <div class="modal-dialog modal-fullscreen">
     <div class="modal-content">
       <div class="modal-header">
@@ -642,7 +664,60 @@
   </div>
 </div>
 <!-- End of Free Form Crop Modal -->
+<!-- Missing File Check Results Modal -->
+<div class="modal fade" id="missingFileCheckModal" tabindex="-1" aria-labelledby="missingFileCheckModalLabel"
+  aria-hidden="true">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="missingFileCheckModalLabel">Missing File Check Results</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <div id="missingFileCheckContent">
+          <!-- Summary Section -->
+          <div class="alert alert-info mb-3">
+            <h6 class="alert-heading mb-2">
+              <i class="bi bi-info-circle"></i> Summary
+            </h6>
+            <p class="mb-0" id="missingFileCheckSummary"></p>
+          </div>
 
+          <!-- File Link Section -->
+          <div class="card">
+            <div class="card-body">
+              <h6 class="card-title">
+                <i class="bi bi-file-earmark-text"></i> Missing Issues File
+              </h6>
+              <p class="card-text">
+                A detailed list of missing issues has been saved to:
+              </p>
+              <div class="bg-light p-2 rounded mb-2">
+                <code id="missingFileCheckPath"></code>
+              </div>
+              <a href="#" id="missingFileCheckLink" class="btn btn-sm btn-primary" target="_blank">
+                <i class="bi bi-box-arrow-up-right"></i> View File
+              </a>
+            </div>
+          </div>
+
+          <!-- Info Section -->
+          <div class="alert alert-secondary mt-3 mb-0">
+            <small>
+              <i class="bi bi-lightbulb"></i>
+              This file will remain in the directory for your reference. You can access it anytime by navigating to the
+              folder.
+            </small>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+      </div>
+    </div>
+  </div>
+</div>
+<!-- End of Missing File Check Results Modal -->
 
 
 {% endblock %}

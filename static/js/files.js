@@ -479,6 +479,96 @@ function createListItem(itemName, fullPath, type, panel, isDraggable) {
           });
       });
       iconContainer.appendChild(renameBtn);
+
+      // Add three-dot dropdown menu for directory operations
+      const dropdownContainer = document.createElement("div");
+      dropdownContainer.className = "dropdown d-inline-block";
+
+      const dropdownBtn = document.createElement("button");
+      dropdownBtn.className = "btn btn-sm";
+      dropdownBtn.setAttribute("type", "button");
+      dropdownBtn.setAttribute("data-bs-toggle", "dropdown");
+      dropdownBtn.setAttribute("aria-expanded", "false");
+      dropdownBtn.innerHTML = '<i class="bi bi-three-dots-vertical"></i>';
+      dropdownBtn.onclick = (e) => e.stopPropagation();
+
+      const dropdownMenu = document.createElement("ul");
+      dropdownMenu.className = "dropdown-menu";
+
+      // Convert CBR-->CBZ option
+      const convertItem = document.createElement("li");
+      const convertLink = document.createElement("a");
+      convertLink.className = "dropdown-item";
+      convertLink.href = "#";
+      convertLink.innerHTML = '<i class="bi bi-arrow-repeat me-2"></i>Convert CBR→CBZ';
+      convertLink.onclick = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        executeScriptOnDirectory('convert', fullPath, panel);
+      };
+      convertItem.appendChild(convertLink);
+      dropdownMenu.appendChild(convertItem);
+
+      // Rebuild All Files option
+      const rebuildItem = document.createElement("li");
+      const rebuildLink = document.createElement("a");
+      rebuildLink.className = "dropdown-item";
+      rebuildLink.href = "#";
+      rebuildLink.innerHTML = '<i class="bi bi-hammer me-2"></i>Rebuild All Files';
+      rebuildLink.onclick = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        executeScriptOnDirectory('rebuild', fullPath, panel);
+      };
+      rebuildItem.appendChild(rebuildLink);
+      dropdownMenu.appendChild(rebuildItem);
+
+      // PDFs-->CBZ option
+      const pdfItem = document.createElement("li");
+      const pdfLink = document.createElement("a");
+      pdfLink.className = "dropdown-item";
+      pdfLink.href = "#";
+      pdfLink.innerHTML = '<i class="bi bi-file-earmark-pdf me-2"></i>PDFs→CBZ';
+      pdfLink.onclick = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        executeScriptOnDirectory('pdf', fullPath, panel);
+      };
+      pdfItem.appendChild(pdfLink);
+      dropdownMenu.appendChild(pdfItem);
+
+      // Missing File Check option
+      const missingItem = document.createElement("li");
+      const missingLink = document.createElement("a");
+      missingLink.className = "dropdown-item";
+      missingLink.href = "#";
+      missingLink.innerHTML = '<i class="bi bi-search me-2"></i>Missing File Check';
+      missingLink.onclick = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        executeScriptOnDirectory('missing', fullPath, panel);
+      };
+      missingItem.appendChild(missingLink);
+      dropdownMenu.appendChild(missingItem);
+
+      // Enhance Images option
+      const enhanceItem = document.createElement("li");
+      const enhanceLink = document.createElement("a");
+      enhanceLink.className = "dropdown-item";
+      enhanceLink.href = "#";
+      enhanceLink.innerHTML = '<i class="bi bi-stars me-2"></i>Enhance Images';
+      enhanceLink.onclick = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        executeScriptOnDirectory('enhance_dir', fullPath, panel);
+      };
+      enhanceItem.appendChild(enhanceLink);
+      dropdownMenu.appendChild(enhanceItem);
+
+      dropdownContainer.appendChild(dropdownBtn);
+      dropdownContainer.appendChild(dropdownMenu);
+      // Store for later - will be appended after trash button
+      li.folderDropdown = dropdownContainer;
     }
   }
 
@@ -532,6 +622,12 @@ function createListItem(itemName, fullPath, type, panel, isDraggable) {
 
     iconContainer.appendChild(pencil);
     iconContainer.appendChild(trash);
+
+    // Add folder three-dots menu after trash button (for directories only)
+    if (li.folderDropdown) {
+      iconContainer.appendChild(li.folderDropdown);
+      delete li.folderDropdown; // Clean up
+    }
 
     // Add three-dots menu for CBZ/CBR files (same as collection.html)
     // Only add if this is a CBZ/CBR/ZIP file
@@ -624,29 +720,19 @@ function createListItem(itemName, fullPath, type, panel, isDraggable) {
       enhanceItem.appendChild(enhanceLink);
       dropdownMenu.appendChild(enhanceItem);
 
-      // Divider
-      const divider = document.createElement("li");
-      const hr = document.createElement("hr");
-      hr.className = "dropdown-divider";
-      divider.appendChild(hr);
-      dropdownMenu.appendChild(divider);
-
-      // Delete option (in red)
-      const deleteDropdownItem = document.createElement("li");
-      const deleteDropdownLink = document.createElement("a");
-      deleteDropdownLink.className = "dropdown-item text-danger";
-      deleteDropdownLink.href = "#";
-      deleteDropdownLink.innerHTML = '<i class="bi bi-trash"></i> Delete';
-      deleteDropdownLink.onclick = (e) => {
+      // Add Blank to End option
+      const addBlankItem = document.createElement("li");
+      const addBlankLink = document.createElement("a");
+      addBlankLink.className = "dropdown-item";
+      addBlankLink.href = "#";
+      addBlankLink.textContent = "Add Blank to End";
+      addBlankLink.onclick = (e) => {
         e.preventDefault();
         e.stopPropagation();
-        deleteTarget = fullPath;
-        deletePanel = panel;
-        document.getElementById("deleteItemName").textContent = fileData.name;
-        new bootstrap.Modal(document.getElementById("deleteModal")).show();
+        executeScriptOnFile('add', fullPath, panel);
       };
-      deleteDropdownItem.appendChild(deleteDropdownLink);
-      dropdownMenu.appendChild(deleteDropdownItem);
+      addBlankItem.appendChild(addBlankLink);
+      dropdownMenu.appendChild(addBlankItem);
 
       dropdownContainer.appendChild(dropdownBtn);
       dropdownContainer.appendChild(dropdownMenu);
@@ -5603,8 +5689,8 @@ function updateRenamedFileInDOM(oldPath, newPath, newName) {
 // ============================================================================
 
 /**
- * Execute a script action on a file (crop, remove first image, rebuild, enhance)
- * @param {string} scriptType - The type of script (crop, remove, single_file, enhance_single)
+ * Execute a script action on a file (crop, remove first image, rebuild, enhance, add)
+ * @param {string} scriptType - The type of script (crop, remove, single_file, enhance_single, add)
  * @param {string} filePath - Path to the file
  * @param {string} panel - Which panel the file is in (source or destination)
  */
@@ -5617,25 +5703,92 @@ function executeScriptOnFile(scriptType, filePath, panel) {
   const url = `/stream/${scriptType}?file_path=${encodeURIComponent(filePath)}`;
   console.log(`Executing ${scriptType} on: ${filePath}`);
 
-  // Show a toast notification that the process has started
-  showToast('Processing', `Starting ${scriptType} operation...`, 'info');
+  // Get progress elements
+  const progressContainer = document.getElementById('progress-container');
+  const progressBar = document.getElementById('progress-bar');
+  const progressText = document.getElementById('progress-text');
+
+  // Extract filename for display
+  const filename = filePath.split('/').pop();
+
+  // Show and initialize progress container
+  if (progressContainer && progressBar && progressText) {
+    progressContainer.style.display = 'block';
+    progressBar.style.width = '0%';
+    progressBar.textContent = '0%';
+    progressBar.className = 'progress-bar progress-bar-striped progress-bar-animated';
+    progressBar.setAttribute('aria-valuenow', '0');
+    progressText.textContent = `Starting ${scriptType} on ${filename}...`;
+  }
 
   // Use EventSource for streaming progress
   const eventSource = new EventSource(url);
-  let operationCompleted = false; // Flag to track if operation finished successfully
+  let operationCompleted = false;
 
   // Listen for regular message events (log output)
   eventSource.onmessage = (event) => {
-    console.log('Progress:', event.data);
-    // Just log the progress, don't try to parse as JSON
+    const line = event.data.trim();
+
+    // Skip empty keepalive messages
+    if (!line) return;
+
+    console.log('Progress:', line);
+
+    // Update progress text with current operation status
+    if (progressText && progressBar) {
+      // Look for specific progress patterns
+      if (line.includes('Extracting') || line.includes('Unzipping')) {
+        progressBar.style.width = '25%';
+        progressBar.textContent = '25%';
+        progressText.textContent = `Extracting: ${filename}`;
+      } else if (line.includes('Processing') || line.includes('Cropping') || line.includes('Enhancing')) {
+        progressBar.style.width = '50%';
+        progressBar.textContent = '50%';
+        progressText.textContent = line;
+      } else if (line.includes('Compressing') || line.includes('Zipping') || line.includes('Creating CBZ')) {
+        progressBar.style.width = '75%';
+        progressBar.textContent = '75%';
+        progressText.textContent = `Compressing: ${filename}`;
+      } else if (line.includes('Complete') || line.includes('complete') || line.includes('Success') || line.includes('success')) {
+        progressBar.style.width = '100%';
+        progressBar.textContent = '100%';
+        progressBar.setAttribute('aria-valuenow', '100');
+        progressText.textContent = `${scriptType} completed for ${filename}!`;
+      } else if (line.includes('Adding blank') || line.includes('Blank image')) {
+        progressBar.style.width = '50%';
+        progressBar.textContent = '50%';
+        progressText.textContent = `Adding blank image to ${filename}...`;
+      } else if (line.includes('Removing') || line.includes('Deleting')) {
+        progressBar.style.width = '50%';
+        progressBar.textContent = '50%';
+        progressText.textContent = line;
+      } else if (!line.startsWith('INFO:') && !line.startsWith('DEBUG:')) {
+        // Show other meaningful messages
+        progressText.textContent = line;
+      }
+    }
   };
 
   // Listen for the custom "completed" event sent by the server
   eventSource.addEventListener('completed', (event) => {
     operationCompleted = true;
     console.log('Operation completed:', event.data);
+
+    // Set progress to 100%
+    if (progressBar && progressText) {
+      progressBar.style.width = '100%';
+      progressBar.textContent = '100%';
+      progressBar.setAttribute('aria-valuenow', '100');
+      progressText.textContent = `${scriptType} completed successfully for ${filename}!`;
+    }
+
     showToast('Success', `Operation completed successfully!`, 'success');
     eventSource.close();
+
+    // Auto-hide progress container after 3 seconds
+    setTimeout(() => {
+      hideProgressIndicator();
+    }, 3000);
 
     // Reload the directory to show changes
     const currentPath = panel === 'source' ? currentSourcePath : currentDestinationPath;
@@ -5644,17 +5797,321 @@ function executeScriptOnFile(scriptType, filePath, panel) {
 
   eventSource.onerror = (error) => {
     console.error('EventSource error:', error);
-
-    // Close the connection
     eventSource.close();
 
-    // Give a small delay for any pending messages to be processed
-    // before showing an error toast
     setTimeout(() => {
-      // Only show error toast if the operation hasn't completed
-      // (EventSource fires onerror when connection closes, even after successful completion)
       if (!operationCompleted) {
         showToast('Error', 'Connection error during operation', 'error');
+        if (progressText && progressBar) {
+          progressText.textContent = 'Error: Connection lost during operation';
+          progressBar.className = 'progress-bar bg-danger';
+        }
+      }
+    }, 100);
+  };
+}
+
+/**
+ * Hide the progress indicator
+ */
+function hideProgressIndicator() {
+  const progressContainer = document.getElementById('progress-container');
+  if (progressContainer) {
+    progressContainer.style.display = 'none';
+  }
+}
+
+/**
+ * Show the missing file check results modal
+ * @param {Object} data - The missing file data containing path, count, summary
+ */
+function showMissingFileCheckModal(data) {
+  // Update summary
+  const summaryEl = document.getElementById('missingFileCheckSummary');
+  if (summaryEl) {
+    summaryEl.textContent = data.summary || `Found ${data.count} missing issues.`;
+  }
+
+  // Update file path display
+  const pathEl = document.getElementById('missingFileCheckPath');
+  if (pathEl) {
+    pathEl.textContent = data.path + '/missing.txt';
+  }
+
+  // Update file link
+  const linkEl = document.getElementById('missingFileCheckLink');
+  if (linkEl) {
+    // Use static URL if available, otherwise construct download URL
+    if (data.staticUrl) {
+      linkEl.href = data.staticUrl;
+    } else {
+      linkEl.href = `/api/download?path=${encodeURIComponent(data.path + '/missing.txt')}`;
+    }
+    linkEl.target = '_blank';
+  }
+
+  // Show the modal
+  const modalElement = document.getElementById('missingFileCheckModal');
+  if (modalElement) {
+    const modal = new bootstrap.Modal(modalElement);
+    modal.show();
+  }
+}
+
+/**
+ * Execute a script operation on a directory
+ * @param {string} scriptType - The type of script to run (convert, rebuild, pdf, missing, enhance_dir)
+ * @param {string} directoryPath - Full path to the directory
+ * @param {string} panel - Which panel the directory is in (source or destination)
+ */
+function executeScriptOnDirectory(scriptType, directoryPath, panel) {
+  if (!directoryPath) {
+    showToast('Error', 'No directory path provided', 'error');
+    return;
+  }
+
+  const url = `/stream/${scriptType}?directory=${encodeURIComponent(directoryPath)}`;
+  console.log(`Executing ${scriptType} on directory: ${directoryPath}`);
+
+  // Get progress elements
+  const progressContainer = document.getElementById('progress-container');
+  const progressBar = document.getElementById('progress-bar');
+  const progressText = document.getElementById('progress-text');
+
+  console.log('Progress elements:', { progressContainer, progressBar, progressText });
+
+  // Show and initialize progress container
+  if (progressContainer && progressBar && progressText) {
+    console.log('Showing progress container...');
+    progressContainer.style.display = 'block';
+    progressBar.style.width = '0%';
+    progressBar.textContent = '0%';
+    progressBar.className = 'progress-bar progress-bar-striped progress-bar-animated';
+    progressBar.setAttribute('aria-valuenow', '0');
+    progressText.textContent = `Starting ${scriptType} operation...`;
+  } else {
+    console.error('Progress container elements not found!');
+  }
+
+  // Initialize progress tracking
+  window.progressData = {
+    totalFiles: 0,
+    processedFiles: 0,
+    currentFile: '',
+    initialized: false
+  };
+
+  // Use EventSource for streaming progress
+  const eventSource = new EventSource(url);
+  let operationCompleted = false;
+
+  // Listen for regular message events (log output)
+  eventSource.onmessage = (event) => {
+    const line = event.data.trim();
+
+    // Skip empty keepalive messages
+    if (!line) return;
+
+    console.log('Progress:', line);
+
+    // Parse progress messages based on script type
+    if (scriptType === 'convert' || scriptType === 'rebuild') {
+      // Look for total files count
+      if (line.includes('Found') && (line.includes('files to convert') || line.includes('files to process')) && !window.progressData.initialized) {
+        const match = line.match(/Found (\d+) files to (?:convert|process)/);
+        if (match) {
+          window.progressData.totalFiles = parseInt(match[1]);
+          window.progressData.initialized = true;
+          progressText.textContent = `Found ${window.progressData.totalFiles} files to process. Starting...`;
+        }
+      }
+
+      // Look for file processing messages
+      if (line.includes('Processing file:') && window.progressData.initialized) {
+        const match = line.match(/Processing file: (.+?) \((\d+)\/(\d+)\)/);
+        if (match) {
+          const filename = match[1];
+          const current = parseInt(match[2]);
+          const total = parseInt(match[3]);
+
+          window.progressData.processedFiles = current;
+
+          if (total > 0) {
+            const progressPercent = Math.round((current / total) * 100);
+            const remaining = total - current;
+
+            progressBar.style.width = progressPercent + '%';
+            progressBar.textContent = `${progressPercent}% (${current}/${total})`;
+            progressBar.setAttribute('aria-valuenow', progressPercent);
+            progressText.textContent = `Processing: ${filename} - ${remaining} file${remaining !== 1 ? 's' : ''} remaining`;
+          }
+        }
+      }
+
+      // Look for large file processing
+      if (line.includes('Processing large file') && line.includes('MB')) {
+        const match = line.match(/Processing large file \((\d+\.\d+)MB\): (.+)/);
+        if (match) {
+          progressText.textContent = `Processing large file (${match[1]}MB): ${match[2]} - This may take several minutes...`;
+        }
+      }
+
+      // Look for compression/extraction progress
+      if (line.includes('Compression progress:')) {
+        const match = line.match(/Compression progress: (\d+\.\d+)% \((\d+)\/(\d+) files\)/);
+        if (match) {
+          progressText.textContent = `Compressing files: ${match[1]}% (${match[2]}/${match[3]} files)`;
+        }
+      }
+
+      if (line.includes('Extraction progress:')) {
+        const match = line.match(/Extraction progress: (\d+\.\d+)% \((\d+)\/(\d+) files\)/);
+        if (match) {
+          progressText.textContent = `Extracting files: ${match[1]}% (${match[2]}/${match[3]} files)`;
+        }
+      }
+
+      // Look for step progress
+      const stepMatch = line.match(/Step (\d+)\/(\d+): (.+)/);
+      if (stepMatch) {
+        progressText.textContent = `Step ${stepMatch[1]}/${stepMatch[2]}: ${stepMatch[3]}`;
+      }
+
+      // Look for completion
+      if ((line.includes('Conversion completed') || line.includes('Rebuild completed')) && window.progressData.initialized) {
+        progressBar.style.width = '100%';
+        progressBar.textContent = `100% (${window.progressData.totalFiles}/${window.progressData.totalFiles})`;
+        progressBar.setAttribute('aria-valuenow', '100');
+        progressText.textContent = `Completed processing ${window.progressData.totalFiles} files!`;
+      }
+    } else if (scriptType === 'pdf') {
+      // PDF conversion progress
+      if (line.includes('Found') && line.includes('PDF')) {
+        const match = line.match(/Found (\d+) PDF/);
+        if (match) {
+          window.progressData.totalFiles = parseInt(match[1]);
+          window.progressData.initialized = true;
+          progressText.textContent = `Found ${window.progressData.totalFiles} PDF files to convert...`;
+        }
+      }
+
+      if (line.includes('Converting:') || line.includes('Processing:')) {
+        progressText.textContent = line;
+      }
+
+      if (line.includes('completed') || line.includes('Completed')) {
+        progressBar.style.width = '100%';
+        progressBar.textContent = '100%';
+        progressBar.setAttribute('aria-valuenow', '100');
+        progressText.textContent = 'PDF conversion completed!';
+      }
+    } else if (scriptType === 'missing') {
+      // Missing file check progress
+      if (line.includes('Checking') || line.includes('Scanning') || line.includes('Missing File Check')) {
+        progressText.textContent = line.replace(/<[^>]*>/g, ''); // Strip HTML tags
+        progressBar.style.width = '50%';
+        progressBar.textContent = 'Scanning...';
+      }
+
+      // Look for "Found X missing issues" message
+      if (line.includes('missing issues')) {
+        // Strip HTML tags for display
+        const cleanLine = line.replace(/<[^>]*>/g, '');
+        progressText.textContent = cleanLine;
+        progressBar.style.width = '75%';
+        progressBar.textContent = '75%';
+
+        // Extract the count and directory path from the message
+        const countMatch = line.match(/<code>(\d+)<\/code>/);
+        const pathMatch = line.match(/in <code>([^<]+)<\/code>/);
+
+        if (pathMatch) {
+          window.missingFileData = {
+            path: pathMatch[1],
+            count: countMatch ? countMatch[1] : '0',
+            summary: cleanLine
+          };
+        }
+      }
+
+      // Check for the download link to missing.txt (server sends this)
+      if (line.includes('Download missing list:') && line.includes('<a href=')) {
+        const linkMatch = line.match(/<a href='([^']+)'[^>]*>([^<]+)<\/a>/);
+        if (linkMatch && window.missingFileData) {
+          window.missingFileData.staticUrl = linkMatch[1];
+        }
+      }
+    } else if (scriptType === 'enhance_dir') {
+      // Enhance images progress
+      if (line.includes('Processing') || line.includes('Enhancing')) {
+        progressText.textContent = line;
+      }
+
+      if (line.includes('Enhanced') && line.includes('/')) {
+        const match = line.match(/(\d+)\/(\d+)/);
+        if (match) {
+          const current = parseInt(match[1]);
+          const total = parseInt(match[2]);
+          const percent = Math.round((current / total) * 100);
+          progressBar.style.width = percent + '%';
+          progressBar.textContent = `${percent}% (${current}/${total})`;
+          progressBar.setAttribute('aria-valuenow', percent);
+        }
+      }
+
+      if (line.includes('complete') || line.includes('Complete')) {
+        progressBar.style.width = '100%';
+        progressBar.textContent = '100%';
+        progressBar.setAttribute('aria-valuenow', '100');
+        progressText.textContent = 'Image enhancement completed!';
+      }
+    } else {
+      // Generic progress for other script types
+      progressText.textContent = line;
+    }
+  };
+
+  // Listen for the custom "completed" event sent by the server
+  eventSource.addEventListener('completed', (event) => {
+    operationCompleted = true;
+    console.log('Operation completed:', event.data);
+
+    // Set progress to 100%
+    progressBar.style.width = '100%';
+    progressBar.textContent = '100%';
+    progressBar.setAttribute('aria-valuenow', '100');
+    progressText.textContent = `${scriptType} operation completed successfully!`;
+
+    eventSource.close();
+
+    // Handle missing file check results - show modal
+    if (scriptType === 'missing' && window.missingFileData) {
+      hideProgressIndicator();
+      showMissingFileCheckModal(window.missingFileData);
+      window.missingFileData = null; // Clear for next run
+    } else {
+      showToast('Success', `Directory operation completed successfully!`, 'success');
+
+      // Auto-hide progress container after 5 seconds
+      setTimeout(() => {
+        hideProgressIndicator();
+      }, 5000);
+    }
+
+    // Reload the directory to show changes
+    const currentPath = panel === 'source' ? currentSourcePath : currentDestinationPath;
+    loadDirectories(currentPath, panel);
+  });
+
+  eventSource.onerror = (error) => {
+    console.error('EventSource error:', error);
+    eventSource.close();
+
+    setTimeout(() => {
+      if (!operationCompleted) {
+        showToast('Error', 'Connection error during operation', 'error');
+        progressText.textContent = 'Error: Connection lost during operation';
+        progressBar.className = 'progress-bar bg-danger';
       }
     }, 100);
   };
