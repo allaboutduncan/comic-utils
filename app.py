@@ -2698,11 +2698,11 @@ def api_browse():
         dir_paths = [os.path.join(path, d) for d in listing['directories']]
         app_logger.info(f"📁 Processing {len(dir_paths)} directories for path: {path}")
 
-        # Batch fetch counts
-        counts_start = time.time()
-        path_counts = get_path_counts_batch(dir_paths)
-        counts_elapsed = time.time() - counts_start
-        app_logger.info(f"⏱️ Batch counts took {counts_elapsed:.2f}s for {len(dir_paths)} directories")
+        # SKIP slow batch count query - return null and let frontend load progressively
+        # The UNION ALL with LIKE queries does N full table scans which is too slow
+        # Frontend will call /api/browse-metadata to load counts progressively
+        path_counts = {}  # Empty - counts will be null, triggering progressive load
+        app_logger.info(f"⏭️ Skipping batch counts for {len(dir_paths)} directories (will load progressively)")
 
         # For large directories, skip thumbnail detection (will be loaded progressively)
         # For small directories, detect thumbnails inline
@@ -2723,12 +2723,19 @@ def api_browse():
         for dir_name in listing['directories']:
             dir_path = os.path.join(path, dir_name)
             folder_thumb = folder_thumbs.get(dir_path)
-            folder_count, file_count = path_counts.get(dir_path, (0, 0))
+
+            # Return null for counts to trigger progressive loading on frontend
+            # Frontend detects null and calls /api/browse-metadata asynchronously
+            counts = path_counts.get(dir_path)
+            if counts:
+                folder_count, file_count = counts
+            else:
+                folder_count, file_count = None, None
 
             dir_info = {
                 'name': dir_name,
                 'has_thumbnail': folder_thumb is not None,
-                'has_files': file_count > 0,
+                'has_files': None if file_count is None else file_count > 0,
                 'folder_count': folder_count,
                 'file_count': file_count
             }
