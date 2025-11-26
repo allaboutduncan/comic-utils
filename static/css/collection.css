@@ -495,6 +495,10 @@
     overflow: hidden;
 }
 
+.dashboard-swiper .swiper-slide {
+    width: 165px;
+}
+
 .dashboard-card {
     width: 100%;
     cursor: pointer;
@@ -508,7 +512,8 @@
 .dashboard-card-img-container {
     position: relative;
     width: 100%;
-    aspect-ratio: 2/3;
+    height: 247px;
+    aspect-ratio: auto;
     border-radius: 8px;
     overflow: hidden;
     background-color: #f8f9fa;

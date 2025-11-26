@@ -556,29 +556,11 @@
     document.addEventListener('DOMContentLoaded', () => {
         // Initialize Dashboard Swipers
         const swiperConfig = {
-            slidesPerView: 2,
+            slidesPerView: 'auto',
             spaceBetween: 15,
             navigation: {
                 nextEl: '.swiper-button-next',
                 prevEl: '.swiper-button-prev',
-            },
-            breakpoints: {
-                576: {
-                    slidesPerView: 3,
-                    spaceBetween: 15,
-                },
-                768: {
-                    slidesPerView: 4,
-                    spaceBetween: 20,
-                },
-                992: {
-                    slidesPerView: 5,
-                    spaceBetween: 20,
-                },
-                1200: {
-                    slidesPerView: 6,
-                    spaceBetween: 24,
-                },
             }
         };
 
