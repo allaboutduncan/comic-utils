@@ -10,6 +10,11 @@ document.addEventListener('DOMContentLoaded', () => {
                         new URLSearchParams(window.location.search).get('path') ||
                         '';
     loadDirectory(initialPath);
+
+    // Load dashboard data if at root
+    if (!initialPath || initialPath === '/' || initialPath === '/data') {
+        loadFavoritePublishers();
+    }
 });
 
 // State
@@ -2989,6 +2994,82 @@ function confirmDeleteFile() {
             hideProgressIndicator();
             showError('An error occurred while deleting the file.');
         });
+}
+
+/**
+ * Load favorite publishers for the dashboard swiper
+ */
+async function loadFavoritePublishers() {
+    const swiper = document.querySelector('#favoritesSwiper .swiper-wrapper');
+    if (!swiper) return;
+
+    try {
+        // Fetch favorites and root directory data in parallel
+        const [favResponse, browseResponse] = await Promise.all([
+            fetch('/api/favorites/publishers'),
+            fetch('/api/browse?path=/data')
+        ]);
+
+        const favData = await favResponse.json();
+        const browseData = await browseResponse.json();
+
+        if (!favData.success || !favData.publishers.length) {
+            // Show empty state
+            swiper.innerHTML = `
+                <div class="swiper-slide">
+                    <div class="dashboard-card text-center p-4">
+                        <i class="bi bi-bookmark-heart text-muted" style="font-size: 3rem;"></i>
+                        <p class="text-muted mt-2">No favorites yet</p>
+                    </div>
+                </div>
+            `;
+            return;
+        }
+
+        // Create a map of publisher paths to their info from browse data
+        const publisherMap = {};
+        if (browseData.directories) {
+            browseData.directories.forEach(dir => {
+                const fullPath = `/data/${dir.name}`;
+                publisherMap[fullPath] = {
+                    name: dir.name,
+                    hasThumbnail: dir.has_thumbnail || false,
+                    thumbnailUrl: dir.thumbnail_url || null
+                };
+            });
+        }
+
+        // Build publisher details from favorites, enriched with browse data
+        const publisherDetails = favData.publishers.map(pub => {
+            const info = publisherMap[pub.publisher_path] || {};
+            return {
+                path: pub.publisher_path,
+                name: info.name || pub.publisher_path.split('/').pop(),
+                hasThumbnail: info.hasThumbnail || false,
+                thumbnailUrl: info.thumbnailUrl || null
+            };
+        });
+
+        // Render slides with same structure as grid-item folders
+        swiper.innerHTML = publisherDetails.map(pub => `
+            <div class="swiper-slide">
+                <div class="dashboard-card${pub.hasThumbnail ? ' has-thumbnail' : ''}" data-path="${pub.path}" onclick="loadDirectory('${pub.path}')">
+                    <div class="dashboard-card-img-container">
+                        <img src="${pub.thumbnailUrl || ''}" alt="${pub.name}" class="thumbnail" style="${pub.hasThumbnail ? '' : 'display: none;'}">
+                        <div class="icon-overlay" style="${pub.hasThumbnail ? 'display: none;' : ''}">
+                            <i class="bi bi-folder-fill"></i>
+                        </div>
+                    </div>
+                    <div class="dashboard-card-body">
+                        <h6 class="text-truncate">${pub.name}</h6>
+                    </div>
+                </div>
+            </div>
+        `).join('');
+
+    } catch (error) {
+        console.error('Error loading favorite publishers:', error);
+    }
 }
 
 /**

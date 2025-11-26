@@ -484,3 +484,149 @@
     background: rgba(255, 193, 7, 1);
 }
 
+/* Dashboard Section Styles */
+.dashboard-section {
+    position: relative;
+}
+
+.dashboard-swiper {
+    padding: 10px 5px 30px 5px;
+    /* Bottom padding for pagination/scrollbar if needed */
+    overflow: hidden;
+}
+
+.dashboard-card {
+    width: 100%;
+    cursor: pointer;
+    transition: transform 0.2s ease;
+}
+
+.dashboard-card:hover {
+    transform: translateY(-5px);
+}
+
+.dashboard-card-img-container {
+    position: relative;
+    width: 100%;
+    aspect-ratio: 2/3;
+    border-radius: 8px;
+    overflow: hidden;
+    background-color: #f8f9fa;
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+    margin-bottom: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    contain: layout;
+}
+
+.dashboard-card-img-container img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+}
+
+/* Dashboard cards with folder thumbnails */
+.dashboard-card.has-thumbnail .dashboard-card-img-container {
+    overflow: visible;
+    background-color: transparent;
+}
+
+.dashboard-card .icon-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background-color: #e9ecef;
+}
+
+.dashboard-card .icon-overlay i {
+    font-size: 3rem;
+    color: #ffc107;
+}
+
+.dashboard-card.has-thumbnail .icon-overlay {
+    display: none;
+}
+
+.dashboard-card-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.3);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    transition: opacity 0.2s;
+}
+
+.dashboard-card:hover .dashboard-card-overlay {
+    opacity: 1;
+}
+
+.dashboard-card-overlay i {
+    font-size: 3rem;
+    color: rgba(255, 255, 255, 0.9);
+}
+
+.dashboard-card-badge {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    padding: 4px 8px;
+    border-radius: 4px;
+    color: white;
+    font-size: 0.75rem;
+    font-weight: bold;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+.dashboard-card-body h6 {
+    margin-bottom: 2px;
+    font-weight: 600;
+    color: var(--bs-body-color);
+}
+
+/* Swiper Navigation Customization */
+.dashboard-swiper .swiper-button-next,
+.dashboard-swiper .swiper-button-prev {
+    width: 32px;
+    height: 32px;
+    background-color: rgba(255, 255, 255, 0.9);
+    border-radius: 50%;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
+    color: #333;
+}
+
+.dashboard-swiper .swiper-button-next:after,
+.dashboard-swiper .swiper-button-prev:after {
+    font-size: 14px;
+    font-weight: bold;
+}
+
+.dashboard-swiper .swiper-button-disabled {
+    opacity: 0;
+    cursor: default;
+}
+
+[data-bs-theme="dark"] .dashboard-card-img-container {
+    background-color: #2b3035;
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.3);
+}
+
+[data-bs-theme="dark"] .dashboard-card .icon-overlay {
+    background-color: #343a40;
+}
+
+[data-bs-theme="dark"] .dashboard-swiper .swiper-button-next,
+[data-bs-theme="dark"] .dashboard-swiper .swiper-button-prev {
+    background-color: rgba(40, 40, 40, 0.9);
+    color: #fff;
+}

@@ -3,9 +3,10 @@
 {% block extra_css %}
 <link rel="stylesheet" href="{{ url_for('static', filename='css/collection.css') }}?v={{ range(1, 10000) | random }}">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/swiper@11/swiper-bundle.min.css" />
+
 <script>
     // Initial path from URL (e.g., /collection/Marvel -> /data/Marvel)
-    window.INITIAL_PATH = {{ initial_path | default('') | tojson | safe }};
+    window.INITIAL_PATH = {{ initial_path | default ('') | tojson | safe }};
 </script>
 {% endblock %}
 {% block content %}
@@ -64,6 +65,191 @@
             <!-- Search input will be dynamically populated by JS -->
         </div>
     </div>
+
+    <!-- Dashboard Sections -->
+    <div id="dashboard-sections" class="mb-5" style="display: none;">
+        <!-- Favorite Collections -->
+        <section class="mb-4 dashboard-section">
+            <div class="d-flex justify-content-between align-items-center mb-3 px-2">
+                <h4 class="m-0"><i class="bi bi-bookmark-heart-fill text-danger me-2"></i>Favorite Collections</h4>
+                <button class="btn btn-sm btn-link text-decoration-none">View All</button>
+            </div>
+            <div class="swiper dashboard-swiper" id="favoritesSwiper">
+                <div class="swiper-wrapper">
+                    <!-- Loaded dynamically by loadFavoritePublishers() -->
+                    <div class="swiper-slide">
+                        <div class="dashboard-card text-center p-4">
+                            <div class="spinner-border text-primary" role="status">
+                                <span class="visually-hidden">Loading...</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="swiper-button-next"></div>
+                <div class="swiper-button-prev"></div>
+            </div>
+        </section>
+
+        <!-- Want to Read -->
+        <!--
+        <section class="mb-4 dashboard-section">
+            <div class="d-flex justify-content-between align-items-center mb-3 px-2">
+                <h4 class="m-0"><i class="bi bi-bookmark-star-fill text-warning me-2"></i>Want to Read</h4>
+                <button class="btn btn-sm btn-link text-decoration-none">View All</button>
+            </div>
+            <div class="swiper dashboard-swiper" id="wantToReadSwiper">
+                <div class="swiper-wrapper">
+
+                    <div class="swiper-slide">
+                        <div class="dashboard-card">
+                            <div class="dashboard-card-img-container">
+                                <img src="https://placehold.co/300x450/333/fff?text=Saga" alt="Saga">
+                            </div>
+                            <div class="dashboard-card-body">
+                                <h6 class="text-truncate">Saga Vol. 1</h6>
+                                <small class="text-muted">Brian K. Vaughan</small>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="swiper-slide">
+                        <div class="dashboard-card">
+                            <div class="dashboard-card-img-container">
+                                <img src="https://placehold.co/300x450/333/fff?text=Watchmen" alt="Watchmen">
+                            </div>
+                            <div class="dashboard-card-body">
+                                <h6 class="text-truncate">Watchmen</h6>
+                                <small class="text-muted">Alan Moore</small>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="swiper-slide">
+                        <div class="dashboard-card">
+                            <div class="dashboard-card-img-container">
+                                <img src="https://placehold.co/300x450/333/fff?text=Sandman" alt="Sandman">
+                            </div>
+                            <div class="dashboard-card-body">
+                                <h6 class="text-truncate">The Sandman Vol. 1</h6>
+                                <small class="text-muted">Neil Gaiman</small>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="swiper-slide">
+                        <div class="dashboard-card">
+                            <div class="dashboard-card-img-container">
+                                <img src="https://placehold.co/300x450/333/fff?text=Maus" alt="Maus">
+                            </div>
+                            <div class="dashboard-card-body">
+                                <h6 class="text-truncate">Maus</h6>
+                                <small class="text-muted">Art Spiegelman</small>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="swiper-button-next"></div>
+                <div class="swiper-button-prev"></div>
+            </div>
+        </section>
+        -->
+        <!-- Recently Added -->
+        <!--
+        <section class="mb-4 dashboard-section">
+            <div class="d-flex justify-content-between align-items-center mb-3 px-2">
+                <h4 class="m-0"><i class="bi bi-clock-history text-primary me-2"></i>Recently Added</h4>
+                <button class="btn btn-sm btn-link text-decoration-none">View All</button>
+            </div>
+            <div class="swiper dashboard-swiper" id="recentAddedSwiper">
+                <div class="swiper-wrapper">
+
+                    <div class="swiper-slide">
+                        <div class="dashboard-card">
+                            <div class="dashboard-card-img-container">
+                                <img src="https://placehold.co/300x450/444/fff?text=X-Men+97" alt="X-Men">
+                                <div class="dashboard-card-badge bg-success">New</div>
+                            </div>
+                            <div class="dashboard-card-body">
+                                <h6 class="text-truncate">X-Men '97 #1</h6>
+                                <small class="text-muted">Added Today</small>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="swiper-slide">
+                        <div class="dashboard-card">
+                            <div class="dashboard-card-img-container">
+                                <img src="https://placehold.co/300x450/444/fff?text=Batman+145" alt="Batman">
+                                <div class="dashboard-card-badge bg-success">New</div>
+                            </div>
+                            <div class="dashboard-card-body">
+                                <h6 class="text-truncate">Batman #145</h6>
+                                <small class="text-muted">Added Yesterday</small>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="swiper-slide">
+                        <div class="dashboard-card">
+                            <div class="dashboard-card-img-container">
+                                <img src="https://placehold.co/300x450/444/fff?text=ASM+45" alt="ASM">
+                            </div>
+                            <div class="dashboard-card-body">
+                                <h6 class="text-truncate">Amazing Spider-Man #45</h6>
+                                <small class="text-muted">Added 2 days ago</small>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="swiper-button-next"></div>
+                <div class="swiper-button-prev"></div>
+            </div>
+        </section>
+        -->
+        <!-- Recently Read -->
+        <!--
+        <section class="mb-4 dashboard-section">
+            <div class="d-flex justify-content-between align-items-center mb-3 px-2">
+                <h4 class="m-0"><i class="bi bi-book-half text-info me-2"></i>Recently Read</h4>
+                <button class="btn btn-sm btn-link text-decoration-none">View All</button>
+            </div>
+            <div class="swiper dashboard-swiper" id="recentReadSwiper">
+                <div class="swiper-wrapper">
+
+                    <div class="swiper-slide">
+                        <div class="dashboard-card">
+                            <div class="dashboard-card-img-container">
+                                <img src="https://placehold.co/300x450/555/fff?text=Invincible" alt="Invincible">
+                                <div class="progress"
+                                    style="height: 4px; position: absolute; bottom: 0; left: 0; width: 100%;">
+                                    <div class="progress-bar bg-info" role="progressbar" style="width: 75%"
+                                        aria-valuenow="75" aria-valuemin="0" aria-valuemax="100"></div>
+                                </div>
+                            </div>
+                            <div class="dashboard-card-body">
+                                <h6 class="text-truncate">Invincible #12</h6>
+                                <small class="text-muted">75% Complete</small>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="swiper-slide">
+                        <div class="dashboard-card">
+                            <div class="dashboard-card-img-container">
+                                <img src="https://placehold.co/300x450/555/fff?text=Walking+Dead" alt="Walking Dead">
+                                <div class="progress"
+                                    style="height: 4px; position: absolute; bottom: 0; left: 0; width: 100%;">
+                                    <div class="progress-bar bg-info" role="progressbar" style="width: 30%"
+                                        aria-valuenow="30" aria-valuemin="0" aria-valuemax="100"></div>
+                                </div>
+                            </div>
+                            <div class="dashboard-card-body">
+                                <h6 class="text-truncate">The Walking Dead #45</h6>
+                                <small class="text-muted">30% Complete</small>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="swiper-button-next"></div>
+                <div class="swiper-button-prev"></div>
+            </div>
+        </section>
+        -->
+    </div>
     <div id="loading-indicator" class="text-center py-5">
         <div class="spinner-border text-primary" role="status">
             <span class="visually-hidden">Loading...</span>
@@ -113,8 +299,11 @@
                     <li><a class="dropdown-item action-edit" href="#">Edit File</a></li>
                     <li><a class="dropdown-item action-rebuild" href="#">Rebuild</a></li>
                     <li><a class="dropdown-item action-enhance" href="#">Enhance</a></li>
-                    <li><hr class="dropdown-divider"></li>
-                    <li><a class="dropdown-item action-delete text-danger" href="#"><i class="bi bi-trash"></i> Delete</a></li>
+                    <li>
+                        <hr class="dropdown-divider">
+                    </li>
+                    <li><a class="dropdown-item action-delete text-danger" href="#"><i class="bi bi-trash"></i>
+                            Delete</a></li>
                 </ul>
             </div>
         </div>
@@ -175,7 +364,8 @@
     </div>
 </div>
 <!-- Delete Confirmation Modal -->
-<div class="modal fade" id="deleteConfirmModal" tabindex="-1" aria-labelledby="deleteConfirmModalLabel" aria-hidden="true">
+<div class="modal fade" id="deleteConfirmModal" tabindex="-1" aria-labelledby="deleteConfirmModalLabel"
+    aria-hidden="true">
     <div class="modal-dialog">
         <div class="modal-content">
             <div class="modal-header">
@@ -253,7 +443,8 @@
 </div>
 <!-- End of CBZ Info Modal -->
 <!-- Missing File Check Results Modal -->
-<div class="modal fade" id="missingFileCheckModal" tabindex="-1" aria-labelledby="missingFileCheckModalLabel" aria-hidden="true">
+<div class="modal fade" id="missingFileCheckModal" tabindex="-1" aria-labelledby="missingFileCheckModalLabel"
+    aria-hidden="true">
     <div class="modal-dialog modal-lg">
         <div class="modal-content">
             <div class="modal-header">
@@ -292,7 +483,8 @@
                     <div class="alert alert-secondary mt-3 mb-0">
                         <small>
                             <i class="bi bi-lightbulb"></i>
-                            This file will remain in the directory for your reference. You can access it anytime by navigating to the folder.
+                            This file will remain in the directory for your reference. You can access it anytime by
+                            navigating to the folder.
                         </small>
                     </div>
                 </div>
@@ -305,7 +497,8 @@
 </div>
 <!-- End of Missing File Check Results Modal -->
 <!-- Text File Viewer Modal -->
-<div class="modal fade" id="textFileViewerModal" tabindex="-1" aria-labelledby="textFileViewerModalLabel" aria-hidden="true">
+<div class="modal fade" id="textFileViewerModal" tabindex="-1" aria-labelledby="textFileViewerModalLabel"
+    aria-hidden="true">
     <div class="modal-dialog modal-lg modal-dialog-scrollable">
         <div class="modal-content">
             <div class="modal-header">
@@ -333,20 +526,24 @@
 <!-- End of Text File Viewer Modal -->
 <!-- Toast Container -->
 <div class="toast-container position-fixed top-0 end-0 p-3" style="z-index: 9999;">
-    <div id="successToast" class="toast align-items-center text-bg-success border-0" role="alert" aria-live="assertive" aria-atomic="true">
+    <div id="successToast" class="toast align-items-center text-bg-success border-0" role="alert" aria-live="assertive"
+        aria-atomic="true">
         <div class="d-flex">
             <div class="toast-body" id="successToastBody">
                 Success message
             </div>
-            <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast" aria-label="Close"></button>
+            <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"
+                aria-label="Close"></button>
         </div>
     </div>
-    <div id="errorToast" class="toast align-items-center text-bg-danger border-0" role="alert" aria-live="assertive" aria-atomic="true">
+    <div id="errorToast" class="toast align-items-center text-bg-danger border-0" role="alert" aria-live="assertive"
+        aria-atomic="true">
         <div class="d-flex">
             <div class="toast-body" id="errorToastBody">
                 Error message
             </div>
-            <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast" aria-label="Close"></button>
+            <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"
+                aria-label="Close"></button>
         </div>
     </div>
 </div>
@@ -355,4 +552,52 @@
 {{ super() }}
 <script src="https://cdn.jsdelivr.net/npm/swiper@11/swiper-bundle.min.js"></script>
 <script src="{{ url_for('static', filename='js/collection.js') }}?v={{ range(1, 10000) | random }}"></script>
+<script>
+    document.addEventListener('DOMContentLoaded', () => {
+        // Initialize Dashboard Swipers
+        const swiperConfig = {
+            slidesPerView: 2,
+            spaceBetween: 15,
+            navigation: {
+                nextEl: '.swiper-button-next',
+                prevEl: '.swiper-button-prev',
+            },
+            breakpoints: {
+                576: {
+                    slidesPerView: 3,
+                    spaceBetween: 15,
+                },
+                768: {
+                    slidesPerView: 4,
+                    spaceBetween: 20,
+                },
+                992: {
+                    slidesPerView: 5,
+                    spaceBetween: 20,
+                },
+                1200: {
+                    slidesPerView: 6,
+                    spaceBetween: 24,
+                },
+            }
+        };
+
+        // Initialize all dashboard swipers with the same config
+        document.querySelectorAll('.dashboard-swiper').forEach(el => {
+            new Swiper(el, swiperConfig);
+        });
+
+        // Show dashboard sections only on root path or if specifically requested
+        // For now, we'll show them if we are at the root path
+        const currentPath = window.INITIAL_PATH || '';
+        const dashboardSections = document.getElementById('dashboard-sections');
+
+        // Simple logic: Show on root, hide otherwise. 
+        // This logic might need to be moved to collection.js if we want it to react to navigation
+        // But for now, let's just show it initially if path is empty
+        if (!currentPath || currentPath === '/' || currentPath === '/data') {
+            dashboardSections.style.display = 'block';
+        }
+    });
+</script>
 {% endblock %}
