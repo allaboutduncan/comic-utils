@@ -3,6 +3,10 @@
 {% block extra_css %}
 <link rel="stylesheet" href="{{ url_for('static', filename='css/collection.css') }}?v={{ range(1, 10000) | random }}">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/swiper@11/swiper-bundle.min.css" />
+<script>
+    // Initial path from URL (e.g., /collection/Marvel -> /data/Marvel)
+    window.INITIAL_PATH = {{ initial_path | default('') | tojson | safe }};
+</script>
 {% endblock %}
 {% block content %}
 <div class="container-lg mt-4">
@@ -88,6 +92,9 @@
             </div>
             <button class="info-button no-propagation" title="CBZ Information">
                 <i class="bi bi-info-circle"></i>
+            </button>
+            <button class="favorite-button no-propagation" title="Add to Favorites" style="display: none;">
+                <i class="bi bi-bookmark-heart"></i>
             </button>
         </div>
         <div class="item-info d-flex justify-content-between align-items-start mt-2">

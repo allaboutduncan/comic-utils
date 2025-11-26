@@ -1,0 +1,251 @@
+"""
+Favorites API Blueprint
+
+Provides REST API endpoints for managing:
+- Favorite Publishers (root-level folders)
+- Favorite Series (folders within publishers)
+- Issues Read (comic files marked as read)
+"""
+
+from flask import Blueprint, request, jsonify
+from database import (
+    add_favorite_publisher, remove_favorite_publisher,
+    get_favorite_publishers, is_favorite_publisher,
+    add_favorite_series, remove_favorite_series,
+    get_favorite_series, is_favorite_series,
+    mark_issue_read, unmark_issue_read,
+    get_issues_read, is_issue_read, get_issue_read_date
+)
+from app_logging import app_logger
+
+favorites_bp = Blueprint('favorites', __name__, url_prefix='/api/favorites')
+
+
+# =============================================================================
+# Publisher Endpoints
+# =============================================================================
+
+@favorites_bp.route('/publishers', methods=['GET'])
+def get_publishers():
+    """Get all favorite publishers."""
+    try:
+        publishers = get_favorite_publishers()
+        return jsonify({
+            "success": True,
+            "publishers": publishers
+        })
+    except Exception as e:
+        app_logger.error(f"Error getting favorite publishers: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@favorites_bp.route('/publishers/check', methods=['GET'])
+def check_publisher():
+    """Check if a publisher is favorited."""
+    path = request.args.get('path')
+    if not path:
+        return jsonify({"success": False, "error": "Missing path parameter"}), 400
+
+    try:
+        is_fav = is_favorite_publisher(path)
+        return jsonify({
+            "success": True,
+            "is_favorite": is_fav
+        })
+    except Exception as e:
+        app_logger.error(f"Error checking favorite publisher: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@favorites_bp.route('/publishers', methods=['POST'])
+def add_publisher():
+    """Add a publisher to favorites."""
+    data = request.get_json() or {}
+    path = data.get('path')
+
+    if not path:
+        return jsonify({"success": False, "error": "Missing path in request body"}), 400
+
+    try:
+        success = add_favorite_publisher(path)
+        if success:
+            return jsonify({"success": True})
+        else:
+            return jsonify({"success": False, "error": "Failed to add favorite publisher"}), 500
+    except Exception as e:
+        app_logger.error(f"Error adding favorite publisher: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@favorites_bp.route('/publishers', methods=['DELETE'])
+def remove_publisher():
+    """Remove a publisher from favorites."""
+    data = request.get_json() or {}
+    path = data.get('path')
+
+    if not path:
+        return jsonify({"success": False, "error": "Missing path in request body"}), 400
+
+    try:
+        success = remove_favorite_publisher(path)
+        if success:
+            return jsonify({"success": True})
+        else:
+            return jsonify({"success": False, "error": "Failed to remove favorite publisher"}), 500
+    except Exception as e:
+        app_logger.error(f"Error removing favorite publisher: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+# =============================================================================
+# Series Endpoints
+# =============================================================================
+
+@favorites_bp.route('/series', methods=['GET'])
+def get_series():
+    """Get all favorite series."""
+    try:
+        series = get_favorite_series()
+        return jsonify({
+            "success": True,
+            "series": series
+        })
+    except Exception as e:
+        app_logger.error(f"Error getting favorite series: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@favorites_bp.route('/series/check', methods=['GET'])
+def check_series():
+    """Check if a series is favorited."""
+    path = request.args.get('path')
+    if not path:
+        return jsonify({"success": False, "error": "Missing path parameter"}), 400
+
+    try:
+        is_fav = is_favorite_series(path)
+        return jsonify({
+            "success": True,
+            "is_favorite": is_fav
+        })
+    except Exception as e:
+        app_logger.error(f"Error checking favorite series: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@favorites_bp.route('/series', methods=['POST'])
+def add_series():
+    """Add a series to favorites."""
+    data = request.get_json() or {}
+    path = data.get('path')
+
+    if not path:
+        return jsonify({"success": False, "error": "Missing path in request body"}), 400
+
+    try:
+        success = add_favorite_series(path)
+        if success:
+            return jsonify({"success": True})
+        else:
+            return jsonify({"success": False, "error": "Failed to add favorite series"}), 500
+    except Exception as e:
+        app_logger.error(f"Error adding favorite series: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@favorites_bp.route('/series', methods=['DELETE'])
+def remove_series():
+    """Remove a series from favorites."""
+    data = request.get_json() or {}
+    path = data.get('path')
+
+    if not path:
+        return jsonify({"success": False, "error": "Missing path in request body"}), 400
+
+    try:
+        success = remove_favorite_series(path)
+        if success:
+            return jsonify({"success": True})
+        else:
+            return jsonify({"success": False, "error": "Failed to remove favorite series"}), 500
+    except Exception as e:
+        app_logger.error(f"Error removing favorite series: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+# =============================================================================
+# Issues Read Endpoints
+# =============================================================================
+
+@favorites_bp.route('/issues', methods=['GET'])
+def get_issues():
+    """Get all read issues."""
+    try:
+        issues = get_issues_read()
+        return jsonify({
+            "success": True,
+            "issues": issues
+        })
+    except Exception as e:
+        app_logger.error(f"Error getting read issues: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@favorites_bp.route('/issues/check', methods=['GET'])
+def check_issue():
+    """Check if an issue has been read."""
+    path = request.args.get('path')
+    if not path:
+        return jsonify({"success": False, "error": "Missing path parameter"}), 400
+
+    try:
+        is_read = is_issue_read(path)
+        read_at = get_issue_read_date(path) if is_read else None
+        return jsonify({
+            "success": True,
+            "is_read": is_read,
+            "read_at": read_at
+        })
+    except Exception as e:
+        app_logger.error(f"Error checking issue read status: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@favorites_bp.route('/issues', methods=['POST'])
+def mark_read():
+    """Mark an issue as read."""
+    data = request.get_json() or {}
+    path = data.get('path')
+
+    if not path:
+        return jsonify({"success": False, "error": "Missing path in request body"}), 400
+
+    try:
+        success = mark_issue_read(path)
+        if success:
+            return jsonify({"success": True})
+        else:
+            return jsonify({"success": False, "error": "Failed to mark issue as read"}), 500
+    except Exception as e:
+        app_logger.error(f"Error marking issue as read: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@favorites_bp.route('/issues', methods=['DELETE'])
+def unmark_read():
+    """Remove read status from an issue."""
+    data = request.get_json() or {}
+    path = data.get('path')
+
+    if not path:
+        return jsonify({"success": False, "error": "Missing path in request body"}), 400
+
+    try:
+        success = unmark_issue_read(path)
+        if success:
+            return jsonify({"success": True})
+        else:
+            return jsonify({"success": False, "error": "Failed to unmark issue as read"}), 500
+    except Exception as e:
+        app_logger.error(f"Error unmarking issue as read: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500

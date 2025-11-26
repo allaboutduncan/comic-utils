@@ -109,6 +109,36 @@ def init_db():
         # Create index for faster lookups
         c.execute('CREATE INDEX IF NOT EXISTS idx_browse_cache_path ON browse_cache(path)')
 
+        # Create favorite_publishers table (root-level folders off /data)
+        c.execute('''
+            CREATE TABLE IF NOT EXISTS favorite_publishers (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                publisher_path TEXT NOT NULL UNIQUE,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+        c.execute('CREATE INDEX IF NOT EXISTS idx_favorite_publishers_path ON favorite_publishers(publisher_path)')
+
+        # Create favorite_series table (folders within publishers)
+        c.execute('''
+            CREATE TABLE IF NOT EXISTS favorite_series (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                series_path TEXT NOT NULL UNIQUE,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+        c.execute('CREATE INDEX IF NOT EXISTS idx_favorite_series_path ON favorite_series(series_path)')
+
+        # Create issues_read table (comic files marked as read)
+        c.execute('''
+            CREATE TABLE IF NOT EXISTS issues_read (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                issue_path TEXT NOT NULL UNIQUE,
+                read_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+        c.execute('CREATE INDEX IF NOT EXISTS idx_issues_read_path ON issues_read(issue_path)')
+
         # Migration: Check if file_mtime column exists, add if not
         c.execute("PRAGMA table_info(thumbnail_jobs)")
         columns = [column[1] for column in c.fetchall()]
@@ -907,3 +937,378 @@ def clear_browse_cache():
     except Exception as e:
         app_logger.error(f"Failed to clear browse cache: {e}")
         return False
+
+
+# =============================================================================
+# Favorite Publishers CRUD Operations
+# =============================================================================
+
+def add_favorite_publisher(publisher_path):
+    """
+    Add a publisher to favorites.
+
+    Args:
+        publisher_path: Full path to the publisher folder
+
+    Returns:
+        True if successful, False otherwise
+    """
+    try:
+        conn = get_db_connection()
+        if not conn:
+            return False
+
+        c = conn.cursor()
+        c.execute('''
+            INSERT OR IGNORE INTO favorite_publishers (publisher_path)
+            VALUES (?)
+        ''', (publisher_path,))
+
+        conn.commit()
+        conn.close()
+
+        app_logger.info(f"Added favorite publisher: {publisher_path}")
+        return True
+
+    except Exception as e:
+        app_logger.error(f"Failed to add favorite publisher '{publisher_path}': {e}")
+        return False
+
+
+def remove_favorite_publisher(publisher_path):
+    """
+    Remove a publisher from favorites.
+
+    Args:
+        publisher_path: Full path to the publisher folder
+
+    Returns:
+        True if successful, False otherwise
+    """
+    try:
+        conn = get_db_connection()
+        if not conn:
+            return False
+
+        c = conn.cursor()
+        c.execute('DELETE FROM favorite_publishers WHERE publisher_path = ?', (publisher_path,))
+
+        conn.commit()
+        conn.close()
+
+        app_logger.info(f"Removed favorite publisher: {publisher_path}")
+        return True
+
+    except Exception as e:
+        app_logger.error(f"Failed to remove favorite publisher '{publisher_path}': {e}")
+        return False
+
+
+def get_favorite_publishers():
+    """
+    Get all favorite publishers.
+
+    Returns:
+        List of dicts with publisher_path and created_at, or empty list on error
+    """
+    try:
+        conn = get_db_connection()
+        if not conn:
+            return []
+
+        c = conn.cursor()
+        c.execute('SELECT publisher_path, created_at FROM favorite_publishers ORDER BY publisher_path')
+        rows = c.fetchall()
+        conn.close()
+
+        return [dict(row) for row in rows]
+
+    except Exception as e:
+        app_logger.error(f"Failed to get favorite publishers: {e}")
+        return []
+
+
+def is_favorite_publisher(publisher_path):
+    """
+    Check if a publisher is favorited.
+
+    Args:
+        publisher_path: Full path to the publisher folder
+
+    Returns:
+        True if favorited, False otherwise
+    """
+    try:
+        conn = get_db_connection()
+        if not conn:
+            return False
+
+        c = conn.cursor()
+        c.execute('SELECT 1 FROM favorite_publishers WHERE publisher_path = ?', (publisher_path,))
+        result = c.fetchone()
+        conn.close()
+
+        return result is not None
+
+    except Exception as e:
+        app_logger.error(f"Failed to check favorite publisher '{publisher_path}': {e}")
+        return False
+
+
+# =============================================================================
+# Favorite Series CRUD Operations
+# =============================================================================
+
+def add_favorite_series(series_path):
+    """
+    Add a series to favorites.
+
+    Args:
+        series_path: Full path to the series folder
+
+    Returns:
+        True if successful, False otherwise
+    """
+    try:
+        conn = get_db_connection()
+        if not conn:
+            return False
+
+        c = conn.cursor()
+        c.execute('''
+            INSERT OR IGNORE INTO favorite_series (series_path)
+            VALUES (?)
+        ''', (series_path,))
+
+        conn.commit()
+        conn.close()
+
+        app_logger.info(f"Added favorite series: {series_path}")
+        return True
+
+    except Exception as e:
+        app_logger.error(f"Failed to add favorite series '{series_path}': {e}")
+        return False
+
+
+def remove_favorite_series(series_path):
+    """
+    Remove a series from favorites.
+
+    Args:
+        series_path: Full path to the series folder
+
+    Returns:
+        True if successful, False otherwise
+    """
+    try:
+        conn = get_db_connection()
+        if not conn:
+            return False
+
+        c = conn.cursor()
+        c.execute('DELETE FROM favorite_series WHERE series_path = ?', (series_path,))
+
+        conn.commit()
+        conn.close()
+
+        app_logger.info(f"Removed favorite series: {series_path}")
+        return True
+
+    except Exception as e:
+        app_logger.error(f"Failed to remove favorite series '{series_path}': {e}")
+        return False
+
+
+def get_favorite_series():
+    """
+    Get all favorite series.
+
+    Returns:
+        List of dicts with series_path and created_at, or empty list on error
+    """
+    try:
+        conn = get_db_connection()
+        if not conn:
+            return []
+
+        c = conn.cursor()
+        c.execute('SELECT series_path, created_at FROM favorite_series ORDER BY series_path')
+        rows = c.fetchall()
+        conn.close()
+
+        return [dict(row) for row in rows]
+
+    except Exception as e:
+        app_logger.error(f"Failed to get favorite series: {e}")
+        return []
+
+
+def is_favorite_series(series_path):
+    """
+    Check if a series is favorited.
+
+    Args:
+        series_path: Full path to the series folder
+
+    Returns:
+        True if favorited, False otherwise
+    """
+    try:
+        conn = get_db_connection()
+        if not conn:
+            return False
+
+        c = conn.cursor()
+        c.execute('SELECT 1 FROM favorite_series WHERE series_path = ?', (series_path,))
+        result = c.fetchone()
+        conn.close()
+
+        return result is not None
+
+    except Exception as e:
+        app_logger.error(f"Failed to check favorite series '{series_path}': {e}")
+        return False
+
+
+# =============================================================================
+# Issues Read CRUD Operations
+# =============================================================================
+
+def mark_issue_read(issue_path):
+    """
+    Mark an issue as read (records current timestamp).
+
+    Args:
+        issue_path: Full path to the issue file
+
+    Returns:
+        True if successful, False otherwise
+    """
+    try:
+        conn = get_db_connection()
+        if not conn:
+            return False
+
+        c = conn.cursor()
+        c.execute('''
+            INSERT OR REPLACE INTO issues_read (issue_path, read_at)
+            VALUES (?, CURRENT_TIMESTAMP)
+        ''', (issue_path,))
+
+        conn.commit()
+        conn.close()
+
+        app_logger.info(f"Marked issue as read: {issue_path}")
+        return True
+
+    except Exception as e:
+        app_logger.error(f"Failed to mark issue as read '{issue_path}': {e}")
+        return False
+
+
+def unmark_issue_read(issue_path):
+    """
+    Remove read status from an issue.
+
+    Args:
+        issue_path: Full path to the issue file
+
+    Returns:
+        True if successful, False otherwise
+    """
+    try:
+        conn = get_db_connection()
+        if not conn:
+            return False
+
+        c = conn.cursor()
+        c.execute('DELETE FROM issues_read WHERE issue_path = ?', (issue_path,))
+
+        conn.commit()
+        conn.close()
+
+        app_logger.info(f"Unmarked issue as read: {issue_path}")
+        return True
+
+    except Exception as e:
+        app_logger.error(f"Failed to unmark issue as read '{issue_path}': {e}")
+        return False
+
+
+def get_issues_read():
+    """
+    Get all read issues.
+
+    Returns:
+        List of dicts with issue_path and read_at, or empty list on error
+    """
+    try:
+        conn = get_db_connection()
+        if not conn:
+            return []
+
+        c = conn.cursor()
+        c.execute('SELECT issue_path, read_at FROM issues_read ORDER BY read_at DESC')
+        rows = c.fetchall()
+        conn.close()
+
+        return [dict(row) for row in rows]
+
+    except Exception as e:
+        app_logger.error(f"Failed to get read issues: {e}")
+        return []
+
+
+def is_issue_read(issue_path):
+    """
+    Check if an issue has been read.
+
+    Args:
+        issue_path: Full path to the issue file
+
+    Returns:
+        True if read, False otherwise
+    """
+    try:
+        conn = get_db_connection()
+        if not conn:
+            return False
+
+        c = conn.cursor()
+        c.execute('SELECT 1 FROM issues_read WHERE issue_path = ?', (issue_path,))
+        result = c.fetchone()
+        conn.close()
+
+        return result is not None
+
+    except Exception as e:
+        app_logger.error(f"Failed to check if issue is read '{issue_path}': {e}")
+        return False
+
+
+def get_issue_read_date(issue_path):
+    """
+    Get the date an issue was read.
+
+    Args:
+        issue_path: Full path to the issue file
+
+    Returns:
+        Read date as string, or None if not read or on error
+    """
+    try:
+        conn = get_db_connection()
+        if not conn:
+            return None
+
+        c = conn.cursor()
+        c.execute('SELECT read_at FROM issues_read WHERE issue_path = ?', (issue_path,))
+        result = c.fetchone()
+        conn.close()
+
+        return result['read_at'] if result else None
+
+    except Exception as e:
+        app_logger.error(f"Failed to get read date for issue '{issue_path}': {e}")
+        return None

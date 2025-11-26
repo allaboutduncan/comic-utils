@@ -5,9 +5,10 @@
  */
 
 document.addEventListener('DOMContentLoaded', () => {
-    // Initialize with the root path or path from URL
-    const urlParams = new URLSearchParams(window.location.search);
-    const initialPath = urlParams.get('path') || '';
+    // Initialize with path from URL: prefer clean URL path, fallback to query param
+    const initialPath = window.INITIAL_PATH ||
+                        new URLSearchParams(window.location.search).get('path') ||
+                        '';
     loadDirectory(initialPath);
 });
 
@@ -83,14 +84,15 @@ async function loadDirectory(path, preservePage = false, forceRefresh = false) {
     setLoading(true);
     currentPath = path;
 
-    // Update URL without reloading
-    const newUrl = new URL(window.location);
-    if (path) {
-        newUrl.searchParams.set('path', path);
-    } else {
-        newUrl.searchParams.delete('path');
+    // Update URL without reloading - use clean URL format
+    // Convert /data/Publisher/Series to /collection/Publisher/Series
+    let cleanUrl = '/collection';
+    if (path && path.startsWith('/data/')) {
+        cleanUrl = '/collection' + path.substring(5); // Remove '/data' prefix
+    } else if (path) {
+        cleanUrl = '/collection/' + path;
     }
-    window.history.pushState({ path }, '', newUrl);
+    window.history.pushState({ path }, '', cleanUrl);
 
     try {
         const url = `/api/browse?path=${encodeURIComponent(path)}${forceRefresh ? '&refresh=true' : ''}`;
@@ -627,6 +629,21 @@ function renderGrid(items) {
             // Add root-folder class for CSS targeting
             if (isRootLevel) {
                 gridItem.classList.add('root-folder');
+            }
+
+            // Handle favorite button for root-level folders only
+            const favoriteButton = clone.querySelector('.favorite-button');
+            if (favoriteButton) {
+                if (isRootLevel) {
+                    favoriteButton.style.display = 'flex';
+                    favoriteButton.onclick = (e) => {
+                        e.stopPropagation();
+                        e.preventDefault();
+                        togglePublisherFavorite(item.path, item.name, favoriteButton);
+                    };
+                } else {
+                    favoriteButton.style.display = 'none';
+                }
             }
 
             // Show actions menu for:
@@ -2972,6 +2989,46 @@ function confirmDeleteFile() {
             hideProgressIndicator();
             showError('An error occurred while deleting the file.');
         });
+}
+
+/**
+ * Toggle favorite status for a publisher (root-level folder)
+ * @param {string} path - Path to the publisher folder
+ * @param {string} name - Name of the publisher
+ * @param {HTMLElement} button - The favorite button element
+ */
+function togglePublisherFavorite(path, name, button) {
+    const isFavorited = button.classList.contains('favorited');
+    const method = isFavorited ? 'DELETE' : 'POST';
+    const icon = button.querySelector('i');
+
+    fetch('/api/favorites/publishers', {
+        method: method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path: path })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            if (isFavorited) {
+                button.classList.remove('favorited');
+                icon.className = 'bi bi-bookmark-heart';
+                button.title = 'Add to Favorites';
+                showSuccess(`${name} removed from favorites`);
+            } else {
+                button.classList.add('favorited');
+                icon.className = 'bi bi-bookmark-heart-fill';
+                button.title = 'Remove from Favorites';
+                showSuccess(`${name} added as a favorite`);
+            }
+        } else {
+            showError('Failed to update favorite: ' + (data.error || 'Unknown error'));
+        }
+    })
+    .catch(error => {
+        console.error('Error toggling favorite:', error);
+        showError('Failed to update favorite');
+    });
 }
 
 /**

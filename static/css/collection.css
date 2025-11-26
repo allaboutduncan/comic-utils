@@ -439,3 +439,48 @@
     border: none;
 }
 
+/* Favorite Button Styling */
+.favorite-button {
+    position: absolute;
+    top: 10px;
+    left: 10px;
+    background: rgba(0, 0, 0, 0.6);
+    border: none;
+    border-radius: 50%;
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    z-index: 10;
+    opacity: 0;
+    transition: opacity 0.2s ease, background 0.2s ease;
+}
+
+.favorite-button i {
+    color: white;
+    font-size: 16px;
+}
+
+.thumbnail-container:hover .favorite-button {
+    opacity: 1;
+}
+
+.favorite-button:hover {
+    background: rgba(0, 0, 0, 0.9);
+}
+
+.favorite-button.favorited {
+    opacity: 1;
+    background: rgba(255, 193, 7, 0.9);
+}
+
+.favorite-button.favorited i {
+    color: #212529;
+}
+
+.favorite-button.favorited:hover {
+    background: rgba(255, 193, 7, 1);
+}
+

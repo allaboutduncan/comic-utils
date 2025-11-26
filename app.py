@@ -28,6 +28,7 @@ from datetime import datetime
 import zipfile
 import tempfile
 from api import app
+from favorites import favorites_bp
 from config import config, load_flask_config, write_config, load_config
 from edit import get_edit_modal, save_cbz, cropCenter, cropLeft, cropRight, cropFreeForm, get_image_data_url, modal_body_template
 from memory_utils import initialize_memory_management, cleanup_on_exit, memory_context, get_global_monitor
@@ -53,6 +54,9 @@ load_config()
 
 # Initialize Database
 init_db()
+
+# Register Blueprints
+app.register_blueprint(favorites_bp)
 
 # Initialize APScheduler for scheduled file index rebuilds
 rebuild_scheduler = BackgroundScheduler(daemon=True)
@@ -2575,9 +2579,12 @@ def files_page():
 #####################################
 
 @app.route('/collection')
-def collection():
-    """Render the visual browse page."""
-    return render_template('collection.html')
+@app.route('/collection/<path:subpath>')
+def collection(subpath=''):
+    """Render the visual browse page with optional path."""
+    # Convert URL path to filesystem path (e.g., /collection/Marvel -> /data/Marvel)
+    initial_path = f'/data/{subpath}' if subpath else ''
+    return render_template('collection.html', initial_path=initial_path)
 
 def find_folder_thumbnail(folder_path):
     """Find a folder/cover image in the given directory.
