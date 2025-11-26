@@ -415,6 +415,64 @@ def get_path_counts(path):
         return (0, 0)
 
 
+def get_path_counts_batch(paths):
+    """
+    Get recursive folder and file counts for multiple paths in ONE query.
+    Much faster than calling get_path_counts() N times.
+
+    Args:
+        paths: List of directory paths (e.g., ['/data/Marvel', '/data/DC'])
+
+    Returns:
+        Dict mapping path -> (folder_count, file_count)
+    """
+    if not paths:
+        return {}
+
+    try:
+        conn = get_db_connection()
+        if not conn:
+            return {p: (0, 0) for p in paths}
+
+        c = conn.cursor()
+        results = {}
+
+        # Process in batches of 100 to avoid SQLite parameter limits
+        BATCH_SIZE = 100
+        for i in range(0, len(paths), BATCH_SIZE):
+            batch = paths[i:i + BATCH_SIZE]
+            path_prefixes = [p.rstrip('/') + '/' for p in batch]
+
+            # Build UNION ALL query for batch - one query instead of N
+            query_parts = []
+            params = []
+            for path, prefix in zip(batch, path_prefixes):
+                query_parts.append('''
+                    SELECT ? as path,
+                        SUM(CASE WHEN type = 'directory' THEN 1 ELSE 0 END) as folder_count,
+                        SUM(CASE WHEN type = 'file' THEN 1 ELSE 0 END) as file_count
+                    FROM file_index WHERE path LIKE ? || '%'
+                ''')
+                params.extend([path, prefix])
+
+            c.execute(' UNION ALL '.join(query_parts), params)
+            for row in c.fetchall():
+                results[row['path']] = (row['folder_count'] or 0, row['file_count'] or 0)
+
+        conn.close()
+
+        # Fill missing paths with (0, 0)
+        for p in paths:
+            if p not in results:
+                results[p] = (0, 0)
+
+        return results
+
+    except Exception as e:
+        app_logger.error(f"Failed to get batch path counts: {e}")
+        return {p: (0, 0) for p in paths}
+
+
 def update_file_index_entry(path, name=None, new_path=None, parent=None, size=None):
     """
     Update a single file index entry incrementally.
@@ -881,7 +939,7 @@ def get_browse_cache(path):
 
 def save_browse_cache(path, result):
     """
-    Save browse result to cache.
+    Save browse result to cache with retry logic for database locks.
 
     Args:
         path: Directory path
@@ -890,28 +948,42 @@ def save_browse_cache(path, result):
     Returns:
         True if successful, False otherwise
     """
-    try:
-        import json
+    import json
+    import time
 
-        conn = get_db_connection()
-        if not conn:
+    max_retries = 3
+    retry_delay = 0.5  # seconds
+
+    for attempt in range(max_retries):
+        try:
+            conn = get_db_connection()
+            if not conn:
+                return False
+
+            c = conn.cursor()
+            c.execute('''
+                INSERT OR REPLACE INTO browse_cache (path, result, updated_at)
+                VALUES (?, ?, CURRENT_TIMESTAMP)
+            ''', (path, json.dumps(result)))
+
+            conn.commit()
+            conn.close()
+
+            app_logger.debug(f"Saved browse cache for: {path}")
+            return True
+
+        except sqlite3.OperationalError as e:
+            if "database is locked" in str(e) and attempt < max_retries - 1:
+                app_logger.warning(f"Database locked, retrying save_browse_cache for '{path}' (attempt {attempt + 1}/{max_retries})")
+                time.sleep(retry_delay * (attempt + 1))  # Exponential backoff
+                continue
+            app_logger.error(f"Failed to save browse cache for '{path}': {e}")
+            return False
+        except Exception as e:
+            app_logger.error(f"Failed to save browse cache for '{path}': {e}")
             return False
 
-        c = conn.cursor()
-        c.execute('''
-            INSERT OR REPLACE INTO browse_cache (path, result, updated_at)
-            VALUES (?, ?, CURRENT_TIMESTAMP)
-        ''', (path, json.dumps(result)))
-
-        conn.commit()
-        conn.close()
-
-        app_logger.debug(f"Saved browse cache for: {path}")
-        return True
-
-    except Exception as e:
-        app_logger.error(f"Failed to save browse cache for '{path}': {e}")
-        return False
+    return False
 
 def invalidate_browse_cache(path):
     """

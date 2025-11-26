@@ -119,31 +119,45 @@ async function loadDirectory(path, preservePage = false, forceRefresh = false) {
         // Process and store all items
         allItems = [];
 
+        // Track paths that need metadata loaded asynchronously
+        const pendingMetadataPaths = [];
+
         // Process directories
         if (data.directories) {
             data.directories.forEach(dir => {
                 // Handle both string (old format) and object (new format with thumbnails)
                 if (typeof dir === 'string') {
+                    const itemPath = data.current_path ? `${data.current_path}/${dir}` : dir;
                     allItems.push({
                         name: dir,
                         type: 'folder',
-                        path: data.current_path ? `${data.current_path}/${dir}` : dir,
+                        path: itemPath,
                         hasThumbnail: false,
                         hasFiles: false,
                         folderCount: 0,
-                        fileCount: 0
+                        fileCount: 0,
+                        metadataPending: true
                     });
+                    pendingMetadataPaths.push(itemPath);
                 } else {
+                    const itemPath = data.current_path ? `${data.current_path}/${dir.name}` : dir.name;
+                    const hasPendingMetadata = dir.folder_count === null || dir.folder_count === undefined;
+                    const hasPendingThumbnail = !dir.has_thumbnail && dir.thumbnail_url === undefined;
                     allItems.push({
                         name: dir.name,
                         type: 'folder',
-                        path: data.current_path ? `${data.current_path}/${dir.name}` : dir.name,
+                        path: itemPath,
                         hasThumbnail: dir.has_thumbnail || false,
                         thumbnailUrl: dir.thumbnail_url,
                         hasFiles: dir.has_files || false,
                         folderCount: dir.folder_count || 0,
-                        fileCount: dir.file_count || 0
+                        fileCount: dir.file_count || 0,
+                        metadataPending: hasPendingMetadata,
+                        thumbnailPending: hasPendingThumbnail
                     });
+                    if (hasPendingMetadata) {
+                        pendingMetadataPaths.push(itemPath);
+                    }
                 }
             });
         }
@@ -188,11 +202,133 @@ async function loadDirectory(path, preservePage = false, forceRefresh = false) {
 
         renderPage();
 
+        // Load metadata asynchronously if any items have pending counts
+        if (pendingMetadataPaths.length > 0) {
+            loadMetadataInBatches(pendingMetadataPaths);
+        }
+
+        // Load thumbnails asynchronously for folders that don't have them yet
+        const pendingThumbnailPaths = allItems
+            .filter(item => item.type === 'folder' && item.thumbnailPending)
+            .map(item => item.path);
+        if (pendingThumbnailPaths.length > 0) {
+            loadThumbnailsInBatches(pendingThumbnailPaths);
+        }
+
     } catch (error) {
         console.error('Error loading directory:', error);
         showError(error.message);
     } finally {
         setLoading(false);
+    }
+}
+
+/**
+ * Load metadata (folder/file counts) in batches for progressive UI updates.
+ * @param {Array<string>} paths - Directory paths that need metadata loaded
+ */
+async function loadMetadataInBatches(paths) {
+    const BATCH_SIZE = 20;
+
+    for (let i = 0; i < paths.length; i += BATCH_SIZE) {
+        const batch = paths.slice(i, i + BATCH_SIZE);
+
+        try {
+            const response = await fetch('/api/browse-metadata', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ paths: batch })
+            });
+
+            if (!response.ok) continue;
+            const data = await response.json();
+
+            // Update allItems and DOM with received metadata
+            Object.entries(data.metadata).forEach(([path, meta]) => {
+                // Update item in allItems array
+                const item = allItems.find(i => i.path === path);
+                if (item) {
+                    item.folderCount = meta.folder_count;
+                    item.fileCount = meta.file_count;
+                    item.hasFiles = meta.has_files;
+                    item.metadataPending = false;
+                }
+
+                // Update DOM element directly (without full re-render)
+                const gridItem = document.querySelector(`[data-path="${CSS.escape(path)}"]`);
+                if (gridItem) {
+                    const metaEl = gridItem.querySelector('.item-meta');
+                    if (metaEl) {
+                        metaEl.classList.remove('metadata-loading');
+                        const parts = [];
+                        if (meta.folder_count > 0) {
+                            parts.push(`${meta.folder_count} folder${meta.folder_count !== 1 ? 's' : ''}`);
+                        }
+                        if (meta.file_count > 0) {
+                            parts.push(`${meta.file_count} file${meta.file_count !== 1 ? 's' : ''}`);
+                        }
+                        metaEl.textContent = parts.length > 0 ? parts.join(' | ') : 'Empty';
+                    }
+                }
+            });
+        } catch (error) {
+            console.error('Error loading metadata batch:', error);
+        }
+    }
+}
+
+/**
+ * Load folder thumbnails in batches for progressive UI updates.
+ * @param {Array<string>} paths - Directory paths that need thumbnails loaded
+ */
+async function loadThumbnailsInBatches(paths) {
+    const BATCH_SIZE = 20;
+
+    for (let i = 0; i < paths.length; i += BATCH_SIZE) {
+        const batch = paths.slice(i, i + BATCH_SIZE);
+
+        try {
+            const response = await fetch('/api/browse-thumbnails', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ paths: batch })
+            });
+
+            if (!response.ok) continue;
+            const data = await response.json();
+
+            // Update allItems and DOM with received thumbnails
+            Object.entries(data.thumbnails).forEach(([path, thumbData]) => {
+                // Update item in allItems array
+                const item = allItems.find(i => i.path === path);
+                if (item) {
+                    item.hasThumbnail = thumbData.has_thumbnail;
+                    item.thumbnailUrl = thumbData.thumbnail_url;
+                    item.thumbnailPending = false;
+                }
+
+                // Update DOM element if thumbnail was found
+                if (thumbData.has_thumbnail) {
+                    const gridItem = document.querySelector(`[data-path="${CSS.escape(path)}"]`);
+                    if (gridItem) {
+                        const container = gridItem.querySelector('.thumbnail-container');
+                        const img = gridItem.querySelector('.thumbnail');
+                        const iconOverlay = gridItem.querySelector('.icon-overlay');
+
+                        if (img && container) {
+                            img.src = thumbData.thumbnail_url;
+                            img.style.display = 'block';
+                            container.classList.add('has-thumbnail');
+                            if (iconOverlay) {
+                                iconOverlay.style.display = 'none';
+                            }
+                        }
+                    }
+                }
+            });
+        } catch (error) {
+            console.error('Error loading thumbnails batch:', error);
+        }
     }
 }
 
@@ -634,15 +770,23 @@ function renderGrid(items) {
         if (item.type === 'folder') {
             gridItem.classList.add('folder');
 
-            // Build folder metadata string showing counts
-            const parts = [];
-            if (item.folderCount > 0) {
-                parts.push(`${item.folderCount} folder${item.folderCount !== 1 ? 's' : ''}`);
+            // Add data-path for progressive metadata updates
+            gridItem.setAttribute('data-path', item.path);
+
+            // Build folder metadata string showing counts (or loading state)
+            if (item.metadataPending) {
+                metaEl.textContent = 'Loading...';
+                metaEl.classList.add('metadata-loading');
+            } else {
+                const parts = [];
+                if (item.folderCount > 0) {
+                    parts.push(`${item.folderCount} folder${item.folderCount !== 1 ? 's' : ''}`);
+                }
+                if (item.fileCount > 0) {
+                    parts.push(`${item.fileCount} file${item.fileCount !== 1 ? 's' : ''}`);
+                }
+                metaEl.textContent = parts.length > 0 ? parts.join(' | ') : 'Empty';
             }
-            if (item.fileCount > 0) {
-                parts.push(`${item.fileCount} file${item.fileCount !== 1 ? 's' : ''}`);
-            }
-            metaEl.textContent = parts.length > 0 ? parts.join(' | ') : 'Empty';
 
             // Hide info button for folders
             const infoButton = clone.querySelector('.info-button');
@@ -2756,7 +2900,7 @@ function initializeComicReader(pageCount) {
             prevEl: '.swiper-button-prev',
         },
         pagination: {
-            el: '.swiper-pagination',
+            el: '.comic-reader-footer .swiper-pagination',
             type: 'bullets',
             clickable: true,
         },

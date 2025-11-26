@@ -45,7 +45,7 @@ from database import (init_db, get_db_connection, get_recent_files, log_recent_f
                       get_search_cache, save_search_cache, clear_search_cache,
                       get_rebuild_schedule, save_rebuild_schedule as db_save_rebuild_schedule, update_last_rebuild,
                       get_browse_cache, save_browse_cache, invalidate_browse_cache, clear_browse_cache,
-                      get_path_counts)
+                      get_path_counts, get_path_counts_batch)
 from concurrent.futures import ThreadPoolExecutor
 from file_watcher import FileWatcher
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -2610,6 +2610,53 @@ def find_folder_thumbnail(folder_path):
 
     return None
 
+
+def find_folder_thumbnails_batch(folder_paths):
+    """
+    Find folder/cover thumbnails for multiple directories.
+    Uses ThreadPoolExecutor to parallelize filesystem checks.
+
+    Note: Cannot use file_index because image files (.png, .jpg, etc.)
+    are excluded from the index during build.
+
+    Args:
+        folder_paths: List of directory paths to check
+
+    Returns:
+        Dict mapping path -> thumbnail_path or None
+    """
+    if not folder_paths:
+        return {}
+
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    results = {}
+
+    # Use thread pool to parallelize filesystem checks
+    with ThreadPoolExecutor(max_workers=min(10, len(folder_paths))) as executor:
+        future_to_path = {
+            executor.submit(find_folder_thumbnail, path): path
+            for path in folder_paths
+        }
+        for future in as_completed(future_to_path):
+            path = future_to_path[future]
+            try:
+                thumb = future.result()
+                results[path] = thumb
+                if thumb:
+                    app_logger.debug(f"Found thumbnail for {path}: {thumb}")
+            except Exception as e:
+                app_logger.error(f"Error finding thumbnail for {path}: {e}")
+                results[path] = None
+
+    # Fill in any missing paths
+    for p in folder_paths:
+        if p not in results:
+            results[p] = None
+
+    return results
+
+
 @app.route('/api/browse')
 def api_browse():
     """Get directory listing for the browse page with database-backed caching."""
@@ -2639,19 +2686,44 @@ def api_browse():
         app_logger.info(f"⚠️ DB Cache MISS for browse: {path} - building response...")
 
         # Use existing list logic
+        listing_start = time.time()
         listing = get_directory_listing(path)
+        listing_elapsed = time.time() - listing_start
+        app_logger.info(f"⏱️ Directory listing took {listing_elapsed:.2f}s for {path}")
 
         # Define excluded extensions and prefixes
         excluded_extensions = {".png", ".jpg", ".jpeg", ".gif" ".html", ".css", ".ds_store", "cvinfo", ".json", ".db", ".xml"}
 
-        # Process directories to add folder thumbnail info and check for files
+        # Collect all directory paths for batch operations
+        dir_paths = [os.path.join(path, d) for d in listing['directories']]
+        app_logger.info(f"📁 Processing {len(dir_paths)} directories for path: {path}")
+
+        # Batch fetch counts
+        counts_start = time.time()
+        path_counts = get_path_counts_batch(dir_paths)
+        counts_elapsed = time.time() - counts_start
+        app_logger.info(f"⏱️ Batch counts took {counts_elapsed:.2f}s for {len(dir_paths)} directories")
+
+        # For large directories, skip thumbnail detection (will be loaded progressively)
+        # For small directories, detect thumbnails inline
+        THUMBNAIL_THRESHOLD = 50
+        if len(dir_paths) <= THUMBNAIL_THRESHOLD:
+            thumbs_start = time.time()
+            folder_thumbs = find_folder_thumbnails_batch(dir_paths)
+            thumbs_elapsed = time.time() - thumbs_start
+            found_thumbs = {k: v for k, v in folder_thumbs.items() if v is not None}
+            app_logger.info(f"🖼️ Found {len(found_thumbs)} folder thumbnails out of {len(dir_paths)} directories in {thumbs_elapsed:.2f}s")
+        else:
+            # Skip thumbnail detection for large directories - frontend will load progressively
+            folder_thumbs = {}
+            app_logger.info(f"⏭️ Skipping thumbnail detection for {len(dir_paths)} directories (will load progressively)")
+
+        # Build response without per-item I/O
         processed_directories = []
         for dir_name in listing['directories']:
             dir_path = os.path.join(path, dir_name)
-            folder_thumb = find_folder_thumbnail(dir_path)
-
-            # Get recursive counts from file_index database (efficient)
-            folder_count, file_count = get_path_counts(dir_path)
+            folder_thumb = folder_thumbs.get(dir_path)
+            folder_count, file_count = path_counts.get(dir_path, (0, 0))
 
             dir_info = {
                 'name': dir_name,
@@ -2706,6 +2778,78 @@ def api_browse():
     except Exception as e:
         app_logger.error(f"Error browsing {path}: {e}")
         return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/browse-metadata', methods=['POST'])
+def api_browse_metadata():
+    """
+    Batch fetch metadata (counts) for multiple paths.
+    Used for progressive loading after initial browse response.
+    """
+    data = request.get_json()
+    paths = data.get('paths', [])
+
+    if not paths:
+        return jsonify({"error": "No paths provided"}), 400
+
+    if len(paths) > 100:
+        return jsonify({"error": "Too many paths (max 100)"}), 400
+
+    try:
+        counts = get_path_counts_batch(paths)
+
+        results = {}
+        for path, (folder_count, file_count) in counts.items():
+            results[path] = {
+                'folder_count': folder_count,
+                'file_count': file_count,
+                'has_files': file_count > 0
+            }
+
+        return jsonify({"metadata": results})
+
+    except Exception as e:
+        app_logger.error(f"Error fetching browse metadata: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/browse-thumbnails', methods=['POST'])
+def api_browse_thumbnails():
+    """
+    Batch fetch folder thumbnails for multiple paths.
+    Used for progressive loading after initial browse response.
+    """
+    data = request.get_json()
+    paths = data.get('paths', [])
+
+    if not paths:
+        return jsonify({"error": "No paths provided"}), 400
+
+    if len(paths) > 50:
+        return jsonify({"error": "Too many paths (max 50)"}), 400
+
+    try:
+        folder_thumbs = find_folder_thumbnails_batch(paths)
+
+        results = {}
+        for path, thumb in folder_thumbs.items():
+            if thumb:
+                results[path] = {
+                    'has_thumbnail': True,
+                    'thumbnail_url': url_for('serve_folder_thumbnail', path=thumb)
+                }
+            else:
+                results[path] = {
+                    'has_thumbnail': False,
+                    'thumbnail_url': None
+                }
+
+        return jsonify({"thumbnails": results})
+
+    except Exception as e:
+        app_logger.error(f"Error fetching browse thumbnails: {e}")
+        return jsonify({"error": str(e)}), 500
+
 
 @app.route('/api/clear-browse-cache', methods=['POST'])
 def api_clear_browse_cache():
@@ -6504,6 +6648,12 @@ def search_comicvine_metadata():
             response_data["new_file_path"] = new_file_path
             app_logger.info(f"✅ File moved to: {new_file_path}")
 
+            # Update database caches and file index for the moved file
+            log_file_if_in_data(new_file_path)
+            invalidate_cache_for_path(os.path.dirname(file_path))
+            invalidate_cache_for_path(os.path.dirname(new_file_path))
+            update_index_on_move(file_path, new_file_path)
+
         return jsonify(response_data)
 
     except Exception as e:
@@ -6599,6 +6749,12 @@ def search_comicvine_metadata_with_selection():
             response_data["moved"] = True
             response_data["new_file_path"] = new_file_path
             app_logger.info(f"✅ File moved to: {new_file_path}")
+
+            # Update database caches and file index for the moved file
+            log_file_if_in_data(new_file_path)
+            invalidate_cache_for_path(os.path.dirname(file_path))
+            invalidate_cache_for_path(os.path.dirname(new_file_path))
+            update_index_on_move(file_path, new_file_path)
 
         return jsonify(response_data)
 

@@ -170,6 +170,18 @@
     color: #6c757d;
 }
 
+/* Metadata loading state for progressive loading */
+.item-meta.metadata-loading {
+    color: #999;
+    font-style: italic;
+    animation: pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+}
+
 /* Dark mode support if base.html supports it (assuming standard bootstrap dark mode or custom class) */
 [data-bs-theme="dark"] .item-name {
     color: #e9ecef;
@@ -274,6 +286,30 @@
 
 #comicReaderClose {
     cursor: pointer;
+}
+
+.comic-reader-footer {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    padding: 0.75rem 2rem;
+    background-color: rgba(0, 0, 0, 0.8);
+    color: white;
+    z-index: 3;
+}
+
+.comic-reader-footer .swiper-pagination {
+    position: static;
+    width: auto;
+}
+
+.comic-reader-footer .swiper-pagination-bullet {
+    background: white;
+    opacity: 0.5;
+}
+
+.comic-reader-footer .swiper-pagination-bullet-active {
+    opacity: 1;
 }
 
 .comic-reader-swiper {
