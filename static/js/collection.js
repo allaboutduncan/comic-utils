@@ -7,8 +7,8 @@
 document.addEventListener('DOMContentLoaded', () => {
     // Initialize with path from URL: prefer clean URL path, fallback to query param
     const initialPath = window.INITIAL_PATH ||
-                        new URLSearchParams(window.location.search).get('path') ||
-                        '';
+        new URLSearchParams(window.location.search).get('path') ||
+        '';
     loadDirectory(initialPath);
 
     // Load dashboard data if at root
@@ -129,7 +129,9 @@ async function loadDirectory(path, preservePage = false, forceRefresh = false) {
                         type: 'folder',
                         path: data.current_path ? `${data.current_path}/${dir}` : dir,
                         hasThumbnail: false,
-                        hasFiles: false
+                        hasFiles: false,
+                        folderCount: 0,
+                        fileCount: 0
                     });
                 } else {
                     allItems.push({
@@ -138,7 +140,9 @@ async function loadDirectory(path, preservePage = false, forceRefresh = false) {
                         path: data.current_path ? `${data.current_path}/${dir.name}` : dir.name,
                         hasThumbnail: dir.has_thumbnail || false,
                         thumbnailUrl: dir.thumbnail_url,
-                        hasFiles: dir.has_files || false
+                        hasFiles: dir.has_files || false,
+                        folderCount: dir.folder_count || 0,
+                        fileCount: dir.file_count || 0
                     });
                 }
             });
@@ -629,7 +633,16 @@ function renderGrid(items) {
 
         if (item.type === 'folder') {
             gridItem.classList.add('folder');
-            metaEl.textContent = 'Folder';
+
+            // Build folder metadata string showing counts
+            const parts = [];
+            if (item.folderCount > 0) {
+                parts.push(`${item.folderCount} folder${item.folderCount !== 1 ? 's' : ''}`);
+            }
+            if (item.fileCount > 0) {
+                parts.push(`${item.fileCount} file${item.fileCount !== 1 ? 's' : ''}`);
+            }
+            metaEl.textContent = parts.length > 0 ? parts.join(' | ') : 'Empty';
 
             // Hide info button for folders
             const infoButton = clone.querySelector('.info-button');
@@ -3041,7 +3054,9 @@ async function loadFavoritePublishers() {
                 publisherMap[fullPath] = {
                     name: dir.name,
                     hasThumbnail: dir.has_thumbnail || false,
-                    thumbnailUrl: dir.thumbnail_url || null
+                    thumbnailUrl: dir.thumbnail_url || null,
+                    folderCount: dir.folder_count || 0,
+                    fileCount: dir.file_count || 0
                 };
             });
         }
@@ -3053,7 +3068,9 @@ async function loadFavoritePublishers() {
                 path: pub.publisher_path,
                 name: info.name || pub.publisher_path.split('/').pop(),
                 hasThumbnail: info.hasThumbnail || false,
-                thumbnailUrl: info.thumbnailUrl || null
+                thumbnailUrl: info.thumbnailUrl || null,
+                folderCount: info.folderCount || 0,
+                fileCount: info.fileCount || 0
             };
         });
 
@@ -3068,7 +3085,11 @@ async function loadFavoritePublishers() {
                         </div>
                     </div>
                     <div class="dashboard-card-body">
-                        <h6 class="text-truncate">${pub.name}</h6>
+                        <div class="text-truncate item-name">${pub.name}</div>
+                        <small class="text-muted">${[
+                            pub.folderCount > 0 ? `${pub.folderCount} folder${pub.folderCount !== 1 ? 's' : ''}` : '',
+                            pub.fileCount > 0 ? `${pub.fileCount} file${pub.fileCount !== 1 ? 's' : ''}` : ''
+                        ].filter(Boolean).join(' | ') || 'Empty'}</small>
                     </div>
                 </div>
             </div>
@@ -3095,28 +3116,28 @@ function togglePublisherFavorite(path, name, button) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ path: path })
     })
-    .then(response => response.json())
-    .then(data => {
-        if (data.success) {
-            if (isFavorited) {
-                button.classList.remove('favorited');
-                icon.className = 'bi bi-bookmark-heart';
-                button.title = 'Add to Favorites';
-                showSuccess(`${name} removed from favorites`);
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                if (isFavorited) {
+                    button.classList.remove('favorited');
+                    icon.className = 'bi bi-bookmark-heart';
+                    button.title = 'Add to Favorites';
+                    showSuccess(`${name} removed from favorites`);
+                } else {
+                    button.classList.add('favorited');
+                    icon.className = 'bi bi-bookmark-heart-fill';
+                    button.title = 'Remove from Favorites';
+                    showSuccess(`${name} added as a favorite`);
+                }
             } else {
-                button.classList.add('favorited');
-                icon.className = 'bi bi-bookmark-heart-fill';
-                button.title = 'Remove from Favorites';
-                showSuccess(`${name} added as a favorite`);
+                showError('Failed to update favorite: ' + (data.error || 'Unknown error'));
             }
-        } else {
-            showError('Failed to update favorite: ' + (data.error || 'Unknown error'));
-        }
-    })
-    .catch(error => {
-        console.error('Error toggling favorite:', error);
-        showError('Failed to update favorite');
-    });
+        })
+        .catch(error => {
+            console.error('Error toggling favorite:', error);
+            showError('Failed to update favorite');
+        });
 }
 
 /**

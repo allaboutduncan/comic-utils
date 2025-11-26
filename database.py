@@ -374,6 +374,47 @@ def save_file_index_to_db(file_index):
         app_logger.error(f"Failed to save file index: {e}")
         return False
 
+
+def get_path_counts(path):
+    """
+    Get recursive folder and file counts for a path using file_index.
+
+    Args:
+        path: Directory path (e.g., '/data/Marvel')
+
+    Returns:
+        Tuple of (folder_count, file_count) or (0, 0) on error
+    """
+    try:
+        conn = get_db_connection()
+        if not conn:
+            return (0, 0)
+
+        c = conn.cursor()
+        # Use path prefix to count all descendants (recursive)
+        # Ensure trailing slash to avoid matching partial names (e.g., /data/Marvel vs /data/MarvelMax)
+        path_prefix = path.rstrip('/') + '/'
+
+        c.execute('''
+            SELECT
+                SUM(CASE WHEN type = 'directory' THEN 1 ELSE 0 END) as folder_count,
+                SUM(CASE WHEN type = 'file' THEN 1 ELSE 0 END) as file_count
+            FROM file_index
+            WHERE path LIKE ? || '%'
+        ''', (path_prefix,))
+
+        row = c.fetchone()
+        conn.close()
+
+        if row:
+            return (row['folder_count'] or 0, row['file_count'] or 0)
+        return (0, 0)
+
+    except Exception as e:
+        app_logger.error(f"Failed to get path counts for '{path}': {e}")
+        return (0, 0)
+
+
 def update_file_index_entry(path, name=None, new_path=None, parent=None, size=None):
     """
     Update a single file index entry incrementally.

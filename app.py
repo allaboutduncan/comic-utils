@@ -44,7 +44,8 @@ from database import (init_db, get_db_connection, get_recent_files, log_recent_f
                       add_file_index_entry, delete_file_index_entry, clear_file_index_from_db, search_file_index,
                       get_search_cache, save_search_cache, clear_search_cache,
                       get_rebuild_schedule, save_rebuild_schedule as db_save_rebuild_schedule, update_last_rebuild,
-                      get_browse_cache, save_browse_cache, invalidate_browse_cache, clear_browse_cache)
+                      get_browse_cache, save_browse_cache, invalidate_browse_cache, clear_browse_cache,
+                      get_path_counts)
 from concurrent.futures import ThreadPoolExecutor
 from file_watcher import FileWatcher
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -2649,25 +2650,15 @@ def api_browse():
             dir_path = os.path.join(path, dir_name)
             folder_thumb = find_folder_thumbnail(dir_path)
 
-            # Check if this folder directly contains files (not in subfolders)
-            has_files = False
-            try:
-                items = os.listdir(dir_path)
-                for item in items:
-                    item_path = os.path.join(dir_path, item)
-                    if os.path.isfile(item_path):
-                        # Check if it's a valid file (not excluded)
-                        _, ext = os.path.splitext(item.lower())
-                        if ext not in excluded_extensions and item.lower() != "cvinfo" and not item.startswith(('.', '-', '_')):
-                            has_files = True
-                            break
-            except Exception:
-                pass
+            # Get recursive counts from file_index database (efficient)
+            folder_count, file_count = get_path_counts(dir_path)
 
             dir_info = {
                 'name': dir_name,
                 'has_thumbnail': folder_thumb is not None,
-                'has_files': has_files
+                'has_files': file_count > 0,
+                'folder_count': folder_count,
+                'file_count': file_count
             }
 
             if folder_thumb:
