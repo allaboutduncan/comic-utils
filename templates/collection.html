@@ -569,17 +569,7 @@
             new Swiper(el, swiperConfig);
         });
 
-        // Show dashboard sections only on root path or if specifically requested
-        // For now, we'll show them if we are at the root path
-        const currentPath = window.INITIAL_PATH || '';
-        const dashboardSections = document.getElementById('dashboard-sections');
-
-        // Simple logic: Show on root, hide otherwise. 
-        // This logic might need to be moved to collection.js if we want it to react to navigation
-        // But for now, let's just show it initially if path is empty
-        if (!currentPath || currentPath === '/' || currentPath === '/data') {
-            dashboardSections.style.display = 'block';
-        }
+        // Dashboard visibility is handled by loadDirectory() in collection.js
     });
 </script>
 {% endblock %}

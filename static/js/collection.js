@@ -89,6 +89,13 @@ async function loadDirectory(path, preservePage = false, forceRefresh = false) {
     setLoading(true);
     currentPath = path;
 
+    // Show/hide dashboard sections based on path (only show at root)
+    const dashboardSections = document.getElementById('dashboard-sections');
+    if (dashboardSections) {
+        const isRoot = !path || path === '/' || path === '/data';
+        dashboardSections.style.display = isRoot ? 'block' : 'none';
+    }
+
     // Update URL without reloading - use clean URL format
     // Convert /data/Publisher/Series to /collection/Publisher/Series
     let cleanUrl = '/collection';
