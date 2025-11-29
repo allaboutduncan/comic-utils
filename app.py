@@ -2587,6 +2587,12 @@ def collection(subpath=''):
     initial_path = f'/data/{subpath}' if subpath else ''
     return render_template('collection.html', initial_path=initial_path)
 
+
+@app.route('/to-read')
+def to_read_page():
+    """Render the 'To Read' page showing all items marked as 'want to read'."""
+    return render_template('to_read.html')
+
 def find_folder_thumbnail(folder_path):
     """Find a folder/cover image in the given directory.
 

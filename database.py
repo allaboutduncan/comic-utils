@@ -139,6 +139,17 @@ def init_db():
         ''')
         c.execute('CREATE INDEX IF NOT EXISTS idx_issues_read_path ON issues_read(issue_path)')
 
+        # Create to_read table (files and folders marked as "want to read")
+        c.execute('''
+            CREATE TABLE IF NOT EXISTS to_read (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                path TEXT NOT NULL UNIQUE,
+                type TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+        c.execute('CREATE INDEX IF NOT EXISTS idx_to_read_path ON to_read(path)')
+
         # Migration: Check if file_mtime column exists, add if not
         c.execute("PRAGMA table_info(thumbnail_jobs)")
         columns = [column[1] for column in c.fetchall()]
@@ -1425,3 +1436,127 @@ def get_issue_read_date(issue_path):
     except Exception as e:
         app_logger.error(f"Failed to get read date for issue '{issue_path}': {e}")
         return None
+
+
+# =============================================================================
+# To Read Functions
+# =============================================================================
+
+def add_to_read(path, item_type='file'):
+    """
+    Add an item to the 'to read' list.
+
+    Args:
+        path: Full path to the file or folder
+        item_type: 'file' or 'folder'
+
+    Returns:
+        True on success, False on error
+    """
+    try:
+        conn = get_db_connection()
+        if not conn:
+            return False
+
+        c = conn.cursor()
+        c.execute('''
+            INSERT OR IGNORE INTO to_read (path, type)
+            VALUES (?, ?)
+        ''', (path, item_type))
+
+        conn.commit()
+        conn.close()
+
+        app_logger.info(f"Added to 'to read': {path} ({item_type})")
+        return True
+
+    except Exception as e:
+        app_logger.error(f"Failed to add to 'to read' '{path}': {e}")
+        return False
+
+
+def remove_to_read(path):
+    """
+    Remove an item from the 'to read' list.
+
+    Args:
+        path: Full path to the file or folder
+
+    Returns:
+        True on success, False on error
+    """
+    try:
+        conn = get_db_connection()
+        if not conn:
+            return False
+
+        c = conn.cursor()
+        c.execute('DELETE FROM to_read WHERE path = ?', (path,))
+
+        conn.commit()
+        conn.close()
+
+        app_logger.info(f"Removed from 'to read': {path}")
+        return True
+
+    except Exception as e:
+        app_logger.error(f"Failed to remove from 'to read' '{path}': {e}")
+        return False
+
+
+def get_to_read_items(limit=None):
+    """
+    Get all 'to read' items.
+
+    Args:
+        limit: Optional limit on number of items returned
+
+    Returns:
+        List of dicts with path, type, created_at keys, or empty list on error
+    """
+    try:
+        conn = get_db_connection()
+        if not conn:
+            return []
+
+        c = conn.cursor()
+        if limit:
+            c.execute('SELECT path, type, created_at FROM to_read ORDER BY created_at DESC LIMIT ?', (limit,))
+        else:
+            c.execute('SELECT path, type, created_at FROM to_read ORDER BY created_at DESC')
+
+        results = [dict(row) for row in c.fetchall()]
+        conn.close()
+
+        return results
+
+    except Exception as e:
+        app_logger.error(f"Failed to get 'to read' items: {e}")
+        return []
+
+
+def is_to_read(path):
+    """
+    Check if an item is in the 'to read' list.
+
+    Args:
+        path: Full path to the file or folder
+
+    Returns:
+        True if in list, False otherwise
+    """
+    try:
+        conn = get_db_connection()
+        if not conn:
+            return False
+
+        c = conn.cursor()
+        c.execute('SELECT 1 FROM to_read WHERE path = ?', (path,))
+        result = c.fetchone()
+        conn.close()
+
+        return result is not None
+
+    except Exception as e:
+        app_logger.error(f"Failed to check 'to read' status for '{path}': {e}")
+        return False

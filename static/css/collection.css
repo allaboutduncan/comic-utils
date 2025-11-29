@@ -499,7 +499,8 @@
     font-size: 16px;
 }
 
-.thumbnail-container:hover .favorite-button {
+.thumbnail-container:hover .favorite-button,
+.dashboard-card-img-container:hover .favorite-button {
     opacity: 1;
 }
 
@@ -517,6 +518,57 @@
 }
 
 .favorite-button.favorited:hover {
+    background: rgba(255, 193, 7, 1);
+}
+
+/* To Read Button Styling */
+.to-read-button {
+    position: absolute;
+    top: 10px;
+    left: 10px;
+    background: rgba(0, 0, 0, 0.6);
+    border: none;
+    border-radius: 50%;
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    z-index: 10;
+    opacity: 0;
+    transition: opacity 0.2s ease, background 0.2s ease;
+}
+
+.to-read-button i {
+    color: white;
+    font-size: 16px;
+}
+
+.thumbnail-container:hover .to-read-button,
+.dashboard-card-img-container:hover .to-read-button {
+    opacity: 1;
+}
+
+.to-read-button:hover {
+    background: rgba(0, 0, 0, 0.9);
+}
+
+.to-read-button:focus {
+    outline: 2px solid #0d6efd;
+    outline-offset: 2px;
+}
+
+.to-read-button.marked {
+    opacity: 1;
+    background: rgba(255, 193, 7, 0.9);
+}
+
+.to-read-button.marked i {
+    color: #212529;
+}
+
+.to-read-button.marked:hover {
     background: rgba(255, 193, 7, 1);
 }
 
@@ -670,4 +722,30 @@
 [data-bs-theme="dark"] .dashboard-swiper .swiper-button-prev {
     background-color: rgba(40, 40, 40, 0.9);
     color: #fff;
+}
+
+/* =============================================================================
+   Drag-Drop Upload Zone for Edit Modal
+   ============================================================================= */
+
+#editCBZModal .modal-body.drag-over {
+    background-color: rgba(33, 150, 243, 0.1);
+    border: 2px dashed #2196f3;
+    transition: all 0.2s ease;
+}
+
+#editCBZModal .modal-body.drag-over::after {
+    content: "Drop files to add";
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background: rgba(33, 150, 243, 0.9);
+    color: white;
+    padding: 1rem 2rem;
+    border-radius: 0.5rem;
+    font-weight: bold;
+    font-size: 1.2rem;
+    z-index: 9999;
+    pointer-events: none;
 }

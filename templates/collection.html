@@ -91,56 +91,18 @@
         </section>
 
         <!-- Want to Read -->
-        <!--
         <section class="mb-4 dashboard-section">
             <div class="d-flex justify-content-between align-items-center mb-3 px-2">
                 <h4 class="m-0"><i class="bi bi-bookmark-star-fill text-warning me-2"></i>Want to Read</h4>
-                <button class="btn btn-sm btn-link text-decoration-none">View All</button>
+                <a href="/to-read" class="btn btn-sm btn-link text-decoration-none">View All</a>
             </div>
             <div class="swiper dashboard-swiper" id="wantToReadSwiper">
                 <div class="swiper-wrapper">
-
+                    <!-- Loaded dynamically by loadWantToRead() -->
                     <div class="swiper-slide">
-                        <div class="dashboard-card">
-                            <div class="dashboard-card-img-container">
-                                <img src="https://placehold.co/300x450/333/fff?text=Saga" alt="Saga">
-                            </div>
-                            <div class="dashboard-card-body">
-                                <h6 class="text-truncate">Saga Vol. 1</h6>
-                                <small class="text-muted">Brian K. Vaughan</small>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="swiper-slide">
-                        <div class="dashboard-card">
-                            <div class="dashboard-card-img-container">
-                                <img src="https://placehold.co/300x450/333/fff?text=Watchmen" alt="Watchmen">
-                            </div>
-                            <div class="dashboard-card-body">
-                                <h6 class="text-truncate">Watchmen</h6>
-                                <small class="text-muted">Alan Moore</small>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="swiper-slide">
-                        <div class="dashboard-card">
-                            <div class="dashboard-card-img-container">
-                                <img src="https://placehold.co/300x450/333/fff?text=Sandman" alt="Sandman">
-                            </div>
-                            <div class="dashboard-card-body">
-                                <h6 class="text-truncate">The Sandman Vol. 1</h6>
-                                <small class="text-muted">Neil Gaiman</small>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="swiper-slide">
-                        <div class="dashboard-card">
-                            <div class="dashboard-card-img-container">
-                                <img src="https://placehold.co/300x450/333/fff?text=Maus" alt="Maus">
-                            </div>
-                            <div class="dashboard-card-body">
-                                <h6 class="text-truncate">Maus</h6>
-                                <small class="text-muted">Art Spiegelman</small>
+                        <div class="dashboard-card text-center p-4">
+                            <div class="spinner-border text-primary" role="status">
+                                <span class="visually-hidden">Loading...</span>
                             </div>
                         </div>
                     </div>
@@ -149,7 +111,6 @@
                 <div class="swiper-button-prev"></div>
             </div>
         </section>
-        -->
         <!-- Recently Added -->
         <!--
         <section class="mb-4 dashboard-section">
@@ -281,6 +242,9 @@
             </button>
             <button class="favorite-button no-propagation" title="Add to Favorites" style="display: none;">
                 <i class="bi bi-bookmark-heart"></i>
+            </button>
+            <button class="to-read-button no-propagation" title="Add to To Read" style="display: none;">
+                <i class="bi bi-bookmark-plus"></i>
             </button>
         </div>
         <div class="item-info d-flex justify-content-between align-items-start mt-2">

@@ -31,7 +31,8 @@
       "Bash(find:*)",
       "Bash(claude config get:*)",
       "Bash(claude config:*)",
-      "Bash(echo:*)"
+      "Bash(echo:*)",
+      "Bash(grep:*)"
     ],
     "deny": [],
     "ask": []

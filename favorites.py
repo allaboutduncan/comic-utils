@@ -5,6 +5,7 @@ Provides REST API endpoints for managing:
 - Favorite Publishers (root-level folders)
 - Favorite Series (folders within publishers)
 - Issues Read (comic files marked as read)
+- To Read (files and folders marked as 'want to read')
 """
 
 from flask import Blueprint, request, jsonify
@@ -14,7 +15,8 @@ from database import (
     add_favorite_series, remove_favorite_series,
     get_favorite_series, is_favorite_series,
     mark_issue_read, unmark_issue_read,
-    get_issues_read, is_issue_read, get_issue_read_date
+    get_issues_read, is_issue_read, get_issue_read_date,
+    add_to_read, remove_to_read, get_to_read_items, is_to_read
 )
 from app_logging import app_logger
 
@@ -248,4 +250,81 @@ def unmark_read():
             return jsonify({"success": False, "error": "Failed to unmark issue as read"}), 500
     except Exception as e:
         app_logger.error(f"Error unmarking issue as read: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+# =============================================================================
+# To Read Endpoints
+# =============================================================================
+
+@favorites_bp.route('/to-read', methods=['GET'])
+def get_to_read():
+    """Get all 'to read' items."""
+    try:
+        items = get_to_read_items()
+        return jsonify({
+            "success": True,
+            "items": items
+        })
+    except Exception as e:
+        app_logger.error(f"Error getting 'to read' items: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@favorites_bp.route('/to-read/check', methods=['GET'])
+def check_to_read():
+    """Check if an item is in the 'to read' list."""
+    path = request.args.get('path')
+    if not path:
+        return jsonify({"success": False, "error": "Missing path parameter"}), 400
+
+    try:
+        is_marked = is_to_read(path)
+        return jsonify({
+            "success": True,
+            "is_to_read": is_marked
+        })
+    except Exception as e:
+        app_logger.error(f"Error checking 'to read' status: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@favorites_bp.route('/to-read', methods=['POST'])
+def add_to_read_item():
+    """Add an item to 'to read' list."""
+    data = request.get_json() or {}
+    path = data.get('path')
+    item_type = data.get('type', 'file')
+
+    if not path:
+        return jsonify({"success": False, "error": "Missing path in request body"}), 400
+
+    try:
+        success = add_to_read(path, item_type)
+        if success:
+            return jsonify({"success": True})
+        else:
+            return jsonify({"success": False, "error": "Failed to add to 'to read'"}), 500
+    except Exception as e:
+        app_logger.error(f"Error adding to 'to read': {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@favorites_bp.route('/to-read', methods=['DELETE'])
+def remove_to_read_item():
+    """Remove an item from 'to read' list."""
+    data = request.get_json() or {}
+    path = data.get('path')
+
+    if not path:
+        return jsonify({"success": False, "error": "Missing path in request body"}), 400
+
+    try:
+        success = remove_to_read(path)
+        if success:
+            return jsonify({"success": True})
+        else:
+            return jsonify({"success": False, "error": "Failed to remove from 'to read'"}), 500
+    except Exception as e:
+        app_logger.error(f"Error removing from 'to read': {e}")
         return jsonify({"success": False, "error": str(e)}), 500

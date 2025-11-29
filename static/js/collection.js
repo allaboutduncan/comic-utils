@@ -14,6 +14,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // Load dashboard data if at root
     if (!initialPath || initialPath === '/' || initialPath === '/data') {
         loadFavoritePublishers();
+        loadWantToRead();
     }
 });
 
@@ -767,6 +768,9 @@ function renderGrid(items) {
         nameEl.textContent = item.name;
         nameEl.title = item.name;
 
+        // Determine if we're at root level (folders directly off /data)
+        const isRootLevel = !currentPath || currentPath === '' || currentPath === '/data';
+
         if (item.type === 'folder') {
             gridItem.classList.add('folder');
 
@@ -792,9 +796,6 @@ function renderGrid(items) {
             const infoButton = clone.querySelector('.info-button');
             if (infoButton) infoButton.style.display = 'none';
 
-            // Determine if we're at root level (folders directly off /data)
-            const isRootLevel = !currentPath || currentPath === '' || currentPath === '/data';
-
             // Add root-folder class for CSS targeting
             if (isRootLevel) {
                 gridItem.classList.add('root-folder');
@@ -805,6 +806,15 @@ function renderGrid(items) {
             if (favoriteButton) {
                 if (isRootLevel) {
                     favoriteButton.style.display = 'flex';
+
+                    // Check if this folder is already favorited
+                    if (window.favoritePaths && window.favoritePaths.has(item.path)) {
+                        favoriteButton.classList.add('favorited');
+                        const favIcon = favoriteButton.querySelector('i');
+                        if (favIcon) favIcon.className = 'bi bi-bookmark-heart-fill';
+                        favoriteButton.title = 'Remove from Favorites';
+                    }
+
                     favoriteButton.onclick = (e) => {
                         e.stopPropagation();
                         e.preventDefault();
@@ -815,10 +825,34 @@ function renderGrid(items) {
                 }
             }
 
-            // Show actions menu for:
-            // 1. Folders at root level (only Missing File Check)
-            // 2. Folders with files directly (full menu)
-            if ((isRootLevel || item.hasFiles) && actionsDropdown) {
+            // Handle "To Read" button for non-root items (folders and files)
+            const toReadButton = clone.querySelector('.to-read-button');
+            if (toReadButton) {
+                if (!isRootLevel) {
+                    toReadButton.style.display = 'flex';
+
+                    // Check if this item is already in "To Read" list
+                    if (window.toReadPaths && window.toReadPaths.has(item.path)) {
+                        toReadButton.classList.add('marked');
+                        const toReadIcon = toReadButton.querySelector('i');
+                        if (toReadIcon) toReadIcon.className = 'bi bi-bookmark';
+                        toReadButton.title = 'Remove from To Read';
+                    }
+
+                    toReadButton.onclick = (e) => {
+                        e.stopPropagation();
+                        e.preventDefault();
+                        toggleToRead(item.path, item.name, item.type, toReadButton);
+                    };
+                } else {
+                    toReadButton.style.display = 'none';
+                }
+            }
+
+            // Show actions menu for all folders:
+            // - Root level: Only Missing File Check
+            // - Non-root level: Full menu (Generate Thumbnail, Missing File Check, Delete)
+            if (actionsDropdown) {
                 const btn = actionsDropdown.querySelector('button');
                 if (btn) {
                     btn.onclick = (e) => {
@@ -895,9 +929,6 @@ function renderGrid(items) {
                         };
                     }
                 }
-            } else {
-                // Hide actions for folders without files (and not at root)
-                if (actionsDropdown) actionsDropdown.style.display = 'none';
             }
 
             // Check if folder has a thumbnail
@@ -1016,6 +1047,28 @@ function renderGrid(items) {
                 if (item.name.toLowerCase().endsWith('.txt')) {
                     const actionsDropdown = clone.querySelector('.item-actions');
                     if (actionsDropdown) actionsDropdown.style.display = 'none';
+                }
+            }
+
+            // Handle "To Read" button for files (non-root items)
+            const toReadButton = clone.querySelector('.to-read-button');
+            if (toReadButton) {
+                if (!isRootLevel) {
+                    toReadButton.style.display = 'flex';
+                    // Check if already marked as "to read"
+                    if (window.toReadPaths && window.toReadPaths.has(item.path)) {
+                        toReadButton.classList.add('marked');
+                        const toReadIcon = toReadButton.querySelector('i');
+                        if (toReadIcon) toReadIcon.className = 'bi bi-bookmark';
+                        toReadButton.title = 'Remove from To Read';
+                    }
+                    toReadButton.onclick = (e) => {
+                        e.stopPropagation();
+                        e.preventDefault();
+                        toggleToRead(item.path, item.name, item.type, toReadButton);
+                    };
+                } else {
+                    toReadButton.style.display = 'none';
                 }
             }
 
@@ -2705,6 +2758,9 @@ function initEditMode(filePath) {
 
     editModal.show();
 
+    // Setup drag-drop upload zone
+    setupEditModalDropZone();
+
     // Load CBZ contents
     fetch(`/edit?file_path=${encodeURIComponent(filePath)}`)
         .then(response => {
@@ -2782,6 +2838,177 @@ function saveEditedCBZ() {
             showError('An error occurred while saving the file.');
             hideProgressIndicator();
         });
+}
+
+/**
+ * Setup drag-drop upload for the CBZ edit modal
+ */
+function setupEditModalDropZone() {
+    const modal = document.getElementById('editCBZModal');
+    const modalBody = modal?.querySelector('.modal-body');
+    if (!modalBody) return;
+
+    // Skip if already setup
+    if (modalBody.dataset.dropzoneSetup) return;
+    modalBody.dataset.dropzoneSetup = 'true';
+
+    // Prevent default drag behaviors
+    ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+        modalBody.addEventListener(eventName, (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+        });
+    });
+
+    // Highlight drop zone on drag enter/over
+    ['dragenter', 'dragover'].forEach(eventName => {
+        modalBody.addEventListener(eventName, () => {
+            modalBody.classList.add('drag-over');
+        });
+    });
+
+    // Remove highlight on drag leave/drop
+    ['dragleave', 'drop'].forEach(eventName => {
+        modalBody.addEventListener(eventName, () => {
+            modalBody.classList.remove('drag-over');
+        });
+    });
+
+    // Handle dropped files
+    modalBody.addEventListener('drop', (e) => {
+        const files = e.dataTransfer.files;
+        if (files.length > 0) {
+            handleEditModalUpload(files);
+        }
+    });
+}
+
+/**
+ * Handle file upload in the edit modal
+ * @param {FileList} files - Files to upload
+ */
+function handleEditModalUpload(files) {
+    const folderName = document.getElementById('editInlineFolderName')?.value;
+    if (!folderName) {
+        showError('Cannot upload: No target folder');
+        return;
+    }
+
+    // Filter to allowed image types only
+    const allowedExtensions = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp'];
+    const validFiles = Array.from(files).filter(file => {
+        const ext = '.' + file.name.split('.').pop().toLowerCase();
+        return allowedExtensions.includes(ext);
+    });
+
+    if (validFiles.length === 0) {
+        showError('No valid image files. Allowed: ' + allowedExtensions.join(', '));
+        return;
+    }
+
+    // Show upload toast
+    showUploadToast(validFiles.length);
+
+    // Prepare FormData
+    const formData = new FormData();
+    formData.append('target_dir', folderName);
+    validFiles.forEach(file => {
+        formData.append('files', file);
+    });
+
+    // Upload files
+    fetch('/upload-to-folder', {
+        method: 'POST',
+        body: formData
+    })
+    .then(response => response.json())
+    .then(data => {
+        hideUploadToast();
+
+        if (data.success && data.uploaded.length > 0) {
+            showSuccess(`Uploaded ${data.uploaded.length} file(s)`);
+
+            // Add cards for each uploaded file
+            data.uploaded.forEach(file => {
+                addUploadedFileCard(file.path, file.name);
+            });
+        } else if (data.total_skipped > 0) {
+            showError(`Skipped ${data.total_skipped} file(s): invalid type`);
+        } else {
+            showError('Upload failed: ' + (data.error || 'Unknown error'));
+        }
+    })
+    .catch(error => {
+        hideUploadToast();
+        console.error('Upload error:', error);
+        showError('Upload failed: ' + error.message);
+    });
+}
+
+/**
+ * Add a card for an uploaded file to the edit container
+ * @param {string} filePath - Full path to uploaded file
+ * @param {string} fileName - Name of the file
+ */
+function addUploadedFileCard(filePath, fileName) {
+    const container = document.getElementById('editInlineContainer');
+    if (!container) return;
+
+    // Fetch image data as base64 for the card
+    fetch('/get-image-data', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ target: filePath })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            // Generate card HTML using existing function
+            const cardHTML = generateCardHTML(fileName, data.imageData);
+            container.insertAdjacentHTML('beforeend', cardHTML);
+
+            // Re-sort cards
+            sortInlineEditCards();
+        } else {
+            showError('Failed to load uploaded image: ' + (data.error || 'Unknown'));
+        }
+    })
+    .catch(error => {
+        console.error('Error loading uploaded image:', error);
+        showError('Failed to load uploaded image');
+    });
+}
+
+/**
+ * Show upload progress toast
+ * @param {number} fileCount - Number of files being uploaded
+ */
+function showUploadToast(fileCount) {
+    // Remove existing toast if any
+    hideUploadToast();
+
+    const toast = document.createElement('div');
+    toast.id = 'upload-progress-toast';
+    toast.className = 'toast show position-fixed';
+    toast.style.cssText = 'bottom: 20px; right: 20px; z-index: 9999;';
+    toast.innerHTML = `
+        <div class="toast-header bg-primary text-white">
+            <strong class="me-auto">Uploading</strong>
+        </div>
+        <div class="toast-body d-flex align-items-center">
+            <div class="spinner-border spinner-border-sm me-2" role="status"></div>
+            <span>Uploading ${fileCount} file(s)...</span>
+        </div>
+    `;
+    document.body.appendChild(toast);
+}
+
+/**
+ * Hide upload progress toast
+ */
+function hideUploadToast() {
+    const toast = document.getElementById('upload-progress-toast');
+    if (toast) toast.remove();
 }
 
 // ============================================================================
@@ -3177,6 +3404,13 @@ async function loadFavoritePublishers() {
         const favData = await favResponse.json();
         const browseData = await browseResponse.json();
 
+        // Store favorite paths globally for grid item sync
+        window.favoritePaths = new Set(
+            favData.success && favData.publishers
+                ? favData.publishers.map(p => p.publisher_path)
+                : []
+        );
+
         if (!favData.success || !favData.publishers.length) {
             // Show empty state
             swiper.innerHTML = `
@@ -3219,7 +3453,10 @@ async function loadFavoritePublishers() {
         });
 
         // Render slides with same structure as grid-item folders
-        swiper.innerHTML = publisherDetails.map(pub => `
+        swiper.innerHTML = publisherDetails.map(pub => {
+            // Escape name for use in onclick handler
+            const escapedName = pub.name.replace(/'/g, "\\'").replace(/"/g, '&quot;');
+            return `
             <div class="swiper-slide">
                 <div class="dashboard-card${pub.hasThumbnail ? ' has-thumbnail' : ''}" data-path="${pub.path}" onclick="loadDirectory('${pub.path}')">
                     <div class="dashboard-card-img-container">
@@ -3227,21 +3464,348 @@ async function loadFavoritePublishers() {
                         <div class="icon-overlay" style="${pub.hasThumbnail ? 'display: none;' : ''}">
                             <i class="bi bi-folder-fill"></i>
                         </div>
+                        <button class="favorite-button favorited" onclick="event.stopPropagation(); removeFavoriteFromDashboard('${pub.path}', '${escapedName}', this)" title="Remove from Favorites">
+                            <i class="bi bi-bookmark-heart-fill"></i>
+                        </button>
                     </div>
                     <div class="dashboard-card-body">
                         <div class="text-truncate item-name">${pub.name}</div>
-                        <small class="text-muted">${[
-                            pub.folderCount > 0 ? `${pub.folderCount} folder${pub.folderCount !== 1 ? 's' : ''}` : '',
-                            pub.fileCount > 0 ? `${pub.fileCount} file${pub.fileCount !== 1 ? 's' : ''}` : ''
-                        ].filter(Boolean).join(' | ') || 'Empty'}</small>
+                        <small class="text-muted item-meta${pub.folderCount === null ? ' metadata-loading' : ''}">${
+                            pub.folderCount === null ? 'Loading...' :
+                            [
+                                pub.folderCount > 0 ? `${pub.folderCount} folder${pub.folderCount !== 1 ? 's' : ''}` : '',
+                                pub.fileCount > 0 ? `${pub.fileCount} file${pub.fileCount !== 1 ? 's' : ''}` : ''
+                            ].filter(Boolean).join(' | ') || 'Empty'
+                        }</small>
                     </div>
                 </div>
             </div>
-        `).join('');
+        `}).join('');
+
+        // Load thumbnails progressively for favorites that don't have them
+        const pathsNeedingThumbnails = publisherDetails
+            .filter(pub => !pub.hasThumbnail)
+            .map(pub => pub.path);
+
+        if (pathsNeedingThumbnails.length > 0) {
+            loadDashboardThumbnails(pathsNeedingThumbnails);
+        }
+
+        // Load metadata progressively if counts are null
+        const pathsNeedingMetadata = publisherDetails
+            .filter(pub => pub.folderCount === null)
+            .map(pub => pub.path);
+
+        if (pathsNeedingMetadata.length > 0) {
+            loadDashboardMetadata(pathsNeedingMetadata);
+        }
 
     } catch (error) {
         console.error('Error loading favorite publishers:', error);
     }
+}
+
+/**
+ * Load thumbnails for dashboard cards progressively
+ * @param {Array<string>} paths - Paths to load thumbnails for
+ */
+async function loadDashboardThumbnails(paths) {
+    try {
+        const response = await fetch('/api/browse-thumbnails', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ paths: paths })
+        });
+
+        if (!response.ok) return;
+        const data = await response.json();
+
+        // Update dashboard cards with received thumbnails
+        Object.entries(data.thumbnails).forEach(([path, thumbData]) => {
+            if (thumbData.has_thumbnail) {
+                const card = document.querySelector(`.dashboard-card[data-path="${CSS.escape(path)}"]`);
+                if (card) {
+                    const img = card.querySelector('.thumbnail');
+                    const iconOverlay = card.querySelector('.icon-overlay');
+
+                    if (img) {
+                        img.src = thumbData.thumbnail_url;
+                        img.style.display = '';
+                    }
+                    if (iconOverlay) {
+                        iconOverlay.style.display = 'none';
+                    }
+                    card.classList.add('has-thumbnail');
+                }
+            }
+        });
+    } catch (error) {
+        console.error('Error loading dashboard thumbnails:', error);
+    }
+}
+
+/**
+ * Load metadata for dashboard cards progressively
+ * @param {Array<string>} paths - Paths to load metadata for
+ */
+async function loadDashboardMetadata(paths) {
+    try {
+        const response = await fetch('/api/browse-metadata', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ paths: paths })
+        });
+
+        if (!response.ok) return;
+        const data = await response.json();
+
+        // Update dashboard cards with received metadata
+        Object.entries(data.metadata).forEach(([path, meta]) => {
+            const card = document.querySelector(`.dashboard-card[data-path="${CSS.escape(path)}"]`);
+            if (card) {
+                const metaEl = card.querySelector('.item-meta');
+                if (metaEl) {
+                    metaEl.classList.remove('metadata-loading');
+                    const parts = [];
+                    if (meta.folder_count > 0) {
+                        parts.push(`${meta.folder_count} folder${meta.folder_count !== 1 ? 's' : ''}`);
+                    }
+                    if (meta.file_count > 0) {
+                        parts.push(`${meta.file_count} file${meta.file_count !== 1 ? 's' : ''}`);
+                    }
+                    metaEl.textContent = parts.length > 0 ? parts.join(' | ') : 'Empty';
+                }
+            }
+        });
+    } catch (error) {
+        console.error('Error loading dashboard metadata:', error);
+    }
+}
+
+/**
+ * Load 'Want to Read' items for the dashboard swiper.
+ */
+async function loadWantToRead() {
+    const swiper = document.querySelector('#wantToReadSwiper .swiper-wrapper');
+    if (!swiper) return;
+
+    try {
+        const response = await fetch('/api/favorites/to-read');
+        const data = await response.json();
+
+        // Store to-read paths globally for grid item sync
+        window.toReadPaths = new Set(
+            data.success && data.items
+                ? data.items.map(item => item.path)
+                : []
+        );
+
+        if (!data.success || !data.items.length) {
+            // Show empty state
+            swiper.innerHTML = `
+                <div class="swiper-slide">
+                    <div class="dashboard-card text-center p-4">
+                        <i class="bi bi-bookmark-plus text-muted" style="font-size: 3rem;"></i>
+                        <p class="text-muted mt-2">No items to read yet</p>
+                    </div>
+                </div>
+            `;
+            return;
+        }
+
+        // Separate folders and files
+        const folders = data.items.filter(item => item.type === 'folder');
+        const files = data.items.filter(item => item.type === 'file');
+
+        // Fetch folder thumbnails if there are folders
+        let folderThumbnails = {};
+        if (folders.length > 0) {
+            try {
+                const thumbResponse = await fetch('/api/browse-thumbnails', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ paths: folders.map(f => f.path) })
+                });
+                const thumbData = await thumbResponse.json();
+                folderThumbnails = thumbData.thumbnails || {};
+            } catch (e) {
+                console.error('Error fetching folder thumbnails:', e);
+            }
+        }
+
+        // Render slides
+        swiper.innerHTML = data.items.map(item => {
+            const name = item.path.split('/').pop();
+            const escapedName = name.replace(/'/g, "\\'").replace(/"/g, '&quot;');
+            const isFile = item.type === 'file';
+
+            let thumbnailUrl = '';
+            let hasThumbnail = false;
+
+            if (isFile) {
+                thumbnailUrl = `/api/thumbnail?path=${encodeURIComponent(item.path)}`;
+                hasThumbnail = true;
+            } else {
+                // Check if folder has a thumbnail
+                const folderThumb = folderThumbnails[item.path];
+                if (folderThumb && folderThumb.has_thumbnail) {
+                    thumbnailUrl = folderThumb.thumbnail_url;
+                    hasThumbnail = true;
+                }
+            }
+
+            return `
+            <div class="swiper-slide">
+                <div class="dashboard-card${hasThumbnail ? ' has-thumbnail' : ''}" data-path="${item.path}" onclick="navigateToItem('${item.path}', '${item.type}')">
+                    <div class="dashboard-card-img-container">
+                        <img src="${thumbnailUrl}" alt="${name}" class="thumbnail" style="${hasThumbnail ? '' : 'display: none;'}">
+                        <div class="icon-overlay" style="${hasThumbnail ? 'display: none;' : ''}">
+                            <i class="bi bi-folder-fill"></i>
+                        </div>
+                        <button class="to-read-button marked" onclick="event.stopPropagation(); removeFromWantToRead('${item.path}', '${escapedName}', this)" title="Remove from To Read">
+                            <i class="bi bi-bookmark"></i>
+                        </button>
+                    </div>
+                    <div class="dashboard-card-body">
+                        <div class="text-truncate item-name">${name}</div>
+                        <small class="text-muted">${item.type === 'folder' ? 'Folder' : 'Comic'}</small>
+                    </div>
+                </div>
+            </div>
+        `}).join('');
+
+    } catch (error) {
+        console.error('Error loading want to read items:', error);
+    }
+}
+
+/**
+ * Navigate to an item from the dashboard
+ * @param {string} path - Path to the item
+ * @param {string} type - 'file' or 'folder'
+ */
+function navigateToItem(path, type) {
+    if (type === 'folder') {
+        loadDirectory(path);
+    } else {
+        // For files, navigate to parent folder
+        const parentPath = path.substring(0, path.lastIndexOf('/'));
+        loadDirectory(parentPath);
+    }
+}
+
+/**
+ * Remove an item from 'To Read' via the dashboard swiper
+ * @param {string} path - Path to the item
+ * @param {string} name - Name of the item
+ * @param {HTMLElement} button - The button element
+ */
+function removeFromWantToRead(path, name, button) {
+    fetch('/api/favorites/to-read', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path: path })
+    })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                // Remove the slide from swiper
+                const slide = button.closest('.swiper-slide');
+                if (slide) slide.remove();
+
+                // Sync global toReadPaths
+                window.toReadPaths?.delete(path);
+
+                // Update grid item if visible
+                const gridItem = document.querySelector(`.grid-item[data-path="${CSS.escape(path)}"]`);
+                if (gridItem) {
+                    const gridBtn = gridItem.querySelector('.to-read-button');
+                    if (gridBtn) {
+                        gridBtn.classList.remove('marked');
+                        const gridIcon = gridBtn.querySelector('i');
+                        if (gridIcon) gridIcon.className = 'bi bi-bookmark-plus';
+                        gridBtn.title = 'Add to To Read';
+                    }
+                }
+
+                showSuccess(`${name} removed from To Read`);
+            } else {
+                showError('Failed to remove from To Read: ' + (data.error || 'Unknown error'));
+            }
+        })
+        .catch(error => {
+            console.error('Error removing from To Read:', error);
+            showError('Failed to remove from To Read');
+        });
+}
+
+/**
+ * Toggle 'To Read' status for an item
+ * @param {string} path - Path to the item
+ * @param {string} name - Name of the item
+ * @param {string} type - 'file' or 'folder'
+ * @param {HTMLElement} button - The button element
+ */
+function toggleToRead(path, name, type, button) {
+    const isMarked = button.classList.contains('marked');
+    const method = isMarked ? 'DELETE' : 'POST';
+    const icon = button.querySelector('i');
+
+    // Optimistic UI update - change immediately for responsive feel
+    if (isMarked) {
+        button.classList.remove('marked');
+        icon.className = 'bi bi-bookmark-plus';
+        button.title = 'Add to To Read';
+    } else {
+        button.classList.add('marked');
+        icon.className = 'bi bi-bookmark';
+        button.title = 'Remove from To Read';
+    }
+
+    fetch('/api/favorites/to-read', {
+        method: method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path: path, type: type })
+    })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                // Update global state
+                if (isMarked) {
+                    window.toReadPaths?.delete(path);
+                    showSuccess(`${name} removed from To Read`);
+                } else {
+                    window.toReadPaths?.add(path);
+                    showSuccess(`${name} added to To Read`);
+                }
+            } else {
+                // Revert on failure
+                if (isMarked) {
+                    button.classList.add('marked');
+                    icon.className = 'bi bi-bookmark';
+                    button.title = 'Remove from To Read';
+                } else {
+                    button.classList.remove('marked');
+                    icon.className = 'bi bi-bookmark-plus';
+                    button.title = 'Add to To Read';
+                }
+                showError('Failed to update To Read: ' + (data.error || 'Unknown error'));
+            }
+        })
+        .catch(error => {
+            // Revert on error
+            if (isMarked) {
+                button.classList.add('marked');
+                icon.className = 'bi bi-bookmark';
+                button.title = 'Remove from To Read';
+            } else {
+                button.classList.remove('marked');
+                icon.className = 'bi bi-bookmark-plus';
+                button.title = 'Add to To Read';
+            }
+            console.error('Error toggling To Read:', error);
+            showError('Failed to update To Read');
+        });
 }
 
 /**
@@ -3267,11 +3831,15 @@ function togglePublisherFavorite(path, name, button) {
                     button.classList.remove('favorited');
                     icon.className = 'bi bi-bookmark-heart';
                     button.title = 'Add to Favorites';
+                    // Sync global favoritePaths
+                    window.favoritePaths?.delete(path);
                     showSuccess(`${name} removed from favorites`);
                 } else {
                     button.classList.add('favorited');
                     icon.className = 'bi bi-bookmark-heart-fill';
                     button.title = 'Remove from Favorites';
+                    // Sync global favoritePaths
+                    window.favoritePaths?.add(path);
                     showSuccess(`${name} added as a favorite`);
                 }
             } else {
@@ -3281,6 +3849,51 @@ function togglePublisherFavorite(path, name, button) {
         .catch(error => {
             console.error('Error toggling favorite:', error);
             showError('Failed to update favorite');
+        });
+}
+
+/**
+ * Remove a publisher from favorites via the dashboard swiper
+ * @param {string} path - Path to the publisher folder
+ * @param {string} name - Name of the publisher
+ * @param {HTMLElement} button - The favorite button element
+ */
+function removeFavoriteFromDashboard(path, name, button) {
+    fetch('/api/favorites/publishers', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path: path })
+    })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                // Remove the slide from swiper
+                const slide = button.closest('.swiper-slide');
+                if (slide) slide.remove();
+
+                // Sync global favoritePaths
+                window.favoritePaths?.delete(path);
+
+                // Update grid item if visible (at root level)
+                const gridItem = document.querySelector(`.grid-item[data-path="${CSS.escape(path)}"]`);
+                if (gridItem) {
+                    const gridFavBtn = gridItem.querySelector('.favorite-button');
+                    if (gridFavBtn) {
+                        gridFavBtn.classList.remove('favorited');
+                        const gridIcon = gridFavBtn.querySelector('i');
+                        if (gridIcon) gridIcon.className = 'bi bi-bookmark-heart';
+                        gridFavBtn.title = 'Add to Favorites';
+                    }
+                }
+
+                showSuccess(`${name} removed from favorites`);
+            } else {
+                showError('Failed to remove favorite: ' + (data.error || 'Unknown error'));
+            }
+        })
+        .catch(error => {
+            console.error('Error removing favorite:', error);
+            showError('Failed to remove favorite');
         });
 }
 
@@ -3541,6 +4154,7 @@ function showCBZInfo(filePath, fileName) {
                         <h6>File Information</h6>
                         <ul class="list-unstyled">
                             <li><strong>Name:</strong> ${fileName}</li>
+                            <li><strong>Path:</strong> <code style="word-break: break-all;">${filePath}</code></li>
                             <li><strong>Size:</strong> ${formatFileSize(data.file_size)}</li>
                             <li><strong>Total Files:</strong> ${data.total_files}</li>
                             <li><strong>Image Files:</strong> ${data.image_files}</li>

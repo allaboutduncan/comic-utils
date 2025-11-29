@@ -1,0 +1,374 @@
+<!-- templates/to_read.html -->
+{% extends 'base.html' %}
+
+{% block title %}To Read - Comic Library Utilities{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/collection.css') }}">
+<style>
+  .to-read-container {
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 20px;
+  }
+
+  .to-read-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 30px;
+    padding-bottom: 15px;
+    border-bottom: 2px solid #e9ecef;
+  }
+
+  .to-read-header h2 {
+    color: #ffc107;
+    margin: 0;
+  }
+
+  .to-read-header h2 i {
+    margin-right: 10px;
+  }
+
+  .to-read-stats {
+    color: #6c757d;
+    font-size: 0.9rem;
+  }
+
+  .to-read-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 20px;
+  }
+
+  .to-read-card {
+    background: #1a1a1a;
+    border-radius: 12px;
+    overflow: hidden;
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+    cursor: pointer;
+    position: relative;
+  }
+
+  .to-read-card:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 8px 25px rgba(0, 0, 0, 0.3);
+  }
+
+  .to-read-card .thumbnail-container {
+    width: 100%;
+    height: 280px;
+    overflow: hidden;
+    position: relative;
+    background: #2d2d2d;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .to-read-card .thumbnail-container img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+
+  .to-read-card .thumbnail-container .folder-icon {
+    font-size: 80px;
+    color: #ffc107;
+  }
+
+  .to-read-card .card-info {
+    padding: 15px;
+  }
+
+  .to-read-card .card-title {
+    color: #fff;
+    font-size: 0.95rem;
+    font-weight: 500;
+    margin: 0 0 8px 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .to-read-card .card-meta {
+    color: #6c757d;
+    font-size: 0.8rem;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+  }
+
+  .to-read-card .card-meta i {
+    color: #ffc107;
+  }
+
+  .to-read-card .remove-btn {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    background: rgba(220, 53, 69, 0.9);
+    border: none;
+    border-radius: 50%;
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #fff;
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity 0.2s ease, transform 0.2s ease;
+    z-index: 10;
+  }
+
+  .to-read-card:hover .remove-btn {
+    opacity: 1;
+  }
+
+  .to-read-card .remove-btn:hover {
+    transform: scale(1.1);
+    background: rgba(220, 53, 69, 1);
+  }
+
+  .empty-state {
+    text-align: center;
+    padding: 60px 20px;
+    color: #6c757d;
+  }
+
+  .empty-state i {
+    font-size: 64px;
+    margin-bottom: 20px;
+    color: #ffc107;
+    opacity: 0.5;
+  }
+
+  .empty-state h3 {
+    margin-bottom: 10px;
+    color: #adb5bd;
+  }
+
+  .empty-state p {
+    max-width: 400px;
+    margin: 0 auto;
+  }
+
+  .loading-state {
+    text-align: center;
+    padding: 60px 20px;
+    color: #6c757d;
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="to-read-container">
+  <div class="to-read-header">
+    <h2><i class="bi bi-bookmark"></i>Want to Read</h2>
+    <div class="to-read-stats">
+      <span id="item-count">Loading...</span>
+    </div>
+  </div>
+
+  <div id="loading-state" class="loading-state">
+    <div class="spinner-border text-warning" role="status">
+      <span class="visually-hidden">Loading...</span>
+    </div>
+    <p class="mt-3">Loading your reading list...</p>
+  </div>
+
+  <div id="empty-state" class="empty-state" style="display: none;">
+    <i class="bi bi-bookmark-plus"></i>
+    <h3>No items in your reading list</h3>
+    <p>Browse your collection and click the bookmark icon to add items you want to read later.</p>
+    <a href="/collection" class="btn btn-warning mt-3">
+      <i class="bi bi-grid me-2"></i>Browse Collection
+    </a>
+  </div>
+
+  <div id="to-read-grid" class="to-read-grid"></div>
+</div>
+
+<!-- Toast for notifications -->
+<div class="toast-container position-fixed bottom-0 end-0 p-3" style="z-index: 1100">
+  <div id="toReadToast" class="toast" role="alert" aria-live="assertive" aria-atomic="true">
+    <div class="toast-header">
+      <i class="bi bi-bookmark me-2 text-warning"></i>
+      <strong class="me-auto">To Read</strong>
+      <button type="button" class="btn-close" data-bs-dismiss="toast" aria-label="Close"></button>
+    </div>
+    <div class="toast-body" id="toReadToastBody"></div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+{{ super() }}
+<script>
+  let toReadItems = [];
+
+  document.addEventListener('DOMContentLoaded', () => {
+    loadToReadItems();
+  });
+
+  async function loadToReadItems() {
+    const loadingState = document.getElementById('loading-state');
+    const emptyState = document.getElementById('empty-state');
+    const grid = document.getElementById('to-read-grid');
+    const itemCount = document.getElementById('item-count');
+
+    try {
+      const response = await fetch('/api/favorites/to-read');
+      const data = await response.json();
+
+      loadingState.style.display = 'none';
+
+      if (!data.success || !data.items || data.items.length === 0) {
+        emptyState.style.display = 'block';
+        itemCount.textContent = '0 items';
+        return;
+      }
+
+      toReadItems = data.items;
+      itemCount.textContent = `${toReadItems.length} item${toReadItems.length !== 1 ? 's' : ''}`;
+
+      // Process items to get thumbnails and names
+      await renderToReadItems(toReadItems);
+
+    } catch (error) {
+      console.error('Error loading to-read items:', error);
+      loadingState.style.display = 'none';
+      emptyState.style.display = 'block';
+      itemCount.textContent = '0 items';
+    }
+  }
+
+  async function renderToReadItems(items) {
+    const grid = document.getElementById('to-read-grid');
+    grid.innerHTML = '';
+
+    for (const item of items) {
+      const card = document.createElement('div');
+      card.className = 'to-read-card';
+      card.dataset.path = item.path;
+
+      const name = item.path.split('/').pop() || item.path.split('\\').pop();
+      const isFolder = item.type === 'folder';
+
+      // Build thumbnail HTML
+      let thumbnailHtml;
+      if (isFolder) {
+        thumbnailHtml = `<i class="bi bi-folder-fill folder-icon"></i>`;
+      } else {
+        // Try to get thumbnail for files
+        const thumbnailUrl = `/thumbnail?path=${encodeURIComponent(item.path)}`;
+        thumbnailHtml = `<img src="${thumbnailUrl}" alt="${name}" onerror="this.parentElement.innerHTML='<i class=\\'bi bi-file-earmark-text folder-icon\\'></i>'">`;
+      }
+
+      card.innerHTML = `
+        <div class="thumbnail-container">
+          ${thumbnailHtml}
+        </div>
+        <div class="card-info">
+          <div class="card-title" title="${name}">${name}</div>
+          <div class="card-meta">
+            <i class="bi bi-${isFolder ? 'folder' : 'file-earmark'}"></i>
+            <span>${isFolder ? 'Folder' : 'File'}</span>
+          </div>
+        </div>
+        <button class="remove-btn" title="Remove from To Read" onclick="removeFromToRead(event, '${item.path.replace(/'/g, "\\'")}')">
+          <i class="bi bi-x-lg"></i>
+        </button>
+      `;
+
+      // Navigate to item on click
+      card.onclick = (e) => {
+        if (e.target.closest('.remove-btn')) return;
+        navigateToItem(item.path, item.type);
+      };
+
+      grid.appendChild(card);
+    }
+  }
+
+  function navigateToItem(path, type) {
+    if (type === 'folder') {
+      // Navigate to the folder in collection view
+      window.location.href = `/collection?path=${encodeURIComponent(path)}`;
+    } else {
+      // Navigate to the parent folder with the file highlighted
+      const parts = path.replace(/\\/g, '/').split('/');
+      parts.pop(); // Remove filename
+      const parentPath = parts.join('/');
+      window.location.href = `/collection?path=${encodeURIComponent(parentPath)}`;
+    }
+  }
+
+  async function removeFromToRead(event, path) {
+    event.stopPropagation();
+
+    try {
+      const response = await fetch('/api/favorites/to-read', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path: path })
+      });
+
+      const data = await response.json();
+
+      if (data.success) {
+        // Remove the card from DOM
+        const card = document.querySelector(`.to-read-card[data-path="${path}"]`);
+        if (card) {
+          card.style.transition = 'opacity 0.3s ease, transform 0.3s ease';
+          card.style.opacity = '0';
+          card.style.transform = 'scale(0.9)';
+          setTimeout(() => {
+            card.remove();
+            updateItemCount();
+          }, 300);
+        }
+
+        showToast('Item removed from reading list', 'success');
+      } else {
+        showToast('Failed to remove item', 'error');
+      }
+    } catch (error) {
+      console.error('Error removing from to-read:', error);
+      showToast('Error removing item', 'error');
+    }
+  }
+
+  function updateItemCount() {
+    const grid = document.getElementById('to-read-grid');
+    const count = grid.children.length;
+    const itemCount = document.getElementById('item-count');
+    const emptyState = document.getElementById('empty-state');
+
+    itemCount.textContent = `${count} item${count !== 1 ? 's' : ''}`;
+
+    if (count === 0) {
+      emptyState.style.display = 'block';
+    }
+  }
+
+  function showToast(message, type = 'info') {
+    const toast = document.getElementById('toReadToast');
+    const toastBody = document.getElementById('toReadToastBody');
+
+    toastBody.textContent = message;
+
+    // Set color based on type
+    toast.classList.remove('bg-success', 'bg-danger', 'bg-warning');
+    if (type === 'success') {
+      toast.classList.add('bg-success', 'text-white');
+    } else if (type === 'error') {
+      toast.classList.add('bg-danger', 'text-white');
+    }
+
+    const bsToast = new bootstrap.Toast(toast);
+    bsToast.show();
+  }
+</script>
+{% endblock %}
