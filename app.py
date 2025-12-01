@@ -2274,7 +2274,11 @@ def upload_to_folder():
             try:
                 # Save the file
                 file.save(file_path)
-                file_size = os.path.getsize(file_path)
+
+                # Resize to match existing images in directory
+                resize_upload(file_path, target_dir)
+
+                file_size = os.path.getsize(file_path)  # Get size after resize
 
                 uploaded_files.append({
                     'name': filename,
@@ -2313,6 +2317,77 @@ def upload_to_folder():
     except Exception as e:
         app_logger.error(f"Error in upload_to_folder: {e}")
         return jsonify({"success": False, "error": str(e)}), 500
+
+
+def resize_upload(file_path, target_dir):
+    """
+    Resize an uploaded image to match dimensions of existing images in the directory.
+
+    Args:
+        file_path: Path to the uploaded file
+        target_dir: Directory containing existing images
+
+    Returns:
+        True if resized, False if no resize needed or no reference image found
+    """
+    try:
+        # Find first existing image in directory (excluding the just-uploaded file)
+        image_extensions = {'.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp'}
+        reference_image = None
+
+        for filename in sorted(os.listdir(target_dir)):
+            if filename == os.path.basename(file_path):
+                continue  # Skip the uploaded file itself
+
+            ext = os.path.splitext(filename)[1].lower()
+            if ext in image_extensions:
+                ref_path = os.path.join(target_dir, filename)
+                if os.path.isfile(ref_path):
+                    reference_image = ref_path
+                    break
+
+        if not reference_image:
+            app_logger.info(f"No reference image found in {target_dir}, skipping resize")
+            return False
+
+        # Get reference dimensions
+        with Image.open(reference_image) as ref_img:
+            target_width, target_height = ref_img.size
+
+        # Open and resize the uploaded image
+        with Image.open(file_path) as img:
+            current_width, current_height = img.size
+
+            # Skip if already same size
+            if current_width == target_width and current_height == target_height:
+                app_logger.info(f"Image {file_path} already matches dimensions ({target_width}x{target_height})")
+                return False
+
+            # Convert RGBA/P modes to RGB for JPEG compatibility
+            if img.mode in ('RGBA', 'LA', 'P'):
+                img = img.convert('RGB')
+
+            # Resize to match reference dimensions
+            resized = img.resize((target_width, target_height), Image.Resampling.LANCZOS)
+
+            # Save back to same path (preserve format based on extension)
+            ext = os.path.splitext(file_path)[1].lower()
+            if ext in ('.jpg', '.jpeg'):
+                resized.save(file_path, 'JPEG', quality=95)
+            elif ext == '.png':
+                resized.save(file_path, 'PNG')
+            elif ext == '.webp':
+                resized.save(file_path, 'WEBP', quality=95)
+            else:
+                resized.save(file_path)
+
+            app_logger.info(f"Resized {file_path} from {current_width}x{current_height} to {target_width}x{target_height}")
+            return True
+
+    except Exception as e:
+        app_logger.error(f"Error resizing upload {file_path}: {e}")
+        return False
+
 
 #####################################
 #       Search Files in /data       #
