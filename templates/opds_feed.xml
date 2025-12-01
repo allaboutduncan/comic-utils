@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom"
+      xmlns:opds="http://opds-spec.org/2010/catalog"
+      xmlns:dcterms="http://purl.org/dc/terms/">
+  <id>{{ feed_id }}</id>
+  <title>{{ feed_title }}</title>
+  <updated>{{ updated }}</updated>
+  <author>
+    <name>Comic Library</name>
+  </author>
+
+  <link rel="start" href="{{ start_url }}" type="application/atom+xml;profile=opds-catalog;kind=navigation"/>
+  <link rel="self" href="{{ self_url }}" type="application/atom+xml;profile=opds-catalog"/>
+  {% if parent_url %}
+  <link rel="up" href="{{ parent_url }}" type="application/atom+xml;profile=opds-catalog;kind=navigation"/>
+  {% endif %}
+
+  {% for entry in entries %}
+  <entry>
+    <id>{{ entry.id }}</id>
+    <title>{{ entry.title }}</title>
+    <updated>{{ entry.updated }}</updated>
+
+    {% if entry.type == 'navigation' %}
+    <link rel="subsection" href="{{ entry.href }}" type="application/atom+xml;profile=opds-catalog;kind=navigation"/>
+    {% else %}
+    <link rel="http://opds-spec.org/acquisition" href="{{ entry.download_url }}" type="{{ entry.mime_type }}"{% if entry.size %} length="{{ entry.size }}"{% endif %}/>
+    {% endif %}
+
+    {% if entry.thumbnail_url %}
+    <link rel="http://opds-spec.org/image/thumbnail" href="{{ entry.thumbnail_url }}" type="image/jpeg"/>
+    {% endif %}
+  </entry>
+  {% endfor %}
+</feed>

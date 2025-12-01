@@ -29,6 +29,7 @@ import zipfile
 import tempfile
 from api import app
 from favorites import favorites_bp
+from opds import opds_bp
 from config import config, load_flask_config, write_config, load_config
 from edit import get_edit_modal, save_cbz, cropCenter, cropLeft, cropRight, cropFreeForm, get_image_data_url, modal_body_template
 from memory_utils import initialize_memory_management, cleanup_on_exit, memory_context, get_global_monitor
@@ -58,6 +59,7 @@ init_db()
 
 # Register Blueprints
 app.register_blueprint(favorites_bp)
+app.register_blueprint(opds_bp)
 
 # Initialize APScheduler for scheduled file index rebuilds
 rebuild_scheduler = BackgroundScheduler(daemon=True)
@@ -3559,7 +3561,17 @@ def download_file():
         return jsonify({"error": "File not found"}), 404
 
     try:
-        return send_file(file_path, as_attachment=False, mimetype='text/plain')
+        # Determine MIME type based on file extension
+        ext = os.path.splitext(file_path)[1].lower()
+        comic_mime_types = {
+            '.cbz': 'application/vnd.comicbook+zip',
+            '.cbr': 'application/vnd.comicbook-rar',
+            '.pdf': 'application/pdf',
+            '.epub': 'application/epub+zip',
+        }
+        mime_type = comic_mime_types.get(ext, 'application/octet-stream')
+
+        return send_file(file_path, as_attachment=True, mimetype=mime_type)
     except Exception as e:
         app_logger.error(f"Error serving file {file_path}: {e}")
         return jsonify({"error": str(e)}), 500

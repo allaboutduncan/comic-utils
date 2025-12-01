@@ -32,7 +32,8 @@
       "Bash(claude config get:*)",
       "Bash(claude config:*)",
       "Bash(echo:*)",
-      "Bash(grep:*)"
+      "Bash(grep:*)",
+      "Bash(python3:*)"
     ],
     "deny": [],
     "ask": []
