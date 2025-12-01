@@ -884,9 +884,10 @@ function renderGrid(items) {
                 // Replace menu items with folder-specific options
                 const dropdownMenu = actionsDropdown.querySelector('.dropdown-menu');
                 if (dropdownMenu) {
-                    // If at root level, only show Missing File Check
+                    // If at root level, show Missing File Check and Scan Files
                     if (isRootLevel) {
                         dropdownMenu.innerHTML = `
+                            <li><a class="dropdown-item folder-action-scan" href="#"><i class="bi bi-arrow-clockwise"></i> Scan Files</a></li>
                             <li><a class="dropdown-item folder-action-missing" href="#"><i class="bi bi-file-earmark-text"></i> Missing File Check</a></li>
                         `;
                     } else {
@@ -926,6 +927,16 @@ function renderGrid(items) {
                             e.preventDefault();
                             e.stopPropagation();
                             checkMissingFiles(item.path, item.name);
+                        };
+                    }
+
+                    // Bind Scan Files action (only for root level directories)
+                    const scanAction = dropdownMenu.querySelector('.folder-action-scan');
+                    if (scanAction) {
+                        scanAction.onclick = (e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            scanDirectory(item.path, item.name);
                         };
                     }
                 }
@@ -3971,6 +3982,44 @@ function checkMissingFiles(folderPath, folderName) {
             console.error('Error:', error);
             hideProgressIndicator();
             showError('An error occurred while checking for missing files.');
+        });
+}
+
+/**
+ * Scan a directory recursively and update the file index
+ * @param {string} folderPath - Path to the folder to scan
+ * @param {string} folderName - Name of the folder
+ */
+function scanDirectory(folderPath, folderName) {
+    // Show progress indicator
+    showProgressIndicator();
+    const progressText = document.getElementById('progress-text');
+    if (progressText) {
+        progressText.textContent = `Scanning files in ${folderName}...`;
+    }
+
+    // Call the scan directory API
+    fetch('/api/scan-directory', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path: folderPath })
+    })
+        .then(response => response.json())
+        .then(data => {
+            hideProgressIndicator();
+
+            if (data.success) {
+                showSuccess(data.message || `Scanned ${folderName} successfully`);
+                // Refresh the view to show updated results
+                refreshCurrentView(true);
+            } else {
+                showError('Error scanning directory: ' + (data.error || 'Unknown error'));
+            }
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            hideProgressIndicator();
+            showError('An error occurred while scanning the directory.');
         });
 }
 

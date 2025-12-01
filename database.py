@@ -22,9 +22,13 @@ def init_db():
     try:
         db_path = get_db_path()
         app_logger.info(f"Initializing database at {db_path}")
-        
-        conn = sqlite3.connect(db_path)
+
+        conn = sqlite3.connect(db_path, timeout=30)
         c = conn.cursor()
+
+        # Enable WAL mode for better concurrency (allows reads during writes)
+        c.execute('PRAGMA journal_mode=WAL')
+        c.execute('PRAGMA busy_timeout=30000')
         
         # Create thumbnail_jobs table
         c.execute('''
@@ -57,9 +61,16 @@ def init_db():
                 type TEXT NOT NULL,
                 size INTEGER,
                 parent TEXT,
+                has_thumbnail INTEGER DEFAULT 0,
                 last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         ''')
+
+        # Migration: Add has_thumbnail column if it doesn't exist (for existing databases)
+        c.execute("PRAGMA table_info(file_index)")
+        columns = [col[1] for col in c.fetchall()]
+        if 'has_thumbnail' not in columns:
+            c.execute('ALTER TABLE file_index ADD COLUMN has_thumbnail INTEGER DEFAULT 0')
 
         # Create indexes for file_index table
         c.execute('CREATE INDEX IF NOT EXISTS idx_file_index_name ON file_index(name)')
@@ -176,6 +187,8 @@ def get_db_connection():
     try:
         conn = sqlite3.connect(get_db_path(), timeout=30)
         conn.row_factory = sqlite3.Row
+        # Ensure WAL mode and busy timeout for better concurrency
+        conn.execute('PRAGMA busy_timeout=30000')
         return conn
     except Exception as e:
         app_logger.error(f"Failed to connect to database: {e}")
@@ -336,12 +349,79 @@ def get_file_index_from_db():
         app_logger.error(f"Failed to retrieve file index: {e}")
         return []
 
+
+def get_directory_children(parent_path, max_retries=3):
+    """
+    Get all direct children of a directory from file_index.
+    Used for fast directory browsing without filesystem access.
+
+    Args:
+        parent_path: The parent directory path to query
+        max_retries: Number of times to retry on database lock
+
+    Returns:
+        Tuple of (directories, files) where each is a list of dictionaries
+    """
+    import time
+
+    for attempt in range(max_retries):
+        conn = None
+        try:
+            conn = get_db_connection()
+            if not conn:
+                app_logger.error("Could not get database connection for directory children")
+                return [], []
+
+            c = conn.cursor()
+            c.execute('''
+                SELECT name, path, type, size, has_thumbnail
+                FROM file_index
+                WHERE parent = ?
+                ORDER BY type DESC, name ASC
+            ''', (parent_path,))
+
+            rows = c.fetchall()
+            conn.close()
+
+            directories = []
+            files = []
+            for row in rows:
+                entry = {
+                    'name': row['name'],
+                    'path': row['path'],
+                    'type': row['type']
+                }
+                if row['type'] == 'directory':
+                    entry['has_thumbnail'] = bool(row['has_thumbnail']) if row['has_thumbnail'] else False
+                    directories.append(entry)
+                else:
+                    entry['size'] = row['size'] if row['size'] else 0
+                    files.append(entry)
+
+            return directories, files
+
+        except sqlite3.OperationalError as e:
+            if 'locked' in str(e).lower() and attempt < max_retries - 1:
+                app_logger.warning(f"Database locked, retrying ({attempt + 1}/{max_retries})...")
+                if conn:
+                    conn.close()
+                time.sleep(0.5 * (attempt + 1))  # Exponential backoff
+                continue
+            app_logger.error(f"Failed to get directory children for {parent_path}: {e}")
+            return [], []
+        except Exception as e:
+            app_logger.error(f"Failed to get directory children for {parent_path}: {e}")
+            if conn:
+                conn.close()
+            return [], []
+
+
 def save_file_index_to_db(file_index):
     """
     Save the entire file index to the database (batch operation).
 
     Args:
-        file_index: List of dictionaries with keys: name, path, type, size, parent
+        file_index: List of dictionaries with keys: name, path, type, size, parent, has_thumbnail
 
     Returns:
         True if successful, False otherwise
@@ -364,15 +444,16 @@ def save_file_index_to_db(file_index):
                 entry['path'],
                 entry['type'],
                 entry.get('size'),
-                entry['parent']
+                entry['parent'],
+                entry.get('has_thumbnail', 0)
             )
             for entry in file_index
         ]
 
         # Batch insert
         c.executemany('''
-            INSERT INTO file_index (name, path, type, size, parent)
-            VALUES (?, ?, ?, ?, ?)
+            INSERT INTO file_index (name, path, type, size, parent, has_thumbnail)
+            VALUES (?, ?, ?, ?, ?, ?)
         ''', records)
 
         conn.commit()
@@ -550,7 +631,7 @@ def update_file_index_entry(path, name=None, new_path=None, parent=None, size=No
         app_logger.error(f"Failed to update file index entry {path}: {e}")
         return False
 
-def add_file_index_entry(name, path, entry_type, size=None, parent=None):
+def add_file_index_entry(name, path, entry_type, size=None, parent=None, has_thumbnail=0):
     """
     Add a new entry to the file index.
 
@@ -560,6 +641,7 @@ def add_file_index_entry(name, path, entry_type, size=None, parent=None):
         entry_type: 'file' or 'directory'
         size: File size in bytes (optional, None for directories)
         parent: Parent directory path (optional)
+        has_thumbnail: 1 if directory has folder.png/jpg, 0 otherwise (optional)
 
     Returns:
         True if successful, False otherwise
@@ -572,9 +654,9 @@ def add_file_index_entry(name, path, entry_type, size=None, parent=None):
         c = conn.cursor()
 
         c.execute('''
-            INSERT OR REPLACE INTO file_index (name, path, type, size, parent)
-            VALUES (?, ?, ?, ?, ?)
-        ''', (name, path, entry_type, size, parent))
+            INSERT OR REPLACE INTO file_index (name, path, type, size, parent, has_thumbnail)
+            VALUES (?, ?, ?, ?, ?, ?)
+        ''', (name, path, entry_type, size, parent, has_thumbnail))
 
         conn.commit()
         conn.close()

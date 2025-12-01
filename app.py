@@ -46,7 +46,7 @@ from database import (init_db, get_db_connection, get_recent_files, log_recent_f
                       get_search_cache, save_search_cache, clear_search_cache,
                       get_rebuild_schedule, save_rebuild_schedule as db_save_rebuild_schedule, update_last_rebuild,
                       get_browse_cache, save_browse_cache, invalidate_browse_cache, clear_browse_cache,
-                      get_path_counts, get_path_counts_batch)
+                      get_path_counts, get_path_counts_batch, get_directory_children)
 from concurrent.futures import ThreadPoolExecutor
 from file_watcher import FileWatcher
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -1380,6 +1380,13 @@ def build_file_index():
     # Track comic files for recent files database
     comic_files = []
 
+    # Helper function to check for folder thumbnail
+    def check_has_thumbnail(folder_path):
+        for ext in ['.png', '.jpg', '.jpeg']:
+            if os.path.exists(os.path.join(folder_path, f'folder{ext}')):
+                return 1
+        return 0
+
     try:
         for root, dirs, files in os.walk(DATA_DIR):
             # Skip hidden directories
@@ -1388,12 +1395,14 @@ def build_file_index():
             # Index directories
             for name in dirs:
                 try:
-                    rel_path = os.path.relpath(os.path.join(root, name), DATA_DIR)
+                    full_dir_path = os.path.join(root, name)
+                    rel_path = os.path.relpath(full_dir_path, DATA_DIR)
                     file_index.append({
                         "name": name,
                         "path": f"/data/{rel_path}",
                         "type": "directory",
-                        "parent": f"/data/{os.path.dirname(rel_path)}" if os.path.dirname(rel_path) else "/data"
+                        "parent": f"/data/{os.path.dirname(rel_path)}" if os.path.dirname(rel_path) else "/data",
+                        "has_thumbnail": check_has_thumbnail(full_dir_path)
                     })
                 except (OSError, IOError):
                     continue
@@ -2113,10 +2122,7 @@ def move():
                         except Exception as e:
                             app_logger.warning(f"Error logging files from directory {destination}: {e}")
 
-                        # Invalidate cache for affected directories
-                        invalidate_cache_for_path(os.path.dirname(source))
-                        invalidate_cache_for_path(os.path.dirname(destination))
-                        # Update file index incrementally
+                        # Update file index incrementally (no cache invalidation needed with DB-first approach)
                         update_index_on_move(source, destination)
                         
                     except Exception as e:
@@ -2158,10 +2164,7 @@ def move():
                     except Exception as e:
                         app_logger.warning(f"Error logging files from directory {destination}: {e}")
 
-                # Invalidate cache for affected directories
-                invalidate_cache_for_path(os.path.dirname(source))
-                invalidate_cache_for_path(os.path.dirname(destination))
-                # Update file index incrementally
+                # Update file index incrementally (no cache invalidation needed with DB-first approach)
                 update_index_on_move(source, destination)
 
                 return jsonify({"success": True})
@@ -2300,8 +2303,7 @@ def upload_to_folder():
                 })
                 app_logger.error(f"Error uploading file {filename}: {e}")
 
-        # Invalidate cache for the target directory
-        invalidate_cache_for_path(target_dir)
+        # Note: No cache invalidation - file_index is updated via update_index_on_create if needed
 
         # Return results
         response = {
@@ -2742,131 +2744,191 @@ def find_folder_thumbnails_batch(folder_paths):
 
 @app.route('/api/browse')
 def api_browse():
-    """Get directory listing for the browse page with database-backed caching."""
+    """
+    Get directory listing for the browse page.
+    Reads directly from file_index database for instant results.
+    """
     request_start = time.time()
 
     path = request.args.get('path')
-    force_refresh = request.args.get('refresh', '').lower() == 'true'
-
     if not path:
         path = DATA_DIR
 
-    if not os.path.exists(path):
-        return jsonify({"error": "Directory not found"}), 404
-
     try:
-        app_logger.info(f"🔍 /api/browse request for path: {path} (force_refresh: {force_refresh})")
+        app_logger.info(f"🔍 /api/browse request for path: {path}")
 
-        # Check database cache first (unless force refresh)
-        if not force_refresh:
-            cached_result = get_browse_cache(path)
-            if cached_result:
-                elapsed = time.time() - request_start
-                app_logger.info(f"✅ DB Cache HIT for browse: {path} (returned in {elapsed:.3f}s)")
-                return jsonify(cached_result)
+        # Query file_index directly - instant results via indexed query
+        directories, files = get_directory_children(path)
 
-        # Cache miss or force refresh - need to build the response
-        app_logger.info(f"⚠️ DB Cache MISS for browse: {path} - building response...")
-
-        # Use existing list logic
-        listing_start = time.time()
-        listing = get_directory_listing(path)
-        listing_elapsed = time.time() - listing_start
-        app_logger.info(f"⏱️ Directory listing took {listing_elapsed:.2f}s for {path}")
-
-        # Define excluded extensions and prefixes
-        excluded_extensions = {".png", ".jpg", ".jpeg", ".gif" ".html", ".css", ".ds_store", "cvinfo", ".json", ".db", ".xml"}
-
-        # Collect all directory paths for batch operations
-        dir_paths = [os.path.join(path, d) for d in listing['directories']]
-        app_logger.info(f"📁 Processing {len(dir_paths)} directories for path: {path}")
-
-        # SKIP slow batch count query - return null and let frontend load progressively
-        # The UNION ALL with LIKE queries does N full table scans which is too slow
-        # Frontend will call /api/browse-metadata to load counts progressively
-        path_counts = {}  # Empty - counts will be null, triggering progressive load
-        app_logger.info(f"⏭️ Skipping batch counts for {len(dir_paths)} directories (will load progressively)")
-
-        # For large directories, skip thumbnail detection (will be loaded progressively)
-        # For small directories, detect thumbnails inline
-        THUMBNAIL_THRESHOLD = 50
-        if len(dir_paths) <= THUMBNAIL_THRESHOLD:
-            thumbs_start = time.time()
-            folder_thumbs = find_folder_thumbnails_batch(dir_paths)
-            thumbs_elapsed = time.time() - thumbs_start
-            found_thumbs = {k: v for k, v in folder_thumbs.items() if v is not None}
-            app_logger.info(f"🖼️ Found {len(found_thumbs)} folder thumbnails out of {len(dir_paths)} directories in {thumbs_elapsed:.2f}s")
-        else:
-            # Skip thumbnail detection for large directories - frontend will load progressively
-            folder_thumbs = {}
-            app_logger.info(f"⏭️ Skipping thumbnail detection for {len(dir_paths)} directories (will load progressively)")
-
-        # Build response without per-item I/O
+        # Build response for directories
         processed_directories = []
-        for dir_name in listing['directories']:
-            dir_path = os.path.join(path, dir_name)
-            folder_thumb = folder_thumbs.get(dir_path)
-
-            # Return null for counts to trigger progressive loading on frontend
-            # Frontend detects null and calls /api/browse-metadata asynchronously
-            counts = path_counts.get(dir_path)
-            if counts:
-                folder_count, file_count = counts
-            else:
-                folder_count, file_count = None, None
-
+        for d in directories:
             dir_info = {
-                'name': dir_name,
-                'has_thumbnail': folder_thumb is not None,
-                'has_files': None if file_count is None else file_count > 0,
-                'folder_count': folder_count,
-                'file_count': file_count
+                'name': d['name'],
+                'has_thumbnail': d.get('has_thumbnail', False),
+                'has_files': None,  # Will be loaded progressively if needed
+                'folder_count': None,
+                'file_count': None
             }
 
-            if folder_thumb:
-                dir_info['thumbnail_url'] = url_for('serve_folder_thumbnail', path=folder_thumb)
+            if d.get('has_thumbnail'):
+                # Check for folder.png first, then folder.jpg
+                for ext in ['.png', '.jpg', '.jpeg']:
+                    thumb_path = os.path.join(d['path'], f'folder{ext}')
+                    if os.path.exists(thumb_path):
+                        dir_info['thumbnail_url'] = url_for('serve_folder_thumbnail', path=thumb_path)
+                        break
 
             processed_directories.append(dir_info)
 
-        # Filter files
-        files = listing['files']
-        filtered_files = []
+        # Build response for files
+        processed_files = []
         for f in files:
             filename = f['name']
-            # Get file extension (lowercase)
-            _, ext = os.path.splitext(filename.lower())
+            file_path = f['path']
 
-            # Check if file should be excluded
-            if ext in excluded_extensions or filename.lower() == "cvinfo":
-                continue
-            if filename.startswith(('.', '-', '_')):
-                continue
+            file_info = {
+                'name': filename,
+                'size': f.get('size', 0)
+            }
 
-            # Add thumbnail info
+            # Add thumbnail info for comic files
             if filename.lower().endswith(('.cbz', '.cbr', '.zip')):
-                f['has_thumbnail'] = True
-                f['thumbnail_url'] = url_for('get_thumbnail', path=os.path.join(path, filename))
+                file_info['has_thumbnail'] = True
+                file_info['thumbnail_url'] = url_for('get_thumbnail', path=file_path)
             else:
-                f['has_thumbnail'] = False
+                file_info['has_thumbnail'] = False
 
-            filtered_files.append(f)
+            processed_files.append(file_info)
 
         result = {
             "current_path": path,
             "directories": processed_directories,
-            "files": filtered_files,
+            "files": processed_files,
             "parent": os.path.dirname(path) if path != DATA_DIR else None
         }
 
-        # Save to database cache
-        save_browse_cache(path, result)
-
         elapsed = time.time() - request_start
-        app_logger.info(f"📦 Built and cached browse response in DB for: {path} ({len(result['directories'])} dirs, {len(result['files'])} files) in {elapsed:.3f}s")
+        app_logger.info(f"✅ /api/browse returned {len(directories)} dirs, {len(files)} files for {path} in {elapsed:.3f}s")
 
         return jsonify(result)
     except Exception as e:
         app_logger.error(f"Error browsing {path}: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/scan-directory', methods=['POST'])
+def api_scan_directory():
+    """
+    Recursively scan a directory and update the file_index.
+    Used for manual refresh of directory contents.
+    """
+    data = request.get_json()
+    path = data.get('path')
+
+    if not path:
+        return jsonify({"error": "Missing path parameter"}), 400
+
+    # Security check - ensure path is within DATA_DIR
+    normalized_path = os.path.normpath(path)
+    normalized_data_dir = os.path.normpath(DATA_DIR)
+    if not normalized_path.startswith(normalized_data_dir):
+        return jsonify({"error": "Access denied"}), 403
+
+    if not os.path.exists(path):
+        return jsonify({"error": "Directory not found"}), 404
+
+    if not os.path.isdir(path):
+        return jsonify({"error": "Path is not a directory"}), 400
+
+    try:
+        app_logger.info(f"🔄 Starting recursive scan of: {path}")
+        scan_start = time.time()
+
+        # Excluded extensions (same as build_file_index)
+        excluded_extensions = {".png", ".jpg", ".jpeg", ".gif", ".html", ".css", ".ds_store", "cvinfo", ".json", ".db", ".xml"}
+
+        # Delete all existing entries under this path (including the path itself)
+        delete_file_index_entry(path)
+
+        # Track counts
+        dir_count = 0
+        file_count = 0
+
+        # Helper function to check for folder thumbnail
+        def check_has_thumbnail(folder_path):
+            for ext in ['.png', '.jpg', '.jpeg']:
+                if os.path.exists(os.path.join(folder_path, f'folder{ext}')):
+                    return 1
+            return 0
+
+        # Re-add the root directory entry
+        parent_dir = os.path.dirname(path)
+        add_file_index_entry(
+            name=os.path.basename(path),
+            path=path,
+            entry_type='directory',
+            parent=parent_dir,
+            has_thumbnail=check_has_thumbnail(path)
+        )
+        dir_count += 1
+
+        # Recursively scan filesystem
+        for root, dirs, files in os.walk(path):
+            # Filter hidden directories in-place
+            dirs[:] = [d for d in dirs if not d.startswith(('.', '_'))]
+
+            # Add directory entries
+            for d in dirs:
+                full_path = os.path.join(root, d)
+                add_file_index_entry(
+                    name=d,
+                    path=full_path,
+                    entry_type='directory',
+                    parent=root,
+                    has_thumbnail=check_has_thumbnail(full_path)
+                )
+                dir_count += 1
+
+            # Add file entries
+            for f in files:
+                # Skip hidden files
+                if f.startswith(('.', '_')):
+                    continue
+
+                # Skip excluded extensions
+                _, ext = os.path.splitext(f.lower())
+                if ext in excluded_extensions:
+                    continue
+
+                full_path = os.path.join(root, f)
+                try:
+                    size = os.path.getsize(full_path)
+                except (OSError, IOError):
+                    size = 0
+
+                add_file_index_entry(
+                    name=f,
+                    path=full_path,
+                    entry_type='file',
+                    parent=root,
+                    size=size
+                )
+                file_count += 1
+
+        elapsed = time.time() - scan_start
+        app_logger.info(f"✅ Scan complete: {path} - {dir_count} directories, {file_count} files in {elapsed:.2f}s")
+
+        return jsonify({
+            "success": True,
+            "message": f"Scanned {path}",
+            "directories": dir_count,
+            "files": file_count,
+            "elapsed": round(elapsed, 2)
+        })
+
+    except Exception as e:
+        app_logger.error(f"Error scanning directory {path}: {e}")
         return jsonify({"error": str(e)}), 500
 
 
@@ -3658,10 +3720,7 @@ def rename():
     try:
         os.rename(old_path, new_path)
 
-        # Invalidate cache for affected directories
-        invalidate_cache_for_path(os.path.dirname(old_path))
-        invalidate_cache_for_path(os.path.dirname(new_path))
-        # Update file index incrementally
+        # Update file index incrementally (no cache invalidation needed with DB-first approach)
         update_index_on_move(old_path, new_path)
 
         return jsonify({"success": True})
@@ -3700,10 +3759,9 @@ def rename_directory():
         
         # Call the rename function
         rename_files(directory_path)
-        
-        # Invalidate cache for the directory
-        invalidate_cache_for_path(directory_path)
-        
+
+        # Note: No cache invalidation - using DB-first approach
+
         app_logger.info(f"Successfully renamed files in directory: {directory_path}")
         return jsonify({"success": True, "message": f"Successfully renamed files in {os.path.basename(directory_path)}"})
         
@@ -3880,10 +3938,8 @@ def delete():
             shutil.rmtree(target)
         else:
             os.remove(target)
-        
-        # Invalidate cache for the directory containing the deleted item
-        invalidate_cache_for_path(os.path.dirname(target))
-        # Update file index incrementally
+
+        # Update file index incrementally (no cache invalidation needed with DB-first approach)
         update_index_on_delete(target)
 
         return jsonify({"success": True})
@@ -3921,9 +3977,7 @@ def api_delete_file():
             os.remove(target)
             app_logger.info(f"Deleted file: {target}")
 
-        # Invalidate cache for the directory containing the deleted item
-        invalidate_cache_for_path(os.path.dirname(target))
-        # Update file index incrementally
+        # Update file index incrementally (no cache invalidation needed with DB-first approach)
         update_index_on_delete(target)
 
         return jsonify({"success": True})
@@ -3971,10 +4025,7 @@ def custom_rename():
     try:
         os.rename(old_path, new_path)
 
-        # Invalidate cache for affected directories
-        invalidate_cache_for_path(os.path.dirname(old_path))
-        invalidate_cache_for_path(os.path.dirname(new_path))
-        # Update file index incrementally
+        # Update file index incrementally (no cache invalidation needed with DB-first approach)
         update_index_on_move(old_path, new_path)
         
         app_logger.info(f"Custom rename successful: {old_path} -> {new_path}")
@@ -4644,9 +4695,7 @@ def create_folder():
     try:
         os.makedirs(path)
 
-        # Invalidate cache for the parent directory
-        invalidate_cache_for_path(os.path.dirname(path))
-        # Update file index incrementally
+        # Update file index incrementally (no cache invalidation needed with DB-first approach)
         update_index_on_create(path)
 
         return jsonify({"success": True}), 200
