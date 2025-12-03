@@ -1,0 +1,315 @@
+{% extends "base.html" %}
+
+{% block title %}Library Statistics{% endblock %}
+
+{% block extra_css %}
+<style>
+    :root {
+        --glass-bg: rgba(255, 255, 255, 0.1);
+        --glass-border: rgba(255, 255, 255, 0.2);
+        --glass-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.37);
+        --card-bg-dark: #212529;
+        --text-primary: #e0e0e0;
+        --text-secondary: #a0a0a0;
+        --accent-color: #0d6efd;
+    }
+
+    [data-bs-theme="dark"] {
+        --glass-bg: rgba(0, 0, 0, 0.2);
+        --glass-border: rgba(255, 255, 255, 0.1);
+    }
+
+    body {
+        background-color: #f8f9fa;
+    }
+
+    [data-bs-theme="dark"] body {
+        background-color: #121212;
+        color: var(--text-primary);
+    }
+
+    .stats-container {
+        padding: 2rem;
+    }
+
+    .glass-card {
+        background: var(--glass-bg);
+        backdrop-filter: blur(10px);
+        -webkit-backdrop-filter: blur(10px);
+        border: 1px solid var(--glass-border);
+        border-radius: 16px;
+        box-shadow: var(--glass-shadow);
+        padding: 1.5rem;
+        margin-bottom: 1.5rem;
+        transition: transform 0.3s ease, box-shadow 0.3s ease;
+    }
+
+    .glass-card:hover {
+        transform: translateY(-5px);
+        box-shadow: 0 12px 40px 0 rgba(31, 38, 135, 0.45);
+    }
+
+    .stat-value {
+        font-size: 2.5rem;
+        font-weight: 700;
+        background: linear-gradient(45deg, #0d6efd, #0dcaf0);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        margin-bottom: 0.5rem;
+    }
+
+    .stat-label {
+        font-size: 1rem;
+        color: var(--text-secondary);
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        font-weight: 600;
+    }
+
+    .chart-container {
+        position: relative;
+        height: 300px;
+        width: 100%;
+    }
+
+    .section-title {
+        font-size: 1.5rem;
+        font-weight: 600;
+        margin-bottom: 1.5rem;
+        color: var(--text-primary);
+        border-left: 4px solid var(--accent-color);
+        padding-left: 1rem;
+    }
+
+    /* Custom scrollbar for tables if needed */
+    .table-responsive::-webkit-scrollbar {
+        width: 8px;
+        height: 8px;
+    }
+    
+    .table-responsive::-webkit-scrollbar-track {
+        background: rgba(0,0,0,0.1);
+        border-radius: 4px;
+    }
+    
+    .table-responsive::-webkit-scrollbar-thumb {
+        background: rgba(0,0,0,0.2);
+        border-radius: 4px;
+    }
+
+    [data-bs-theme="dark"] .table {
+        color: var(--text-primary);
+        border-color: var(--glass-border);
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid stats-container">
+    <div class="row mb-4">
+        <div class="col-12">
+            <h1 class="display-4 fw-bold mb-3">Library <span class="text-primary">Insights</span></h1>
+            <p class="lead text-muted">Visualize your collection statistics and reading habits.</p>
+        </div>
+    </div>
+
+    <!-- High Level Stats -->
+    <div class="row mb-4">
+        <div class="col-md-3 col-sm-6">
+            <div class="glass-card text-center">
+                <div class="stat-value" id="total-files">{{ library_stats.total_files }}</div>
+                <div class="stat-label">Total Files</div>
+            </div>
+        </div>
+        <div class="col-md-3 col-sm-6">
+            <div class="glass-card text-center">
+                <div class="stat-value" id="total-size">{{ (library_stats.total_size / (1024*1024*1024))|round(2) }} GB</div>
+                <div class="stat-label">Total Size</div>
+            </div>
+        </div>
+        <div class="col-md-3 col-sm-6">
+            <div class="glass-card text-center">
+                <div class="stat-value" id="total-read">{{ library_stats.total_read }}</div>
+                <div class="stat-label">Issues Read</div>
+            </div>
+        </div>
+        <div class="col-md-3 col-sm-6">
+            <div class="glass-card text-center">
+                <div class="stat-value" id="total-directories">{{ library_stats.total_directories }}</div>
+                <div class="stat-label">Folders</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Charts Row 1 -->
+    <div class="row mb-4">
+        <div class="col-lg-6">
+            <div class="glass-card">
+                <h3 class="section-title">File Type Distribution</h3>
+                <div class="chart-container">
+                    <canvas id="fileTypeChart"></canvas>
+                </div>
+            </div>
+        </div>
+        <div class="col-lg-6">
+            <div class="glass-card">
+                <h3 class="section-title">Reading Activity (Last 12 Months)</h3>
+                <div class="chart-container">
+                    <canvas id="readingHistoryChart"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Top Publishers -->
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="glass-card">
+                <h3 class="section-title">Top Publishers by File Count</h3>
+                <div class="chart-container" style="height: 400px;">
+                    <canvas id="publishersChart"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        // Theme detection
+        const isDark = document.documentElement.getAttribute('data-bs-theme') === 'dark' || 
+                       window.matchMedia('(prefers-color-scheme: dark)').matches;
+        
+        const textColor = isDark ? '#e0e0e0' : '#212529';
+        const gridColor = isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)';
+
+        Chart.defaults.color = textColor;
+        Chart.defaults.borderColor = gridColor;
+        Chart.defaults.font.family = "'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif";
+
+        // File Types Data
+        const fileTypes = {{ file_types | tojson }};
+        const fileTypeLabels = fileTypes.map(item => item.type.toUpperCase());
+        const fileTypeData = fileTypes.map(item => item.count);
+
+        // File Type Chart
+        new Chart(document.getElementById('fileTypeChart'), {
+            type: 'doughnut',
+            data: {
+                labels: fileTypeLabels,
+                datasets: [{
+                    data: fileTypeData,
+                    backgroundColor: [
+                        '#0d6efd', '#6610f2', '#6f42c1', '#d63384', '#dc3545', '#fd7e14'
+                    ],
+                    borderWidth: 0,
+                    hoverOffset: 10
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        position: 'right',
+                        labels: {
+                            padding: 20,
+                            usePointStyle: true
+                        }
+                    }
+                },
+                cutout: '70%'
+            }
+        });
+
+        // Reading History Data
+        const readingHistory = {{ reading_history | tojson }};
+        const historyLabels = readingHistory.map(item => item.month);
+        const historyData = readingHistory.map(item => item.count);
+
+        // Reading History Chart
+        new Chart(document.getElementById('readingHistoryChart'), {
+            type: 'line',
+            data: {
+                labels: historyLabels,
+                datasets: [{
+                    label: 'Issues Read',
+                    data: historyData,
+                    borderColor: '#0dcaf0',
+                    backgroundColor: 'rgba(13, 202, 240, 0.1)',
+                    tension: 0.4,
+                    fill: true,
+                    pointBackgroundColor: '#0dcaf0',
+                    pointBorderColor: '#fff',
+                    pointHoverBackgroundColor: '#fff',
+                    pointHoverBorderColor: '#0dcaf0'
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        display: false
+                    }
+                },
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        grid: {
+                            display: true
+                        }
+                    },
+                    x: {
+                        grid: {
+                            display: false
+                        }
+                    }
+                }
+            }
+        });
+
+        // Top Publishers Data
+        const topPublishers = {{ top_publishers | tojson }};
+        const publisherLabels = topPublishers.map(item => item.name);
+        const publisherData = topPublishers.map(item => item.count);
+
+        // Publishers Chart
+        new Chart(document.getElementById('publishersChart'), {
+            type: 'bar',
+            data: {
+                labels: publisherLabels,
+                datasets: [{
+                    label: 'Files',
+                    data: publisherData,
+                    backgroundColor: '#20c997',
+                    borderRadius: 6,
+                    barPercentage: 0.6
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        display: false
+                    }
+                },
+                scales: {
+                    y: {
+                        beginAtZero: true
+                    },
+                    x: {
+                        grid: {
+                            display: false
+                        }
+                    }
+                }
+            }
+        });
+    });
+</script>
+{% endblock %}

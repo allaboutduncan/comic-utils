@@ -47,6 +47,7 @@ from database import (init_db, get_db_connection, get_recent_files, log_recent_f
                       get_rebuild_schedule, save_rebuild_schedule as db_save_rebuild_schedule, update_last_rebuild,
                       get_browse_cache, save_browse_cache, invalidate_browse_cache, clear_browse_cache,
                       get_path_counts, get_path_counts_batch, get_directory_children)
+from models.stats import get_library_stats, get_file_type_distribution, get_top_publishers, get_reading_history_stats
 from concurrent.futures import ThreadPoolExecutor
 from file_watcher import FileWatcher
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -2673,7 +2674,7 @@ def to_read_page():
     return render_template('to_read.html')
 
 def find_folder_thumbnail(folder_path):
-    """Find a folder/cover image in the given directory.
+    """Find a folder thumbnail image in the given directory.
 
     Args:
         folder_path: Path to the directory to search
@@ -2681,8 +2682,8 @@ def find_folder_thumbnail(folder_path):
     Returns:
         Path to the thumbnail image if found, None otherwise
     """
-    allowed_extensions = {'.png', '.gif', '.jpg', '.jpeg', '.webp'}
-    allowed_names = {'folder', 'cover'}
+    allowed_extensions = {'.png', '.gif', '.jpg', '.jpeg'}
+    allowed_names = {'folder'}  # Only use folder.* thumbnails, ignore cover.*
 
     try:
         entries = os.listdir(folder_path)
@@ -6995,6 +6996,19 @@ def search_comicvine_metadata_with_selection():
             "success": False,
             "error": str(e)
         }), 500
+
+@app.route('/stats')
+def stats_page():
+    library_stats = get_library_stats()
+    file_types = get_file_type_distribution()
+    top_publishers = get_top_publishers()
+    reading_history = get_reading_history_stats()
+    
+    return render_template('stats.html', 
+                           library_stats=library_stats, 
+                           file_types=file_types, 
+                           top_publishers=top_publishers, 
+                           reading_history=reading_history)
 
 #########################
 #   Application Start   #
