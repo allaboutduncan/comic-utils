@@ -3396,6 +3396,41 @@ def get_thumbnail():
     return redirect(url_for('static', filename='images/loading.svg'))
 
 
+def create_nested_folder_thumbnail(comic_stack_img, folder_icon_path, canvas_size=(200, 300)):
+    """Composite the comic stack behind a folder icon for nested folder thumbnails."""
+    folder_icon = Image.open(folder_icon_path).convert("RGBA")
+
+    stack = comic_stack_img.convert("RGBA")
+
+    # Scale stack to 175px wide with proportionate height
+    new_w = 190
+    aspect_ratio = stack.height / stack.width
+    new_h = int(new_w * aspect_ratio)
+
+    stack_resized = stack.resize((new_w, new_h), Image.Resampling.LANCZOS)
+
+    # Position stack: centered horizontally, 20px from bottom
+    x_pos = (canvas_size[0] - new_w) // 2
+    y_pos = canvas_size[1] - new_h - 20  # 20px from bottom
+
+    # Create final canvas
+    final_thumb = Image.new("RGBA", canvas_size, (0, 0, 0, 0))
+
+    # Paste stack FIRST (behind)
+    final_thumb.paste(stack_resized, (x_pos, y_pos), mask=stack_resized)
+
+    # Paste folder icon ON TOP (in front)
+    final_thumb.paste(folder_icon, (0, 0), mask=folder_icon)
+
+    # Resize final image to 167px width with proportionate height
+    final_w = 167
+    aspect = final_thumb.height / final_thumb.width
+    final_h = int(final_w * aspect)
+    final_thumb = final_thumb.resize((final_w, final_h), Image.Resampling.LANCZOS)
+
+    return final_thumb
+
+
 @app.route('/api/generate-folder-thumbnail', methods=['POST'])
 def generate_folder_thumbnail():
     """Generate a fanned stack thumbnail for a folder using cached thumbnails."""
@@ -3418,6 +3453,9 @@ def generate_folder_thumbnail():
 
         # Find comic files in the folder
         comic_files = []
+        is_nested = False  # Track if we're using nested folder comics
+
+        # First, check for direct comic files
         for item in sorted(os.listdir(folder_path)):
             item_path = os.path.join(folder_path, item)
             if os.path.isfile(item_path):
@@ -3426,8 +3464,44 @@ def generate_folder_thumbnail():
                     if ext in ['.cbz', '.cbr', '.zip']:
                         comic_files.append(item_path)
 
+        # If no direct comics, scan subfolders
         if not comic_files:
-            return jsonify({"error": "No comic files found in folder"}), 400
+            is_nested = True
+            subfolder_comics = {}  # {subfolder_path: [comic_files]}
+
+            for item in sorted(os.listdir(folder_path)):
+                item_path = os.path.join(folder_path, item)
+                if os.path.isdir(item_path) and not item.startswith(('.', '_')):
+                    folder_comics = []
+                    for subitem in sorted(os.listdir(item_path)):
+                        subitem_path = os.path.join(item_path, subitem)
+                        if os.path.isfile(subitem_path):
+                            _, ext = os.path.splitext(subitem.lower())
+                            if ext in ['.cbz', '.cbr', '.zip']:
+                                folder_comics.append(subitem_path)
+                    if folder_comics:
+                        subfolder_comics[item_path] = folder_comics
+
+            if not subfolder_comics:
+                return jsonify({"error": "No comic files found in folder or subfolders"}), 400
+
+            # Distribute 4 slots across subfolders
+            MAX_COVERS = 4
+            subfolders = list(subfolder_comics.keys())
+            num_folders = len(subfolders)
+
+            if num_folders >= MAX_COVERS:
+                # 4+ folders: 1 from each of first 4
+                for i in range(MAX_COVERS):
+                    comic_files.append(subfolder_comics[subfolders[i]][0])
+            else:
+                # Fewer than 4 folders: distribute evenly with extras going to earlier folders
+                per_folder = MAX_COVERS // num_folders
+                remainder = MAX_COVERS % num_folders
+
+                for i, folder in enumerate(subfolders):
+                    count = per_folder + (1 if i < remainder else 0)
+                    comic_files.extend(subfolder_comics[folder][:count])
 
         # Get cached thumbnail paths for the first 4 comics
         MAX_COVERS = 4
@@ -3524,6 +3598,12 @@ def generate_folder_thumbnail():
                     app_logger.info(f"Removed existing thumbnail: {existing_thumb}")
                 except Exception as e:
                     app_logger.error(f"Error removing existing thumbnail {existing_thumb}: {e}")
+
+        # If using nested folder comics, overlay on folder icon
+        if is_nested:
+            folder_icon_path = os.path.join(app.static_folder, 'images', 'folder-fill-200x300.png')
+            if os.path.exists(folder_icon_path):
+                final_canvas = create_nested_folder_thumbnail(final_canvas, folder_icon_path)
 
         # Save to folder
         output_path = os.path.join(folder_path, "folder.png")

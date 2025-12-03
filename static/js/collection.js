@@ -3933,8 +3933,26 @@ function generateFolderThumbnail(folderPath, folderName) {
 
             if (data.success) {
                 showSuccess('Folder thumbnail generated successfully');
-                // Refresh the view to show the new thumbnail (preserve page)
-                refreshCurrentView(true);
+
+                // Update just this folder's thumbnail without full page reload
+                const gridItem = document.querySelector(`[data-path="${CSS.escape(folderPath)}"]`);
+                if (gridItem) {
+                    const container = gridItem.querySelector('.thumbnail-container');
+                    const img = gridItem.querySelector('.thumbnail');
+                    const iconOverlay = gridItem.querySelector('.icon-overlay');
+
+                    if (img && container) {
+                        // Add cache-buster to force reload of new image
+                        const thumbnailUrl = `/api/folder-thumbnail?path=${encodeURIComponent(folderPath + '/folder.png')}&t=${Date.now()}`;
+                        img.src = thumbnailUrl;
+                        img.style.display = 'block';
+                        gridItem.classList.add('has-thumbnail');
+                        container.classList.add('has-thumbnail');
+                        if (iconOverlay) {
+                            iconOverlay.style.display = 'none';
+                        }
+                    }
+                }
             } else {
                 showError('Error generating thumbnail: ' + (data.error || 'Unknown error'));
             }
