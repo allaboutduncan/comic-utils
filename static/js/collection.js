@@ -884,10 +884,11 @@ function renderGrid(items) {
                 // Replace menu items with folder-specific options
                 const dropdownMenu = actionsDropdown.querySelector('.dropdown-menu');
                 if (dropdownMenu) {
-                    // If at root level, show Missing File Check and Scan Files
+                    // If at root level, show Missing File Check, Scan Files, and Generate All Missing Thumbnails
                     if (isRootLevel) {
                         dropdownMenu.innerHTML = `
                             <li><a class="dropdown-item folder-action-scan" href="#"><i class="bi bi-arrow-clockwise"></i> Scan Files</a></li>
+                            <li><a class="dropdown-item folder-action-gen-all-thumbs" href="#"><i class="bi bi-images"></i> Generate All Missing Thumbnails</a></li>
                             <li><a class="dropdown-item folder-action-missing" href="#"><i class="bi bi-file-earmark-text"></i> Missing File Check</a></li>
                         `;
                     } else {
@@ -937,6 +938,16 @@ function renderGrid(items) {
                             e.preventDefault();
                             e.stopPropagation();
                             scanDirectory(item.path, item.name);
+                        };
+                    }
+
+                    // Bind Generate All Missing Thumbnails action (only for root level directories)
+                    const genAllThumbsAction = dropdownMenu.querySelector('.folder-action-gen-all-thumbs');
+                    if (genAllThumbsAction) {
+                        genAllThumbsAction.onclick = (e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            generateAllMissingThumbnails(item.path, item.name);
                         };
                     }
                 }
@@ -2769,6 +2780,10 @@ function initEditMode(filePath) {
 
     editModal.show();
 
+    // Update modal title with filename
+    const filename = filePath.split('/').pop().split('\\').pop();
+    document.getElementById('editCBZModalLabel').textContent = `Editing CBZ File | ${filename}`;
+
     // Setup drag-drop upload zone
     setupEditModalDropZone();
 
@@ -4038,6 +4053,40 @@ function scanDirectory(folderPath, folderName) {
             console.error('Error:', error);
             hideProgressIndicator();
             showError('An error occurred while scanning the directory.');
+        });
+}
+
+/**
+ * Generate missing thumbnails for all subfolders in a root folder
+ * @param {string} folderPath - Path to the root folder
+ * @param {string} folderName - Name of the folder
+ */
+function generateAllMissingThumbnails(folderPath, folderName) {
+    showProgressIndicator();
+    const progressText = document.getElementById('progress-text');
+    if (progressText) {
+        progressText.textContent = `Generating missing thumbnails in ${folderName}...`;
+    }
+
+    fetch('/api/generate-all-missing-thumbnails', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path: folderPath })
+    })
+        .then(response => response.json())
+        .then(data => {
+            hideProgressIndicator();
+            if (data.success) {
+                showSuccess(data.message || `Generated ${data.generated} thumbnails`);
+                refreshCurrentView(true);
+            } else {
+                showError('Error: ' + (data.error || 'Unknown error'));
+            }
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            hideProgressIndicator();
+            showError('An error occurred while generating thumbnails.');
         });
 }
 

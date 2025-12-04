@@ -1936,6 +1936,50 @@ def list_recent_files():
         return jsonify({"error": str(e)}), 500
 
 #####################################
+#  Auto-Fetch ComicVine Metadata    #
+#####################################
+def auto_fetch_comicvine_metadata(destination_path):
+    """
+    Automatically fetch ComicVine metadata for moved files if conditions are met.
+    Only triggers for non-root /data directories that have a cvinfo file.
+    """
+    try:
+        from comicvine import auto_fetch_metadata_for_folder
+
+        # Check 1: Is COMICVINE_API_KEY configured?
+        api_key = app.config.get("COMICVINE_API_KEY", "")
+        if not api_key:
+            app_logger.debug("ComicVine API key not configured, skipping auto-metadata")
+            return
+
+        # Determine the folder to check for cvinfo
+        if os.path.isfile(destination_path):
+            folder_path = os.path.dirname(destination_path)
+            target_file = destination_path
+        else:
+            folder_path = destination_path
+            target_file = None
+
+        # Check: Is this a non-root /data directory? (must have at least 2 path components after /data)
+        data_dir = DATA_DIR
+        rel_path = os.path.relpath(folder_path, data_dir)
+        # Normalize path separators for cross-platform compatibility
+        rel_path_normalized = rel_path.replace("\\", "/")
+        if rel_path == "." or "/" not in rel_path_normalized:
+            app_logger.debug(f"Skipping auto-metadata for root-level directory: {folder_path}")
+            return
+
+        # Trigger metadata fetch for the folder
+        result = auto_fetch_metadata_for_folder(folder_path, api_key, target_file=target_file)
+
+        if result['processed'] > 0:
+            app_logger.info(f"Auto-fetched ComicVine metadata: {result['processed']} processed, {result['skipped']} skipped, {result['errors']} errors")
+
+    except Exception as e:
+        app_logger.error(f"Error in auto-fetch metadata: {e}")
+
+
+#####################################
 #  Move Files/Folders (Drag & Drop) #
 #####################################
 @app.route('/move', methods=['POST'])
@@ -2012,6 +2056,9 @@ def move():
 
                         # Log file to recent_files if it's a comic file moved to /data
                         log_file_if_in_data(destination)
+
+                        # Auto-fetch ComicVine metadata if cvinfo exists
+                        auto_fetch_comicvine_metadata(destination)
 
                         yield "data: 100\n\n"
                     except Exception as e:
@@ -2125,11 +2172,14 @@ def move():
 
                         # Update file index incrementally (no cache invalidation needed with DB-first approach)
                         update_index_on_move(source, destination)
-                        
+
+                        # Auto-fetch ComicVine metadata if cvinfo exists
+                        auto_fetch_comicvine_metadata(destination)
+
                     except Exception as e:
                         app_logger.exception(f"Error during streaming directory move from {source} to {destination}")
                         yield f"data: error: {str(e)}\n\n"
-                    
+
                     yield "data: done\n\n"
 
         headers = {
@@ -2168,11 +2218,14 @@ def move():
                 # Update file index incrementally (no cache invalidation needed with DB-first approach)
                 update_index_on_move(source, destination)
 
+                # Auto-fetch ComicVine metadata if cvinfo exists
+                auto_fetch_comicvine_metadata(destination)
+
                 return jsonify({"success": True})
             except Exception as e:
                 app_logger.error(f"Error moving {source} to {destination}: {e}")
                 return jsonify({"success": False, "error": str(e)}), 500
-    
+
 #####################################
 #       Calculate Folder Size       #
 #####################################
@@ -3620,6 +3673,224 @@ def generate_folder_thumbnail():
     except Exception as e:
         app_logger.error(f"Error generating folder thumbnail: {e}")
         return jsonify({"error": str(e)}), 500
+
+
+def generate_folder_thumbnail_internal(folder_path):
+    """Internal function to generate folder thumbnail. Returns True on success, False on failure."""
+    try:
+        # Get cache directory
+        cache_dir = config.get("SETTINGS", "CACHE_DIR", fallback="/cache")
+        thumbnails_dir = os.path.join(cache_dir, "thumbnails")
+
+        # Define excluded extensions
+        excluded_extensions = {".png", ".jpg", ".jpeg", ".gif", ".html", ".css", ".ds_store", "cvinfo", ".json", ".db", ".xml"}
+
+        # Find comic files in the folder
+        comic_files = []
+        is_nested = False
+
+        # Check for direct comic files
+        for item in sorted(os.listdir(folder_path)):
+            item_path = os.path.join(folder_path, item)
+            if os.path.isfile(item_path):
+                _, ext = os.path.splitext(item.lower())
+                if ext not in excluded_extensions and not item.startswith(('.', '-', '_')):
+                    if ext in ['.cbz', '.cbr', '.zip']:
+                        comic_files.append(item_path)
+
+        # If no direct comics, scan subfolders
+        if not comic_files:
+            is_nested = True
+            subfolder_comics = {}
+
+            for item in sorted(os.listdir(folder_path)):
+                item_path = os.path.join(folder_path, item)
+                if os.path.isdir(item_path) and not item.startswith(('.', '_')):
+                    folder_comics = []
+                    for subitem in sorted(os.listdir(item_path)):
+                        subitem_path = os.path.join(item_path, subitem)
+                        if os.path.isfile(subitem_path):
+                            _, ext = os.path.splitext(subitem.lower())
+                            if ext in ['.cbz', '.cbr', '.zip']:
+                                folder_comics.append(subitem_path)
+                    if folder_comics:
+                        subfolder_comics[item_path] = folder_comics
+
+            if not subfolder_comics:
+                return False
+
+            # Distribute 4 slots across subfolders
+            MAX_COVERS = 4
+            subfolders = list(subfolder_comics.keys())
+            num_folders = len(subfolders)
+
+            if num_folders >= MAX_COVERS:
+                for i in range(MAX_COVERS):
+                    comic_files.append(subfolder_comics[subfolders[i]][0])
+            else:
+                per_folder = MAX_COVERS // num_folders
+                remainder = MAX_COVERS % num_folders
+                for i, folder in enumerate(subfolders):
+                    count = per_folder + (1 if i < remainder else 0)
+                    comic_files.extend(subfolder_comics[folder][:count])
+
+        # Get cached thumbnail paths for the first 4 comics
+        MAX_COVERS = 4
+        selected_files = comic_files[:MAX_COVERS]
+        cached_thumbs = []
+
+        for file_path in selected_files:
+            path_hash = hashlib.md5(file_path.encode('utf-8')).hexdigest()
+            shard_dir = path_hash[:2]
+            filename = f"{path_hash}.jpg"
+            cache_path = os.path.join(thumbnails_dir, shard_dir, filename)
+
+            if os.path.exists(cache_path):
+                cached_thumbs.append(cache_path)
+
+        if not cached_thumbs:
+            return False
+
+        # Create fanned stack thumbnail
+        CANVAS_SIZE = (200, 300)
+        THUMB_SIZE = (150, 245)
+        ROTATION_LIMIT = 10
+        Y_OFFSET = 0
+
+        final_canvas = Image.new('RGBA', CANVAS_SIZE, (0, 0, 0, 0))
+        reversed_thumbs = list(reversed(cached_thumbs))
+
+        angles = []
+        for i in range(len(reversed_thumbs)):
+            if i == len(reversed_thumbs) - 1:
+                angles.append(0)
+            else:
+                angles.append(random.randint(-ROTATION_LIMIT, ROTATION_LIMIT))
+
+        for i, thumb_path in enumerate(reversed_thumbs):
+            try:
+                img = Image.open(thumb_path).convert("RGBA")
+                img.thumbnail(THUMB_SIZE, Image.Resampling.LANCZOS)
+
+                fitted_img = Image.new('RGBA', THUMB_SIZE, (0, 0, 0, 0))
+                paste_x = (THUMB_SIZE[0] - img.width) // 2
+                paste_y = (THUMB_SIZE[1] - img.height) // 2
+                fitted_img.paste(img, (paste_x, paste_y), img if img.mode == 'RGBA' else None)
+
+                layer_size = (int(THUMB_SIZE[0] * 1.5), int(THUMB_SIZE[1] * 1.5))
+                layer = Image.new('RGBA', layer_size, (0, 0, 0, 0))
+
+                layer_paste_x = (layer_size[0] - THUMB_SIZE[0]) // 2
+                layer_paste_y = (layer_size[1] - THUMB_SIZE[1]) // 2
+
+                shadow = Image.new('RGBA', layer_size, (0, 0, 0, 0))
+                shadow_box = (layer_paste_x + 4, layer_paste_y + 4,
+                             layer_paste_x + THUMB_SIZE[0] + 4, layer_paste_y + THUMB_SIZE[1] + 4)
+
+                d = ImageDraw.Draw(shadow)
+                d.rectangle(shadow_box, fill=(0, 0, 0, 120))
+                shadow = shadow.filter(ImageFilter.GaussianBlur(radius=5))
+
+                layer = Image.alpha_composite(layer, shadow)
+                layer.paste(fitted_img, (layer_paste_x, layer_paste_y), fitted_img)
+
+                angle = angles[i]
+                rotated_layer = layer.rotate(angle, resample=Image.Resampling.BICUBIC, expand=False)
+
+                final_x = (CANVAS_SIZE[0] - rotated_layer.width) // 2
+                final_y = ((CANVAS_SIZE[1] - rotated_layer.height) // 2) + Y_OFFSET
+
+                final_canvas.paste(rotated_layer, (final_x, final_y), rotated_layer)
+
+            except Exception as e:
+                app_logger.error(f"Error processing thumbnail {thumb_path}: {e}")
+
+        # Remove existing folder thumbnails
+        for ext in ['folder.png', 'folder.jpg', 'folder.jpeg', 'folder.gif']:
+            existing_thumb = os.path.join(folder_path, ext)
+            if os.path.exists(existing_thumb):
+                try:
+                    os.remove(existing_thumb)
+                except Exception as e:
+                    app_logger.error(f"Error removing existing thumbnail {existing_thumb}: {e}")
+
+        # If nested, overlay on folder icon
+        if is_nested:
+            folder_icon_path = os.path.join(app.static_folder, 'images', 'folder-fill-200x300.png')
+            if os.path.exists(folder_icon_path):
+                final_canvas = create_nested_folder_thumbnail(final_canvas, folder_icon_path)
+
+        output_path = os.path.join(folder_path, "folder.png")
+        final_canvas.save(output_path, "PNG")
+
+        app_logger.info(f"Generated folder thumbnail: {output_path}")
+        invalidate_cache_for_path(folder_path)
+
+        return True
+
+    except Exception as e:
+        app_logger.error(f"Error generating folder thumbnail for {folder_path}: {e}")
+        return False
+
+
+@app.route('/api/generate-all-missing-thumbnails', methods=['POST'])
+def generate_all_missing_thumbnails():
+    """Generate folder thumbnails for all subfolders missing them (recursive)."""
+    data = request.get_json()
+    root_path = data.get('path')
+
+    if not root_path or not os.path.isdir(root_path):
+        return jsonify({"error": "Invalid path"}), 400
+
+    generated = 0
+    errors = 0
+    skipped = 0
+
+    # Recursively traverse all directories
+    for dirpath, dirnames, filenames in os.walk(root_path):
+        # Skip hidden directories
+        dirnames[:] = [d for d in dirnames if not d.startswith(('.', '_'))]
+
+        # Skip the root path itself
+        if dirpath == root_path:
+            continue
+
+        # Check if folder already has thumbnail
+        has_thumb = False
+        for ext in ['.png', '.jpg', '.jpeg', '.gif']:
+            if os.path.exists(os.path.join(dirpath, f'folder{ext}')):
+                has_thumb = True
+                break
+
+        if has_thumb:
+            skipped += 1
+            continue
+
+        # Generate thumbnail using internal function
+        try:
+            result = generate_folder_thumbnail_internal(dirpath)
+            if result:
+                generated += 1
+            else:
+                errors += 1
+        except Exception as e:
+            app_logger.error(f"Error generating thumbnail for {dirpath}: {e}")
+            errors += 1
+
+    message = f"Generated {generated} thumbnails"
+    if skipped:
+        message += f", skipped {skipped} existing"
+    if errors:
+        message += f" ({errors} errors)"
+
+    return jsonify({
+        "success": True,
+        "generated": generated,
+        "skipped": skipped,
+        "errors": errors,
+        "message": message
+    })
+
 
 @app.route('/api/check-missing-files', methods=['POST'])
 def check_missing_files():

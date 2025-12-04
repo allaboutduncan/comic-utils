@@ -535,3 +535,371 @@ def auto_move_file(file_path: str, volume_data: Dict[str, Any], config: Dict[str
         import traceback
         app_logger.error(f"Traceback: {traceback.format_exc()}")
         raise
+
+
+def get_metadata_by_volume_id(api_key: str, volume_id: int, issue_number: str, year: Optional[int] = None) -> Optional[Dict[str, Any]]:
+    """
+    Get issue metadata using a known volume ID (from cvinfo file).
+
+    Args:
+        api_key: ComicVine API key
+        volume_id: ComicVine volume ID (extracted from cvinfo URL)
+        issue_number: Issue number to look up
+        year: Optional year for filtering
+
+    Returns:
+        Dictionary with metadata in ComicInfo.xml format, or None if not found
+    """
+    try:
+        # Get the issue directly using volume_id
+        issue_data = get_issue_by_number(api_key, volume_id, issue_number, year)
+
+        if not issue_data:
+            return None
+
+        # Map to ComicInfo format (volume_data=None since we don't have full volume info)
+        comicinfo = map_to_comicinfo(issue_data, None)
+        comicinfo['_image_url'] = issue_data.get('image_url')
+
+        return comicinfo
+    except Exception as e:
+        app_logger.error(f"Error in get_metadata_by_volume_id: {str(e)}")
+        return None
+
+
+def parse_cvinfo_volume_id(cvinfo_path: str) -> Optional[int]:
+    """
+    Parse a cvinfo file and extract the ComicVine volume ID.
+
+    cvinfo file contains a URL like: https://comicvine.gamespot.com/avengers/4050-150431/
+    The volume ID is the number after '4050-' (e.g., 150431)
+
+    Args:
+        cvinfo_path: Path to the cvinfo file
+
+    Returns:
+        Volume ID as integer, or None if not found/parseable
+    """
+    import re
+
+    try:
+        with open(cvinfo_path, 'r', encoding='utf-8') as f:
+            content = f.read().strip()
+
+        # Match pattern: 4050-{volume_id}
+        match = re.search(r'/4050-(\d+)', content)
+        if match:
+            return int(match.group(1))
+
+        return None
+    except Exception as e:
+        app_logger.error(f"Error parsing cvinfo file {cvinfo_path}: {e}")
+        return None
+
+
+def find_cvinfo_in_folder(folder_path: str) -> Optional[str]:
+    """
+    Look for a cvinfo file in a folder (case-insensitive).
+
+    Args:
+        folder_path: Path to the folder to search
+
+    Returns:
+        Full path to cvinfo file if found, None otherwise
+    """
+    try:
+        for item in os.listdir(folder_path):
+            if item.lower() == 'cvinfo':
+                return os.path.join(folder_path, item)
+        return None
+    except Exception as e:
+        app_logger.error(f"Error searching for cvinfo in {folder_path}: {e}")
+        return None
+
+
+def extract_issue_number(filename: str) -> Optional[str]:
+    """
+    Extract issue number from a comic filename.
+
+    Handles patterns like:
+    - "Amazing Spider-Man 001.cbz" -> "1"
+    - "Batman #42.cbz" -> "42"
+    - "X-Men v2 012.cbz" -> "12"
+
+    Args:
+        filename: Comic filename
+
+    Returns:
+        Issue number as string, or None if not found
+    """
+    import re
+
+    # Remove extension
+    name = os.path.splitext(filename)[0]
+
+    # Pattern: look for issue number (often at end, with or without #)
+    # Try various patterns
+    patterns = [
+        r'#(\d+(?:\.\d+)?)',           # #42 or #42.1
+        r'\s+(\d{3,})(?:\s|$)',         # Space + 3+ digits (001, 012)
+        r'\s+(\d{1,2})(?:\s|$)',        # Space + 1-2 digits at end
+        r'[-_](\d+)(?:\s|$)',           # Dash/underscore + digits
+    ]
+
+    for pattern in patterns:
+        match = re.search(pattern, name)
+        if match:
+            # Remove leading zeros but preserve decimal parts
+            num_str = match.group(1)
+            if '.' in num_str:
+                parts = num_str.split('.')
+                return str(int(parts[0])) + '.' + parts[1]
+            else:
+                return str(int(num_str))
+
+    return None
+
+
+def add_comicinfo_to_archive(file_path: str, xml_content) -> bool:
+    """
+    Add or update ComicInfo.xml in a CBZ archive.
+
+    Args:
+        file_path: Path to the CBZ file
+        xml_content: XML content to add (str or bytes)
+
+    Returns:
+        True on success, False on failure
+    """
+    import zipfile
+    import tempfile
+
+    temp_path = None
+    try:
+        # Create temp file
+        temp_fd, temp_path = tempfile.mkstemp(suffix='.cbz')
+        os.close(temp_fd)
+
+        with zipfile.ZipFile(file_path, 'r') as zin:
+            with zipfile.ZipFile(temp_path, 'w', zipfile.ZIP_DEFLATED) as zout:
+                for item in zin.infolist():
+                    # Skip existing ComicInfo.xml
+                    if item.filename.lower() == 'comicinfo.xml':
+                        continue
+                    zout.writestr(item, zin.read(item.filename))
+
+                # Add new ComicInfo.xml - handle both str and bytes
+                if isinstance(xml_content, bytes):
+                    zout.writestr('ComicInfo.xml', xml_content)
+                else:
+                    zout.writestr('ComicInfo.xml', xml_content.encode('utf-8'))
+
+        # Replace original with temp
+        shutil.move(temp_path, file_path)
+        return True
+
+    except Exception as e:
+        app_logger.error(f"Error adding ComicInfo.xml to {file_path}: {e}")
+        if temp_path and os.path.exists(temp_path):
+            os.remove(temp_path)
+        return False
+
+
+def generate_comicinfo_xml(issue_data: Dict[str, Any]) -> bytes:
+    """
+    Generate ComicInfo.xml content from issue metadata.
+
+    Args:
+        issue_data: Dictionary with ComicInfo fields
+
+    Returns:
+        XML content as bytes
+    """
+    import xml.etree.ElementTree as ET
+    import io
+
+    root = ET.Element("ComicInfo")
+
+    def add(tag, value):
+        if value is not None and str(value).strip():
+            ET.SubElement(root, tag).text = str(value)
+
+    # Basic fields
+    add("Title", issue_data.get("Title"))
+    add("Series", issue_data.get("Series"))
+
+    # Number field
+    num = issue_data.get("Number")
+    if num is not None and str(num).strip():
+        try:
+            # Try to format as integer if possible
+            if str(num).replace(".", "", 1).isdigit():
+                add("Number", str(int(float(num))))
+            else:
+                add("Number", str(num))
+        except (ValueError, TypeError):
+            add("Number", str(num))
+
+    # Volume
+    vol = issue_data.get("Volume")
+    if vol is not None and str(vol).strip():
+        try:
+            add("Volume", str(int(vol)))
+        except (ValueError, TypeError):
+            add("Volume", str(vol))
+
+    add("Summary", issue_data.get("Summary"))
+
+    # Dates
+    if issue_data.get("Year"):
+        try:
+            add("Year", str(int(issue_data["Year"])))
+        except (ValueError, TypeError):
+            pass
+    if issue_data.get("Month"):
+        try:
+            m = int(issue_data["Month"])
+            if 1 <= m <= 12:
+                add("Month", str(m))
+        except (ValueError, TypeError):
+            pass
+    if issue_data.get("Day"):
+        try:
+            d = int(issue_data["Day"])
+            if 1 <= d <= 31:
+                add("Day", str(d))
+        except (ValueError, TypeError):
+            pass
+
+    # Credits
+    add("Writer", issue_data.get("Writer"))
+    add("Penciller", issue_data.get("Penciller"))
+    add("Inker", issue_data.get("Inker"))
+    add("Colorist", issue_data.get("Colorist"))
+    add("Letterer", issue_data.get("Letterer"))
+    add("CoverArtist", issue_data.get("CoverArtist"))
+
+    # Publisher
+    add("Publisher", issue_data.get("Publisher"))
+
+    # Characters/Teams/Locations
+    add("Characters", issue_data.get("Characters"))
+    add("Teams", issue_data.get("Teams"))
+    add("Locations", issue_data.get("Locations"))
+    add("StoryArc", issue_data.get("StoryArc"))
+
+    # Language
+    add("LanguageISO", issue_data.get("LanguageISO") or "en")
+
+    # Page count
+    if issue_data.get("PageCount"):
+        try:
+            add("PageCount", str(int(issue_data["PageCount"])))
+        except (ValueError, TypeError):
+            pass
+
+    # Notes
+    add("Notes", issue_data.get("Notes"))
+
+    # Serialize as UTF-8 bytes
+    ET.indent(root)
+    tree = ET.ElementTree(root)
+    buf = io.BytesIO()
+    tree.write(buf, encoding="utf-8", xml_declaration=True)
+    return buf.getvalue()
+
+
+def auto_fetch_metadata_for_folder(folder_path: str, api_key: str, target_file: str = None) -> Dict[str, Any]:
+    """
+    Auto-fetch ComicVine metadata for comics in a folder using cvinfo.
+
+    Processes all comic files in the folder that don't have meaningful comicinfo.xml.
+    Files are processed one at a time consecutively (API rate limiting).
+
+    Args:
+        folder_path: Path to the folder containing cvinfo and comic files
+        api_key: ComicVine API key
+        target_file: Optional specific file to prioritize (just moved)
+
+    Returns:
+        Dict with 'processed', 'skipped', 'errors' counts and 'details' list
+    """
+    from comicinfo import read_comicinfo_from_zip
+    import time
+
+    result = {'processed': 0, 'skipped': 0, 'errors': 0, 'details': []}
+
+    # Find cvinfo file
+    cvinfo_path = find_cvinfo_in_folder(folder_path)
+    if not cvinfo_path:
+        app_logger.debug(f"No cvinfo file found in {folder_path}")
+        return result
+
+    # Parse volume ID
+    volume_id = parse_cvinfo_volume_id(cvinfo_path)
+    if not volume_id:
+        app_logger.warning(f"Could not extract volume ID from {cvinfo_path}")
+        return result
+
+    app_logger.info(f"Found cvinfo with volume ID: {volume_id}")
+
+    # Get list of comic files to process
+    comic_files = []
+    for item in os.listdir(folder_path):
+        item_path = os.path.join(folder_path, item)
+        if os.path.isfile(item_path) and item.lower().endswith(('.cbz', '.cbr')):
+            comic_files.append(item_path)
+
+    # Prioritize target_file if specified
+    if target_file and target_file in comic_files:
+        comic_files.remove(target_file)
+        comic_files.insert(0, target_file)
+
+    for file_path in comic_files:
+        try:
+            # Check if file already has meaningful metadata
+            existing = read_comicinfo_from_zip(file_path)
+            existing_notes = existing.get('Notes', '').strip()
+
+            if existing_notes:
+                app_logger.debug(f"Skipping {file_path} - already has metadata")
+                result['skipped'] += 1
+                result['details'].append({'file': file_path, 'status': 'skipped', 'reason': 'has metadata'})
+                continue
+
+            # Extract issue number from filename
+            issue_number = extract_issue_number(os.path.basename(file_path))
+            if not issue_number:
+                app_logger.warning(f"Could not extract issue number from {file_path}")
+                result['errors'] += 1
+                result['details'].append({'file': file_path, 'status': 'error', 'reason': 'no issue number'})
+                continue
+
+            # Fetch metadata from ComicVine
+            metadata = get_metadata_by_volume_id(api_key, volume_id, issue_number)
+
+            if not metadata:
+                app_logger.warning(f"No metadata found for {file_path}, issue #{issue_number}")
+                result['errors'] += 1
+                result['details'].append({'file': file_path, 'status': 'error', 'reason': 'not found on ComicVine'})
+                continue
+
+            # Generate and add ComicInfo.xml to the file
+            xml_content = generate_comicinfo_xml(metadata)
+            if add_comicinfo_to_archive(file_path, xml_content):
+                app_logger.info(f"Added metadata to {file_path}")
+                result['processed'] += 1
+                result['details'].append({'file': file_path, 'status': 'success'})
+            else:
+                result['errors'] += 1
+                result['details'].append({'file': file_path, 'status': 'error', 'reason': 'failed to add XML'})
+
+            # Rate limiting - wait between API calls
+            time.sleep(1)
+
+        except Exception as e:
+            app_logger.error(f"Error processing {file_path}: {e}")
+            result['errors'] += 1
+            result['details'].append({'file': file_path, 'status': 'error', 'reason': str(e)})
+
+    return result
