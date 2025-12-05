@@ -1,49 +1,57 @@
     .cbz-preview-container {
-      border: 1px solid #dee2e6;
-      border-radius: 0.375rem;
-      padding: 0.5rem;
-      background-color: #f8f9fa;
-      margin-top: 0.5rem;
+        border: 1px solid #dee2e6;
+        border-radius: 0.375rem;
+        padding: 0.5rem;
+        background-color: #f8f9fa;
+        margin-top: 0.5rem;
     }
-    
+
     .cbz-preview-container img {
-      border-radius: 0.25rem;
-      box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075);
+        border-radius: 0.25rem;
+        box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075);
     }
-    
+
     .cbz-metadata {
-      font-size: 0.75rem;
-      color: #6c757d;
-      margin-top: 0.25rem;
+        font-size: 0.75rem;
+        color: #6c757d;
+        margin-top: 0.25rem;
     }
-    
+
     .list-group-item:hover .cbz-preview-container {
-      border-color: #adb5bd;
+        border-color: #adb5bd;
     }
-    
+
     /* Smooth removal animation for deleted items */
     .list-group-item {
-      transition: all 0.2s ease-out;
+        transition: all 0.2s ease-out;
     }
-    
+
     .list-group-item.deleting {
-      opacity: 0;
-      transform: translateX(-20px);
-      pointer-events: none;
+        opacity: 0;
+        transform: translateX(-20px);
+        pointer-events: none;
     }
-    
+
     .drop-target-item {
-      opacity: 0.6;
-      font-style: italic;
-      transition: opacity 0.3s ease;
+        opacity: 0.6;
+        font-style: italic;
+        transition: opacity 0.3s ease;
     }
-    
+
     .drop-target-item:hover {
-      opacity: 1;
+        opacity: 1;
     }
-    
+
     .grid-filter-buttons {
         grid-template-columns: repeat(auto-fill, minmax(50px, 1fr));
+    }
+
+    #destination-list,
+    #source-list {
+        /* 100vh is the full height of the screen.
+           We subtract approx 400px to account for the header, buttons, and breadcrumbs above it. */
+        height: calc(100vh - 400px);
+        overflow-y: auto;
     }
 
     /* Drag and drop hover effects */
@@ -182,6 +190,7 @@
             transform: translateX(100%);
             opacity: 0;
         }
+
         to {
             transform: translateX(0);
             opacity: 1;

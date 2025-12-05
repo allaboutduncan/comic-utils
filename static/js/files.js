@@ -26,6 +26,9 @@ let destinationDirectoriesData = null;
 // Track current filter (default is 'all') per panel.
 let currentFilter = { source: 'all', destination: 'all' };
 
+// Store filter state per path for each panel (for persistence during navigation)
+let filterHistory = { source: {}, destination: {} };
+
 // Global variable to track GCD MySQL availability
 let gcdMysqlAvailable = false;
 
@@ -803,6 +806,15 @@ function createListItem(itemName, fullPath, type, panel, isDraggable) {
     li.setAttribute("data-fullpath", fullPath);
 
     li.onclick = function () {
+      // Store current filter for current path before navigating
+      const currentPath = panel === 'source' ? currentSourcePath : currentDestinationPath;
+      if (currentFilter[panel] !== 'all') {
+        filterHistory[panel][currentPath] = currentFilter[panel];
+      } else {
+        // Remove entry if filter is 'all' (default) to minimize memory usage
+        delete filterHistory[panel][currentPath];
+      }
+
       currentFilter[panel] = 'all';
       loadDirectories(fullPath, panel);
     };
@@ -960,6 +972,44 @@ function updateFilterBar(panel, directories) {
   }
 }
 
+// Function to restore filter from history if valid for the given path
+function restoreFilterIfValid(panel, path, directories) {
+  if (!filterHistory[panel][path]) {
+    return; // No saved filter for this path
+  }
+
+  const savedFilter = filterHistory[panel][path];
+
+  // Build set of available letters from current directories
+  const availableLetters = new Set();
+  let hasNonAlpha = false;
+
+  if (directories && Array.isArray(directories)) {
+    directories.forEach(dir => {
+      const firstChar = dir.charAt(0).toUpperCase();
+      if (firstChar >= 'A' && firstChar <= 'Z') {
+        availableLetters.add(firstChar);
+      } else {
+        hasNonAlpha = true;
+      }
+    });
+  }
+
+  // Only restore if the saved filter is still valid
+  let shouldRestore = false;
+  if (savedFilter === '#' && hasNonAlpha) {
+    shouldRestore = true;
+  } else if (savedFilter !== '#' && savedFilter !== 'all' && availableLetters.has(savedFilter)) {
+    shouldRestore = true;
+  }
+
+  if (shouldRestore) {
+    currentFilter[panel] = savedFilter;
+    // Re-run updateFilterBar to reflect the restored filter in button states
+    updateFilterBar(panel, directories);
+  }
+}
+
 // --- SEARCH STATE FOR DESTINATION PANEL ---
 let destinationSearchTerm = '';
 function onDestinationDirectorySearch(val) {
@@ -1013,6 +1063,10 @@ function loadDirectories(path, panel) {
         updateBreadcrumb('source', data.current_path);
         sourceDirectoriesData = data;
         updateFilterBar('source', data.directories);
+
+        // Restore filter if previously set for this path
+        restoreFilterIfValid('source', data.current_path, data.directories);
+
         renderDirectoryListing(data, 'source');
       } else {
         currentDestinationPath = data.current_path;
@@ -1023,6 +1077,10 @@ function loadDirectories(path, panel) {
         const searchInput = document.getElementById('destination-directory-search');
         if (searchInput) searchInput.value = '';
         updateFilterBar('destination', data.directories);
+
+        // Restore filter if previously set for this path
+        restoreFilterIfValid('destination', data.current_path, data.directories);
+
         renderDirectoryListing(data, 'destination');
       }
     })
