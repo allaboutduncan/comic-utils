@@ -33,7 +33,8 @@
       "Bash(claude config:*)",
       "Bash(echo:*)",
       "Bash(grep:*)",
-      "Bash(python3:*)"
+      "Bash(python3:*)",
+      "WebFetch(domain:gethomepage.dev)"
     ],
     "deny": [],
     "ask": []

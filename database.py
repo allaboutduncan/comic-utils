@@ -161,6 +161,15 @@ def init_db():
         ''')
         c.execute('CREATE INDEX IF NOT EXISTS idx_to_read_path ON to_read(path)')
 
+        # Create stats_cache table (cache computed statistics)
+        c.execute('''
+            CREATE TABLE IF NOT EXISTS stats_cache (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+
         # Migration: Check if file_mtime column exists, add if not
         c.execute("PRAGMA table_info(thumbnail_jobs)")
         columns = [column[1] for column in c.fetchall()]
@@ -1641,4 +1650,101 @@ def is_to_read(path):
 
     except Exception as e:
         app_logger.error(f"Failed to check 'to read' status for '{path}': {e}")
+        return False
+
+
+# =============================================================================
+# Stats Cache Functions
+# =============================================================================
+
+def get_cached_stats(key):
+    """
+    Get cached stats by key.
+
+    Args:
+        key: Cache key (e.g., 'library_stats', 'file_type_distribution')
+
+    Returns:
+        Cached value (parsed from JSON) or None if not found
+    """
+    try:
+        import json
+
+        conn = get_db_connection()
+        if not conn:
+            return None
+
+        c = conn.cursor()
+        c.execute('SELECT value FROM stats_cache WHERE key = ?', (key,))
+        row = c.fetchone()
+        conn.close()
+
+        if row:
+            return json.loads(row['value'])
+        return None
+
+    except Exception as e:
+        app_logger.error(f"Failed to get cached stats for '{key}': {e}")
+        return None
+
+
+def save_cached_stats(key, value):
+    """
+    Save stats to cache.
+
+    Args:
+        key: Cache key
+        value: Value to cache (will be JSON-encoded)
+
+    Returns:
+        True if successful, False otherwise
+    """
+    try:
+        import json
+
+        conn = get_db_connection()
+        if not conn:
+            return False
+
+        c = conn.cursor()
+        c.execute('''
+            INSERT OR REPLACE INTO stats_cache (key, value, updated_at)
+            VALUES (?, ?, CURRENT_TIMESTAMP)
+        ''', (key, json.dumps(value)))
+
+        conn.commit()
+        conn.close()
+
+        app_logger.debug(f"Saved stats cache for: {key}")
+        return True
+
+    except Exception as e:
+        app_logger.error(f"Failed to save stats cache for '{key}': {e}")
+        return False
+
+
+def clear_stats_cache():
+    """
+    Clear all cached stats.
+
+    Returns:
+        True if successful, False otherwise
+    """
+    try:
+        conn = get_db_connection()
+        if not conn:
+            return False
+
+        c = conn.cursor()
+        c.execute('DELETE FROM stats_cache')
+
+        conn.commit()
+        count = c.rowcount
+        conn.close()
+
+        app_logger.info(f"Cleared stats cache ({count} entries)")
+        return True
+
+    except Exception as e:
+        app_logger.error(f"Failed to clear stats cache: {e}")
         return False

@@ -46,7 +46,7 @@ from database import (init_db, get_db_connection, get_recent_files, log_recent_f
                       get_search_cache, save_search_cache, clear_search_cache,
                       get_rebuild_schedule, save_rebuild_schedule as db_save_rebuild_schedule, update_last_rebuild,
                       get_browse_cache, save_browse_cache, invalidate_browse_cache, clear_browse_cache,
-                      get_path_counts, get_path_counts_batch, get_directory_children)
+                      get_path_counts, get_path_counts_batch, get_directory_children, clear_stats_cache)
 from models.stats import get_library_stats, get_file_type_distribution, get_top_publishers, get_reading_history_stats
 from concurrent.futures import ThreadPoolExecutor
 from file_watcher import FileWatcher
@@ -80,6 +80,13 @@ def scheduled_file_index_rebuild():
 
         # Update last rebuild timestamp
         update_last_rebuild()
+
+        # Clear and pre-populate stats cache
+        clear_stats_cache()
+        get_library_stats()
+        get_file_type_distribution()
+        get_top_publishers()
+        get_reading_history_stats()
 
         elapsed = time.time() - start_time
         app_logger.info(f"✅ Scheduled file index rebuild completed in {elapsed:.2f}s")
@@ -1138,6 +1145,13 @@ def api_rebuild_file_index():
 
         # Update last rebuild timestamp
         update_last_rebuild()
+
+        # Clear and pre-populate stats cache
+        clear_stats_cache()
+        get_library_stats()
+        get_file_type_distribution()
+        get_top_publishers()
+        get_reading_history_stats()
 
         elapsed = time.time() - start_time
         app_logger.info(f"✅ Manual file index rebuild completed in {elapsed:.2f}s")
@@ -7274,12 +7288,26 @@ def stats_page():
     file_types = get_file_type_distribution()
     top_publishers = get_top_publishers()
     reading_history = get_reading_history_stats()
-    
-    return render_template('stats.html', 
-                           library_stats=library_stats, 
-                           file_types=file_types, 
-                           top_publishers=top_publishers, 
+
+    return render_template('stats.html',
+                           library_stats=library_stats,
+                           file_types=file_types,
+                           top_publishers=top_publishers,
                            reading_history=reading_history)
+
+@app.route('/api/stats')
+def api_stats():
+    """Return library stats as JSON for Homepage custom API widget."""
+    library_stats = get_library_stats()
+    if not library_stats:
+        return jsonify({"error": "Failed to get stats"}), 500
+
+    return jsonify({
+        "total_files": library_stats.get('total_files', 0),
+        "total_size": library_stats.get('total_size', 0),
+        "issues_read": library_stats.get('total_read', 0),
+        "root_folders": library_stats.get('root_folders', 0)
+    })
 
 #########################
 #   Application Start   #
