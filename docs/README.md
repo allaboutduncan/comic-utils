@@ -1,6 +1,5 @@
 ---
 description: Welcome to CLU (Comic Library Utilities)!
-icon: hand-wave
 ---
 
 # Welcome
@@ -34,4 +33,4 @@ During Image Processing, CLU Supports:
 
 ### Jump Right In
 
-<table data-view="cards"><thead><tr><th></th><th></th><th data-hidden data-card-cover data-type="files"></th><th data-hidden></th><th data-hidden data-card-target data-type="content-ref"></th></tr></thead><tbody><tr><td><strong>Getting Started</strong></td><td>Install the App</td><td></td><td></td><td><a href="getting-started/quickstart.md">quickstart.md</a></td></tr><tr><td><strong>Features</strong></td><td>What CLU can do</td><td></td><td></td><td><a href="broken-reference">Broken link</a></td></tr><tr><td><strong>FAQs</strong></td><td>Frequently Asked</td><td></td><td></td><td><a href="frequently-asked-questions.md">frequently-asked-questions.md</a></td></tr></tbody></table>
+<table data-view="cards"><thead><tr><th></th><th></th><th data-hidden data-card-cover data-type="files"></th><th data-hidden></th><th data-hidden data-card-target data-type="content-ref"></th></tr></thead><tbody><tr><td><strong>Getting Started</strong></td><td>Install the App</td><td></td><td></td><td><a href="getting-started/quickstart.md">quickstart.md</a></td></tr><tr><td><strong>Features</strong></td><td>What CLU can do</td><td></td><td></td><td><a href="/broken/pages/7aUFmnCMx9m4smGncsXL">Broken link</a></td></tr><tr><td><strong>FAQs</strong></td><td>Frequently Asked</td><td></td><td></td><td><a href="frequently-asked-questions.md">frequently-asked-questions.md</a></td></tr></tbody></table>
