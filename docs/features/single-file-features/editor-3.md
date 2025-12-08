@@ -1,6 +1,5 @@
 ---
 description: Remove the first image in a CBZ
-icon: file-image
 ---
 
 # Remove First Image

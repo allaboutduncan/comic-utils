@@ -1,6 +1,5 @@
 ---
 description: All of the Options available in Settings
-icon: square-sliders
 ---
 
 # Settings Available
@@ -106,7 +105,7 @@ Download directories configured in the app are not indexed.&#x20;
 Moving files in these directories does not invalidate the cache.
 {% endhint %}
 
-<figure><img src="../../.gitbook/assets/Screenshot 2025-10-07 094321.png" alt=""><figcaption></figcaption></figure>
+<figure><img src="/broken/files/MsPmaoTZWHI6Dl49vBY6" alt=""><figcaption></figcaption></figure>
 
 ### Custom Rename Pattern Settings
 

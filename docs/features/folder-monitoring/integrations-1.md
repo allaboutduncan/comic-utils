@@ -1,6 +1,5 @@
 ---
 description: What can folder monitoring do?
-icon: folders
 ---
 
 # Features

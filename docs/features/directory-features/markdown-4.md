@@ -1,6 +1,5 @@
 ---
 description: Enhance Image Quality of all images if all CBZs of a directory
-icon: folder
 ---
 
 # Enhance Images

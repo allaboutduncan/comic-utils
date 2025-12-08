@@ -1,6 +1,5 @@
 ---
 description: Right-click and send to CLU for download
-icon: folder
 ---
 
 # Right-Click to Download

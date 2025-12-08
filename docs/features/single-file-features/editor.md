@@ -1,6 +1,5 @@
 ---
 description: Perform edits to a CBZ File
-icon: file-zip
 ---
 
 # Edit CBZ File
@@ -35,7 +34,7 @@ Clicking the `Middle` button is used for Tri-fold covers where the main image is
 
 `Free Crop` ![](<../../.gitbook/assets/Screenshot 2025-10-07 102418.png>) lets you click and drag to free-form crop an image in the UI. Click to draw your area, SPACE to move the area and SHIFT to maintain typical comic page proportions.
 
-<figure><img src="../../.gitbook/assets/Screenshot 2025-10-07 101834.png" alt=""><figcaption></figcaption></figure>
+<figure><img src="/broken/files/Y7Sk1ON4QDgF6ENfVLPH" alt=""><figcaption></figcaption></figure>
 
 <figure><img src="../../.gitbook/assets/Screenshot 2025-10-07 101954.png" alt=""><figcaption></figcaption></figure>
 

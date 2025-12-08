@@ -1,6 +1,5 @@
 ---
 description: Clean all filenames in the directory
-icon: folder
 ---
 
 # Clean All Filenames

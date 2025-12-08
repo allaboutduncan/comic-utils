@@ -1,11 +1,10 @@
 ---
 description: Setup for remote download of files
-icon: folder
 ---
 
 # Chrome Extension
 
-<figure><img src="../../.gitbook/assets/extension1280x800.png" alt=""><figcaption></figcaption></figure>
+<figure><img src="/broken/files/AMURg23n47ocRx4VEsAD" alt=""><figcaption></figcaption></figure>
 
 Once you have the [Chrome extension installed](https://chromewebstore.google.com/detail/send-link-to-clu/cpickljbofjhmhkphgdmiagkdfijlkkg), you will need to configure the options.&#x20;
 

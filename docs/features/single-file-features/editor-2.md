@@ -1,6 +1,5 @@
 ---
 description: Remove half of a cover while saving the full cover
-icon: crop-simple
 ---
 
 # Crop Cover

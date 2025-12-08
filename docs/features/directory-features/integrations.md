@@ -1,6 +1,5 @@
 ---
 description: How can I see what the app is doing?
-icon: folder
 ---
 
 # App Logs

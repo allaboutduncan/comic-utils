@@ -1,6 +1,5 @@
 ---
 description: Rebuilds all files in a directory.
-icon: folder
 ---
 
 # Rebuild All Files

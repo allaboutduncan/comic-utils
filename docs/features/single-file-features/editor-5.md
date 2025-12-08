@@ -1,6 +1,5 @@
 ---
 description: Enhances all images in a single CBZ file
-icon: file-image
 ---
 
 # Enhance Images

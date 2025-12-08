@@ -1,6 +1,5 @@
 ---
 description: Rebuild or convert a single file
-icon: file-zip
 ---
 
 # Single File Rebuild

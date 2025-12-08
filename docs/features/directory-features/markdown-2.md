@@ -1,7 +1,3 @@
----
-icon: folder
----
-
 # Convert PDF to CBZ
 
 <figure><img src="../../.gitbook/assets/pdf.png" alt=""><figcaption><p>Convert PDF to CBZ</p></figcaption></figure>

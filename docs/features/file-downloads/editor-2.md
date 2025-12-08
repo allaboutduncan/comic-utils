@@ -1,6 +1,5 @@
 ---
 description: See files downloaded, currently downloading and pending.
-icon: folder
 ---
 
 # Download Status Page

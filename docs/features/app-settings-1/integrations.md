@@ -1,6 +1,5 @@
 ---
 description: How to get your copy of the GCD data
-icon: square-sliders
 ---
 
 # GCD Database Download

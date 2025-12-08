@@ -1,6 +1,5 @@
 ---
 description: Setup your local MySQL Database
-icon: square-sliders
 ---
 
 # MySQL Database Setup

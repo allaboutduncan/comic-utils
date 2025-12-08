@@ -1,6 +1,5 @@
 ---
 description: Generates a Text file of "Missing" Issues
-icon: folder
 ---
 
 # Missing Issue Check

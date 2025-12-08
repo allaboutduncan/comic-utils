@@ -1,7 +1,3 @@
----
-icon: globe-pointer
----
-
 # Navigating the App
 
 &#x20;Once CLU is started, you can access the web interface at: `http://<your-server>:<port>`.

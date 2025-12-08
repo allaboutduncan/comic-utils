@@ -1,6 +1,5 @@
 ---
 description: Move your files and directories around in your mapped drive
-icon: folder
 ---
 
 # Move
@@ -42,7 +41,7 @@ You can move multiple files or directories by select them, one at a time, by hol
 
 Once you have multiple files selected, you can right-click and see a context menu of additional actions you can perform. To make organizing and moving multiple files quick, you can "Create Folder with Selection" using your selected files.&#x20;
 
-<figure><img src="../../.gitbook/assets/Screenshot 2025-10-15 164850.png" alt=""><figcaption></figcaption></figure>
+<figure><img src="/broken/files/KMim0RYVqBV16sO5nabj" alt=""><figcaption></figcaption></figure>
 
 If all of the files share the same _{Series Name}_, the folder will be created with that name. If the files have differing _{Series Name}_, you'll be prompted to Enter Folder Name for those files.
 

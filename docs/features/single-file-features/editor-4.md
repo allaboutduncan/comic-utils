@@ -1,6 +1,5 @@
 ---
 description: Adds a blank PNG at the end of a file
-icon: file-image
 ---
 
 # Add blank Image

@@ -1,6 +1,5 @@
 ---
 description: (CBR / RAR Only)
-icon: folder
 ---
 
 # Convert Directory

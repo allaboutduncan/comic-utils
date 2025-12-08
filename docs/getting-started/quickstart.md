@@ -1,6 +1,5 @@
 ---
 description: Quick install using Docker
-icon: bullseye-arrow
 ---
 
 # Quickstart
@@ -81,7 +80,4 @@ text
 </code></pre></td><td></td></tr><tr><td><pre><code>-e MONITOR=no
 </code></pre></td><td>If set to <code>yes</code> <a href="../features/folder-monitoring/">folder monitoring</a> will be enabled</td></tr><tr><td></td><td></td></tr></tbody></table>
 
-
-
 ### Paths
-

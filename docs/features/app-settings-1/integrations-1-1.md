@@ -1,6 +1,5 @@
 ---
 description: Update your compose file as detailed below to use the local GCD data
-icon: square-sliders
 ---
 
 # Updated CLU Settings for GCD

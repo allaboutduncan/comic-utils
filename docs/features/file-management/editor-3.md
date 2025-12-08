@@ -2,7 +2,6 @@
 description: >-
   As you browse and manage your library, there are additional features that will
   help you manage your collection
-icon: folder
 ---
 
 # Additional Features
@@ -17,7 +16,7 @@ For any directory that has more than more than 25 folders, you can now start typ
 
 Search your Comic folders to see if you have a particular issue or to see if you want to look for a better file. Search performance will be dependent on your library size until the cache is built.
 
-<figure><img src="../../.gitbook/assets/Screenshot 2025-08-20 122858.png" alt=""><figcaption></figcaption></figure>
+<figure><img src="/broken/files/mImjNrmDMjGAXw9MSQHn" alt=""><figcaption></figcaption></figure>
 
 When you start the app, a Search Cache will be built. Timing on this will be dependent on your library. During testing, a library with 100,000 files indexed in about 6-minutes. This will speed up search results.\
 \

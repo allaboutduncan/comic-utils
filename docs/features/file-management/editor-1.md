@@ -2,7 +2,6 @@
 description: >-
   Renaming has been updated to allow removing text, renaming specific files or
   renaming all files in a directory.
-icon: folder
 ---
 
 # Rename
@@ -45,7 +44,7 @@ You can also replace text in all filenames in a directory. In this example, the 
 
 Simply click the "Replace Text" button, enter the text to replace and then the replacement text. Click "Preview" to ensure your results are correct. Once you are satisfied with the results, click "Execute Rename" to process. Once completed, you'll see a summary of files renamed.
 
-<figure><img src="../../.gitbook/assets/Screenshot 2025-10-21 090921.png" alt=""><figcaption></figcaption></figure>
+<figure><img src="/broken/files/3TgTdN1jf7DIzGfSf5D5" alt=""><figcaption></figcaption></figure>
 
 text
 

@@ -1,6 +1,5 @@
 ---
 description: How can I see what folder monitoring is doing?
-icon: folders
 ---
 
 # Monitoring Logs

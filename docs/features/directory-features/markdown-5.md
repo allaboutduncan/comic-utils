@@ -1,6 +1,5 @@
 ---
 description: Remove unnecessary info from ComicInfo.xml
-icon: folder
 ---
 
 # Clean ComicInfo.xml
