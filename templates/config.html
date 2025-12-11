@@ -42,6 +42,10 @@
                     type="button" role="tab" aria-controls="system-perf" aria-selected="false">System and
                     Performance</button>
             </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link" id="styling-tab" data-bs-toggle="tab" data-bs-target="#styling"
+                    type="button" role="tab" aria-controls="styling" aria-selected="false">Styling</button>
+            </li>
         </ul>
 
         <div class="tab-content" id="configTabsContent">
@@ -675,6 +679,70 @@
                 <div class="mb-3 text-center">
                     <button type="submit" class="btn btn-primary">
                         <i class="bi bi-floppy"></i> Save System & Performance Settings
+                    </button>
+                </div>
+
+            </div>
+
+            <!-- ========================================== -->
+            <!-- TAB 4: Styling -->
+            <!-- ========================================== -->
+            <div class="tab-pane fade" id="styling" role="tabpanel" aria-labelledby="styling-tab">
+
+                <!-- Theme Selection -->
+                <div class="container p-4 border rounded shadow-sm mb-4">
+                    <h4>Theme Selection</h4>
+                    <p class="text-muted">Choose a Bootstrap theme for the application. Themes provided by <a href="https://bootswatch.com/" target="_blank">Bootswatch</a>.</p>
+
+                    <div class="row">
+                        <div class="col-md-6">
+                            <label for="bootstrapTheme" class="form-label">Bootstrap Theme:</label>
+                            <select class="form-select" id="bootstrapTheme" name="bootstrapTheme">
+                                <option value="default" {% if bootstrapTheme == 'default' %}selected{% endif %}>Default (Bootstrap)</option>
+                                <option value="cerulean" {% if bootstrapTheme == 'cerulean' %}selected{% endif %}>Cerulean</option>
+                                <option value="cosmo" {% if bootstrapTheme == 'cosmo' %}selected{% endif %}>Cosmo</option>
+                                <option value="cyborg" {% if bootstrapTheme == 'cyborg' %}selected{% endif %}>Cyborg (Dark)</option>
+                                <option value="darkly" {% if bootstrapTheme == 'darkly' %}selected{% endif %}>Darkly (Dark)</option>
+                                <option value="flatly" {% if bootstrapTheme == 'flatly' %}selected{% endif %}>Flatly</option>
+                                <option value="journal" {% if bootstrapTheme == 'journal' %}selected{% endif %}>Journal</option>
+                                <option value="litera" {% if bootstrapTheme == 'litera' %}selected{% endif %}>Litera</option>
+                                <option value="lumen" {% if bootstrapTheme == 'lumen' %}selected{% endif %}>Lumen</option>
+                                <option value="lux" {% if bootstrapTheme == 'lux' %}selected{% endif %}>Lux</option>
+                                <option value="materia" {% if bootstrapTheme == 'materia' %}selected{% endif %}>Materia</option>
+                                <option value="minty" {% if bootstrapTheme == 'minty' %}selected{% endif %}>Minty</option>
+                                <option value="morph" {% if bootstrapTheme == 'morph' %}selected{% endif %}>Morph</option>
+                                <option value="pulse" {% if bootstrapTheme == 'pulse' %}selected{% endif %}>Pulse</option>
+                                <option value="quartz" {% if bootstrapTheme == 'quartz' %}selected{% endif %}>Quartz (Dark)</option>
+                                <option value="sandstone" {% if bootstrapTheme == 'sandstone' %}selected{% endif %}>Sandstone</option>
+                                <option value="simplex" {% if bootstrapTheme == 'simplex' %}selected{% endif %}>Simplex</option>
+                                <option value="sketchy" {% if bootstrapTheme == 'sketchy' %}selected{% endif %}>Sketchy</option>
+                                <option value="slate" {% if bootstrapTheme == 'slate' %}selected{% endif %}>Slate (Dark)</option>
+                                <option value="solar" {% if bootstrapTheme == 'solar' %}selected{% endif %}>Solar (Dark)</option>
+                                <option value="spacelab" {% if bootstrapTheme == 'spacelab' %}selected{% endif %}>Spacelab</option>
+                                <option value="superhero" {% if bootstrapTheme == 'superhero' %}selected{% endif %}>Superhero (Dark)</option>
+                                <option value="united" {% if bootstrapTheme == 'united' %}selected{% endif %}>United</option>
+                                <option value="vapor" {% if bootstrapTheme == 'vapor' %}selected{% endif %}>Vapor (Dark)</option>
+                                <option value="yeti" {% if bootstrapTheme == 'yeti' %}selected{% endif %}>Yeti</option>
+                                <option value="zephyr" {% if bootstrapTheme == 'zephyr' %}selected{% endif %}>Zephyr</option>
+                            </select>
+                            <small class="form-text text-muted">
+                                Select a theme to change the look and feel of the application. Dark themes are marked.
+                            </small>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Current Theme:</label>
+                            <div class="border rounded p-3">
+                                <strong>{{ bootstrapTheme|default('default')|title }}</strong>
+                                <br><small class="text-muted">Save settings to apply a new theme.</small>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Save Button for Tab 4 -->
+                <div class="mb-3 text-center">
+                    <button type="submit" class="btn btn-primary">
+                        <i class="bi bi-floppy"></i> Save Styling Settings
                     </button>
                 </div>
 

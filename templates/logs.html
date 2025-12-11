@@ -1,0 +1,105 @@
+{% extends 'base.html' %}
+
+{% block title %}Logs{% endblock %}
+
+{% block content %}
+<div class="container-lg">
+    <h1 class="text-center mb-3">Logs</h1>
+
+    <!-- Nav Tabs -->
+    <ul class="nav nav-tabs" id="logTabs" role="tablist">
+        <li class="nav-item" role="presentation">
+            <button class="nav-link active" id="app-tab" data-bs-toggle="tab" data-bs-target="#app-logs-pane" type="button" role="tab" aria-controls="app-logs-pane" aria-selected="true">
+                App Logs <span id="app-log-status" class="badge bg-secondary ms-2">...</span>
+            </button>
+        </li>
+        <li class="nav-item" role="presentation">
+            <button class="nav-link" id="mon-tab" data-bs-toggle="tab" data-bs-target="#mon-logs-pane" type="button" role="tab" aria-controls="mon-logs-pane" aria-selected="false">
+                Monitor Logs <span id="mon-log-status" class="badge bg-secondary ms-2">...</span>
+            </button>
+        </li>
+    </ul>
+
+    <!-- Tab Content -->
+    <div class="tab-content" id="logTabsContent">
+        <div class="tab-pane fade show active" id="app-logs-pane" role="tabpanel" aria-labelledby="app-tab">
+            <div class="mt-2 mb-2">
+                <span class="text-muted">(showing last 1000 lines + live updates)</span>
+            </div>
+            <pre id="app-log-output" style="border:1px solid #ccc; padding:10px; height:600px; overflow:auto; background-color: black; color: white;">Loading app logs...</pre>
+        </div>
+        <div class="tab-pane fade" id="mon-logs-pane" role="tabpanel" aria-labelledby="mon-tab">
+            <div class="mt-2 mb-2">
+                <span class="text-muted">(showing last 1000 lines + live updates)</span>
+            </div>
+            <pre id="mon-log-output" style="border:1px solid #ccc; padding:10px; height:600px; overflow:auto; background-color: black; color: white;">Click tab to load monitor logs...</pre>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+{{ super() }}
+<script>
+    document.addEventListener("DOMContentLoaded", function() {
+        // Track EventSource instances and initialization state
+        const streams = {
+            app: { eventSource: null, initialized: false },
+            mon: { eventSource: null, initialized: false }
+        };
+
+        /**
+         * Initialize a log stream for a given log type
+         * @param {string} type - 'app' or 'mon'
+         */
+        function initLogStream(type) {
+            if (streams[type].initialized) return;
+
+            const endpoint = `/stream/${type}`;
+            const outputEl = document.getElementById(`${type}-log-output`);
+            const statusEl = document.getElementById(`${type}-log-status`);
+            let firstMessage = true;
+
+            statusEl.textContent = 'Connecting...';
+            statusEl.className = 'badge bg-warning';
+
+            const eventSource = new EventSource(endpoint);
+            streams[type].eventSource = eventSource;
+            streams[type].initialized = true;
+
+            eventSource.onopen = function() {
+                statusEl.textContent = 'Connected';
+                statusEl.className = 'badge bg-success';
+            };
+
+            eventSource.onmessage = function(event) {
+                if (firstMessage) {
+                    outputEl.textContent = '';
+                    firstMessage = false;
+                }
+                outputEl.textContent += event.data + "\n";
+                outputEl.scrollTop = outputEl.scrollHeight;
+            };
+
+            eventSource.onerror = function(error) {
+                console.error(`EventSource failed for ${type}:`, error);
+                statusEl.textContent = 'Error';
+                statusEl.className = 'badge bg-danger';
+                setTimeout(() => {
+                    statusEl.textContent = 'Reconnecting...';
+                    statusEl.className = 'badge bg-warning';
+                }, 5000);
+            };
+        }
+
+        // Initialize app logs immediately (active tab)
+        initLogStream('app');
+
+        // Initialize monitor logs when tab is shown (lazy load)
+        const monTab = document.getElementById('mon-tab');
+        monTab.addEventListener('shown.bs.tab', function() {
+            initLogStream('mon');
+        });
+    });
+</script>
+{% endblock %}

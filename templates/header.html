@@ -63,19 +63,11 @@
           </a>
         </li>
         <li class="nav-item">
-          <a href="{{ url_for('app_logs_page') }}"
-            class="nav-link {% if current_page == url_for('app_logs_page') %}active{% endif %}">
-            App Logs
+          <a href="{{ url_for('logs_page') }}"
+            class="nav-link {% if current_page == url_for('logs_page') %}active{% endif %}">
+            Logs
           </a>
         </li>
-        {% if monitor == "yes" %}
-        <li class="nav-item">
-          <a href="{{ url_for('mon_logs_page') }}"
-            class="nav-link {% if current_page == url_for('mon_logs_page') %}active{% endif %}">
-            Monitor Logs
-          </a>
-        </li>
-        {% endif %}
       </ul>
     </div>
   </div>

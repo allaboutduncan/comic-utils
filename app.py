@@ -4911,6 +4911,7 @@ def config_page():
         config["SETTINGS"]["ENABLE_AUTO_MOVE"] = str(request.form.get("enableAutoMove") == "on")
         config["SETTINGS"]["CUSTOM_MOVE_PATTERN"] = request.form.get("customMovePattern", "{publisher}/{series_name}/v{year}")
         config["SETTINGS"]["ENABLE_DEBUG_LOGGING"] = str(request.form.get("enableDebugLogging") == "on")
+        config["SETTINGS"]["BOOTSTRAP_THEME"] = request.form.get("bootstrapTheme", "default")
 
         write_config()  # Save changes to config.ini
         load_flask_config(app)  # Reload into Flask config
@@ -4960,6 +4961,7 @@ def config_page():
         enableAutoMove=settings.get("ENABLE_AUTO_MOVE", "False") == "True",
         customMovePattern=settings.get("CUSTOM_MOVE_PATTERN", "{publisher}/{series_name}/v{year}"),
         enableDebugLogging=settings.get("ENABLE_DEBUG_LOGGING", "False") == "True",
+        bootstrapTheme=settings.get("BOOTSTRAP_THEME", "default"),
         config=settings,  # Pass full settings dictionary
     )
 
@@ -5240,14 +5242,19 @@ def index():
 #        App Logs       #
 #########################
 # Route for app logs page
+@app.route('/logs')
+def logs_page():
+    """Combined logs page with tabs for app and monitor logs."""
+    return render_template('logs.html', config=app.config)
+
 @app.route('/app-logs')
 def app_logs_page():
-    return render_template('app-logs.html', config=app.config)
+    return redirect(url_for('logs_page'))
 
 # Route for monitor logs page
 @app.route('/mon-logs')
 def mon_logs_page():
-    return render_template('mon-logs.html', config=app.config)
+    return redirect(url_for('logs_page'))
 
 # Function to stream logs in real-time (tail last 1000 lines to prevent timeout)
 def stream_logs_file(log_file):
