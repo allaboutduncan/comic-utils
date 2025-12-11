@@ -894,6 +894,7 @@ function renderGrid(items) {
                     } else {
                         // For folders with files, show full menu
                         dropdownMenu.innerHTML = `
+                            <li><a class="dropdown-item folder-action-scan" href="#"><i class="bi bi-arrow-clockwise"></i> Scan Files</a></li>
                             <li><a class="dropdown-item folder-action-thumbnail" href="#"><i class="bi bi-image"></i> Generate Thumbnail</a></li>
                             <li><a class="dropdown-item folder-action-missing" href="#"><i class="bi bi-file-earmark-text"></i> Missing File Check</a></li>
                             <li><hr class="dropdown-divider"></li>
@@ -3050,6 +3051,7 @@ let currentEditFilePath = null; // Store the file path being edited
 let comicReaderSwiper = null;
 let currentComicPath = null;
 let currentComicPageCount = 0;
+let highestPageViewed = 0;
 
 /**
  * Encode a file path for URL while preserving slashes
@@ -3069,6 +3071,7 @@ function encodeFilePath(path) {
  */
 function openComicReader(filePath) {
     currentComicPath = filePath;
+    highestPageViewed = 0;
     const modal = document.getElementById('comicReaderModal');
     const titleEl = document.getElementById('comicReaderTitle');
     const pageInfoEl = document.getElementById('comicReaderPageInfo');
@@ -3166,6 +3169,12 @@ function initializeComicReader(pageCount) {
                 const currentIndex = this.activeIndex;
                 pageInfoEl.textContent = `Page ${currentIndex + 1} of ${pageCount}`;
 
+                // Track highest page viewed for read progress
+                if (currentIndex > highestPageViewed) {
+                    highestPageViewed = currentIndex;
+                }
+                updateReadingProgress();
+
                 // Load current page
                 loadComicPage(currentIndex);
 
@@ -3187,6 +3196,7 @@ function initializeComicReader(pageCount) {
             },
             init: function () {
                 pageInfoEl.textContent = `Page 1 of ${pageCount}`;
+                updateReadingProgress();
 
                 // Load first page
                 loadComicPage(0);
@@ -3201,6 +3211,18 @@ function initializeComicReader(pageCount) {
             }
         }
     });
+}
+
+/**
+ * Update reading progress bar display
+ */
+function updateReadingProgress() {
+    if (currentComicPageCount === 0) return;
+    const progress = ((highestPageViewed + 1) / currentComicPageCount) * 100;
+    const progressBar = document.querySelector('.comic-reader-progress-fill');
+    const progressText = document.querySelector('.comic-reader-progress-text');
+    if (progressBar) progressBar.style.width = `${progress}%`;
+    if (progressText) progressText.textContent = `${Math.round(progress)}%`;
 }
 
 /**
@@ -3288,6 +3310,19 @@ function unloadDistantPages(currentIndex, pageCount) {
  * Close the comic reader
  */
 function closeComicReader() {
+    // Check if 90% or more was read before closing
+    if (currentComicPath && currentComicPageCount > 0) {
+        const progress = ((highestPageViewed + 1) / currentComicPageCount) * 100;
+        if (progress >= 90) {
+            // Mark as read (fire and forget)
+            fetch('/api/mark-comic-read', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ path: currentComicPath })
+            }).catch(err => console.error('Failed to mark comic as read:', err));
+        }
+    }
+
     const modal = document.getElementById('comicReaderModal');
     modal.style.display = 'none';
     document.body.style.overflow = ''; // Restore scrolling
@@ -3301,6 +3336,7 @@ function closeComicReader() {
     // Clear state
     currentComicPath = null;
     currentComicPageCount = 0;
+    highestPageViewed = 0;
 }
 
 // Setup close button handler

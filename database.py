@@ -1748,3 +1748,37 @@ def clear_stats_cache():
     except Exception as e:
         app_logger.error(f"Failed to clear stats cache: {e}")
         return False
+
+
+def clear_stats_cache_keys(keys):
+    """
+    Clear specific cache keys while preserving others.
+
+    Args:
+        keys: List of cache keys to invalidate (e.g., ['library_stats', 'reading_history'])
+
+    Returns:
+        True if successful, False otherwise
+    """
+    if not keys:
+        return True
+
+    try:
+        conn = get_db_connection()
+        if not conn:
+            return False
+
+        c = conn.cursor()
+        placeholders = ','.join('?' * len(keys))
+        c.execute(f'DELETE FROM stats_cache WHERE key IN ({placeholders})', keys)
+
+        conn.commit()
+        count = c.rowcount
+        conn.close()
+
+        app_logger.info(f"Cleared stats cache keys {keys} ({count} entries)")
+        return True
+
+    except Exception as e:
+        app_logger.error(f"Failed to clear stats cache keys {keys}: {e}")
+        return False

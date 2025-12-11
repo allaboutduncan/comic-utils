@@ -46,7 +46,8 @@ from database import (init_db, get_db_connection, get_recent_files, log_recent_f
                       get_search_cache, save_search_cache, clear_search_cache,
                       get_rebuild_schedule, save_rebuild_schedule as db_save_rebuild_schedule, update_last_rebuild,
                       get_browse_cache, save_browse_cache, invalidate_browse_cache, clear_browse_cache,
-                      get_path_counts, get_path_counts_batch, get_directory_children, clear_stats_cache)
+                      get_path_counts, get_path_counts_batch, get_directory_children, clear_stats_cache,
+                      clear_stats_cache_keys, mark_issue_read, get_issues_read)
 from models.stats import get_library_stats, get_file_type_distribution, get_top_publishers, get_reading_history_stats
 from concurrent.futures import ThreadPoolExecutor
 from file_watcher import FileWatcher
@@ -602,10 +603,11 @@ def cached_search(query):
 def filesystem_search(query):
     """Fallback filesystem search when index is not ready"""
     import time
-    
+
     query_lower = query.lower()
     results = []
-    excluded_extensions = {".png", ".jpg", ".jpeg", ".gif", ".html", ".css", ".ds_store", "cvinfo", ".json", ".db"}
+    excluded_extensions = {".png", ".jpg", ".jpeg", ".gif", ".html", ".css", ".ds_store", ".json", ".db"}
+    allowed_files = {"missing.txt", "cvinfo"}
     
     try:
         for root, dirs, files in os.walk(DATA_DIR):
@@ -639,9 +641,9 @@ def filesystem_search(query):
                 if file_name.startswith('.') or file_name.startswith('_'):
                     continue
                 
-                if any(file_name.lower().endswith(ext) for ext in excluded_extensions):
+                if file_name.lower() not in allowed_files and any(file_name.lower().endswith(ext) for ext in excluded_extensions):
                     continue
-                
+
                 if query_lower in file_name.lower():
                     rel_path = os.path.relpath(root, DATA_DIR)
                     if rel_path == '.':
@@ -714,7 +716,8 @@ def get_directory_listing(path):
             # Single pass to categorize entries
             directories = []
             files = []
-            excluded_extensions = {".png", ".jpg", ".jpeg", ".gif", ".html", ".css", ".ds_store", "cvinfo", ".json", ".db"}
+            excluded_extensions = {".png", ".jpg", ".jpeg", ".gif", ".html", ".css", ".ds_store", ".json", ".db"}
+            allowed_files = {"missing.txt", "cvinfo"}
 
             for entry in entries:
                 if entry.startswith(('.', '_')):
@@ -726,8 +729,8 @@ def get_directory_listing(path):
                     if stat.st_mode & 0o40000:  # Directory
                         directories.append(entry)
                     else:  # File
-                        # Check if file should be excluded
-                        if not any(entry.lower().endswith(ext) for ext in excluded_extensions):
+                        # Check if file should be excluded (but allow specific files like missing.txt and cvinfo)
+                        if entry.lower() in allowed_files or not any(entry.lower().endswith(ext) for ext in excluded_extensions):
                             files.append({
                                 "name": entry,
                                 "size": stat.st_size
@@ -1390,7 +1393,8 @@ def build_file_index():
     start_time = time.time()
 
     file_index.clear()
-    excluded_extensions = {".png", ".jpg", ".jpeg", ".gif", ".html", ".css", ".ds_store", "cvinfo", ".json", ".db"}
+    excluded_extensions = {".png", ".jpg", ".jpeg", ".gif", ".html", ".css", ".ds_store", ".json", ".db"}
+    allowed_files = {"missing.txt", "cvinfo"}
 
     # Track comic files for recent files database
     comic_files = []
@@ -1422,13 +1426,13 @@ def build_file_index():
                 except (OSError, IOError):
                     continue
 
-            # Index files (excluding certain extensions)
+            # Index files (excluding certain extensions, but allow specific files)
             for name in files:
                 if name.startswith('.') or name.startswith('_'):
                     continue
 
-                # Skip excluded file types
-                if any(name.lower().endswith(ext) for ext in excluded_extensions):
+                # Skip excluded file types (but allow specific files like missing.txt and cvinfo)
+                if name.lower() not in allowed_files and any(name.lower().endswith(ext) for ext in excluded_extensions):
                     continue
 
                 try:
@@ -1541,7 +1545,8 @@ def update_index_on_move(old_path, new_path):
         if old_in_data and new_in_data:
             app_logger.info(f"🔄 Updating index (moved within /data): {old_path} -> {new_path}")
 
-            excluded_extensions = {".png", ".jpg", ".jpeg", ".gif", ".html", ".css", ".ds_store", "cvinfo", ".json", ".db", ".xml"}
+            excluded_extensions = {".png", ".jpg", ".jpeg", ".gif", ".html", ".css", ".ds_store", ".json", ".db", ".xml"}
+            allowed_files = {"missing.txt", "cvinfo"}
             is_file = os.path.isfile(new_path)
 
             if is_file:
@@ -1549,8 +1554,8 @@ def update_index_on_move(old_path, new_path):
                 file_name = os.path.basename(new_path)
                 _, ext = os.path.splitext(file_name.lower())
 
-                # Skip excluded files
-                if ext in excluded_extensions or file_name.startswith(('.', '-', '_')):
+                # Skip excluded files (but allow specific files like missing.txt and cvinfo)
+                if file_name.lower() not in allowed_files and (ext in excluded_extensions or file_name.startswith(('.', '-', '_'))):
                     return
 
                 parent = os.path.dirname(new_path)
@@ -1615,16 +1620,17 @@ def update_index_on_create(path):
         path: Path of new item
     """
     try:
-        excluded_extensions = {".png", ".jpg", ".jpeg", ".gif", ".html", ".css", ".ds_store", "cvinfo", ".json", ".db", ".xml"}
+        excluded_extensions = {".png", ".jpg", ".jpeg", ".gif", ".html", ".css", ".ds_store", ".json", ".db", ".xml"}
+        allowed_files = {"missing.txt", "cvinfo"}
 
         is_file = os.path.isfile(path)
         name = os.path.basename(path)
         parent = os.path.dirname(path)
 
         if is_file:
-            # Check if file should be indexed
+            # Check if file should be indexed (but allow specific files like missing.txt and cvinfo)
             _, ext = os.path.splitext(name.lower())
-            if ext in excluded_extensions or name.startswith(('.', '-', '_')):
+            if name.lower() not in allowed_files and (ext in excluded_extensions or name.startswith(('.', '-', '_'))):
                 return
 
             size = os.path.getsize(path) if os.path.exists(path) else None
@@ -1653,7 +1659,7 @@ def update_index_on_create(path):
                             continue
 
                         _, ext = os.path.splitext(file_name.lower())
-                        if ext in excluded_extensions:
+                        if file_name.lower() not in allowed_files and ext in excluded_extensions:
                             continue
 
                         file_path = os.path.join(root, file_name)
@@ -2914,7 +2920,8 @@ def api_scan_directory():
         scan_start = time.time()
 
         # Excluded extensions (same as build_file_index)
-        excluded_extensions = {".png", ".jpg", ".jpeg", ".gif", ".html", ".css", ".ds_store", "cvinfo", ".json", ".db", ".xml"}
+        excluded_extensions = {".png", ".jpg", ".jpeg", ".gif", ".html", ".css", ".ds_store", ".json", ".db", ".xml"}
+        allowed_files = {"missing.txt", "cvinfo"}
 
         # Delete all existing entries under this path (including the path itself)
         delete_file_index_entry(path)
@@ -2964,9 +2971,9 @@ def api_scan_directory():
                 if f.startswith(('.', '_')):
                     continue
 
-                # Skip excluded extensions
+                # Skip excluded extensions (but allow specific files like missing.txt and cvinfo)
                 _, ext = os.path.splitext(f.lower())
-                if ext in excluded_extensions:
+                if f.lower() not in allowed_files and ext in excluded_extensions:
                     continue
 
                 full_path = os.path.join(root, f)
@@ -3115,7 +3122,8 @@ def api_browse_recursive():
         return jsonify({"error": "Invalid path"}), 400
 
     # Define excluded extensions and prefixes
-    excluded_extensions = {".png", ".jpg", ".jpeg", ".gif", ".html", ".css", ".ds_store", "cvinfo", ".json", ".db", ".xml"}
+    excluded_extensions = {".png", ".jpg", ".jpeg", ".gif", ".html", ".css", ".ds_store", ".json", ".db", ".xml"}
+    allowed_files = {"missing.txt", "cvinfo"}
 
     files = []
 
@@ -3125,8 +3133,8 @@ def api_browse_recursive():
             # Get file extension (lowercase)
             _, ext = os.path.splitext(filename.lower())
 
-            # Check if file should be excluded
-            if ext in excluded_extensions or filename.lower() == "cvinfo":
+            # Check if file should be excluded (but allow specific files like missing.txt and cvinfo)
+            if filename.lower() not in allowed_files and ext in excluded_extensions:
                 continue
             if filename.startswith(('.', '-', '_')):
                 continue
@@ -3360,6 +3368,45 @@ def read_comic_info(comic_path):
         import traceback
         app_logger.error(traceback.format_exc())
         return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/mark-comic-read', methods=['POST'])
+def api_mark_comic_read():
+    """Mark a comic as read in the database."""
+    data = request.get_json()
+    comic_path = data.get('path')
+
+    if not comic_path:
+        return jsonify({"error": "Missing path parameter"}), 400
+
+    try:
+        mark_issue_read(comic_path)
+        clear_stats_cache_keys(['library_stats', 'reading_history'])  # Only invalidate reading-related cache
+        app_logger.info(f"Marked comic as read: {comic_path}")
+        return jsonify({"success": True})
+    except Exception as e:
+        app_logger.error(f"Error marking comic as read: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/recently-read')
+def api_recently_read():
+    """Get recently read issues with metadata for display."""
+    limit = request.args.get('limit', 20, type=int)
+    issues = get_issues_read()[:limit]
+
+    result = []
+    for issue in issues:
+        path = issue['issue_path']
+        if os.path.exists(path):
+            result.append({
+                'name': os.path.basename(path),
+                'path': path,
+                'read_at': issue['read_at'],
+                'thumbnail_url': url_for('get_thumbnail', path=path)
+            })
+    return jsonify(result)
+
 
 def generate_thumbnail_task(file_path, cache_path):
     """Background task to generate thumbnail."""
