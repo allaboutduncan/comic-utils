@@ -304,7 +304,7 @@ function createListItem(itemName, fullPath, type, panel, isDraggable) {
 
     // Add info button for detailed CBZ information
     const infoBtn = document.createElement("button");
-    infoBtn.className = "btn btn-sm btn-outline-secondary";
+    infoBtn.className = "btn btn-sm btn-outline-info";
     infoBtn.innerHTML = '<i class="bi bi-eye"></i>';
     infoBtn.title = "CBZ Information";
     infoBtn.setAttribute("type", "button");
@@ -329,7 +329,7 @@ function createListItem(itemName, fullPath, type, panel, isDraggable) {
     // Add GCD search button for metadata retrieval (only if GCD is available)
     if (gcdMysqlAvailable) {
       const gcdBtn = document.createElement("button");
-      gcdBtn.className = "btn btn-sm btn-outline-info";
+      gcdBtn.className = "btn btn-sm btn-outline-success";
       gcdBtn.innerHTML = '<i class="bi bi-cloud-download"></i>';
       gcdBtn.title = "Search GCD for Metadata";
       gcdBtn.setAttribute("type", "button");
@@ -419,7 +419,7 @@ function createListItem(itemName, fullPath, type, panel, isDraggable) {
     // Add GCD search button for directories (but not for Parent directory, and only if GCD is available)
     if (fileData.name !== "Parent" && gcdMysqlAvailable) {
       const gcdDirBtn = document.createElement("button");
-      gcdDirBtn.className = "btn btn-sm btn-outline-info";
+      gcdDirBtn.className = "btn btn-sm btn-outline-success";
       gcdDirBtn.innerHTML = '<i class="bi bi-cloud-download"></i>';
       gcdDirBtn.title = "Search GCD for All Comics in Directory";
       gcdDirBtn.setAttribute("type", "button");
@@ -577,7 +577,7 @@ function createListItem(itemName, fullPath, type, panel, isDraggable) {
 
   if (fileData.name !== "Parent") {
     let pencil = document.createElement("button");
-    pencil.className = "btn btn-sm btn-outline-secondary";
+    pencil.className = "btn btn-sm btn-outline-dark";
     pencil.innerHTML = '<i class="bi bi-pencil"></i>';
     pencil.title = "Edit filename";
     pencil.setAttribute("type", "button");
@@ -1366,7 +1366,7 @@ function loadRecentFiles(panel) {
 
           // Add CBZ info button
           const infoBtn = document.createElement('button');
-          infoBtn.className = 'btn btn-sm btn-outline-secondary';
+          infoBtn.className = 'btn btn-sm btn-outline-info';
           infoBtn.innerHTML = '<i class="bi bi-eye"></i>';
           infoBtn.title = 'CBZ Information';
           infoBtn.setAttribute('type', 'button');
@@ -1382,7 +1382,7 @@ function loadRecentFiles(panel) {
           // Add GCD search button (if available)
           if (typeof gcdMysqlAvailable !== 'undefined' && gcdMysqlAvailable) {
             const gcdBtn = document.createElement('button');
-            gcdBtn.className = 'btn btn-sm btn-outline-info';
+            gcdBtn.className = 'btn btn-sm btn-outline-success';
             gcdBtn.innerHTML = '<i class="bi bi-cloud-download"></i>';
             gcdBtn.title = 'Search GCD for Metadata';
             gcdBtn.setAttribute('type', 'button');
@@ -1409,7 +1409,7 @@ function loadRecentFiles(panel) {
 
           // Add edit filename button
           const pencilBtn = document.createElement('button');
-          pencilBtn.className = 'btn btn-sm btn-outline-secondary';
+          pencilBtn.className = 'btn btn-sm btn-outline-dark';
           pencilBtn.innerHTML = '<i class="bi bi-pencil"></i>';
           pencilBtn.title = 'Edit filename';
           pencilBtn.setAttribute('type', 'button');
@@ -6521,11 +6521,11 @@ function generateCardHTML(imagePath, imageData) {
                               <button type="button" class="btn btn-outline-primary btn-sm" onclick="cropImageFreeForm(this)" title="Free Form Crop">
                                   <i class="bi bi-crop"></i> Free
                               </button>
-                              <button type="button" class="btn btn-outline-secondary btn-sm" onclick="cropImageLeft(this)" title="Crop Image Left">
+                              <button type="button" class="btn btn-outline-primary btn-sm" onclick="cropImageLeft(this)" title="Crop Image Left">
                                   <i class="bi bi-arrow-bar-left"></i> Left
                               </button>
-                              <button type="button" class="btn btn-outline-secondary" onclick="cropImageCenter(this)" title="Crop Image Center">Middle</button>
-                              <button type="button" class="btn btn-outline-secondary btn-sm" onclick="cropImageRight(this)" title="Crop Image Right">
+                              <button type="button" class="btn btn-outline-primary" onclick="cropImageCenter(this)" title="Crop Image Center">Middle</button>
+                              <button type="button" class="btn btn-outline-primary btn-sm" onclick="cropImageRight(this)" title="Crop Image Right">
                                   Right <i class="bi bi-arrow-bar-right"></i>
                               </button>
                               <button type="button" class="btn btn-outline-danger btn-sm" onclick="deleteCardImage(this)">

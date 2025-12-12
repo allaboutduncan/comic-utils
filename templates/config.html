@@ -730,10 +730,18 @@
                             </small>
                         </div>
                         <div class="col-md-6">
-                            <label class="form-label">Current Theme:</label>
-                            <div class="border rounded p-3">
-                                <strong>{{ bootstrapTheme|default('default')|title }}</strong>
-                                <br><small class="text-muted">Save settings to apply a new theme.</small>
+                            <label class="form-label">Theme Preview:</label>
+                            <div class="border rounded p-2 text-center">
+                                <img id="themePreviewImg"
+                                     src="https://bootswatch.com/{{ bootstrapTheme|default('default') }}/thumbnail.png"
+                                     alt="Theme preview"
+                                     class="img-fluid rounded"
+                                     style="max-height: 200px;"
+                                     onerror="this.src='https://bootswatch.com/default/thumbnail.png'">
+                                <div class="mt-2">
+                                    <strong id="themePreviewName">{{ bootstrapTheme|default('default')|title }}</strong>
+                                    <br><small class="text-muted">Save settings to apply this theme.</small>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -1102,5 +1110,35 @@
             previewElement.textContent = 'Invalid pattern';
         }
     }
+
+    // Theme Preview Functions
+    function initializeThemePreview() {
+        const themeSelect = document.getElementById('bootstrapTheme');
+        if (themeSelect) {
+            themeSelect.addEventListener('change', updateThemePreview);
+        }
+    }
+
+    function updateThemePreview() {
+        const themeSelect = document.getElementById('bootstrapTheme');
+        const previewImg = document.getElementById('themePreviewImg');
+        const previewName = document.getElementById('themePreviewName');
+
+        if (!themeSelect || !previewImg || !previewName) return;
+
+        const theme = themeSelect.value;
+        const themeName = themeSelect.options[themeSelect.selectedIndex].text;
+
+        // Update thumbnail image
+        previewImg.src = `https://bootswatch.com/${theme}/thumbnail.png`;
+
+        // Update theme name (remove "(Dark)" suffix for display)
+        previewName.textContent = themeName.replace(' (Dark)', '');
+    }
+
+    // Initialize theme preview on page load
+    document.addEventListener('DOMContentLoaded', function() {
+        initializeThemePreview();
+    });
 </script>
 {% endblock %}

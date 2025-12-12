@@ -887,18 +887,18 @@ function renderGrid(items) {
                     // If at root level, show Missing File Check, Scan Files, and Generate All Missing Thumbnails
                     if (isRootLevel) {
                         dropdownMenu.innerHTML = `
-                            <li><a class="dropdown-item folder-action-scan" href="#"><i class="bi bi-arrow-clockwise"></i> Scan Files</a></li>
                             <li><a class="dropdown-item folder-action-gen-all-thumbs" href="#"><i class="bi bi-images"></i> Generate All Missing Thumbnails</a></li>
+                            <li><a class="dropdown-item folder-action-scan" href="#"><i class="bi bi-arrow-clockwise"></i> Scan Files</a></li>
                             <li><a class="dropdown-item folder-action-missing" href="#"><i class="bi bi-file-earmark-text"></i> Missing File Check</a></li>
                         `;
                     } else {
                         // For folders with files, show full menu
                         dropdownMenu.innerHTML = `
-                            <li><a class="dropdown-item folder-action-scan" href="#"><i class="bi bi-arrow-clockwise"></i> Scan Files</a></li>
-                            <li><a class="dropdown-item folder-action-thumbnail" href="#"><i class="bi bi-image"></i> Generate Thumbnail</a></li>
-                            <li><a class="dropdown-item folder-action-missing" href="#"><i class="bi bi-file-earmark-text"></i> Missing File Check</a></li>
-                            <li><hr class="dropdown-divider"></li>
-                            <li><a class="dropdown-item folder-action-delete text-danger" href="#"><i class="bi bi-trash"></i> Delete</a></li>
+                        <li><a class="dropdown-item folder-action-thumbnail" href="#"><i class="bi bi-image"></i> Generate Thumbnail</a></li>    
+                        <li><a class="dropdown-item folder-action-scan" href="#"><i class="bi bi-arrow-clockwise"></i> Scan Files</a></li>
+                        <li><a class="dropdown-item folder-action-missing" href="#"><i class="bi bi-file-earmark-text"></i> Missing File Check</a></li>
+                        <li><hr class="dropdown-divider"></li>
+                        <li><a class="dropdown-item folder-action-delete text-danger" href="#"><i class="bi bi-trash"></i> Delete</a></li>
                         `;
 
                         // Bind Generate Thumbnail action
@@ -2948,28 +2948,28 @@ function handleEditModalUpload(files) {
         method: 'POST',
         body: formData
     })
-    .then(response => response.json())
-    .then(data => {
-        hideUploadToast();
+        .then(response => response.json())
+        .then(data => {
+            hideUploadToast();
 
-        if (data.success && data.uploaded.length > 0) {
-            showSuccess(`Uploaded ${data.uploaded.length} file(s)`);
+            if (data.success && data.uploaded.length > 0) {
+                showSuccess(`Uploaded ${data.uploaded.length} file(s)`);
 
-            // Add cards for each uploaded file
-            data.uploaded.forEach(file => {
-                addUploadedFileCard(file.path, file.name);
-            });
-        } else if (data.total_skipped > 0) {
-            showError(`Skipped ${data.total_skipped} file(s): invalid type`);
-        } else {
-            showError('Upload failed: ' + (data.error || 'Unknown error'));
-        }
-    })
-    .catch(error => {
-        hideUploadToast();
-        console.error('Upload error:', error);
-        showError('Upload failed: ' + error.message);
-    });
+                // Add cards for each uploaded file
+                data.uploaded.forEach(file => {
+                    addUploadedFileCard(file.path, file.name);
+                });
+            } else if (data.total_skipped > 0) {
+                showError(`Skipped ${data.total_skipped} file(s): invalid type`);
+            } else {
+                showError('Upload failed: ' + (data.error || 'Unknown error'));
+            }
+        })
+        .catch(error => {
+            hideUploadToast();
+            console.error('Upload error:', error);
+            showError('Upload failed: ' + error.message);
+        });
 }
 
 /**
@@ -2987,23 +2987,23 @@ function addUploadedFileCard(filePath, fileName) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ target: filePath })
     })
-    .then(response => response.json())
-    .then(data => {
-        if (data.success) {
-            // Generate card HTML using existing function
-            const cardHTML = generateCardHTML(fileName, data.imageData);
-            container.insertAdjacentHTML('beforeend', cardHTML);
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                // Generate card HTML using existing function
+                const cardHTML = generateCardHTML(fileName, data.imageData);
+                container.insertAdjacentHTML('beforeend', cardHTML);
 
-            // Re-sort cards
-            sortInlineEditCards();
-        } else {
-            showError('Failed to load uploaded image: ' + (data.error || 'Unknown'));
-        }
-    })
-    .catch(error => {
-        console.error('Error loading uploaded image:', error);
-        showError('Failed to load uploaded image');
-    });
+                // Re-sort cards
+                sortInlineEditCards();
+            } else {
+                showError('Failed to load uploaded image: ' + (data.error || 'Unknown'));
+            }
+        })
+        .catch(error => {
+            console.error('Error loading uploaded image:', error);
+            showError('Failed to load uploaded image');
+        });
 }
 
 /**
@@ -3531,14 +3531,13 @@ async function loadFavoritePublishers() {
                         </button>
                     </div>
                     <div class="dashboard-card-body">
-                        <div class="text-truncate item-name">${pub.name}</div>
-                        <small class="text-muted item-meta${pub.folderCount === null ? ' metadata-loading' : ''}">${
-                            pub.folderCount === null ? 'Loading...' :
-                            [
-                                pub.folderCount > 0 ? `${pub.folderCount} folder${pub.folderCount !== 1 ? 's' : ''}` : '',
-                                pub.fileCount > 0 ? `${pub.fileCount} file${pub.fileCount !== 1 ? 's' : ''}` : ''
-                            ].filter(Boolean).join(' | ') || 'Empty'
-                        }</small>
+                        <div class="text-truncate text-dark item-name">${pub.name}</div>
+                        <small class="text-muted item-meta${pub.folderCount === null ? ' metadata-loading' : ''}">${pub.folderCount === null ? 'Loading...' :
+                    [
+                        pub.folderCount > 0 ? `${pub.folderCount} folder${pub.folderCount !== 1 ? 's' : ''}` : '',
+                        pub.fileCount > 0 ? `${pub.fileCount} file${pub.fileCount !== 1 ? 's' : ''}` : ''
+                    ].filter(Boolean).join(' | ') || 'Empty'
+                }</small>
                     </div>
                 </div>
             </div>
@@ -3729,7 +3728,7 @@ async function loadWantToRead() {
                         </button>
                     </div>
                     <div class="dashboard-card-body">
-                        <div class="text-truncate item-name">${name}</div>
+                        <div class="text-truncate text-darkitem-name">${name}</div>
                         <small class="text-muted">${item.type === 'folder' ? 'Folder' : 'Comic'}</small>
                     </div>
                 </div>
