@@ -141,7 +141,9 @@ def process_download(task):
             file_path = download_mega(final_url, download_id, dest_filename)
         elif "pixeldrain.com" in final_url:
             file_path = download_pixeldrain(final_url, download_id, dest_filename)
-        elif "comicfiles.ru" in final_url:              # GetComics’ direct host
+        elif "comicbookplus.com" in final_url:
+            file_path = download_comicbookplus(final_url, download_id, dest_filename)
+        elif "comicfiles.ru" in final_url:              # GetComics' direct host
             file_path = download_getcomics(final_url, download_id)
         else:                                           # fall-back
             file_path = download_getcomics(final_url, download_id)
@@ -646,6 +648,124 @@ def download_pixeldrain(url: str, download_id: str, dest_name: Optional[str] = N
     except Exception as e:
         monitor_logger.error(f"Unexpected error during PixelDrain download: {e}")
         raise
+
+# -------------------------------
+# ComicBookPlus support
+# -------------------------------
+def download_comicbookplus(url: str, download_id: str, dest_name: Optional[str] = None) -> str:
+    """
+    Download a file from comicbookplus.com.
+    URL format: https://box01.comicbookplus.com/dload/?f=...&t=cbr&n=Black_Cat_01&sess=...
+    The 'n' parameter contains the filename and 't' contains the extension.
+    """
+    parsed = urlparse(url)
+    query_params = dict(param.split('=') for param in parsed.query.split('&') if '=' in param)
+
+    # Extract filename from URL params
+    name_param = query_params.get('n', '')
+    type_param = query_params.get('t', 'cbr')
+
+    if dest_name:
+        filename = secure_filename(dest_name)
+    elif name_param:
+        # URL decode the name and add extension
+        filename = secure_filename(unquote(name_param))
+        if not filename.lower().endswith(f'.{type_param.lower()}'):
+            filename = f"{filename}.{type_param}"
+    else:
+        filename = f"comicbookplus_{uuid.uuid4()}.{type_param}"
+
+    # Initialize progress
+    download_progress.setdefault(download_id, {})
+    download_progress[download_id].update({
+        'filename': filename,
+        'progress': 0,
+        'bytes_downloaded': 0,
+        'bytes_total': 0,
+        'status': 'in_progress'
+    })
+
+    # Setup session with retries
+    session = _requests_session()
+
+    # Choose output path
+    out_path = os.path.join(DOWNLOAD_DIR, filename)
+    base, ext = os.path.splitext(out_path)
+    n = 1
+    while os.path.exists(out_path):
+        out_path = f"{base}_{n}{ext}"
+        n += 1
+    tmp_path = out_path + ".part"
+
+    download_progress[download_id]['filename'] = out_path
+
+    monitor_logger.info(f"ComicBookPlus download → {url} (filename={filename})")
+
+    chunk_size = 1024 * 1024  # 1 MiB chunks
+
+    try:
+        with session.get(url, stream=True, headers=headers,
+                         allow_redirects=True, timeout=(30, 300)) as r:
+            r.raise_for_status()
+
+            total = int(r.headers.get('Content-Length', 0))
+            if total:
+                download_progress[download_id]['bytes_total'] = total
+
+            # Check Content-Disposition for filename override
+            cd = r.headers.get('Content-Disposition', '')
+            if cd:
+                m = re.search(r'filename\*?=(?:UTF-8\'\')?"?([^";]+)"?', cd)
+                if m:
+                    cd_filename = secure_filename(unquote(m.group(1)))
+                    if cd_filename:
+                        # Update path with new filename
+                        out_path = os.path.join(DOWNLOAD_DIR, cd_filename)
+                        base, ext = os.path.splitext(out_path)
+                        n = 1
+                        while os.path.exists(out_path):
+                            out_path = f"{base}_{n}{ext}"
+                            n += 1
+                        tmp_path = out_path + ".part"
+                        download_progress[download_id]['filename'] = out_path
+                        monitor_logger.info(f"Using Content-Disposition filename: {cd_filename}")
+
+            done = 0
+            with open(tmp_path, 'wb') as f:
+                for chunk in r.iter_content(chunk_size=chunk_size):
+                    if download_progress.get(download_id, {}).get('cancelled'):
+                        monitor_logger.info(f"Download {download_id} cancelled")
+                        f.close()
+                        if os.path.exists(tmp_path):
+                            os.remove(tmp_path)
+                        download_progress[download_id]['status'] = 'cancelled'
+                        return None
+                    if chunk:
+                        f.write(chunk)
+                        done += len(chunk)
+                        download_progress[download_id]['bytes_downloaded'] = done
+                        if total:
+                            download_progress[download_id]['progress'] = int(done / total * 100)
+
+        os.replace(tmp_path, out_path)
+        download_progress[download_id]['progress'] = 100
+        monitor_logger.info(f"ComicBookPlus download complete → {out_path}")
+        return out_path
+
+    except requests.Timeout as e:
+        monitor_logger.error(f"Timeout during ComicBookPlus download: {e}")
+        download_progress[download_id]['status'] = 'error'
+        raise Exception(f"Timeout during download: {e}")
+    except requests.RequestException as e:
+        monitor_logger.error(f"Request error during ComicBookPlus download: {e}")
+        download_progress[download_id]['status'] = 'error'
+        raise Exception(f"Request error during download: {e}")
+    except Exception as e:
+        monitor_logger.error(f"Unexpected error during ComicBookPlus download: {e}")
+        download_progress[download_id]['status'] = 'error'
+        raise
+    finally:
+        session.close()
 
 # -------------------------------
 # API Endpoints
