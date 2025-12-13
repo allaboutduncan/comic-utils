@@ -7336,21 +7336,21 @@ def search_comicvine_metadata_with_selection():
             "error": str(e)
         }), 500
 
-@app.route('/stats')
-def stats_page():
+@app.route('/insights')
+def insights_page():
     library_stats = get_library_stats()
     file_types = get_file_type_distribution()
     top_publishers = get_top_publishers()
     reading_history = get_reading_history_stats()
 
-    return render_template('stats.html',
+    return render_template('insights.html',
                            library_stats=library_stats,
                            file_types=file_types,
                            top_publishers=top_publishers,
                            reading_history=reading_history)
 
-@app.route('/api/stats')
-def api_stats():
+@app.route('/api/insights')
+def api_insights():
     """Return library stats as JSON for Homepage custom API widget."""
     library_stats = get_library_stats()
     if not library_stats:
