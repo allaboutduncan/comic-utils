@@ -386,7 +386,7 @@ def get_directory_children(parent_path, max_retries=3):
                 SELECT name, path, type, size, has_thumbnail
                 FROM file_index
                 WHERE parent = ?
-                ORDER BY type DESC, name ASC
+                ORDER BY type DESC, name COLLATE NOCASE ASC
             ''', (parent_path,))
 
             rows = c.fetchall()

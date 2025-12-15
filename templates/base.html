@@ -5,6 +5,17 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+  <!-- PWA / Add to Home Screen support -->
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Comic Library">
+  <meta name="theme-color" content="#212529">
+  <link rel="manifest" href="/manifest.json">
+  <link rel="icon" type="image/png" href="/static/images/clu.png">
+  <link rel="apple-touch-icon" href="/static/images/clu.png">
+
   <title>{% block title %}Comic Library Utilities{% endblock %}</title>
   {% set theme = config.get('BOOTSTRAP_THEME', 'default') if config else 'default' %}
   {% if theme and theme != 'default' %}

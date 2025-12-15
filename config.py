@@ -55,7 +55,8 @@ def load_config():
         "CUSTOM_MOVE_PATTERN": "{publisher}/{series_name}/v{start_year}",
         "ENABLE_DEBUG_LOGGING": "False",
         "CACHE_DIR": "/cache",
-        "BOOTSTRAP_THEME": "default"
+        "BOOTSTRAP_THEME": "default",
+        "TIMEZONE": "UTC"
     }
 
     if not os.path.exists(CONFIG_FILE):

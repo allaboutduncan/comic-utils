@@ -462,6 +462,41 @@
                     </div>
                 </div>
 
+                <!-- Timezone Settings -->
+                <div class="container p-4 border rounded shadow-sm mb-4">
+                    <h4>Timezone Settings</h4>
+                    <p class="text-muted">Set your local timezone for accurate reading history tracking.</p>
+                    <div class="row">
+                        <div class="col-md-6">
+                            <label for="timezone" class="form-label">Timezone:</label>
+                            <select name="timezone" id="timezone" class="form-select">
+                                <option value="UTC" {% if timezone == 'UTC' %}selected{% endif %}>UTC</option>
+                                <option value="-12" {% if timezone == '-12' %}selected{% endif %}>UTC-12 (Baker Island)</option>
+                                <option value="-11" {% if timezone == '-11' %}selected{% endif %}>UTC-11 (Samoa)</option>
+                                <option value="-10" {% if timezone == '-10' %}selected{% endif %}>UTC-10 (Hawaii)</option>
+                                <option value="-9" {% if timezone == '-9' %}selected{% endif %}>UTC-9 (Alaska)</option>
+                                <option value="-8" {% if timezone == '-8' %}selected{% endif %}>UTC-8 (Pacific)</option>
+                                <option value="-7" {% if timezone == '-7' %}selected{% endif %}>UTC-7 (Mountain)</option>
+                                <option value="-6" {% if timezone == '-6' %}selected{% endif %}>UTC-6 (Central)</option>
+                                <option value="-5" {% if timezone == '-5' %}selected{% endif %}>UTC-5 (Eastern)</option>
+                                <option value="-4" {% if timezone == '-4' %}selected{% endif %}>UTC-4 (Atlantic)</option>
+                                <option value="-3" {% if timezone == '-3' %}selected{% endif %}>UTC-3 (Brazil)</option>
+                                <option value="0" {% if timezone == '0' %}selected{% endif %}>UTC+0 (London)</option>
+                                <option value="1" {% if timezone == '1' %}selected{% endif %}>UTC+1 (Paris)</option>
+                                <option value="2" {% if timezone == '2' %}selected{% endif %}>UTC+2 (Cairo)</option>
+                                <option value="5.5" {% if timezone == '5.5' %}selected{% endif %}>UTC+5:30 (India)</option>
+                                <option value="8" {% if timezone == '8' %}selected{% endif %}>UTC+8 (Singapore)</option>
+                                <option value="9" {% if timezone == '9' %}selected{% endif %}>UTC+9 (Tokyo)</option>
+                                <option value="10" {% if timezone == '10' %}selected{% endif %}>UTC+10 (Sydney)</option>
+                                <option value="12" {% if timezone == '12' %}selected{% endif %}>UTC+12 (Auckland)</option>
+                            </select>
+                            <small class="form-text text-muted">
+                                Affects how reading history dates are displayed on the Insights page.
+                            </small>
+                        </div>
+                    </div>
+                </div>
+
                 <!-- File Index Management Settings -->
                 <div class="container p-4 border rounded shadow-sm mb-4">
                     <h4>File Index Management</h4>

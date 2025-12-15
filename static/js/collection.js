@@ -980,6 +980,16 @@ function renderGrid(items) {
             // Add has-comic class for comic files
             if (item.hasThumbnail) {
                 gridItem.classList.add('has-comic');
+
+                // Show issue number badge for comics
+                const issueBadge = clone.querySelector('.issue-badge');
+                if (issueBadge) {
+                    const issueNum = extractIssueNumber(item.name);
+                    if (issueNum) {
+                        issueBadge.textContent = '#' + issueNum;
+                        issueBadge.style.display = 'block';
+                    }
+                }
             }
 
             // Handle actions menu
@@ -1589,6 +1599,25 @@ function formatFileSize(bytes) {
     const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
     const i = Math.floor(Math.log(bytes) / Math.log(k));
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+}
+
+/**
+ * Extract issue number from comic filename.
+ * @param {string} filename - The comic filename
+ * @returns {string|null} - The issue number or null if not found
+ */
+function extractIssueNumber(filename) {
+    // Pattern priority: "Name 001 (2022)", "Name #001", "Name 001.cbz"
+    const patterns = [
+        /\s(\d{1,4})\s*\(\d{4}\)/,   // "Name 001 (2022)"
+        /#(\d{1,4})/,                 // "Name #001"
+        /\s(\d{1,4})\.[^.]+$/         // "Name 001.cbz" (number before extension)
+    ];
+    for (const pattern of patterns) {
+        const match = filename.match(pattern);
+        if (match) return match[1];
+    }
+    return null;
 }
 
 
@@ -3052,6 +3081,12 @@ let comicReaderSwiper = null;
 let currentComicPath = null;
 let currentComicPageCount = 0;
 let highestPageViewed = 0;
+let currentComicSiblings = [];  // All comic files in current folder
+let currentComicIndex = -1;     // Index of current comic in siblings
+let nextIssueOverlayShown = false;  // Track if overlay is currently shown
+
+// Comic file extensions
+const COMIC_EXTENSIONS = ['.cbz', '.cbr', '.cb7', '.zip', '.rar', '.7z', '.pdf'];
 
 /**
  * Encode a file path for URL while preserving slashes
@@ -3072,9 +3107,22 @@ function encodeFilePath(path) {
 function openComicReader(filePath) {
     currentComicPath = filePath;
     highestPageViewed = 0;
+    nextIssueOverlayShown = false;
+
+    // Track sibling comics for "next issue" feature
+    currentComicSiblings = allItems.filter(item => {
+        if (item.type !== 'file') return false;
+        const ext = item.name.toLowerCase().substring(item.name.lastIndexOf('.'));
+        return COMIC_EXTENSIONS.includes(ext);
+    });
+    currentComicIndex = currentComicSiblings.findIndex(item => item.path === filePath);
+
     const modal = document.getElementById('comicReaderModal');
     const titleEl = document.getElementById('comicReaderTitle');
     const pageInfoEl = document.getElementById('comicReaderPageInfo');
+
+    // Hide next issue overlay if visible from previous session
+    hideNextIssueOverlay();
 
     // Show modal
     modal.style.display = 'flex';
@@ -3143,7 +3191,7 @@ function initializeComicReader(pageCount) {
         comicReaderSwiper.destroy(true, true);
     }
 
-    // Initialize Swiper
+    // Initialize Swiper with zoom support
     comicReaderSwiper = new Swiper('#comicReaderSwiper', {
         direction: 'horizontal',
         loop: false,
@@ -3164,6 +3212,15 @@ function initializeComicReader(pageCount) {
             loadPrevNext: true,
             loadPrevNextAmount: 2,
         },
+        // Enable zoom for pinch-to-zoom on mobile
+        zoom: {
+            maxRatio: 3,
+            minRatio: 1,
+            toggle: true, // Enable double-tap to toggle zoom
+        },
+        // Improve touch handling for mobile
+        touchEventsTarget: 'container',
+        passiveListeners: true,
         on: {
             slideChange: function () {
                 const currentIndex = this.activeIndex;
@@ -3174,6 +3231,19 @@ function initializeComicReader(pageCount) {
                     highestPageViewed = currentIndex;
                 }
                 updateReadingProgress();
+
+                // Reset zoom when changing slides
+                if (this.zoom) {
+                    this.zoom.out();
+                }
+
+                // Check if reached last page - show next issue overlay if available
+                if (currentIndex === pageCount - 1) {
+                    checkAndShowNextIssueOverlay();
+                } else {
+                    // Hide overlay if navigating away from last page
+                    hideNextIssueOverlay();
+                }
 
                 // Load current page
                 loadComicPage(currentIndex);
@@ -3193,6 +3263,14 @@ function initializeComicReader(pageCount) {
 
                 // Clean up pages that are far away to save memory
                 unloadDistantPages(currentIndex, pageCount);
+            },
+            // Double-tap to reset zoom
+            doubleTap: function () {
+                if (this.zoom.scale > 1) {
+                    this.zoom.out();
+                } else {
+                    this.zoom.in();
+                }
             },
             init: function () {
                 pageInfoEl.textContent = `Page 1 of ${pageCount}`;
@@ -3260,9 +3338,15 @@ function loadComicPage(pageNum) {
     }
 
     img.onload = function () {
-        // Remove loading spinner
+        // Remove loading spinner and wrap image in zoom container for pinch-to-zoom
         slide.innerHTML = '';
-        slide.appendChild(img);
+
+        // Create zoom container (required for Swiper zoom module)
+        const zoomContainer = document.createElement('div');
+        zoomContainer.className = 'swiper-zoom-container';
+        zoomContainer.appendChild(img);
+
+        slide.appendChild(zoomContainer);
         slide.dataset.loading = 'false';
     };
 
@@ -3337,6 +3421,107 @@ function closeComicReader() {
     currentComicPath = null;
     currentComicPageCount = 0;
     highestPageViewed = 0;
+    currentComicSiblings = [];
+    currentComicIndex = -1;
+    nextIssueOverlayShown = false;
+
+    // Hide next issue overlay
+    hideNextIssueOverlay();
+}
+
+/**
+ * Check if there's a next issue and show the overlay
+ */
+function checkAndShowNextIssueOverlay() {
+    // Check if there's a next comic in the folder
+    if (currentComicIndex >= 0 && currentComicIndex + 1 < currentComicSiblings.length) {
+        const nextComic = currentComicSiblings[currentComicIndex + 1];
+        showNextIssueOverlay(nextComic);
+    }
+    // If no next issue, do nothing (close normally per user preference)
+}
+
+/**
+ * Show the next issue overlay with comic info
+ * @param {Object} nextComic - The next comic file object {name, path}
+ */
+function showNextIssueOverlay(nextComic) {
+    if (nextIssueOverlayShown) return;  // Already shown
+
+    const overlay = document.getElementById('nextIssueOverlay');
+    const thumbnail = document.getElementById('nextIssueThumbnail');
+    const nameEl = document.getElementById('nextIssueName');
+
+    if (!overlay) return;
+
+    // Set the next comic name
+    nameEl.textContent = nextComic.name;
+    nameEl.title = nextComic.name;
+
+    // Set thumbnail URL - use existing thumbnailUrl from allItems if available
+    if (nextComic.thumbnailUrl) {
+        thumbnail.src = nextComic.thumbnailUrl;
+    } else {
+        // Fallback to placeholder if no thumbnail available
+        thumbnail.src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 150"%3E%3Crect fill="%23333" width="100" height="150"/%3E%3Ctext x="50" y="75" text-anchor="middle" fill="%23666" font-size="12"%3ENo Preview%3C/text%3E%3C/svg%3E';
+    }
+    thumbnail.onerror = function () {
+        // Fallback to placeholder on error
+        this.src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 150"%3E%3Crect fill="%23333" width="100" height="150"/%3E%3Ctext x="50" y="75" text-anchor="middle" fill="%23666" font-size="12"%3ENo Preview%3C/text%3E%3C/svg%3E';
+    };
+
+    // Show overlay
+    overlay.style.display = 'flex';
+    nextIssueOverlayShown = true;
+}
+
+/**
+ * Hide the next issue overlay
+ */
+function hideNextIssueOverlay() {
+    const overlay = document.getElementById('nextIssueOverlay');
+    if (overlay) {
+        overlay.style.display = 'none';
+    }
+    nextIssueOverlayShown = false;
+}
+
+/**
+ * Continue to the next issue
+ */
+function continueToNextIssue() {
+    if (currentComicIndex < 0 || currentComicIndex + 1 >= currentComicSiblings.length) {
+        return;
+    }
+
+    const nextComic = currentComicSiblings[currentComicIndex + 1];
+
+    // Mark current comic as read before switching (since we finished it)
+    if (currentComicPath) {
+        fetch('/api/mark-comic-read', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ path: currentComicPath })
+        }).catch(err => console.error('Failed to mark comic as read:', err));
+    }
+
+    // Close current comic without triggering the normal close logic
+    const modal = document.getElementById('comicReaderModal');
+    modal.style.display = 'none';
+
+    if (comicReaderSwiper) {
+        comicReaderSwiper.destroy(true, true);
+        comicReaderSwiper = null;
+    }
+
+    // Reset state
+    currentComicPath = null;
+    currentComicPageCount = 0;
+    highestPageViewed = 0;
+    hideNextIssueOverlay();
+
+    // Open the next comic (keeping the siblings list intact)
+    openComicReader(nextComic.path);
 }
 
 // Setup close button handler
@@ -3358,6 +3543,27 @@ document.addEventListener('DOMContentLoaded', () => {
             closeComicReader();
         }
     });
+
+    // Next issue overlay handlers
+    const nextIssueContinue = document.getElementById('nextIssueContinue');
+    if (nextIssueContinue) {
+        nextIssueContinue.addEventListener('click', continueToNextIssue);
+    }
+
+    const nextIssueClose = document.getElementById('nextIssueClose');
+    if (nextIssueClose) {
+        nextIssueClose.addEventListener('click', hideNextIssueOverlay);
+    }
+
+    // Close overlay when clicking outside the panel
+    const nextIssueOverlay = document.getElementById('nextIssueOverlay');
+    if (nextIssueOverlay) {
+        nextIssueOverlay.addEventListener('click', (e) => {
+            if (e.target === nextIssueOverlay) {
+                hideNextIssueOverlay();
+            }
+        });
+    }
 });
 
 // ============================================================================

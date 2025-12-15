@@ -246,6 +246,7 @@
             <button class="to-read-button no-propagation" title="Add to To Read" style="display: none;">
                 <i class="bi bi-bookmark-plus"></i>
             </button>
+            <span class="issue-badge" style="display: none;"></span>
         </div>
         <div class="item-info d-flex justify-content-between align-items-start mt-2">
             <div class="item-details text-truncate flex-grow-1">
@@ -382,6 +383,22 @@
             <!-- Navigation -->
             <div class="swiper-button-next"></div>
             <div class="swiper-button-prev"></div>
+        </div>
+        <!-- Next Issue Overlay -->
+        <div id="nextIssueOverlay" class="next-issue-overlay" style="display: none;">
+            <div class="next-issue-panel">
+                <h4>Continue Reading?</h4>
+                <div class="next-issue-thumbnail-container">
+                    <img id="nextIssueThumbnail" src="" alt="Next Issue">
+                </div>
+                <p id="nextIssueName" class="next-issue-name">Next Issue Name</p>
+                <div class="next-issue-buttons">
+                    <button id="nextIssueContinue" class="btn btn-primary">
+                        <i class="bi bi-arrow-right-circle me-1"></i>Continue
+                    </button>
+                    <button id="nextIssueClose" class="btn btn-outline-light">Close</button>
+                </div>
+            </div>
         </div>
         <!-- Footer -->
         <div class="comic-reader-footer">

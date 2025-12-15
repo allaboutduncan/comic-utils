@@ -2,6 +2,7 @@ import sqlite3
 import os
 from database import get_db_connection, get_db_path, get_cached_stats, save_cached_stats
 from app_logging import app_logger
+from config import config
 
 def get_library_stats():
     """
@@ -150,9 +151,25 @@ def get_reading_history_stats():
     """
     Get reading history statistics grouped by day (MM-DD-YYYY format).
     Returns daily read counts for the last 90 days.
+    Applies timezone offset from config settings.
     """
-    # Check cache first
-    cached = get_cached_stats('reading_history')
+    # Get timezone offset from config
+    tz_offset = config['SETTINGS'].get('TIMEZONE', 'UTC') if 'SETTINGS' in config else 'UTC'
+
+    # Build offset string for SQLite datetime()
+    if tz_offset == 'UTC':
+        offset_str = '+0 hours'
+    else:
+        try:
+            hours = float(tz_offset)
+            sign = '+' if hours >= 0 else ''
+            offset_str = f'{sign}{hours} hours'
+        except (ValueError, TypeError):
+            offset_str = '+0 hours'
+
+    # Check cache first (include timezone in cache key)
+    cache_key = f'reading_history_{tz_offset}'
+    cached = get_cached_stats(cache_key)
     if cached:
         return cached
 
@@ -163,12 +180,12 @@ def get_reading_history_stats():
 
         c = conn.cursor()
 
-        # Extract date from read_at timestamp in MM-DD-YYYY format
-        c.execute("""
-            SELECT strftime('%m-%d-%Y', read_at) as date, COUNT(*) as count
+        # Extract date from read_at timestamp in MM-DD-YYYY format, applying timezone offset
+        c.execute(f"""
+            SELECT strftime('%m-%d-%Y', datetime(read_at, '{offset_str}')) as date, COUNT(*) as count
             FROM issues_read
             GROUP BY date
-            ORDER BY read_at DESC
+            ORDER BY datetime(read_at, '{offset_str}') DESC
             LIMIT 90
         """)
 
@@ -180,8 +197,8 @@ def get_reading_history_stats():
 
         conn.close()
 
-        # Save to cache
-        save_cached_stats('reading_history', history)
+        # Save to cache (with timezone-specific key)
+        save_cached_stats(cache_key, history)
 
         return history
     except Exception as e:

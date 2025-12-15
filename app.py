@@ -4457,6 +4457,11 @@ os.makedirs(STATIC_DIR, exist_ok=True)
 def serve_static(filename):
     return send_from_directory(STATIC_DIR, filename)
 
+@app.route('/manifest.json')
+def serve_manifest():
+    """Serve PWA manifest from root URL."""
+    return send_from_directory(STATIC_DIR, 'manifest.json')
+
 #########################
 # Restart Flask App     #
 #########################
@@ -4912,6 +4917,7 @@ def config_page():
         config["SETTINGS"]["CUSTOM_MOVE_PATTERN"] = request.form.get("customMovePattern", "{publisher}/{series_name}/v{year}")
         config["SETTINGS"]["ENABLE_DEBUG_LOGGING"] = str(request.form.get("enableDebugLogging") == "on")
         config["SETTINGS"]["BOOTSTRAP_THEME"] = request.form.get("bootstrapTheme", "default")
+        config["SETTINGS"]["TIMEZONE"] = request.form.get("timezone", "UTC")
 
         write_config()  # Save changes to config.ini
         load_flask_config(app)  # Reload into Flask config
@@ -4962,6 +4968,7 @@ def config_page():
         customMovePattern=settings.get("CUSTOM_MOVE_PATTERN", "{publisher}/{series_name}/v{year}"),
         enableDebugLogging=settings.get("ENABLE_DEBUG_LOGGING", "False") == "True",
         bootstrapTheme=settings.get("BOOTSTRAP_THEME", "default"),
+        timezone=settings.get("TIMEZONE", "UTC"),
         config=settings,  # Pass full settings dictionary
     )
 
