@@ -148,8 +148,8 @@ def get_top_publishers(limit=10):
 
 def get_reading_history_stats():
     """
-    Get reading history statistics (e.g. read counts by month - if we had dates).
-    Since issues_read has read_at, we can do this!
+    Get reading history statistics grouped by day (MM-DD-YYYY format).
+    Returns daily read counts for the last 90 days.
     """
     # Check cache first
     cached = get_cached_stats('reading_history')
@@ -163,19 +163,18 @@ def get_reading_history_stats():
 
         c = conn.cursor()
 
-        # Group by month
-        # SQLite strftime: %Y-%m
+        # Extract date from read_at timestamp in MM-DD-YYYY format
         c.execute("""
-            SELECT strftime('%Y-%m', read_at) as month, COUNT(*) as count
+            SELECT strftime('%m-%d-%Y', read_at) as date, COUNT(*) as count
             FROM issues_read
-            GROUP BY month
-            ORDER BY month DESC
-            LIMIT 12
+            GROUP BY date
+            ORDER BY read_at DESC
+            LIMIT 90
         """)
 
         rows = c.fetchall()
 
-        history = [{'month': row['month'], 'count': row['count']} for row in rows]
+        history = [{'date': row['date'], 'count': row['count']} for row in rows]
         # Reverse to show chronological order for charts
         history.reverse()
 

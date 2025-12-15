@@ -1,226 +1,119 @@
 {% extends "base.html" %}
 
-{% block title %}Library Statistics{% endblock %}
+{% block title %}Library Insights{% endblock %}
 
 {% block extra_css %}
-<style>
-    :root {
-        --glass-bg: rgba(255, 255, 255, 0.1);
-        --glass-border: rgba(255, 255, 255, 0.2);
-        --glass-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.37);
-        --card-bg-dark: #212529;
-        --text-primary: #e0e0e0;
-        --text-secondary: #a0a0a0;
-        --accent-color: #0d6efd;
-    }
-
-    [data-bs-theme="dark"] {
-        --glass-bg: rgba(0, 0, 0, 0.2);
-        --glass-border: rgba(255, 255, 255, 0.1);
-    }
-
-    body {
-        background-color: #f8f9fa;
-    }
-
-    [data-bs-theme="dark"] body {
-        background-color: #121212;
-        color: var(--text-primary);
-    }
-
-    .stats-container {
-        padding: 2rem;
-    }
-
-    .glass-card {
-        background: var(--glass-bg);
-        backdrop-filter: blur(10px);
-        -webkit-backdrop-filter: blur(10px);
-        border: 1px solid var(--glass-border);
-        border-radius: 16px;
-        box-shadow: var(--glass-shadow);
-        padding: 1.5rem;
-        margin-bottom: 1.5rem;
-        transition: transform 0.3s ease, box-shadow 0.3s ease;
-    }
-
-    .glass-card:hover {
-        transform: translateY(-5px);
-        box-shadow: 0 12px 40px 0 rgba(31, 38, 135, 0.45);
-    }
-
-    .stat-value {
-        font-size: 2.5rem;
-        font-weight: 700;
-        background: linear-gradient(45deg, #0d6efd, #0dcaf0);
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
-        margin-bottom: 0.5rem;
-    }
-
-    .stat-label {
-        font-size: 1rem;
-        color: var(--text-secondary);
-        text-transform: uppercase;
-        letter-spacing: 1px;
-        font-weight: 600;
-    }
-
-    .chart-container {
-        position: relative;
-        height: 300px;
-        width: 100%;
-    }
-
-    .section-title {
-        font-size: 1.5rem;
-        font-weight: 600;
-        margin-bottom: 1.5rem;
-        color: var(--text-primary);
-        border-left: 4px solid var(--accent-color);
-        padding-left: 1rem;
-    }
-
-    /* Custom scrollbar for tables if needed */
-    .table-responsive::-webkit-scrollbar {
-        width: 8px;
-        height: 8px;
-    }
-
-    .table-responsive::-webkit-scrollbar-track {
-        background: rgba(0, 0, 0, 0.1);
-        border-radius: 4px;
-    }
-
-    .table-responsive::-webkit-scrollbar-thumb {
-        background: rgba(0, 0, 0, 0.2);
-        border-radius: 4px;
-    }
-
-    [data-bs-theme="dark"] .table {
-        color: var(--text-primary);
-        border-color: var(--glass-border);
-    }
-
-    /* Recently Read Grid */
-    .recently-read-grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
-        gap: 1rem;
-    }
-
-    .recently-read-item {
-        cursor: pointer;
-        transition: transform 0.2s ease;
-    }
-
-    .recently-read-item:hover {
-        transform: translateY(-3px);
-    }
-
-    .recently-read-thumbnail {
-        width: 100%;
-        aspect-ratio: 2/3;
-        object-fit: cover;
-        border-radius: 4px;
-        background: rgba(255, 255, 255, 0.1);
-    }
-
-    .recently-read-name {
-        font-size: 0.75rem;
-        margin-top: 0.5rem;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-    }
-
-    .recently-read-date {
-        font-size: 0.65rem;
-        opacity: 0.7;
-    }
-</style>
+<link rel="stylesheet" href="{{ url_for('static', filename='css/insights.css') }}">
 {% endblock %}
 
 {% block content %}
-<div class="container-lg stats-container">
-    <div class="row mb-4">
-        <div class="col-12">
-            <h1 class="display-4 fw-bold mb-3">Library <span class="text-primary">Insights</span></h1>
-            <p class="lead text-muted">Visualize your collection statistics and reading habits.</p>
-        </div>
+<div class="container-lg insights-page">
+    <!-- Page Header -->
+    <div class="insights-header">
+        <h1><i class="bi bi-graph-up-arrow me-2 text-primary"></i>Library Insights</h1>
+        <p class="lead mb-0">Explore your collection statistics and reading habits</p>
     </div>
 
-    <!-- High Level Stats -->
-    <div class="row mb-4">
-        <div class="col-md-3 col-sm-6">
-            <div class="glass-card text-center">
-                <div class="stat-value" id="total-files">{{ library_stats.total_files }}</div>
+    <!-- Top Stats Row -->
+    <div class="row g-3 mb-4">
+        <div class="col-6 col-md-3">
+            <div class="stat-card">
+                <div class="stat-icon primary">
+                    <i class="bi bi-file-earmark-text"></i>
+                </div>
+                <div class="stat-value">{{ "{:,}".format(library_stats.total_files) }}</div>
                 <div class="stat-label">Total Files</div>
             </div>
         </div>
-        <div class="col-md-3 col-sm-6">
-            <div class="glass-card text-center">
-                <div class="stat-value" id="total-size">{{ (library_stats.total_size / (1024*1024*1024))|round(2) }} GB
+        <div class="col-6 col-md-3">
+            <div class="stat-card">
+                <div class="stat-icon success">
+                    <i class="bi bi-hdd"></i>
                 </div>
+                {% set size_gb = library_stats.total_size / (1024*1024*1024) %}
+                <div class="stat-value">{% if size_gb > 999 %}{{ (size_gb / 1024)|round(2) }}<small class="fs-6 fw-normal"> TB</small>{% else %}{{ size_gb|round(1) }}<small class="fs-6 fw-normal"> GB</small>{% endif %}</div>
                 <div class="stat-label">Total Size</div>
             </div>
         </div>
-        <div class="col-md-3 col-sm-6">
-            <div class="glass-card text-center">
-                <div class="stat-value" id="total-directories">{{ library_stats.total_directories }}</div>
+        <div class="col-6 col-md-3">
+            <div class="stat-card">
+                <div class="stat-icon info">
+                    <i class="bi bi-folder"></i>
+                </div>
+                <div class="stat-value">{{ "{:,}".format(library_stats.total_directories) }}</div>
                 <div class="stat-label">Folders</div>
             </div>
         </div>
-        <div class="col-md-3 col-sm-6">
-            <div class="glass-card text-center">
-                <div class="stat-value" id="total-read">{{ library_stats.total_read }}</div>
+        <div class="col-6 col-md-3">
+            <div class="stat-card">
+                <div class="stat-icon warning">
+                    <i class="bi bi-book"></i>
+                </div>
+                <div class="stat-value">{{ "{:,}".format(library_stats.total_read) }}</div>
                 <div class="stat-label">Issues Read</div>
             </div>
         </div>
     </div>
 
-    <!-- Charts Row 1 -->
-    <div class="row mb-4">
-        <div class="col-lg-6">
-            <div class="glass-card">
-                <h3 class="section-title">File Type Distribution</h3>
-                <div class="chart-container">
-                    <canvas id="fileTypeChart"></canvas>
+    <!-- Charts Row -->
+    <div class="row g-4 mb-4">
+        <div class="col-lg-5">
+            <div class="section-card">
+                <div class="section-card-header">
+                    <h3><i class="bi bi-pie-chart"></i>File Types</h3>
+                </div>
+                <div class="section-card-body">
+                    <div class="chart-container">
+                        <canvas id="fileTypeChart"></canvas>
+                    </div>
                 </div>
             </div>
         </div>
-        <div class="col-lg-6">
-            <div class="glass-card">
-                <h3 class="section-title">Reading Activity (Last 12 Months)</h3>
-                <div class="chart-container">
-                    <canvas id="readingHistoryChart"></canvas>
+        <div class="col-lg-7">
+            <div class="section-card">
+                <div class="section-card-header">
+                    <h3><i class="bi bi-activity"></i>Reading Activity</h3>
+                </div>
+                <div class="section-card-body">
+                    <div class="chart-container">
+                        <canvas id="readingHistoryChart"></canvas>
+                    </div>
                 </div>
             </div>
         </div>
     </div>
 
-    <!-- Top Publishers -->
-    <div class="row mb-4">
+    <!-- Publishers Chart -->
+    <div class="row g-4 mb-4">
         <div class="col-12">
-            <div class="glass-card">
-                <h3 class="section-title">Top Publishers by File Count</h3>
-                <div class="chart-container" style="height: 400px;">
-                    <canvas id="publishersChart"></canvas>
+            <div class="section-card">
+                <div class="section-card-header">
+                    <h3><i class="bi bi-building"></i>Top Publishers</h3>
+                </div>
+                <div class="section-card-body">
+                    <div class="chart-container tall">
+                        <canvas id="publishersChart"></canvas>
+                    </div>
                 </div>
             </div>
         </div>
     </div>
 
     <!-- Recently Read Section -->
-    <div class="row mb-4">
+    <div class="row g-4 mb-4">
         <div class="col-12">
-            <div class="glass-card">
-                <h3 class="section-title"><i class="bi bi-clock-history me-2"></i>Recently Read</h3>
-                <div id="recently-read-grid" class="recently-read-grid">
-                    <!-- Items loaded via JavaScript -->
+            <div class="section-card">
+                <div class="section-card-header">
+                    <h3><i class="bi bi-clock-history"></i>Recently Read</h3>
                 </div>
-                <div id="recently-read-empty" class="text-center text-muted py-4" style="display: none;">
-                    No recently read comics
+                <div class="section-card-body">
+                    <div id="recently-read-grid" class="recently-read-grid">
+                        <!-- Loaded via JavaScript -->
+                    </div>
+                    <div id="recently-read-empty" class="empty-state" style="display: none;">
+                        <i class="bi bi-journal-x d-block"></i>
+                        <p class="mb-0">No recently read comics</p>
+                    </div>
                 </div>
             </div>
         </div>
@@ -231,36 +124,74 @@
 {% block scripts %}
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script>
-    document.addEventListener('DOMContentLoaded', function () {
-        // Theme detection
-        const isDark = document.documentElement.getAttribute('data-bs-theme') === 'dark' ||
-            window.matchMedia('(prefers-color-scheme: dark)').matches;
+document.addEventListener('DOMContentLoaded', function() {
+    // Get computed styles for theme colors
+    const computedStyle = getComputedStyle(document.documentElement);
 
-        const textColor = isDark ? '#e0e0e0' : '#212529';
-        const gridColor = isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)';
+    // Helper to get CSS variable value
+    function getCssVar(name, fallback) {
+        const value = computedStyle.getPropertyValue(name).trim();
+        return value || fallback;
+    }
 
-        Chart.defaults.color = textColor;
-        Chart.defaults.borderColor = gridColor;
-        Chart.defaults.font.family = "'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif";
+    // Helper to convert CSS color to rgba with opacity
+    function colorWithOpacity(cssVar, fallback, opacity) {
+        const color = getCssVar(cssVar, fallback);
+        // If it's already rgba or rgb, parse and modify
+        if (color.startsWith('rgb')) {
+            return color.replace('rgb', 'rgba').replace(')', `, ${opacity})`);
+        }
+        // For hex colors, convert to rgba
+        if (color.startsWith('#')) {
+            const r = parseInt(color.slice(1, 3), 16);
+            const g = parseInt(color.slice(3, 5), 16);
+            const b = parseInt(color.slice(5, 7), 16);
+            return `rgba(${r}, ${g}, ${b}, ${opacity})`;
+        }
+        return color;
+    }
 
-        // File Types Data
-        const fileTypes = {{ file_types | tojson
-    }};
+    // Theme-aware colors from Bootstrap
+    const primaryColor = getCssVar('--bs-primary', '#0d6efd');
+    const successColor = getCssVar('--bs-success', '#198754');
+    const infoColor = getCssVar('--bs-info', '#0dcaf0');
+    const warningColor = getCssVar('--bs-warning', '#ffc107');
+    const dangerColor = getCssVar('--bs-danger', '#dc3545');
+    const secondaryColor = getCssVar('--bs-secondary', '#6c757d');
+
+    const textColor = getCssVar('--bs-body-color', '#212529');
+    const gridColor = getCssVar('--bs-border-color', 'rgba(0, 0, 0, 0.1)');
+
+    // Chart.js global defaults for theme
+    Chart.defaults.color = textColor;
+    Chart.defaults.borderColor = gridColor;
+    Chart.defaults.font.family = getCssVar('--bs-body-font-family',
+        "'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif");
+
+    // Color palette for charts (theme-aware)
+    const chartColors = [
+        primaryColor,
+        successColor,
+        warningColor,
+        infoColor,
+        dangerColor,
+        secondaryColor
+    ];
+
+    // ===== FILE TYPE CHART =====
+    const fileTypes = {{ file_types | tojson }};
     const fileTypeLabels = fileTypes.map(item => item.type.toUpperCase());
     const fileTypeData = fileTypes.map(item => item.count);
 
-    // File Type Chart
     new Chart(document.getElementById('fileTypeChart'), {
         type: 'doughnut',
         data: {
             labels: fileTypeLabels,
             datasets: [{
                 data: fileTypeData,
-                backgroundColor: [
-                    '#0d6efd', '#6610f2', '#6f42c1', '#d63384', '#dc3545', '#fd7e14'
-                ],
+                backgroundColor: chartColors,
                 borderWidth: 0,
-                hoverOffset: 10
+                hoverOffset: 8
             }]
         },
         options: {
@@ -270,21 +201,23 @@
                 legend: {
                     position: 'right',
                     labels: {
-                        padding: 20,
-                        usePointStyle: true
+                        padding: 16,
+                        usePointStyle: true,
+                        pointStyle: 'circle',
+                        font: { size: 12 }
                     }
                 }
             },
-            cutout: '70%'
+            cutout: '65%'
         }
     });
 
-    // Reading History Data
+    // ===== READING HISTORY CHART =====
     const readingHistory = {{ reading_history | tojson }};
-    const historyLabels = readingHistory.map(item => item.month);
+    // Support both daily (date field) and monthly (month field) data
+    const historyLabels = readingHistory.map(item => item.date || item.month);
     const historyData = readingHistory.map(item => item.count);
 
-    // Reading History Chart
     new Chart(document.getElementById('readingHistoryChart'), {
         type: 'line',
         data: {
@@ -292,46 +225,69 @@
             datasets: [{
                 label: 'Issues Read',
                 data: historyData,
-                borderColor: '#0dcaf0',
-                backgroundColor: 'rgba(13, 202, 240, 0.1)',
-                tension: 0.4,
+                borderColor: primaryColor,
+                backgroundColor: colorWithOpacity('--bs-primary', '#0d6efd', 0.15),
+                borderWidth: 2,
                 fill: true,
-                pointBackgroundColor: '#0dcaf0',
-                pointBorderColor: '#fff',
-                pointHoverBackgroundColor: '#fff',
-                pointHoverBorderColor: '#0dcaf0'
+                tension: 0.3,
+                pointRadius: historyData.length > 60 ? 0 : 3,
+                pointHoverRadius: 5,
+                pointBackgroundColor: primaryColor,
+                pointBorderColor: getCssVar('--bs-body-bg', '#fff'),
+                pointBorderWidth: 2
             }]
         },
         options: {
             responsive: true,
             maintainAspectRatio: false,
+            interaction: {
+                intersect: false,
+                mode: 'index'
+            },
             plugins: {
-                legend: {
-                    display: false
+                legend: { display: false },
+                tooltip: {
+                    callbacks: {
+                        title: function(context) {
+                            return context[0].label;
+                        },
+                        label: function(context) {
+                            const count = context.parsed.y;
+                            return count === 1 ? '1 issue' : `${count} issues`;
+                        }
+                    }
                 }
             },
             scales: {
                 y: {
                     beginAtZero: true,
+                    ticks: {
+                        precision: 0,
+                        font: { size: 11 }
+                    },
                     grid: {
-                        display: true
+                        color: gridColor,
+                        drawBorder: false
                     }
                 },
                 x: {
-                    grid: {
-                        display: false
-                    }
+                    ticks: {
+                        font: { size: 10 },
+                        maxRotation: 45,
+                        autoSkip: true,
+                        maxTicksLimit: 12
+                    },
+                    grid: { display: false }
                 }
             }
         }
     });
 
-    // Top Publishers Data
+    // ===== PUBLISHERS CHART =====
     const topPublishers = {{ top_publishers | tojson }};
     const publisherLabels = topPublishers.map(item => item.name);
     const publisherData = topPublishers.map(item => item.count);
 
-    // Publishers Chart
     new Chart(document.getElementById('publishersChart'), {
         type: 'bar',
         data: {
@@ -339,72 +295,93 @@
             datasets: [{
                 label: 'Files',
                 data: publisherData,
-                backgroundColor: '#20c997',
-                borderRadius: 6,
-                barPercentage: 0.6
+                backgroundColor: colorWithOpacity('--bs-success', '#198754', 0.7),
+                hoverBackgroundColor: successColor,
+                borderRadius: 4,
+                borderSkipped: false
             }]
         },
         options: {
+            indexAxis: 'y',
             responsive: true,
             maintainAspectRatio: false,
             plugins: {
-                legend: {
-                    display: false
-                }
+                legend: { display: false }
             },
             scales: {
-                y: {
-                    beginAtZero: true
-                },
                 x: {
+                    beginAtZero: true,
+                    ticks: {
+                        precision: 0,
+                        font: { size: 11 }
+                    },
                     grid: {
-                        display: false
+                        color: gridColor,
+                        drawBorder: false
                     }
+                },
+                y: {
+                    ticks: { font: { size: 12 } },
+                    grid: { display: false }
                 }
             }
         }
     });
 
-    // Load recently read comics
+    // ===== RECENTLY READ =====
     loadRecentlyRead();
-    });
+});
 
-    async function loadRecentlyRead() {
-        try {
-            const response = await fetch('/api/recently-read?limit=12');
-            const items = await response.json();
+async function loadRecentlyRead() {
+    try {
+        const response = await fetch('/api/recently-read?limit=12');
+        const items = await response.json();
 
-            const grid = document.getElementById('recently-read-grid');
-            const empty = document.getElementById('recently-read-empty');
+        const grid = document.getElementById('recently-read-grid');
+        const empty = document.getElementById('recently-read-empty');
 
-            if (items.length === 0) {
-                grid.style.display = 'none';
-                empty.style.display = 'block';
-                return;
-            }
-
-            grid.innerHTML = items.map(item => `
-                <div class="recently-read-item" onclick="window.location.href='/collection?path=${encodeURIComponent(item.path.substring(0, item.path.lastIndexOf('/')))}'">
-                    <img class="recently-read-thumbnail" src="${item.thumbnail_url}" alt="${item.name}" loading="lazy">
-                    <div class="recently-read-name" title="${item.name}">${item.name}</div>
-                    <div class="recently-read-date">${formatReadDate(item.read_at)}</div>
-                </div>
-            `).join('');
-        } catch (err) {
-            console.error('Failed to load recently read:', err);
+        if (items.length === 0) {
+            grid.style.display = 'none';
+            empty.style.display = 'block';
+            return;
         }
-    }
 
-    function formatReadDate(dateStr) {
-        const date = new Date(dateStr);
-        const now = new Date();
-        const diffMs = now - date;
-        const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
-
-        if (diffDays === 0) return 'Today';
-        if (diffDays === 1) return 'Yesterday';
-        if (diffDays < 7) return `${diffDays} days ago`;
-        return date.toLocaleDateString();
+        grid.innerHTML = items.map(item => `
+            <div class="recently-read-item"
+                 onclick="window.location.href='/collection?path=${encodeURIComponent(item.path.substring(0, item.path.lastIndexOf('/')))}'">
+                <img class="recently-read-thumbnail"
+                     src="${item.thumbnail_url}"
+                     alt="${escapeHtml(item.name)}"
+                     loading="lazy"
+                     onerror="this.src='data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 150%22%3E%3Crect fill=%22%23dee2e6%22 width=%22100%22 height=%22150%22/%3E%3Ctext x=%2250%22 y=%2275%22 text-anchor=%22middle%22 fill=%22%236c757d%22 font-size=%2210%22%3ENo Image%3C/text%3E%3C/svg%3E'">
+                <div class="recently-read-name" title="${escapeHtml(item.name)}">${escapeHtml(item.name)}</div>
+                <div class="recently-read-date">${formatReadDate(item.read_at)}</div>
+            </div>
+        `).join('');
+    } catch (err) {
+        console.error('Failed to load recently read:', err);
+        document.getElementById('recently-read-empty').style.display = 'block';
+        document.getElementById('recently-read-grid').style.display = 'none';
     }
+}
+
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+function formatReadDate(dateStr) {
+    const date = new Date(dateStr);
+    const now = new Date();
+    const diffMs = now - date;
+    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+
+    if (diffDays === 0) return 'Today';
+    if (diffDays === 1) return 'Yesterday';
+    if (diffDays < 7) return `${diffDays}d ago`;
+    if (diffDays < 30) return `${Math.floor(diffDays / 7)}w ago`;
+    return date.toLocaleDateString();
+}
 </script>
 {% endblock %}
