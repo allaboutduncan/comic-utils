@@ -865,6 +865,11 @@
     border-width: thin;
 }
 
+.issue-badge .read-icon {
+    margin-left: 4px;
+    font-size: 0.65rem;
+}
+
 /* Dashboard Section Styles */
 .dashboard-section {
     position: relative;

@@ -16,12 +16,21 @@ document.addEventListener('DOMContentLoaded', () => {
         loadFavoritePublishers();
         loadWantToRead();
     }
+
+    // Fetch read issues for status icons (cached client-side for performance)
+    fetch('/api/issues-read-paths')
+        .then(r => r.json())
+        .then(data => {
+            readIssuesSet = new Set(data.paths || []);
+        })
+        .catch(err => console.warn('Failed to load read issues:', err));
 });
 
 // State
 let currentPath = '';
 let isLoading = false;
 let allItems = []; // Stores all files and folders for the current directory
+let readIssuesSet = new Set(); // Cached set of read issue paths for O(1) lookups
 let currentPage = 1;
 let itemsPerPage = 20; // Default to match the select dropdown
 
@@ -986,7 +995,15 @@ function renderGrid(items) {
                 if (issueBadge) {
                     const issueNum = extractIssueNumber(item.name);
                     if (issueNum) {
-                        issueBadge.textContent = '#' + issueNum;
+                        const issueNumberSpan = issueBadge.querySelector('.issue-number');
+                        if (issueNumberSpan) {
+                            issueNumberSpan.textContent = '#' + issueNum;
+                        }
+                        // Check read status and update icon
+                        const readIcon = issueBadge.querySelector('.read-icon');
+                        if (readIcon && readIssuesSet.has(item.path)) {
+                            readIcon.classList.replace('bi-book', 'bi-book-fill');
+                        }
                         issueBadge.style.display = 'block';
                     }
                 }
@@ -3403,6 +3420,9 @@ function closeComicReader() {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ path: currentComicPath })
+            }).then(() => {
+                // Update client-side cache for read status icons
+                readIssuesSet.add(currentComicPath);
             }).catch(err => console.error('Failed to mark comic as read:', err));
         }
     }
@@ -3502,6 +3522,9 @@ function continueToNextIssue() {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ path: currentComicPath })
+        }).then(() => {
+            // Update client-side cache for read status icons
+            readIssuesSet.add(currentComicPath);
         }).catch(err => console.error('Failed to mark comic as read:', err));
     }
 

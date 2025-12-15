@@ -2891,6 +2891,15 @@ def api_browse():
         return jsonify({"error": str(e)}), 500
 
 
+@app.route('/api/issues-read-paths')
+def api_issues_read_paths():
+    """Return list of all read issue paths for client-side caching."""
+    from database import get_issues_read
+    issues = get_issues_read()
+    paths = [issue['issue_path'] for issue in issues]
+    return jsonify({"paths": paths})
+
+
 @app.route('/api/scan-directory', methods=['POST'])
 def api_scan_directory():
     """
