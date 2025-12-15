@@ -52,10 +52,25 @@
     margin-bottom: 1rem;
 }
 
-.stat-card .stat-icon.primary { background: rgba(var(--bs-primary-rgb), 0.15); color: var(--bs-primary); }
-.stat-card .stat-icon.success { background: rgba(var(--bs-success-rgb), 0.15); color: var(--bs-success); }
-.stat-card .stat-icon.info { background: rgba(var(--bs-info-rgb), 0.15); color: var(--bs-info); }
-.stat-card .stat-icon.warning { background: rgba(var(--bs-warning-rgb), 0.15); color: var(--bs-warning); }
+.stat-card .stat-icon.primary {
+    background: rgba(var(--bs-primary-rgb), 0.15);
+    color: var(--bs-primary);
+}
+
+.stat-card .stat-icon.success {
+    background: rgba(var(--bs-success-rgb), 0.15);
+    color: var(--bs-success);
+}
+
+.stat-card .stat-icon.info {
+    background: rgba(var(--bs-info-rgb), 0.15);
+    color: var(--bs-info);
+}
+
+.stat-card .stat-icon.warning {
+    background: rgba(var(--bs-warning-rgb), 0.15);
+    color: var(--bs-warning);
+}
 
 .stat-card .stat-value {
     font-size: 2rem;
@@ -126,7 +141,7 @@
 .recently-read-grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
-    gap: 1rem;
+    gap: 0.5rem;
 }
 
 .recently-read-item {
@@ -237,8 +252,8 @@
     }
 
     .recently-read-grid {
-        grid-template-columns: repeat(auto-fill, minmax(80px, 1fr));
-        gap: 0.75rem;
+        grid-template-columns: repeat(auto-fill, minmax(60px, 1fr));
+        gap: 0.5rem;
     }
 }
 

@@ -497,6 +497,22 @@
                     </div>
                 </div>
 
+                <!-- Cache Management -->
+                <div class="container p-4 border rounded shadow-sm mb-4">
+                    <h4>Cache Management</h4>
+                    <p class="text-muted">Clear cached data to refresh statistics and file listings.</p>
+                    <div class="row">
+                        <div class="col-md-6">
+                            <button type="button" id="clearCacheBtn" class="btn btn-warning">
+                                <i class="bi bi-trash"></i> Clear All Caches
+                            </button>
+                            <small class="form-text text-muted d-block mt-2">
+                                Clears directory cache and statistics cache (Insights charts). Use this if data appears stale.
+                            </small>
+                        </div>
+                    </div>
+                </div>
+
                 <!-- File Index Management Settings -->
                 <div class="container p-4 border rounded shadow-sm mb-4">
                     <h4>File Index Management</h4>
@@ -890,6 +906,47 @@
 
         // Load current schedule configuration
         setTimeout(loadRebuildSchedule, 1500);
+
+        // Clear cache button handler
+        document.getElementById('clearCacheBtn').addEventListener('click', function() {
+            const button = this;
+            const originalText = button.innerHTML;
+
+            button.innerHTML = '<i class="bi bi-arrow-clockwise spin"></i> Clearing...';
+            button.disabled = true;
+
+            fetch('/clear-cache', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' }
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    button.innerHTML = '<i class="bi bi-check"></i> Cleared!';
+                    button.classList.remove('btn-warning');
+                    button.classList.add('btn-success');
+                    setTimeout(() => {
+                        button.innerHTML = originalText;
+                        button.classList.remove('btn-success');
+                        button.classList.add('btn-warning');
+                        button.disabled = false;
+                    }, 2000);
+                } else {
+                    throw new Error(data.message || 'Failed to clear cache');
+                }
+            })
+            .catch(error => {
+                button.innerHTML = '<i class="bi bi-x"></i> Error';
+                button.classList.remove('btn-warning');
+                button.classList.add('btn-danger');
+                setTimeout(() => {
+                    button.innerHTML = originalText;
+                    button.classList.remove('btn-danger');
+                    button.classList.add('btn-warning');
+                    button.disabled = false;
+                }, 2000);
+            });
+        });
 
         // Show/hide weekday selector based on frequency
         document.getElementById('rebuildFrequency').addEventListener('change', function () {

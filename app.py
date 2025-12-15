@@ -48,7 +48,8 @@ from database import (init_db, get_db_connection, get_recent_files, log_recent_f
                       get_browse_cache, save_browse_cache, invalidate_browse_cache, clear_browse_cache,
                       get_path_counts, get_path_counts_batch, get_directory_children, clear_stats_cache,
                       clear_stats_cache_keys, mark_issue_read, get_issues_read)
-from models.stats import get_library_stats, get_file_type_distribution, get_top_publishers, get_reading_history_stats
+from models.stats import (get_library_stats, get_file_type_distribution, get_top_publishers,
+                          get_reading_history_stats, get_largest_comics, get_top_series_by_count)
 from concurrent.futures import ThreadPoolExecutor
 from file_watcher import FileWatcher
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -940,6 +941,10 @@ def clear_cache():
 
     last_cache_invalidation = time.time()
     _data_dir_stats_last_update = 0  # Also invalidate directory stats cache
+
+    # Also clear stats cache (for insights page charts)
+    clear_stats_cache()
+
     app_logger.info(f"Directory cache cleared manually ({cleared_count} entries)")
     return jsonify({"success": True, "message": f"Cache cleared ({cleared_count} entries)"})
 
@@ -7358,12 +7363,16 @@ def insights_page():
     file_types = get_file_type_distribution()
     top_publishers = get_top_publishers()
     reading_history = get_reading_history_stats()
+    largest_comics = get_largest_comics()
+    top_series = get_top_series_by_count()
 
     return render_template('insights.html',
                            library_stats=library_stats,
                            file_types=file_types,
                            top_publishers=top_publishers,
-                           reading_history=reading_history)
+                           reading_history=reading_history,
+                           largest_comics=largest_comics,
+                           top_series=top_series)
 
 @app.route('/api/insights')
 def api_insights():

@@ -204,3 +204,113 @@ def get_reading_history_stats():
     except Exception as e:
         app_logger.error(f"Error getting reading history: {e}")
         return []
+
+def get_largest_comics(limit=20):
+    """
+    Get the largest comic files by size.
+
+    Args:
+        limit: Maximum number of results to return
+
+    Returns:
+        List of dicts with name and size
+    """
+    # Check cache first
+    cached = get_cached_stats('largest_comics')
+    if cached:
+        return cached[:limit]
+
+    try:
+        conn = get_db_connection()
+        if not conn:
+            return []
+
+        c = conn.cursor()
+
+        # Get files with comic extensions, ordered by size
+        c.execute("""
+            SELECT name, path, size FROM file_index
+            WHERE type = 'file'
+            AND (LOWER(path) LIKE '%.cbz' OR LOWER(path) LIKE '%.cbr'
+                 OR LOWER(path) LIKE '%.cb7' OR LOWER(path) LIKE '%.pdf')
+            ORDER BY size DESC
+            LIMIT ?
+        """, (limit,))
+
+        rows = c.fetchall()
+        data = [{'name': row['name'], 'size': row['size'] or 0} for row in rows]
+
+        conn.close()
+
+        # Save to cache
+        save_cached_stats('largest_comics', data)
+
+        return data
+    except Exception as e:
+        app_logger.error(f"Error getting largest comics: {e}")
+        return []
+
+def get_top_series_by_count(limit=20):
+    """
+    Get folders (series) with the most files.
+
+    Args:
+        limit: Maximum number of results to return
+
+    Returns:
+        List of dicts with name, count, and path
+    """
+    # Check cache first
+    cached = get_cached_stats('top_series_by_count')
+    if cached:
+        return cached[:limit]
+
+    try:
+        conn = get_db_connection()
+        if not conn:
+            return []
+
+        c = conn.cursor()
+
+        # Count files per parent directory (excluding root /data)
+        c.execute("""
+            SELECT parent, COUNT(*) as file_count
+            FROM file_index
+            WHERE type = 'file' AND parent != '/data'
+            GROUP BY parent
+            ORDER BY file_count DESC
+            LIMIT ?
+        """, (limit,))
+
+        rows = c.fetchall()
+
+        # Extract folder name from path
+        # If folder looks like a volume (v1938, v2011), combine with parent folder
+        import re
+        data = []
+        for row in rows:
+            parent_path = row['parent']
+            parts = parent_path.split('/') if parent_path else []
+            folder_name = parts[-1] if parts else 'Unknown'
+
+            # Check if folder name is a volume indicator (v followed by 4 digits)
+            if len(parts) >= 2 and re.match(r'^v\d{4}$', folder_name, re.IGNORECASE):
+                # Combine parent folder with volume: "Action Comics v1938"
+                series_name = parts[-2]
+                folder_name = f"{series_name} {folder_name}"
+
+            data.append({
+                'name': folder_name,
+                'count': row['file_count'],
+                'path': parent_path
+            })
+
+        conn.close()
+
+        # Save to cache
+        save_cached_stats('top_series_by_count', data)
+
+        return data
+    except Exception as e:
+        app_logger.error(f"Error getting top series by count: {e}")
+        return []
