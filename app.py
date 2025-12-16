@@ -49,7 +49,8 @@ from database import (init_db, get_db_connection, get_recent_files, log_recent_f
                       get_path_counts, get_path_counts_batch, get_directory_children, clear_stats_cache,
                       clear_stats_cache_keys, mark_issue_read, get_issues_read)
 from models.stats import (get_library_stats, get_file_type_distribution, get_top_publishers,
-                          get_reading_history_stats, get_largest_comics, get_top_series_by_count)
+                          get_reading_history_stats, get_largest_comics, get_top_series_by_count,
+                          get_reading_heatmap_data)
 from concurrent.futures import ThreadPoolExecutor
 from file_watcher import FileWatcher
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -3389,14 +3390,15 @@ def api_mark_comic_read():
     """Mark a comic as read in the database."""
     data = request.get_json()
     comic_path = data.get('path')
+    read_at = data.get('read_at')  # Optional ISO timestamp for backfilling
 
     if not comic_path:
         return jsonify({"error": "Missing path parameter"}), 400
 
     try:
-        mark_issue_read(comic_path)
-        clear_stats_cache_keys(['library_stats', 'reading_history'])  # Only invalidate reading-related cache
-        app_logger.info(f"Marked comic as read: {comic_path}")
+        mark_issue_read(comic_path, read_at)
+        clear_stats_cache_keys(['library_stats', 'reading_history', 'reading_heatmap'])
+        app_logger.info(f"Marked comic as read: {comic_path}" + (f" at {read_at}" if read_at else ""))
         return jsonify({"success": True})
     except Exception as e:
         app_logger.error(f"Error marking comic as read: {e}")
@@ -7365,6 +7367,7 @@ def insights_page():
     reading_history = get_reading_history_stats()
     largest_comics = get_largest_comics()
     top_series = get_top_series_by_count()
+    reading_heatmap = get_reading_heatmap_data()
 
     return render_template('insights.html',
                            library_stats=library_stats,
@@ -7372,7 +7375,8 @@ def insights_page():
                            top_publishers=top_publishers,
                            reading_history=reading_history,
                            largest_comics=largest_comics,
-                           top_series=top_series)
+                           top_series=top_series,
+                           reading_heatmap=reading_heatmap)
 
 @app.route('/api/insights')
 def api_insights():

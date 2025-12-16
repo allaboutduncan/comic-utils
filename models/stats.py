@@ -314,3 +314,58 @@ def get_top_series_by_count(limit=20):
     except Exception as e:
         app_logger.error(f"Error getting top series by count: {e}")
         return []
+
+def get_reading_heatmap_data():
+    """
+    Get reading counts grouped by year and month for heatmap display.
+    Returns dict: { "2024": [jan_count, feb_count, ..., dec_count], ... }
+    """
+    cached = get_cached_stats('reading_heatmap')
+    if cached:
+        return cached
+
+    try:
+        conn = get_db_connection()
+        if not conn:
+            return {}
+
+        c = conn.cursor()
+
+        # Get counts grouped by year and month
+        c.execute("""
+            SELECT strftime('%Y', read_at) as year,
+                   strftime('%m', read_at) as month,
+                   COUNT(*) as count
+            FROM issues_read
+            GROUP BY year, month
+            ORDER BY year, month
+        """)
+
+        rows = c.fetchall()
+        conn.close()
+
+        # Build nested dict: { year: [12 month counts] }
+        heatmap = {}
+        for row in rows:
+            year = row['year']
+            month = int(row['month']) - 1  # 0-indexed
+            count = row['count']
+
+            if year not in heatmap:
+                heatmap[year] = [0] * 12
+            heatmap[year][month] = count
+
+        # Ensure all years from min to current are included
+        if heatmap:
+            min_year = int(min(heatmap.keys()))
+            max_year = int(max(heatmap.keys()))
+            for y in range(min_year, max_year + 1):
+                if str(y) not in heatmap:
+                    heatmap[str(y)] = [0] * 12
+
+        save_cached_stats('reading_heatmap', heatmap)
+        return heatmap
+
+    except Exception as e:
+        app_logger.error(f"Error getting reading heatmap: {e}")
+        return {}

@@ -85,12 +85,22 @@
         </div>
     </div>
 
-    <!-- Publishers Chart -->
+    <!-- Reading Heatmap & Publishers Chart -->
     <div class="row g-4 mb-4">
-        <div class="col-12">
-            <div class="section-card">
+        <div class="col-lg-6">
+            <div class="section-card h-100">
                 <div class="section-card-header">
-                    <h3><i class="bi bi-building"></i>Top Publishers</h3>
+                    <h3><i class="bi bi-calendar3"></i> Comics Read per Month</h3>
+                </div>
+                <div class="section-card-body">
+                    <div id="reading-heatmap" class="reading-heatmap"></div>
+                </div>
+            </div>
+        </div>
+        <div class="col-lg-6">
+            <div class="section-card h-100">
+                <div class="section-card-header">
+                    <h3><i class="bi bi-building"></i> Top Publishers</h3>
                 </div>
                 <div class="section-card-body">
                     <div class="chart-container tall">
@@ -509,6 +519,52 @@
         div.textContent = text;
         return div.innerHTML;
     }
+
+    // ===== READING HEATMAP =====
+    const heatmapData = {{ reading_heatmap | tojson }};
+    const heatmapMonths = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+    function renderHeatmap() {
+        const container = document.getElementById('reading-heatmap');
+        if (!container || Object.keys(heatmapData).length === 0) {
+            container.innerHTML = '<div class="empty-state"><i class="bi bi-calendar-x d-block"></i><p class="mb-0">No reading history data</p></div>';
+            return;
+        }
+
+        // Find max count for color scaling
+        let maxCount = 0;
+        Object.values(heatmapData).forEach(monthCounts => {
+            monthCounts.forEach(c => { if (c > maxCount) maxCount = c; });
+        });
+
+        // Build grid HTML
+        let html = '<div class="heatmap-grid">';
+
+        // Header row with month labels
+        html += '<div class="heatmap-row"><div class="heatmap-year"></div>';
+        heatmapMonths.forEach(m => { html += `<div class="heatmap-month-label">${m}</div>`; });
+        html += '</div>';
+
+        // Data rows (sorted by year descending - newest first)
+        const years = Object.keys(heatmapData).sort((a, b) => b - a);
+        years.forEach(year => {
+            html += `<div class="heatmap-row"><div class="heatmap-year">${year}</div>`;
+            heatmapData[year].forEach((count, monthIdx) => {
+                const intensity = maxCount > 0 ? count / maxCount : 0;
+                const monthName = heatmapMonths[monthIdx];
+                html += `<div class="heatmap-cell"
+                             data-count="${count}"
+                             style="--intensity: ${intensity}"
+                             title="${monthName} ${year}: ${count} comics read"></div>`;
+            });
+            html += '</div>';
+        });
+        html += '</div>';
+
+        container.innerHTML = html;
+    }
+
+    renderHeatmap();
 
     function formatReadDate(dateStr) {
         const date = new Date(dateStr);

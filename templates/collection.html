@@ -264,6 +264,9 @@
                     <li><a class="dropdown-item action-edit" href="#">Edit File</a></li>
                     <li><a class="dropdown-item action-rebuild" href="#">Rebuild</a></li>
                     <li><a class="dropdown-item action-enhance" href="#">Enhance</a></li>
+                    <li><a class="dropdown-item action-set-read-date" href="#">
+                        <i class="bi bi-calendar-check"></i> <span class="set-read-date-text">Set Read Date</span>
+                    </a></li>
                     <li>
                         <hr class="dropdown-divider">
                     </li>
@@ -513,6 +516,27 @@
     </div>
 </div>
 <!-- End of Text File Viewer Modal -->
+<!-- Set Read Date Modal -->
+<div class="modal fade" id="setReadDateModal" tabindex="-1">
+    <div class="modal-dialog modal-sm modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="setReadDateModalTitle">Set Read Date</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <label for="readDateInput" class="form-label">Select the date you read this comic:</label>
+                <input type="date" id="readDateInput" class="form-control">
+                <input type="hidden" id="readDateComicPath">
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" onclick="submitReadDate()">Save</button>
+            </div>
+        </div>
+    </div>
+</div>
+<!-- End of Set Read Date Modal -->
 <!-- Toast Container -->
 <div class="toast-container position-fixed top-0 end-0 p-3" style="z-index: 9999;">
     <div id="successToast" class="toast align-items-center text-bg-success border-0" role="alert" aria-live="assertive"

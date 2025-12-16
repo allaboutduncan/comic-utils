@@ -185,6 +185,63 @@
     opacity: 0.65;
 }
 
+/* Reading Heatmap */
+.reading-heatmap {
+    overflow-x: auto;
+}
+
+.heatmap-grid {
+    display: inline-block;
+    min-width: 100%;
+}
+
+.heatmap-row {
+    display: grid;
+    grid-template-columns: 40px repeat(12, 1fr);
+    gap: 2px;
+    margin-bottom: 2px;
+}
+
+.heatmap-year {
+    font-size: 0.7rem;
+    font-weight: 600;
+    color: var(--bs-secondary-color);
+    display: flex;
+    align-items: center;
+}
+
+.heatmap-month-label {
+    font-size: 0.65rem;
+    text-align: center;
+    color: var(--bs-secondary-color);
+    padding-bottom: 2px;
+}
+
+.heatmap-cell {
+    width: 100%;
+    height: 24px;
+    border-radius: 2px;
+    background-color: var(--bs-tertiary-bg, #e9ecef);
+    border: 1px solid var(--bs-border-color);
+    cursor: pointer;
+    transition: transform 0.1s ease, background-color 0.2s ease;
+    position: relative;
+}
+
+.heatmap-cell::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background-color: var(--bs-primary);
+    opacity: var(--intensity, 0);
+    border-radius: inherit;
+}
+
+.heatmap-cell:hover {
+    transform: scale(1.15);
+    z-index: 1;
+}
+
 .empty-state {
     text-align: center;
     padding: 3rem 1rem;

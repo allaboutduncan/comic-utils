@@ -1390,12 +1390,14 @@ def is_favorite_series(series_path):
 # Issues Read CRUD Operations
 # =============================================================================
 
-def mark_issue_read(issue_path):
+def mark_issue_read(issue_path, read_at=None):
     """
-    Mark an issue as read (records current timestamp).
+    Mark an issue as read.
 
     Args:
         issue_path: Full path to the issue file
+        read_at: Optional ISO timestamp string (e.g. "2024-01-15T14:30:00").
+                 If None, uses CURRENT_TIMESTAMP.
 
     Returns:
         True if successful, False otherwise
@@ -1406,10 +1408,17 @@ def mark_issue_read(issue_path):
             return False
 
         c = conn.cursor()
-        c.execute('''
-            INSERT OR REPLACE INTO issues_read (issue_path, read_at)
-            VALUES (?, CURRENT_TIMESTAMP)
-        ''', (issue_path,))
+
+        if read_at:
+            c.execute('''
+                INSERT OR REPLACE INTO issues_read (issue_path, read_at)
+                VALUES (?, ?)
+            ''', (issue_path, read_at))
+        else:
+            c.execute('''
+                INSERT OR REPLACE INTO issues_read (issue_path, read_at)
+                VALUES (?, CURRENT_TIMESTAMP)
+            ''', (issue_path,))
 
         conn.commit()
         conn.close()

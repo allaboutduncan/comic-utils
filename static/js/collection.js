@@ -1039,6 +1039,13 @@ function renderGrid(items) {
                     }
                 };
 
+                // Update "Set Read Date" text based on read status
+                const setReadDateText = actionsDropdown.querySelector('.set-read-date-text');
+                if (setReadDateText) {
+                    const isRead = readIssuesSet.has(item.path);
+                    setReadDateText.textContent = isRead ? 'Update Read Date' : 'Set Read Date';
+                }
+
                 // Bind actions
                 const actions = {
                     '.action-crop': () => executeScript('crop', item.path),
@@ -1046,6 +1053,7 @@ function renderGrid(items) {
                     '.action-edit': () => initEditMode(item.path),
                     '.action-rebuild': () => executeScript('single_file', item.path),
                     '.action-enhance': () => executeScript('enhance_single', item.path),
+                    '.action-set-read-date': () => openSetReadDateModal(item.path, readIssuesSet.has(item.path)),
                     '.action-delete': () => showDeleteConfirmation(item)
                 };
 
@@ -3594,6 +3602,86 @@ document.addEventListener('DOMContentLoaded', () => {
 // ============================================================================
 
 let fileToDelete = null; // Store file to be deleted
+
+/**
+ * Open the Set Read Date modal
+ * @param {string} comicPath - Path to the comic file
+ * @param {boolean} isRead - Whether the comic is already marked as read
+ */
+function openSetReadDateModal(comicPath, isRead) {
+    document.getElementById('readDateComicPath').value = comicPath;
+    document.getElementById('setReadDateModalTitle').textContent =
+        isRead ? 'Update Read Date' : 'Set Read Date';
+
+    // Default to today
+    const today = new Date().toISOString().split('T')[0];
+    document.getElementById('readDateInput').value = today;
+
+    new bootstrap.Modal(document.getElementById('setReadDateModal')).show();
+}
+
+/**
+ * Submit the selected read date to the API
+ */
+function submitReadDate() {
+    const comicPath = document.getElementById('readDateComicPath').value;
+    const dateValue = document.getElementById('readDateInput').value;
+
+    if (!dateValue) {
+        showError('Please select a date');
+        return;
+    }
+
+    // Combine selected date with current time
+    const now = new Date();
+    const timeStr = now.toTimeString().split(' ')[0];
+    const readAt = `${dateValue}T${timeStr}`;
+
+    fetch('/api/mark-comic-read', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path: comicPath, read_at: readAt })
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.success) {
+            bootstrap.Modal.getInstance(document.getElementById('setReadDateModal')).hide();
+            // Update UI - add to readIssuesSet, update icon
+            readIssuesSet.add(comicPath);
+            updateReadIcon(comicPath, true);
+            showSuccess('Read date saved successfully');
+        } else {
+            showError(data.error || 'Failed to save read date');
+        }
+    })
+    .catch(err => {
+        showError('Error saving read date: ' + err.message);
+    });
+}
+
+/**
+ * Update the read icon for a specific comic path
+ * @param {string} comicPath - Path to the comic
+ * @param {boolean} isRead - Whether to show as read
+ */
+function updateReadIcon(comicPath, isRead) {
+    // Find the grid item with this path and update its read icon
+    const gridItems = document.querySelectorAll('.grid-item');
+    gridItems.forEach(item => {
+        if (item.dataset.path === comicPath) {
+            const readIcon = item.querySelector('.read-icon');
+            if (readIcon) {
+                if (isRead) {
+                    readIcon.classList.remove('bi-book');
+                    readIcon.classList.add('bi-book-fill');
+                } else {
+                    readIcon.classList.remove('bi-book-fill');
+                    readIcon.classList.add('bi-book');
+                }
+            }
+        }
+    });
+}
 
 /**
  * Show delete confirmation modal with file details
