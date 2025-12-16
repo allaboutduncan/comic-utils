@@ -150,7 +150,7 @@ def get_top_publishers(limit=10):
 def get_reading_history_stats():
     """
     Get reading history statistics grouped by day (MM-DD-YYYY format).
-    Returns daily read counts for the last 90 days.
+    Returns daily read counts for the last 3 months (~90 days).
     Applies timezone offset from config settings.
     """
     # Get timezone offset from config
