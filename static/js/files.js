@@ -2979,6 +2979,29 @@ function updateRenameButtonVisibility(panel) {
       openRenameFilesModal(pathFromData, panelFromData);
     };
 
+    // Create or update the Add CVINFO button
+    let cvInfoButton = renameRow.querySelector('.add-cvinfo-btn');
+    if (!cvInfoButton) {
+      cvInfoButton = document.createElement('button');
+      cvInfoButton.className = 'btn btn-outline-info btn-sm add-cvinfo-btn ms-2';
+      cvInfoButton.innerHTML = '<i class="bi bi-link-45deg me-2"></i>Add CVINFO';
+      cvInfoButton.title = 'Save ComicVine URL to cvinfo file in this directory';
+      renameRow.appendChild(cvInfoButton);
+    }
+
+    // Store the current path as a data attribute
+    cvInfoButton.dataset.currentPath = currentPath;
+    cvInfoButton.dataset.currentPanel = panel;
+
+    // Update button click handler with current context
+    cvInfoButton.onclick = function (e) {
+      e.preventDefault();
+      const pathFromData = e.target.dataset.currentPath;
+      const panelFromData = e.target.dataset.currentPanel;
+      console.log('Add CVINFO button clicked, path:', pathFromData, 'panel:', panelFromData);
+      promptForCVInfo(pathFromData, panelFromData);
+    };
+
     renameRow.style.display = 'block';
   } else {
     console.log('Hiding rename button:', panel, 'hasFiles=', hasFiles, 'isNotRoot=', isNotRoot, 'path=', currentPath);
@@ -7238,4 +7261,76 @@ function confirmFreeFormCrop() {
       console.error('Error:', error);
       showToast('Error', 'An error occurred while cropping the image', 'error');
     });
+}
+
+/**
+ * Open the ComicVine URL modal for user to enter the URL
+ * @param {string} directoryPath - The directory to save the cvinfo file in
+ * @param {string} panel - The panel ('source' or 'destination') to refresh after saving
+ */
+function promptForCVInfo(directoryPath, panel) {
+  // Store the directory path and panel in hidden fields
+  document.getElementById('cvInfoDirectoryPath').value = directoryPath;
+  document.getElementById('cvInfoPanel').value = panel;
+
+  // Clear the input field
+  document.getElementById('cvInfoUrlInput').value = '';
+
+  // Show the modal
+  const modal = new bootstrap.Modal(document.getElementById('cvInfoModal'));
+  modal.show();
+
+  // Focus the input field after modal is shown
+  document.getElementById('cvInfoModal').addEventListener('shown.bs.modal', function () {
+    document.getElementById('cvInfoUrlInput').focus();
+  }, { once: true });
+}
+
+/**
+ * Save the ComicVine URL from the modal
+ */
+function saveCVInfo() {
+  const url = document.getElementById('cvInfoUrlInput').value.trim();
+  const directoryPath = document.getElementById('cvInfoDirectoryPath').value;
+  const panel = document.getElementById('cvInfoPanel').value;
+
+  if (!url) {
+    showToast('Error', 'Please enter a ComicVine URL', 'error');
+    return;
+  }
+
+  // Basic validation - check if it looks like a ComicVine URL
+  if (!url.includes('comicvine.gamespot.com')) {
+    showToast('Error', 'Please enter a valid ComicVine URL (must contain comicvine.gamespot.com)', 'error');
+    return;
+  }
+
+  // Hide the modal
+  const modalEl = document.getElementById('cvInfoModal');
+  const modal = bootstrap.Modal.getInstance(modalEl);
+  modal.hide();
+
+  // Save the cvinfo file
+  fetch('/api/save-cvinfo', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      directory: directoryPath,
+      url: url
+    })
+  })
+  .then(response => response.json())
+  .then(data => {
+    if (data.success) {
+      showToast('Success', 'CVINFO file saved successfully!', 'success');
+      // Refresh the directory listing to show the new file
+      loadDirectories(directoryPath, panel);
+    } else {
+      showToast('Error', data.error || 'Failed to save CVINFO file', 'error');
+    }
+  })
+  .catch(error => {
+    console.error('Error saving CVINFO:', error);
+    showToast('Error', 'An error occurred while saving the CVINFO file', 'error');
+  });
 }

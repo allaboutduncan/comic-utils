@@ -4105,6 +4105,38 @@ def read_text_file():
         return f"Error reading file: {str(e)}", 500
 
 
+@app.route('/api/save-cvinfo', methods=['POST'])
+def save_cvinfo():
+    """Save a ComicVine URL to a cvinfo file in the specified directory."""
+    data = request.get_json()
+    directory = data.get('directory')
+    url = data.get('url')
+
+    if not directory or not url:
+        return jsonify({"error": "Missing directory or url parameter"}), 400
+
+    # Security: Ensure the directory path is within allowed directories
+    normalized_path = os.path.normpath(directory)
+    if not (normalized_path.startswith(os.path.normpath(DATA_DIR)) or
+            normalized_path.startswith(os.path.normpath(TEMP_DIR)) or
+            normalized_path.startswith(os.path.normpath(WATCH_DIR))):
+        return jsonify({"error": "Access denied"}), 403
+
+    if not os.path.exists(directory) or not os.path.isdir(directory):
+        return jsonify({"error": "Directory not found"}), 404
+
+    try:
+        cvinfo_path = os.path.join(directory, 'cvinfo')
+        with open(cvinfo_path, 'w', encoding='utf-8') as f:
+            f.write(url.strip())
+
+        app_logger.info(f"Saved cvinfo to {cvinfo_path}")
+        return jsonify({"success": True, "path": cvinfo_path})
+    except Exception as e:
+        app_logger.error(f"Error saving cvinfo to {directory}: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
 #####################################
 #       Rename Files/Folders        #
 #####################################
