@@ -2897,6 +2897,118 @@ def cbz_clear_comicinfo():
             os.remove(file_path + ".tmpzip")
         return jsonify({"success": False, "error": str(e)}), 500
 
+
+@app.route('/api/combine-cbz', methods=['POST'])
+def combine_cbz():
+    """Combine multiple CBZ files into a single CBZ file."""
+    data = request.get_json()
+    files = data.get('files', [])
+    output_name = data.get('output_name', 'Combined')
+    directory = data.get('directory')
+
+    if len(files) < 2:
+        return jsonify({"error": "At least 2 files required"}), 400
+
+    if not directory:
+        return jsonify({"error": "Directory not specified"}), 400
+
+    # Security: Validate all paths
+    for f in files:
+        normalized = os.path.normpath(f)
+        if not (normalized.startswith(os.path.normpath(DATA_DIR)) or
+                normalized.startswith(os.path.normpath(TEMP_DIR)) or
+                normalized.startswith(os.path.normpath(WATCH_DIR))):
+            return jsonify({"error": "Access denied"}), 403
+
+    temp_dir = None
+    try:
+        # Create temp extraction directory
+        temp_dir = os.path.join(directory, f'.tmp_combine_{os.getpid()}')
+        os.makedirs(temp_dir, exist_ok=True)
+
+        file_counter = {}  # Track duplicate filenames
+        extracted_count = 0
+
+        # Extract all files from each CBZ
+        for cbz_path in files:
+            if not os.path.exists(cbz_path):
+                app_logger.warning(f"CBZ file not found, skipping: {cbz_path}")
+                continue
+
+            try:
+                with zipfile.ZipFile(cbz_path, 'r') as zf:
+                    for name in zf.namelist():
+                        # Skip directories and metadata files
+                        if name.endswith('/') or name.lower() == 'comicinfo.xml':
+                            continue
+
+                        # Get base filename (flatten nested directories)
+                        base_name = os.path.basename(name)
+                        if not base_name:  # Skip empty names
+                            continue
+
+                        name_part, ext = os.path.splitext(base_name)
+
+                        # Handle duplicates: append a, b, c, etc.
+                        if base_name in file_counter:
+                            count = file_counter[base_name]
+                            suffix = chr(ord('a') + count)
+                            new_name = f"{name_part}{suffix}{ext}"
+                            file_counter[base_name] += 1
+                        else:
+                            new_name = base_name
+                            file_counter[base_name] = 1
+
+                        # Extract to temp dir with new name
+                        content = zf.read(name)
+                        dest_path = os.path.join(temp_dir, new_name)
+                        with open(dest_path, 'wb') as f:
+                            f.write(content)
+                        extracted_count += 1
+
+            except zipfile.BadZipFile:
+                app_logger.warning(f"Invalid CBZ file, skipping: {cbz_path}")
+                continue
+
+        if extracted_count == 0:
+            shutil.rmtree(temp_dir)
+            return jsonify({"error": "No files could be extracted from the selected CBZ files"}), 400
+
+        # Create output CBZ
+        output_path = os.path.join(directory, f"{output_name}.cbz")
+
+        # Handle existing file - append (1), (2), etc.
+        counter = 1
+        while os.path.exists(output_path):
+            output_path = os.path.join(directory, f"{output_name} ({counter}).cbz")
+            counter += 1
+
+        # Compress temp dir to CBZ
+        with zipfile.ZipFile(output_path, 'w', zipfile.ZIP_DEFLATED) as zf:
+            extracted_files = sorted(os.listdir(temp_dir))
+            for filename in extracted_files:
+                file_path_full = os.path.join(temp_dir, filename)
+                zf.write(file_path_full, filename)
+
+        # Cleanup temp directory
+        shutil.rmtree(temp_dir)
+        temp_dir = None
+
+        app_logger.info(f"Combined {len(files)} CBZ files into {output_path} ({extracted_count} images)")
+        return jsonify({
+            "success": True,
+            "output_file": os.path.basename(output_path),
+            "total_images": extracted_count
+        })
+
+    except Exception as e:
+        # Cleanup on error
+        if temp_dir and os.path.exists(temp_dir):
+            shutil.rmtree(temp_dir)
+        app_logger.error(f"Error combining CBZ files: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
 #####################################
 #     Move Files/Folders UI Page    #
 #####################################
@@ -3596,6 +3708,51 @@ def api_recently_read():
     return jsonify(result)
 
 
+@app.route('/api/reading-position', methods=['GET', 'POST', 'DELETE'])
+def api_reading_position():
+    """
+    Manage reading position bookmarks.
+    GET: Get saved position for a comic
+    POST: Save/update position for a comic
+    DELETE: Remove saved position
+    """
+    from database import save_reading_position, get_reading_position, delete_reading_position
+
+    if request.method == 'GET':
+        comic_path = request.args.get('path')
+        if not comic_path:
+            return jsonify({"error": "Missing path parameter"}), 400
+
+        position = get_reading_position(comic_path)
+        if position:
+            return jsonify({
+                "page_number": position['page_number'],
+                "total_pages": position['total_pages'],
+                "updated_at": position['updated_at']
+            })
+        return jsonify({"page_number": None})
+
+    elif request.method == 'POST':
+        data = request.get_json()
+        comic_path = data.get('comic_path')
+        page_number = data.get('page_number')
+        total_pages = data.get('total_pages')
+
+        if not comic_path or page_number is None:
+            return jsonify({"error": "Missing comic_path or page_number"}), 400
+
+        success = save_reading_position(comic_path, page_number, total_pages)
+        return jsonify({"success": success})
+
+    elif request.method == 'DELETE':
+        comic_path = request.args.get('path')
+        if not comic_path:
+            return jsonify({"error": "Missing path parameter"}), 400
+
+        success = delete_reading_position(comic_path)
+        return jsonify({"success": success})
+
+
 def generate_thumbnail_task(file_path, cache_path):
     """Background task to generate thumbnail."""
     app_logger.info(f"Starting thumbnail generation for {file_path}")
@@ -4279,13 +4436,13 @@ def read_text_file():
 
 @app.route('/api/save-cvinfo', methods=['POST'])
 def save_cvinfo():
-    """Save a ComicVine URL to a cvinfo file in the specified directory."""
+    """Save a cvinfo file in the specified directory."""
     data = request.get_json()
     directory = data.get('directory')
-    url = data.get('url')
+    content = data.get('content') or data.get('url')  # Support both content and legacy url
 
-    if not directory or not url:
-        return jsonify({"error": "Missing directory or url parameter"}), 400
+    if not directory or not content:
+        return jsonify({"error": "Missing directory or content parameter"}), 400
 
     # Security: Ensure the directory path is within allowed directories
     normalized_path = os.path.normpath(directory)
@@ -4300,7 +4457,7 @@ def save_cvinfo():
     try:
         cvinfo_path = os.path.join(directory, 'cvinfo')
         with open(cvinfo_path, 'w', encoding='utf-8') as f:
-            f.write(url.strip())
+            f.write(content.strip())
 
         app_logger.info(f"Saved cvinfo to {cvinfo_path}")
         return jsonify({"success": True, "path": cvinfo_path})

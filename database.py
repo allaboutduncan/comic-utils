@@ -170,6 +170,18 @@ def init_db():
             )
         ''')
 
+        # Create reading_positions table (save reading position for comics)
+        c.execute('''
+            CREATE TABLE IF NOT EXISTS reading_positions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                comic_path TEXT NOT NULL UNIQUE,
+                page_number INTEGER NOT NULL,
+                total_pages INTEGER,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+        c.execute('CREATE INDEX IF NOT EXISTS idx_reading_positions_path ON reading_positions(comic_path)')
+
         # Migration: Check if file_mtime column exists, add if not
         c.execute("PRAGMA table_info(thumbnail_jobs)")
         columns = [column[1] for column in c.fetchall()]
@@ -1791,3 +1803,137 @@ def clear_stats_cache_keys(keys):
     except Exception as e:
         app_logger.error(f"Failed to clear stats cache keys {keys}: {e}")
         return False
+
+
+# =============================================================================
+# Reading Positions (bookmark reading progress in comics)
+# =============================================================================
+
+def save_reading_position(comic_path, page_number, total_pages=None):
+    """
+    Save or update reading position for a comic.
+
+    Args:
+        comic_path: Full path to the comic file
+        page_number: Current page number (0-indexed)
+        total_pages: Total pages in the comic (optional)
+
+    Returns:
+        True if successful, False otherwise
+    """
+    try:
+        conn = get_db_connection()
+        if not conn:
+            return False
+
+        c = conn.cursor()
+        c.execute('''
+            INSERT OR REPLACE INTO reading_positions (comic_path, page_number, total_pages, updated_at)
+            VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+        ''', (comic_path, page_number, total_pages))
+
+        conn.commit()
+        conn.close()
+
+        app_logger.debug(f"Saved reading position: {comic_path} at page {page_number}")
+        return True
+
+    except Exception as e:
+        app_logger.error(f"Failed to save reading position for '{comic_path}': {e}")
+        return False
+
+
+def get_reading_position(comic_path):
+    """
+    Get saved reading position for a comic.
+
+    Args:
+        comic_path: Full path to the comic file
+
+    Returns:
+        Dict with page_number and total_pages, or None if not found
+    """
+    try:
+        conn = get_db_connection()
+        if not conn:
+            return None
+
+        c = conn.cursor()
+        c.execute('''
+            SELECT page_number, total_pages, updated_at
+            FROM reading_positions
+            WHERE comic_path = ?
+        ''', (comic_path,))
+
+        row = c.fetchone()
+        conn.close()
+
+        if row:
+            return {
+                'page_number': row['page_number'],
+                'total_pages': row['total_pages'],
+                'updated_at': row['updated_at']
+            }
+        return None
+
+    except Exception as e:
+        app_logger.error(f"Failed to get reading position for '{comic_path}': {e}")
+        return None
+
+
+def delete_reading_position(comic_path):
+    """
+    Remove saved reading position for a comic.
+
+    Args:
+        comic_path: Full path to the comic file
+
+    Returns:
+        True if successful, False otherwise
+    """
+    try:
+        conn = get_db_connection()
+        if not conn:
+            return False
+
+        c = conn.cursor()
+        c.execute('DELETE FROM reading_positions WHERE comic_path = ?', (comic_path,))
+
+        conn.commit()
+        conn.close()
+
+        app_logger.debug(f"Deleted reading position for: {comic_path}")
+        return True
+
+    except Exception as e:
+        app_logger.error(f"Failed to delete reading position for '{comic_path}': {e}")
+        return False
+
+
+def get_all_reading_positions():
+    """
+    Get all saved reading positions.
+
+    Returns:
+        List of dicts with comic_path, page_number, total_pages, updated_at
+    """
+    try:
+        conn = get_db_connection()
+        if not conn:
+            return []
+
+        c = conn.cursor()
+        c.execute('''
+            SELECT comic_path, page_number, total_pages, updated_at
+            FROM reading_positions
+            ORDER BY updated_at DESC
+        ''')
+
+        rows = c.fetchall()
+        conn.close()
+
+        return [dict(row) for row in rows]
+
+    except Exception as e:
+        app_logger.error(f"Failed to get all reading positions: {e}")
+        return []

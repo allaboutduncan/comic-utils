@@ -212,6 +212,83 @@ function proceedWithFolderCreation(filePaths, folderName) {
   });
 }
 
+// Show the Combine Files modal
+function showCombineFilesModal() {
+  hideFileContextMenu();
+
+  // Filter to only CBZ files
+  const cbzFiles = Array.from(selectedFiles).filter(f => f.toLowerCase().endsWith('.cbz'));
+
+  if (cbzFiles.length < 2) {
+    showToast('Error', 'Please select at least 2 CBZ files to combine', 'error');
+    return;
+  }
+
+  // Suggest name from first file's series
+  const firstName = cbzFiles[0].split(/[/\\]/).pop();
+  const suggestedName = extractSeriesName(firstName) || 'Combined';
+  document.getElementById('combinedFileName').value = suggestedName;
+
+  // Show file list
+  const filesList = document.getElementById('combineFilesList');
+  filesList.innerHTML = '<strong>Files to combine:</strong><br>' +
+    cbzFiles.map(f => `• ${f.split(/[/\\]/).pop()}`).join('<br>');
+
+  const modal = new bootstrap.Modal(document.getElementById('combineFilesModal'));
+  modal.show();
+}
+
+// Combine selected CBZ files into a single file
+function combineSelectedFiles() {
+  const fileName = document.getElementById('combinedFileName').value.trim();
+
+  if (!fileName) {
+    showToast('Error', 'Please enter a filename', 'error');
+    return;
+  }
+
+  const cbzFiles = Array.from(selectedFiles).filter(f => f.toLowerCase().endsWith('.cbz'));
+  const directory = cbzFiles[0].substring(0, cbzFiles[0].lastIndexOf('/'));
+
+  // Hide modal
+  const modalEl = document.getElementById('combineFilesModal');
+  const modal = bootstrap.Modal.getInstance(modalEl);
+  if (modal) modal.hide();
+
+  // Show progress toast
+  showToast('Processing', 'Combining files...', 'info');
+
+  fetch('/api/combine-cbz', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      files: cbzFiles,
+      output_name: fileName,
+      directory: directory
+    })
+  })
+  .then(response => response.json())
+  .then(data => {
+    if (data.success) {
+      showToast('Success', `Created ${data.output_file}`, 'success');
+      clearSelection();
+
+      // Refresh the directory
+      if (contextMenuPanel === 'source') {
+        loadDirectories(currentSourcePath, 'source');
+      } else {
+        loadDirectories(currentDestinationPath, 'destination');
+      }
+    } else {
+      showToast('Error', data.error || 'Failed to combine files', 'error');
+    }
+  })
+  .catch(error => {
+    console.error('Error combining files:', error);
+    showToast('Error', 'An error occurred while combining files', 'error');
+  });
+}
+
 // Show delete confirmation modal for multiple files
 function showDeleteMultipleConfirmation() {
   hideFileContextMenu();
@@ -348,6 +425,23 @@ document.addEventListener('DOMContentLoaded', function() {
 
       // Proceed with folder creation
       proceedWithFolderCreation(filePaths, folderName);
+    });
+  }
+
+  // Combine Files handlers
+  const contextCombineFiles = document.getElementById('contextCombineFiles');
+  const confirmCombineFilesBtn = document.getElementById('confirmCombineFilesBtn');
+
+  if (contextCombineFiles) {
+    contextCombineFiles.addEventListener('click', function(e) {
+      e.preventDefault();
+      showCombineFilesModal();
+    });
+  }
+
+  if (confirmCombineFilesBtn) {
+    confirmCombineFilesBtn.addEventListener('click', function() {
+      combineSelectedFiles();
     });
   }
 });

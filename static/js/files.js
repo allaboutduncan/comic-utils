@@ -2906,84 +2906,84 @@ function updateRenameButtonVisibility(panel) {
 
   console.log('updateRenameButtonVisibility:', panel, 'hasFiles=', hasFiles, 'currentPath=', currentPath, 'isNotRoot=', isNotRoot);
 
-  // Show button if there are files and we're not at root level
-  if (hasFiles && isNotRoot) {
-    console.log('Showing rename button:', panel, 'files=', fileTracking[panel].fileCount, 'path=', currentPath);
+  // Show row if we're not at root level (Add CVINFO works for empty folders too)
+  if (isNotRoot) {
+    console.log('Showing rename row:', panel, 'files=', fileTracking[panel].fileCount, 'path=', currentPath);
 
-    // Create or update the rename text button
+    // File-related buttons (only show when there are files)
     let renameButton = renameRow.querySelector('.rename-files-btn');
-    if (!renameButton) {
-      renameButton = document.createElement('button');
-      renameButton.className = 'btn btn-outline-primary btn-sm rename-files-btn me-2';
-      renameButton.innerHTML = '<i class="bi bi-input-cursor-text me-2"></i>Remove Text';
-      renameButton.title = 'Remove text from all filenames in this directory';
-      renameRow.appendChild(renameButton);
-    }
-
-    // Store the current path as a data attribute
-    renameButton.dataset.currentPath = currentPath;
-    renameButton.dataset.currentPanel = panel;
-
-    // Update button click handler with current context
-    renameButton.onclick = function (e) {
-      e.preventDefault();
-      const pathFromData = e.target.dataset.currentPath;
-      const panelFromData = e.target.dataset.currentPanel;
-      console.log('Remove text button clicked, path from data:', pathFromData, 'panel:', panelFromData);
-      openCustomRenameModal(pathFromData, panelFromData);
-    };
-
-    // Create or update the replace text button
     let replaceButton = renameRow.querySelector('.replace-text-btn');
-    if (!replaceButton) {
-      replaceButton = document.createElement('button');
-      replaceButton.className = 'btn btn-outline-warning btn-sm replace-text-btn me-2';
-      replaceButton.innerHTML = '<i class="bi bi-arrow-left-right me-2"></i>Replace Text';
-      replaceButton.title = 'Replace text in all filenames in this directory';
-      renameRow.appendChild(replaceButton);
-    }
-
-    // Store the current path as a data attribute
-    replaceButton.dataset.currentPath = currentPath;
-    replaceButton.dataset.currentPanel = panel;
-
-    // Update button click handler with current context
-    replaceButton.onclick = function (e) {
-      e.preventDefault();
-      const pathFromData = e.target.dataset.currentPath;
-      const panelFromData = e.target.dataset.currentPanel;
-      console.log('Replace text button clicked, path from data:', pathFromData, 'panel:', panelFromData);
-      openReplaceTextModal(pathFromData, panelFromData);
-    };
-
-    // Create or update the series rename button
     let seriesRenameButton = renameRow.querySelector('.series-rename-btn');
-    if (!seriesRenameButton) {
-      seriesRenameButton = document.createElement('button');
-      seriesRenameButton.className = 'btn btn-outline-success btn-sm series-rename-btn';
-      seriesRenameButton.innerHTML = '<i class="bi bi-pencil-square me-2"></i>Rename Series';
-      seriesRenameButton.title = 'Replace series name while preserving issue numbers and years';
-      renameRow.appendChild(seriesRenameButton);
+
+    if (hasFiles) {
+      // Create or update the rename text button
+      if (!renameButton) {
+        renameButton = document.createElement('button');
+        renameButton.className = 'btn btn-outline-primary btn-sm rename-files-btn me-2';
+        renameButton.innerHTML = '<i class="bi bi-input-cursor-text me-2"></i>Remove Text';
+        renameButton.title = 'Remove text from all filenames in this directory';
+        renameRow.appendChild(renameButton);
+      }
+      renameButton.style.display = '';
+      renameButton.dataset.currentPath = currentPath;
+      renameButton.dataset.currentPanel = panel;
+      renameButton.onclick = function (e) {
+        e.preventDefault();
+        const pathFromData = e.target.dataset.currentPath;
+        const panelFromData = e.target.dataset.currentPanel;
+        console.log('Remove text button clicked, path from data:', pathFromData, 'panel:', panelFromData);
+        openCustomRenameModal(pathFromData, panelFromData);
+      };
+
+      // Create or update the replace text button
+      if (!replaceButton) {
+        replaceButton = document.createElement('button');
+        replaceButton.className = 'btn btn-outline-warning btn-sm replace-text-btn me-2';
+        replaceButton.innerHTML = '<i class="bi bi-arrow-left-right me-2"></i>Replace Text';
+        replaceButton.title = 'Replace text in all filenames in this directory';
+        renameRow.appendChild(replaceButton);
+      }
+      replaceButton.style.display = '';
+      replaceButton.dataset.currentPath = currentPath;
+      replaceButton.dataset.currentPanel = panel;
+      replaceButton.onclick = function (e) {
+        e.preventDefault();
+        const pathFromData = e.target.dataset.currentPath;
+        const panelFromData = e.target.dataset.currentPanel;
+        console.log('Replace text button clicked, path from data:', pathFromData, 'panel:', panelFromData);
+        openReplaceTextModal(pathFromData, panelFromData);
+      };
+
+      // Create or update the series rename button
+      if (!seriesRenameButton) {
+        seriesRenameButton = document.createElement('button');
+        seriesRenameButton.className = 'btn btn-outline-success btn-sm series-rename-btn me-2';
+        seriesRenameButton.innerHTML = '<i class="bi bi-pencil-square me-2"></i>Rename Series';
+        seriesRenameButton.title = 'Replace series name while preserving issue numbers and years';
+        renameRow.appendChild(seriesRenameButton);
+      }
+      seriesRenameButton.style.display = '';
+      seriesRenameButton.dataset.currentPath = currentPath;
+      seriesRenameButton.dataset.currentPanel = panel;
+      seriesRenameButton.onclick = function (e) {
+        e.preventDefault();
+        const pathFromData = e.target.dataset.currentPath;
+        const panelFromData = e.target.dataset.currentPanel;
+        console.log('Series rename button clicked, path from data:', pathFromData, 'panel:', panelFromData);
+        openRenameFilesModal(pathFromData, panelFromData);
+      };
+    } else {
+      // Hide file-related buttons when no files
+      if (renameButton) renameButton.style.display = 'none';
+      if (replaceButton) replaceButton.style.display = 'none';
+      if (seriesRenameButton) seriesRenameButton.style.display = 'none';
     }
 
-    // Store the current path as a data attribute
-    seriesRenameButton.dataset.currentPath = currentPath;
-    seriesRenameButton.dataset.currentPanel = panel;
-
-    // Update button click handler with current context
-    seriesRenameButton.onclick = function (e) {
-      e.preventDefault();
-      const pathFromData = e.target.dataset.currentPath;
-      const panelFromData = e.target.dataset.currentPanel;
-      console.log('Series rename button clicked, path from data:', pathFromData, 'panel:', panelFromData);
-      openRenameFilesModal(pathFromData, panelFromData);
-    };
-
-    // Create or update the Add CVINFO button
+    // Create or update the Add CVINFO button (always visible for non-root folders)
     let cvInfoButton = renameRow.querySelector('.add-cvinfo-btn');
     if (!cvInfoButton) {
       cvInfoButton = document.createElement('button');
-      cvInfoButton.className = 'btn btn-outline-info btn-sm add-cvinfo-btn ms-2';
+      cvInfoButton.className = 'btn btn-outline-info btn-sm add-cvinfo-btn';
       cvInfoButton.innerHTML = '<i class="bi bi-link-45deg me-2"></i>Add CVINFO';
       cvInfoButton.title = 'Save ComicVine URL to cvinfo file in this directory';
       renameRow.appendChild(cvInfoButton);
@@ -3004,7 +3004,7 @@ function updateRenameButtonVisibility(panel) {
 
     renameRow.style.display = 'block';
   } else {
-    console.log('Hiding rename button:', panel, 'hasFiles=', hasFiles, 'isNotRoot=', isNotRoot, 'path=', currentPath);
+    console.log('Hiding rename row:', panel, 'hasFiles=', hasFiles, 'isNotRoot=', isNotRoot, 'path=', currentPath);
     renameRow.style.display = 'none';
 
     // Reset file count to 0 when hiding the button (no files in current directory)
@@ -7273,8 +7273,9 @@ function promptForCVInfo(directoryPath, panel) {
   document.getElementById('cvInfoDirectoryPath').value = directoryPath;
   document.getElementById('cvInfoPanel').value = panel;
 
-  // Clear the input field
-  document.getElementById('cvInfoUrlInput').value = '';
+  // Clear the input fields
+  document.getElementById('cvInfoIdInput').value = '';
+  document.getElementById('metronIdInput').value = '';
 
   // Show the modal
   const modal = new bootstrap.Modal(document.getElementById('cvInfoModal'));
@@ -7282,7 +7283,7 @@ function promptForCVInfo(directoryPath, panel) {
 
   // Focus the input field after modal is shown
   document.getElementById('cvInfoModal').addEventListener('shown.bs.modal', function () {
-    document.getElementById('cvInfoUrlInput').focus();
+    document.getElementById('cvInfoIdInput').focus();
   }, { once: true });
 }
 
@@ -7290,19 +7291,32 @@ function promptForCVInfo(directoryPath, panel) {
  * Save the ComicVine URL from the modal
  */
 function saveCVInfo() {
-  const url = document.getElementById('cvInfoUrlInput').value.trim();
+  const cvId = document.getElementById('cvInfoIdInput').value.trim();
+  const metronId = document.getElementById('metronIdInput').value.trim();
   const directoryPath = document.getElementById('cvInfoDirectoryPath').value;
   const panel = document.getElementById('cvInfoPanel').value;
 
-  if (!url) {
-    showToast('Error', 'Please enter a ComicVine URL', 'error');
+  if (!cvId) {
+    showToast('Error', 'Please enter a Comic Vine Volume ID', 'error');
     return;
   }
 
-  // Basic validation - check if it looks like a ComicVine URL
-  if (!url.includes('comicvine.gamespot.com')) {
-    showToast('Error', 'Please enter a valid ComicVine URL (must contain comicvine.gamespot.com)', 'error');
+  // Validate that it's a number
+  if (!/^\d+$/.test(cvId)) {
+    showToast('Error', 'Comic Vine ID must be a number', 'error');
     return;
+  }
+
+  // Validate Metron ID if provided
+  if (metronId && !/^\d+$/.test(metronId)) {
+    showToast('Error', 'Metron ID must be a number', 'error');
+    return;
+  }
+
+  // Build the file content
+  let content = `https://comicvine.gamespot.com/volume/4050-${cvId}`;
+  if (metronId) {
+    content += `\nmetron_series_id: ${metronId}`;
   }
 
   // Hide the modal
@@ -7316,7 +7330,7 @@ function saveCVInfo() {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       directory: directoryPath,
-      url: url
+      content: content
     })
   })
   .then(response => response.json())

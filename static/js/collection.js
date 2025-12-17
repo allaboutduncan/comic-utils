@@ -3109,6 +3109,7 @@ let highestPageViewed = 0;
 let currentComicSiblings = [];  // All comic files in current folder
 let currentComicIndex = -1;     // Index of current comic in siblings
 let nextIssueOverlayShown = false;  // Track if overlay is currently shown
+let savedReadingPosition = null;  // Track saved reading position for current comic
 
 // Comic file extensions
 const COMIC_EXTENSIONS = ['.cbz', '.cbr', '.cb7', '.zip', '.rar', '.7z', '.pdf'];
@@ -3133,6 +3134,7 @@ function openComicReader(filePath) {
     currentComicPath = filePath;
     highestPageViewed = 0;
     nextIssueOverlayShown = false;
+    savedReadingPosition = null;
 
     // Track sibling comics for "next issue" feature
     currentComicSiblings = allItems.filter(item => {
@@ -3146,8 +3148,12 @@ function openComicReader(filePath) {
     const titleEl = document.getElementById('comicReaderTitle');
     const pageInfoEl = document.getElementById('comicReaderPageInfo');
 
-    // Hide next issue overlay if visible from previous session
+    // Hide overlays if visible from previous session
     hideNextIssueOverlay();
+    hideResumeReadingOverlay();
+
+    // Reset bookmark button state
+    updateBookmarkButtonState(false);
 
     // Show modal
     modal.style.display = 'flex';
@@ -3163,15 +3169,28 @@ function openComicReader(filePath) {
     // Encode the path properly for URL
     const encodedPath = encodeFilePath(filePath);
 
-    // Fetch comic info
-    fetch(`/api/read/${encodedPath}/info`)
-        .then(response => response.json())
-        .then(data => {
-            if (data.success) {
-                currentComicPageCount = data.page_count;
-                initializeComicReader(data.page_count);
+    // Fetch comic info and saved position in parallel
+    Promise.all([
+        fetch(`/api/read/${encodedPath}/info`).then(r => r.json()),
+        fetch(`/api/reading-position?path=${encodeURIComponent(filePath)}`).then(r => r.json())
+    ])
+        .then(([comicData, positionData]) => {
+            if (comicData.success) {
+                currentComicPageCount = comicData.page_count;
+
+                // Check if there's a saved position
+                if (positionData.page_number !== null && positionData.page_number > 0) {
+                    savedReadingPosition = positionData.page_number;
+                    // Show resume prompt
+                    showResumeReadingOverlay(positionData.page_number, comicData.page_count);
+                    // Initialize reader but don't navigate yet
+                    initializeComicReader(comicData.page_count, 0);
+                    updateBookmarkButtonState(true);
+                } else {
+                    initializeComicReader(comicData.page_count, 0);
+                }
             } else {
-                showError('Failed to load comic: ' + (data.error || 'Unknown error'));
+                showError('Failed to load comic: ' + (comicData.error || 'Unknown error'));
                 closeComicReader();
             }
         })
@@ -3185,8 +3204,9 @@ function openComicReader(filePath) {
 /**
  * Initialize the Swiper comic reader
  * @param {number} pageCount - Total number of pages
+ * @param {number} startPage - Page to start on (0-indexed, default 0)
  */
-function initializeComicReader(pageCount) {
+function initializeComicReader(pageCount, startPage = 0) {
     const wrapper = document.getElementById('comicReaderWrapper');
     const pageInfoEl = document.getElementById('comicReaderPageInfo');
 
@@ -3220,6 +3240,7 @@ function initializeComicReader(pageCount) {
     comicReaderSwiper = new Swiper('#comicReaderSwiper', {
         direction: 'horizontal',
         loop: false,
+        initialSlide: startPage,
         keyboard: {
             enabled: true,
             onlyInViewport: false,
@@ -3298,19 +3319,16 @@ function initializeComicReader(pageCount) {
                 }
             },
             init: function () {
-                pageInfoEl.textContent = `Page 1 of ${pageCount}`;
+                const initialPage = this.activeIndex;
+                pageInfoEl.textContent = `Page ${initialPage + 1} of ${pageCount}`;
+                highestPageViewed = initialPage;
                 updateReadingProgress();
 
-                // Load first page
-                loadComicPage(0);
-
-                // Preload next 2 pages immediately
-                if (pageCount > 1) {
-                    loadComicPage(1);
-                }
-                if (pageCount > 2) {
-                    loadComicPage(2);
-                }
+                // Load initial page and adjacent pages
+                loadComicPage(initialPage);
+                if (initialPage + 1 < pageCount) loadComicPage(initialPage + 1);
+                if (initialPage + 2 < pageCount) loadComicPage(initialPage + 2);
+                if (initialPage - 1 >= 0) loadComicPage(initialPage - 1);
             }
         }
     });
@@ -3419,19 +3437,37 @@ function unloadDistantPages(currentIndex, pageCount) {
  * Close the comic reader
  */
 function closeComicReader() {
-    // Check if 90% or more was read before closing
+    // Smart auto-save/cleanup logic for reading position
     if (currentComicPath && currentComicPageCount > 0) {
+        const currentPage = comicReaderSwiper ? comicReaderSwiper.activeIndex + 1 : 1;
         const progress = ((highestPageViewed + 1) / currentComicPageCount) * 100;
-        if (progress >= 90) {
-            // Mark as read (fire and forget)
+        const withinLastPages = currentPage > currentComicPageCount - 3;
+
+        if (progress >= 90 || withinLastPages) {
+            // User finished or nearly finished - mark as read and delete bookmark
             fetch('/api/mark-comic-read', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ path: currentComicPath })
             }).then(() => {
-                // Update client-side cache for read status icons
                 readIssuesSet.add(currentComicPath);
             }).catch(err => console.error('Failed to mark comic as read:', err));
+
+            // Delete saved reading position (fire and forget)
+            fetch(`/api/reading-position?path=${encodeURIComponent(currentComicPath)}`, {
+                method: 'DELETE'
+            }).catch(err => console.error('Failed to delete reading position:', err));
+        } else if (currentPage > 1) {
+            // User stopped mid-read - auto-save position silently
+            fetch('/api/reading-position', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    comic_path: currentComicPath,
+                    page_number: currentPage,
+                    total_pages: currentComicPageCount
+                })
+            }).catch(err => console.error('Failed to auto-save reading position:', err));
         }
     }
 
@@ -3452,9 +3488,11 @@ function closeComicReader() {
     currentComicSiblings = [];
     currentComicIndex = -1;
     nextIssueOverlayShown = false;
+    savedReadingPosition = null;
 
-    // Hide next issue overlay
+    // Hide overlays
     hideNextIssueOverlay();
+    hideResumeReadingOverlay();
 }
 
 /**
@@ -3515,6 +3553,88 @@ function hideNextIssueOverlay() {
 }
 
 /**
+ * Show the resume reading overlay
+ * @param {number} pageNumber - The saved page number
+ * @param {number} totalPages - Total pages in the comic
+ */
+function showResumeReadingOverlay(pageNumber, totalPages) {
+    const overlay = document.getElementById('resumeReadingOverlay');
+    const info = document.getElementById('resumeReadingInfo');
+
+    if (!overlay || !info) return;
+
+    info.textContent = `Continue from page ${pageNumber} of ${totalPages}?`;
+    overlay.style.display = 'flex';
+}
+
+/**
+ * Hide the resume reading overlay
+ */
+function hideResumeReadingOverlay() {
+    const overlay = document.getElementById('resumeReadingOverlay');
+    if (overlay) {
+        overlay.style.display = 'none';
+    }
+}
+
+/**
+ * Update the bookmark button state
+ * @param {boolean} hasSavedPosition - Whether there's a saved position
+ */
+function updateBookmarkButtonState(hasSavedPosition) {
+    const bookmarkBtn = document.getElementById('comicReaderBookmark');
+    if (!bookmarkBtn) return;
+
+    const icon = bookmarkBtn.querySelector('i');
+    if (icon) {
+        if (hasSavedPosition) {
+            icon.classList.remove('bi-bookmark');
+            icon.classList.add('bi-bookmark-fill');
+            bookmarkBtn.title = 'Position Saved';
+        } else {
+            icon.classList.remove('bi-bookmark-fill');
+            icon.classList.add('bi-bookmark');
+            bookmarkBtn.title = 'Save Position';
+        }
+    }
+}
+
+/**
+ * Save current reading position
+ */
+function saveReadingPosition() {
+    if (!currentComicPath || !comicReaderSwiper) return;
+
+    const currentPage = comicReaderSwiper.activeIndex + 1; // 1-indexed for display
+
+    fetch('/api/reading-position', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            comic_path: currentComicPath,
+            page_number: currentPage,
+            total_pages: currentComicPageCount
+        })
+    }).then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                savedReadingPosition = currentPage;
+                updateBookmarkButtonState(true);
+                // Brief visual feedback
+                const bookmarkBtn = document.getElementById('comicReaderBookmark');
+                if (bookmarkBtn) {
+                    bookmarkBtn.classList.add('btn-success');
+                    bookmarkBtn.classList.remove('btn-outline-light');
+                    setTimeout(() => {
+                        bookmarkBtn.classList.remove('btn-success');
+                        bookmarkBtn.classList.add('btn-outline-light');
+                    }, 1000);
+                }
+            }
+        }).catch(err => console.error('Failed to save reading position:', err));
+}
+
+/**
  * Continue to the next issue
  */
 function continueToNextIssue() {
@@ -3524,16 +3644,20 @@ function continueToNextIssue() {
 
     const nextComic = currentComicSiblings[currentComicIndex + 1];
 
-    // Mark current comic as read before switching (since we finished it)
+    // Mark current comic as read and delete bookmark (since we finished it)
     if (currentComicPath) {
         fetch('/api/mark-comic-read', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ path: currentComicPath })
         }).then(() => {
-            // Update client-side cache for read status icons
             readIssuesSet.add(currentComicPath);
         }).catch(err => console.error('Failed to mark comic as read:', err));
+
+        // Delete saved reading position
+        fetch(`/api/reading-position?path=${encodeURIComponent(currentComicPath)}`, {
+            method: 'DELETE'
+        }).catch(err => console.error('Failed to delete reading position:', err));
     }
 
     // Close current comic without triggering the normal close logic
@@ -3583,15 +3707,72 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const nextIssueClose = document.getElementById('nextIssueClose');
     if (nextIssueClose) {
-        nextIssueClose.addEventListener('click', hideNextIssueOverlay);
+        nextIssueClose.addEventListener('click', () => {
+            // Mark as read and delete bookmark since user finished the comic
+            if (currentComicPath) {
+                fetch('/api/mark-comic-read', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ path: currentComicPath })
+                }).then(() => {
+                    readIssuesSet.add(currentComicPath);
+                }).catch(err => console.error('Failed to mark comic as read:', err));
+
+                fetch(`/api/reading-position?path=${encodeURIComponent(currentComicPath)}`, {
+                    method: 'DELETE'
+                }).catch(err => console.error('Failed to delete reading position:', err));
+            }
+            closeComicReader();
+        });
     }
 
-    // Close overlay when clicking outside the panel
+    // Close overlay when clicking outside the panel (just dismiss, don't mark as read)
     const nextIssueOverlay = document.getElementById('nextIssueOverlay');
     if (nextIssueOverlay) {
         nextIssueOverlay.addEventListener('click', (e) => {
             if (e.target === nextIssueOverlay) {
                 hideNextIssueOverlay();
+            }
+        });
+    }
+
+    // Bookmark button handler
+    const bookmarkBtn = document.getElementById('comicReaderBookmark');
+    if (bookmarkBtn) {
+        bookmarkBtn.addEventListener('click', saveReadingPosition);
+    }
+
+    // Resume reading overlay handlers
+    const resumeReadingYes = document.getElementById('resumeReadingYes');
+    if (resumeReadingYes) {
+        resumeReadingYes.addEventListener('click', () => {
+            hideResumeReadingOverlay();
+            // Navigate to saved position
+            if (comicReaderSwiper && savedReadingPosition) {
+                comicReaderSwiper.slideTo(savedReadingPosition - 1); // Convert 1-indexed to 0-indexed
+            }
+        });
+    }
+
+    const resumeReadingNo = document.getElementById('resumeReadingNo');
+    if (resumeReadingNo) {
+        resumeReadingNo.addEventListener('click', () => {
+            hideResumeReadingOverlay();
+            // Start from the beginning
+            if (comicReaderSwiper) {
+                comicReaderSwiper.slideTo(0);
+            }
+            savedReadingPosition = null;
+            updateBookmarkButtonState(false);
+        });
+    }
+
+    // Close resume overlay when clicking outside the panel
+    const resumeOverlay = document.getElementById('resumeReadingOverlay');
+    if (resumeOverlay) {
+        resumeOverlay.addEventListener('click', (e) => {
+            if (e.target === resumeOverlay) {
+                hideResumeReadingOverlay();
             }
         });
     }
@@ -3642,21 +3823,21 @@ function submitReadDate() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ path: comicPath, read_at: readAt })
     })
-    .then(r => r.json())
-    .then(data => {
-        if (data.success) {
-            bootstrap.Modal.getInstance(document.getElementById('setReadDateModal')).hide();
-            // Update UI - add to readIssuesSet, update icon
-            readIssuesSet.add(comicPath);
-            updateReadIcon(comicPath, true);
-            showSuccess('Read date saved successfully');
-        } else {
-            showError(data.error || 'Failed to save read date');
-        }
-    })
-    .catch(err => {
-        showError('Error saving read date: ' + err.message);
-    });
+        .then(r => r.json())
+        .then(data => {
+            if (data.success) {
+                bootstrap.Modal.getInstance(document.getElementById('setReadDateModal')).hide();
+                // Update UI - add to readIssuesSet, update icon
+                readIssuesSet.add(comicPath);
+                updateReadIcon(comicPath, true);
+                showSuccess('Read date saved successfully');
+            } else {
+                showError(data.error || 'Failed to save read date');
+            }
+        })
+        .catch(err => {
+            showError('Error saving read date: ' + err.message);
+        });
 }
 
 /**
