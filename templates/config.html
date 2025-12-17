@@ -355,6 +355,25 @@
                         </div>
                     </div>
 
+                    <div class="row mt-3">
+                        <div class="col-md-6">
+                            <label for="metronUsername" class="form-label">Metron Username</label>
+                            <input type="text" name="metronUsername" id="metronUsername"
+                                value="{{ metronUsername }}" class="form-control"
+                                placeholder="Enter your Metron username">
+                            <small class="form-text text-muted">
+                                Optional: Enter your Metron credentials for metadata lookup. Get credentials at
+                                <a href="https://metron.cloud/" target="_blank">metron.cloud</a>
+                            </small>
+                        </div>
+                        <div class="col-md-6">
+                            <label for="metronPassword" class="form-label">Metron Password</label>
+                            <input type="password" name="metronPassword" id="metronPassword"
+                                value="{{ metronPassword }}" class="form-control"
+                                placeholder="Enter your Metron password">
+                        </div>
+                    </div>
+
                     <hr class="my-4">
 
                     <!-- Auto Rename and Auto Move Options -->

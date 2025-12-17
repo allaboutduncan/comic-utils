@@ -48,6 +48,8 @@ def load_config():
         "PIXELDRAIN_API_KEY": "",
         "GCD_METADATA_LANGUAGES": "en",
         "COMICVINE_API_KEY": "",
+        "METRON_USERNAME": "",
+        "METRON_PASSWORD": "",
         "ENABLE_CUSTOM_RENAME": "False",
         "CUSTOM_RENAME_PATTERN": "",
         "ENABLE_AUTO_RENAME": "False",
@@ -126,6 +128,8 @@ def load_flask_config(app, logger=None):
     app.config["PIXELDRAIN_API_KEY"] = settings.get("PIXELDRAIN_API_KEY", "")
     app.config["GCD_METADATA_LANGUAGES"] = settings.get("GCD_METADATA_LANGUAGES", "en")
     app.config["COMICVINE_API_KEY"] = settings.get("COMICVINE_API_KEY", "")
+    app.config["METRON_USERNAME"] = settings.get("METRON_USERNAME", "")
+    app.config["METRON_PASSWORD"] = settings.get("METRON_PASSWORD", "")
     app.config["ENABLE_CUSTOM_RENAME"] = config.getboolean("SETTINGS", "ENABLE_CUSTOM_RENAME", fallback=False)
     app.config["CUSTOM_RENAME_PATTERN"] = settings.get("CUSTOM_RENAME_PATTERN", "")
     app.config["ENABLE_AUTO_RENAME"] = config.getboolean("SETTINGS", "ENABLE_AUTO_RENAME", fallback=False)

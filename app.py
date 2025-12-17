@@ -2018,6 +2018,159 @@ def auto_fetch_comicvine_metadata(destination_path):
         return destination_path
 
 
+def auto_fetch_metron_metadata(destination_path):
+    """
+    Automatically fetch Metron metadata for moved files if conditions are met.
+    Only triggers for non-root /data directories that have a cvinfo file.
+
+    Returns:
+        The final file path (renamed path if file was renamed, original path otherwise)
+    """
+    try:
+        from models.metron import (
+            is_mokkari_available, get_api, get_metron_series_id,
+            get_issue_metadata, map_to_comicinfo
+        )
+        from comicvine import extract_issue_number, generate_comicinfo_xml, add_comicinfo_to_archive
+        from comicinfo import read_comicinfo_from_zip
+        from rename import load_custom_rename_config
+        import re
+
+        # Check 1: Is Mokkari library available?
+        if not is_mokkari_available():
+            app_logger.debug("Mokkari library not available, skipping Metron metadata")
+            return destination_path
+
+        # Check 2: Are Metron credentials configured?
+        username = app.config.get("METRON_USERNAME", "")
+        password = app.config.get("METRON_PASSWORD", "")
+        if not username or not password:
+            app_logger.debug("Metron credentials not configured, skipping Metron metadata")
+            return destination_path
+
+        # Determine the folder to check for cvinfo
+        if os.path.isfile(destination_path):
+            folder_path = os.path.dirname(destination_path)
+            target_file = destination_path
+        else:
+            folder_path = destination_path
+            target_file = None
+
+        # Check 3: Is this a non-root /data directory?
+        data_dir = DATA_DIR
+        rel_path = os.path.relpath(folder_path, data_dir)
+        rel_path_normalized = rel_path.replace("\\", "/")
+        if rel_path == "." or "/" not in rel_path_normalized:
+            app_logger.debug(f"Skipping Metron metadata for root-level directory: {folder_path}")
+            return destination_path
+
+        # Check 4: Does cvinfo exist?
+        cvinfo_path = None
+        for filename in os.listdir(folder_path):
+            if filename.lower() == 'cvinfo':
+                cvinfo_path = os.path.join(folder_path, filename)
+                break
+
+        if not cvinfo_path:
+            app_logger.debug(f"No cvinfo file found in {folder_path}, skipping Metron metadata")
+            return destination_path
+
+        # Initialize Metron API
+        api = get_api(username, password)
+        if not api:
+            app_logger.warning("Failed to initialize Metron API")
+            return destination_path
+
+        # Get Metron series ID (from cvinfo or lookup by CV ID)
+        series_id = get_metron_series_id(cvinfo_path, api)
+        if not series_id:
+            app_logger.debug("Could not determine Metron series ID")
+            return destination_path
+
+        # If target_file specified, only process that file
+        if target_file:
+            files_to_process = [target_file]
+        else:
+            # Get all comic files in folder
+            files_to_process = [
+                os.path.join(folder_path, f) for f in os.listdir(folder_path)
+                if f.lower().endswith(('.cbz', '.cbr'))
+            ]
+
+        processed = 0
+        renamed_path = None
+
+        for file_path in files_to_process:
+            # Skip if already has metadata
+            existing = read_comicinfo_from_zip(file_path)
+            existing_notes = existing.get('Notes', '').strip() if existing else ''
+            if existing_notes:
+                app_logger.debug(f"Skipping {file_path} - already has metadata")
+                continue
+
+            # Extract issue number from filename
+            issue_number = extract_issue_number(os.path.basename(file_path))
+            if not issue_number:
+                app_logger.warning(f"Could not extract issue number from {file_path}")
+                continue
+
+            # Fetch metadata from Metron
+            issue_data = get_issue_metadata(api, series_id, issue_number)
+            if not issue_data:
+                continue
+
+            # Map to ComicInfo format
+            metadata = map_to_comicinfo(issue_data)
+
+            # Generate and add ComicInfo.xml
+            xml_content = generate_comicinfo_xml(metadata)
+            if add_comicinfo_to_archive(file_path, xml_content):
+                processed += 1
+                app_logger.info(f"Added Metron metadata to {file_path}")
+
+                # Auto-rename if enabled
+                try:
+                    custom_enabled, custom_pattern = load_custom_rename_config()
+                    if custom_enabled and custom_pattern:
+                        series = metadata.get('Series', '')
+                        series = series.replace(':', ' -')
+                        series = re.sub(r'[<>"/\\|?*]', '', series)
+                        issue_num_padded = str(metadata.get('Number', '')).zfill(3)
+                        year = str(metadata.get('Year', ''))
+
+                        new_name = custom_pattern
+                        new_name = re.sub(r'\{series_name\}', series, new_name, flags=re.IGNORECASE)
+                        new_name = re.sub(r'\{issue_number\}', issue_num_padded, new_name, flags=re.IGNORECASE)
+                        new_name = re.sub(r'\{year\}|\{YYYY\}', year, new_name, flags=re.IGNORECASE)
+                        new_name = re.sub(r'\{volume_number\}', '', new_name, flags=re.IGNORECASE)
+                        new_name = re.sub(r'\s+', ' ', new_name).strip()
+                        new_name = re.sub(r'\s*\(\s*\)', '', new_name).strip()
+
+                        _, ext = os.path.splitext(file_path)
+                        new_name = new_name + ext
+
+                        directory = os.path.dirname(file_path)
+                        old_name = os.path.basename(file_path)
+                        new_path = os.path.join(directory, new_name)
+
+                        if new_name != old_name and not os.path.exists(new_path):
+                            os.rename(file_path, new_path)
+                            app_logger.info(f"Renamed: {old_name} -> {new_name}")
+                            if file_path == target_file:
+                                renamed_path = new_path
+                except Exception as rename_error:
+                    app_logger.error(f"Error during auto-rename: {rename_error}")
+
+        if processed > 0:
+            app_logger.info(f"Auto-fetched Metron metadata: {processed} files processed")
+
+        return renamed_path if renamed_path else destination_path
+
+    except Exception as e:
+        app_logger.error(f"Error in auto-fetch Metron metadata: {e}")
+        return destination_path
+
+
 #####################################
 #  Move Files/Folders (Drag & Drop) #
 #####################################
@@ -2093,8 +2246,10 @@ def move():
                         os.remove(source)
                         app_logger.info(f"Move complete (streamed): Removed {source}")
 
-                        # Auto-fetch ComicVine metadata first (may rename file)
-                        final_path = auto_fetch_comicvine_metadata(destination)
+                        # Auto-fetch metadata (try Metron first, then ComicVine as fallback)
+                        final_path = auto_fetch_metron_metadata(destination)
+                        # If Metron didn't process, try ComicVine
+                        final_path = auto_fetch_comicvine_metadata(final_path)
 
                         # Log file to recent_files with the final path (renamed or original)
                         log_file_if_in_data(final_path)
@@ -2200,7 +2355,8 @@ def move():
 
                         app_logger.info(f"Directory move complete: {source} -> {destination}")
 
-                        # Auto-fetch ComicVine metadata if cvinfo exists
+                        # Auto-fetch metadata (try Metron first, then ComicVine as fallback)
+                        auto_fetch_metron_metadata(destination)
                         auto_fetch_comicvine_metadata(destination)
 
                         # Log all comic files in the moved directory to recent_files
@@ -2241,8 +2397,10 @@ def move():
                     shutil.move(source, destination)
                 app_logger.info(f"Move complete: {source} -> {destination}")
 
-                # Auto-fetch ComicVine metadata first (may rename file)
-                final_path = auto_fetch_comicvine_metadata(destination)
+                # Auto-fetch metadata (try Metron first, then ComicVine as fallback)
+                final_path = auto_fetch_metron_metadata(destination)
+                # If Metron didn't process, try ComicVine
+                final_path = auto_fetch_comicvine_metadata(final_path)
 
                 # Log file to recent_files with the final path (renamed or original)
                 if is_file:
@@ -4970,6 +5128,8 @@ def config_page():
         config["SETTINGS"]["LARGE_FILE_THRESHOLD"] = request.form.get("largeFileThreshold", "500")
         config["SETTINGS"]["PIXELDRAIN_API_KEY"] = request.form.get("pixeldrainApiKey", "")
         config["SETTINGS"]["COMICVINE_API_KEY"] = request.form.get("comicvineApiKey", "")
+        config["SETTINGS"]["METRON_USERNAME"] = request.form.get("metronUsername", "")
+        config["SETTINGS"]["METRON_PASSWORD"] = request.form.get("metronPassword", "")
         config["SETTINGS"]["GCD_METADATA_LANGUAGES"] = request.form.get("gcdLanguages", "en")
         config["SETTINGS"]["ENABLE_CUSTOM_RENAME"] = str(request.form.get("enableCustomRename") == "on")
         config["SETTINGS"]["CUSTOM_RENAME_PATTERN"] = request.form.get("customRenamePattern", "")
@@ -5021,6 +5181,8 @@ def config_page():
         largeFileThreshold=settings.get("LARGE_FILE_THRESHOLD", "500"),
         pixeldrainApiKey=settings.get("PIXELDRAIN_API_KEY", ""),
         comicvineApiKey=settings.get("COMICVINE_API_KEY", ""),
+        metronUsername=settings.get("METRON_USERNAME", ""),
+        metronPassword=settings.get("METRON_PASSWORD", ""),
         gcdLanguages=settings.get("GCD_METADATA_LANGUAGES", "en"),
         enableCustomRename=settings.get("ENABLE_CUSTOM_RENAME", "False") == "True",
         customRenamePattern=settings.get("CUSTOM_RENAME_PATTERN", ""),
