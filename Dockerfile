@@ -1,11 +1,42 @@
 # syntax = docker/dockerfile:1
 
-FROM python:3.9-slim
+# -----------------------
+# Stage 1: Builder
+# -----------------------
+FROM python:3.11-slim-bookworm AS builder
 
-# Avoid interactive tzdata etc.
 ENV DEBIAN_FRONTEND=noninteractive
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
 
-# Install system deps + tini (init) + gosu (priv drop) + Playwright dependencies
+WORKDIR /app
+
+# Install build dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create virtual environment
+RUN python -m venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+
+# Install Python dependencies
+COPY requirements.txt .
+RUN pip install --no-cache-dir --upgrade pip \
+    && pip install --no-cache-dir -r requirements.txt
+
+# -----------------------
+# Stage 2: Final
+# -----------------------
+FROM python:3.11-slim-bookworm
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
+ENV PATH="/opt/venv/bin:$PATH"
+
+# Install system deps + tini + gosu + Playwright dependencies
+# These dependencies are based on the standard Playwright requirements for Debian
 RUN apt-get update && apt-get install -y --no-install-recommends \
       git \
       unar \
@@ -51,51 +82,40 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       xdg-utils \
     && rm -rf /var/lib/apt/lists/*
 
-# Prevent Python from writing .pyc & buffer issues
-ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1
-
-# App workdir
 WORKDIR /app
 
-# Copy only requirements first for better layer caching
-COPY requirements.txt .
-
-# Upgrade pip and install deps
-RUN pip install --no-cache-dir --upgrade pip \
- && pip install --no-cache-dir -r requirements.txt
+# Copy virtual environment from builder
+COPY --from=builder /opt/venv /opt/venv
 
 # Install Playwright browsers (chromium only for scraping)
-# Note: We skip playwright install-deps because it fails on Debian Trixie
-# All required dependencies are already installed in the earlier apt-get step
+# We run this here to ensure browsers are installed in the final image
 RUN playwright install chromium
 
-# Copy source
+# Copy application source
 COPY . .
 
-# Create runtime dirs that the app writes to
-# (keep root here; we'll chown at runtime based on PUID/PGID)
+# Create runtime dirs
 RUN mkdir -p /app/logs /app/static /config /data /downloads/temp /downloads/processed
 
-# Ensure /app/templates is readable by all users (fix for non-root access)
+# Ensure /app/templates is readable by all users
 RUN chmod -R 755 /app/templates
 
 # Expose Flask port
 EXPOSE 5577
 
-# Set sane defaults for Unraid, but allow override for WSL/others
+# Set default env vars
 ENV PUID=99 \
     PGID=100 \
     UMASK=022 \
     FLASK_ENV=development \
     MONITOR=no
 
-# Add entrypoint
+# Setup entrypoint
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh
 
-# Use tini as PID 1, then our entrypoint will drop privileges via gosu
+# Use tini as PID 1
 ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/entrypoint.sh"]
 
-# Default command runs the app; entrypoint will exec under gosu user
+# Default command
 CMD ["python", "app.py"]

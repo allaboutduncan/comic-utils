@@ -20,13 +20,6 @@ import time
 import signal
 import base64
 
-# Mega download support
-from mega import Mega
-from mega.errors import RequestError
-from mega.crypto import base64_to_a32, base64_url_decode, decrypt_attr, a32_to_str, str_to_a32, get_chunks
-from Crypto.Cipher import AES
-from Crypto.Util import Counter
-
 import pixeldrain
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
@@ -95,7 +88,7 @@ def resolve_final_url(url: str, *, hdrs=headers, max_hops: int = 6) -> str:
     """
     Follow every ordinary 3xx redirect **and** the HTML *meta-refresh* pages
     that GetComics sometimes serves, stopping once we reach the real file
-    host (PixelDrain, Mega, etc.).  We never download the payload – only the
+    host (PixelDrain, etc.).  We never download the payload – only the
     headers or a tiny bit of the HTML.
     """
     current = url
@@ -137,9 +130,7 @@ def process_download(task):
         final_url = resolve_final_url(original_url)
         monitor_logger.info(f"Resolved → {final_url}")
 
-        if "mega.nz" in final_url:
-            file_path = download_mega(final_url, download_id, dest_filename)
-        elif "pixeldrain.com" in final_url:
+        if "pixeldrain.com" in final_url:
             file_path = download_pixeldrain(final_url, download_id, dest_filename)
         elif "comicbookplus.com" in final_url:
             file_path = download_comicbookplus(final_url, download_id, dest_filename)
@@ -367,93 +358,6 @@ def download_getcomics(url, download_id):
                 monitor_logger.debug(f"No leftover temp file to remove: {leftover}")
 
     raise Exception(f"Download failed after {retries} attempts for {url}: {last_exception}")
-
-def get_mega_file_info(url):
-    parsed = urlparse(url)
-    file_id = parsed.path.split("/")[-1]
-    file_key_b64 = url.split("#")[-1]
-
-    k = base64_to_a32(file_key_b64)
-    file_data = requests.get("https://g.api.mega.co.nz/cs?id=0", json=[{"a": "g", "g": 1, "p": file_id}]).json()[0]
-
-    if 'g' not in file_data:
-        raise Exception("File not accessible anymore")
-
-    iv = k[4:6] + (0, 0)
-    meta_mac = k[6:8]
-    key = [(k[0] ^ k[4]), (k[1] ^ k[5]), (k[2] ^ k[6]), (k[3] ^ k[7])]
-    k_str = a32_to_str(key)
-
-    attribs = decrypt_attr(base64_url_decode(file_data["at"]), key)
-
-    return {
-        "g": file_data["g"],
-        "size": file_data["s"],
-        "name": attribs["n"],
-        "k": key,
-        "iv": iv,
-        "meta_mac": meta_mac
-    }
-
-def download_mega(url, download_id, dest_filename=None):
-    try:
-        download_progress[download_id]['progress'] = 0
-        download_progress[download_id]['bytes_downloaded'] = 0
-        download_progress[download_id]['bytes_total'] = 0
-        download_progress[download_id]['status'] = 'in_progress'
-
-        file_info = get_mega_file_info(url)
-
-        file_size = file_info['size']
-        file_name = secure_filename(dest_filename or file_info['name'])
-
-        base, ext = os.path.splitext(file_name)
-        file_path = os.path.join(DOWNLOAD_DIR, file_name)
-        counter = 1
-        while os.path.exists(file_path):
-            file_path = os.path.join(DOWNLOAD_DIR, f"{base}_{counter}{ext}")
-            counter += 1
-        tmp_path = file_path + ".part"
-
-        download_progress[download_id]['filename'] = file_path
-        download_progress[download_id]['bytes_total'] = file_size
-
-        # Setup AES decryption
-        k_str = a32_to_str(file_info['k'])
-        counter_iv = Counter.new(128, initial_value=((file_info['iv'][0] << 32) + file_info['iv'][1]) << 64)
-        aes = AES.new(k_str, AES.MODE_CTR, counter=counter_iv)
-
-        with requests.get(file_info["g"], stream=True) as r, open(tmp_path, "wb") as f:
-            r.raise_for_status()
-            downloaded = 0
-            for chunk in r.iter_content(chunk_size=1 << 20):
-                if download_progress.get(download_id, {}).get('cancelled'):
-                    monitor_logger.info(f"Download {download_id} cancelled mid-transfer.")
-                    r.close()
-                    f.close()
-                    os.remove(tmp_path)
-                    download_progress[download_id]['status'] = 'cancelled'
-                    return None
-                if chunk:
-                    decrypted = aes.decrypt(chunk)
-                    f.write(decrypted)
-                    downloaded += len(chunk)
-                    download_progress[download_id]['bytes_downloaded'] = downloaded
-                    percent = int((downloaded / file_size) * 100)
-                    download_progress[download_id]['progress'] = percent
-                    print(f"{downloaded / 1e6:.2f}/{file_size / 1e6:.2f} MB - {percent}%", end="\r")
-
-        os.rename(tmp_path, file_path)
-        download_progress[download_id]['progress'] = 100
-        download_progress[download_id]['status'] = 'complete'
-        monitor_logger.info(f"Download from Mega complete → {file_path}")
-        return file_path
-
-    except Exception as e:
-        monitor_logger.error(f"Error downloading from Mega: {e}")
-        download_progress[download_id]['status'] = 'error'
-        download_progress[download_id]['progress'] = -1
-        raise Exception(f"Error downloading from Mega: {e}")
 
 # -------------------------------
 # Pixeldrain support

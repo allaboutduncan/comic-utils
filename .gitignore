@@ -24,3 +24,4 @@ logs/monitor.log
 logs/app.log
 *.log
 .claude
+readme/156342.json
