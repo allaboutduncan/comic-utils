@@ -1968,6 +1968,9 @@ def auto_fetch_comicvine_metadata(destination_path):
     """
     Automatically fetch ComicVine metadata for moved files if conditions are met.
     Only triggers for non-root /data directories that have a cvinfo file.
+
+    Returns:
+        The final file path (renamed path if file was renamed, original path otherwise)
     """
     try:
         from comicvine import auto_fetch_metadata_for_folder
@@ -1976,7 +1979,7 @@ def auto_fetch_comicvine_metadata(destination_path):
         api_key = app.config.get("COMICVINE_API_KEY", "")
         if not api_key:
             app_logger.debug("ComicVine API key not configured, skipping auto-metadata")
-            return
+            return destination_path
 
         # Determine the folder to check for cvinfo
         if os.path.isfile(destination_path):
@@ -1993,7 +1996,7 @@ def auto_fetch_comicvine_metadata(destination_path):
         rel_path_normalized = rel_path.replace("\\", "/")
         if rel_path == "." or "/" not in rel_path_normalized:
             app_logger.debug(f"Skipping auto-metadata for root-level directory: {folder_path}")
-            return
+            return destination_path
 
         # Trigger metadata fetch for the folder
         result = auto_fetch_metadata_for_folder(folder_path, api_key, target_file=target_file)
@@ -2001,8 +2004,18 @@ def auto_fetch_comicvine_metadata(destination_path):
         if result['processed'] > 0:
             app_logger.info(f"Auto-fetched ComicVine metadata: {result['processed']} processed, {result['skipped']} skipped, {result['errors']} errors")
 
+            # Check if the target file was renamed and return the new path
+            if target_file:
+                for detail in result.get('details', []):
+                    if detail.get('renamed_to') and detail.get('file') == target_file:
+                        app_logger.info(f"File was renamed: {target_file} -> {detail['renamed_to']}")
+                        return detail['renamed_to']
+
+        return destination_path
+
     except Exception as e:
         app_logger.error(f"Error in auto-fetch metadata: {e}")
+        return destination_path
 
 
 #####################################
@@ -2080,11 +2093,11 @@ def move():
                         os.remove(source)
                         app_logger.info(f"Move complete (streamed): Removed {source}")
 
-                        # Log file to recent_files if it's a comic file moved to /data
-                        log_file_if_in_data(destination)
+                        # Auto-fetch ComicVine metadata first (may rename file)
+                        final_path = auto_fetch_comicvine_metadata(destination)
 
-                        # Auto-fetch ComicVine metadata if cvinfo exists
-                        auto_fetch_comicvine_metadata(destination)
+                        # Log file to recent_files with the final path (renamed or original)
+                        log_file_if_in_data(final_path)
 
                         yield "data: 100\n\n"
                     except Exception as e:
@@ -2187,6 +2200,9 @@ def move():
 
                         app_logger.info(f"Directory move complete: {source} -> {destination}")
 
+                        # Auto-fetch ComicVine metadata if cvinfo exists
+                        auto_fetch_comicvine_metadata(destination)
+
                         # Log all comic files in the moved directory to recent_files
                         try:
                             for root, _, files_in_dir in os.walk(destination):
@@ -2198,9 +2214,6 @@ def move():
 
                         # Update file index incrementally (no cache invalidation needed with DB-first approach)
                         update_index_on_move(source, destination)
-
-                        # Auto-fetch ComicVine metadata if cvinfo exists
-                        auto_fetch_comicvine_metadata(destination)
 
                     except Exception as e:
                         app_logger.exception(f"Error during streaming directory move from {source} to {destination}")
@@ -2228,11 +2241,14 @@ def move():
                     shutil.move(source, destination)
                 app_logger.info(f"Move complete: {source} -> {destination}")
 
-                # Log file to recent_files if it's a comic file moved to /data
+                # Auto-fetch ComicVine metadata first (may rename file)
+                final_path = auto_fetch_comicvine_metadata(destination)
+
+                # Log file to recent_files with the final path (renamed or original)
                 if is_file:
-                    log_file_if_in_data(destination)
+                    log_file_if_in_data(final_path)
                 else:
-                    # For directories, log all comic files inside
+                    # For directories, log all comic files inside (after any renames)
                     try:
                         for root, _, files in os.walk(destination):
                             for file in files:
@@ -2242,10 +2258,7 @@ def move():
                         app_logger.warning(f"Error logging files from directory {destination}: {e}")
 
                 # Update file index incrementally (no cache invalidation needed with DB-first approach)
-                update_index_on_move(source, destination)
-
-                # Auto-fetch ComicVine metadata if cvinfo exists
-                auto_fetch_comicvine_metadata(destination)
+                update_index_on_move(source, final_path if is_file else destination)
 
                 return jsonify({"success": True})
             except Exception as e:
