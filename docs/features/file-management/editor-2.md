@@ -28,7 +28,7 @@ You can CTRL+Click or SHIFT+Click to select multiple files. Once you have multip
 
 You can see we have 4 files selected. Right-clicking will show you the option to "Delete Selected Files"
 
-<figure><img src="/broken/files/KMim0RYVqBV16sO5nabj" alt=""><figcaption></figcaption></figure>
+<figure><img src="../../.gitbook/assets/Screenshot 2025-10-15 164850.png" alt=""><figcaption></figcaption></figure>
 
 Clicking that option will show you the files that will be deleted and ask you to confirm.
 

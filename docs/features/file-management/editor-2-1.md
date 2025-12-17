@@ -34,13 +34,13 @@ Searching for _'H.A.R.D. Corps (1992)'_ finds an exact match and applies metadat
 
 <figure><img src="../../.gitbook/assets/Screenshot 2025-10-07 090950.png" alt=""><figcaption></figcaption></figure>
 
-<figure><img src="/broken/files/NR3j4s9oYyiXT3Y3wBdm" alt=""><figcaption></figcaption></figure>
+<figure><img src="../../.gitbook/assets/Screenshot 2025-10-07 091418.png" alt=""><figcaption></figcaption></figure>
 
 Similarly, when multiple volumes are present, CLU will grab the 'YEAR' from the folder and append it to the parent folder, so this search was for _'Archer & Armstrong (1992)'_ and we found an exact match.
 
 Searching for _'Archer & Armstrong (2012)'_ however, does not find an exact match, so we're presented with a list of possible matches. From that we can see a series from (2013-2015) with 10 Issues, so we select this for matching.
 
-<figure><img src="/broken/files/1XMUqEr8ou1KWDsquqhN" alt=""><figcaption></figcaption></figure>
+<figure><img src="../../.gitbook/assets/Screenshot 2025-10-07 091938.png" alt=""><figcaption></figcaption></figure>
 
 ### Get metadata for a single issue
 
