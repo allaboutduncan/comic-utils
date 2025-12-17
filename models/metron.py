@@ -196,13 +196,32 @@ def get_issue_metadata(api, series_id: int, issue_number: str) -> Optional[Dict[
         app_logger.info(f"Found Metron issue ID {metron_issue_id}, fetching full details...")
         details = api.issue(metron_issue_id)
 
-        # Convert schema object to dict
-        if hasattr(details, 'json'):
-            # Mokkari objects have a json() method
-            return details.json()
+        # Convert schema object to dict - try multiple methods
+        # Pydantic v2 uses model_dump(), v1 uses dict()
+        result = None
+        if hasattr(details, 'model_dump'):
+            app_logger.debug("Converting Metron response using model_dump()")
+            result = details.model_dump()
+        elif hasattr(details, 'dict'):
+            app_logger.debug("Converting Metron response using dict()")
+            result = details.dict()
+        elif hasattr(details, 'json'):
+            import json
+            app_logger.debug("Converting Metron response using json()")
+            result = json.loads(details.json())
         elif hasattr(details, '__dict__'):
-            return vars(details)
-        return details
+            app_logger.debug("Converting Metron response using vars()")
+            result = vars(details)
+        else:
+            app_logger.debug(f"Metron response type: {type(details)}")
+            result = details
+
+        # Log key fields to verify conversion
+        if result and isinstance(result, dict):
+            app_logger.debug(f"Metron data keys: {list(result.keys())}")
+            app_logger.debug(f"Series: {result.get('series')}, Number: {result.get('number')}")
+
+        return result
 
     except Exception as e:
         app_logger.error(f"Error fetching issue metadata from Metron: {e}")
@@ -254,6 +273,11 @@ def map_to_comicinfo(issue_data) -> Dict[str, Any]:
         Dictionary in ComicInfo.xml format
     """
     from datetime import datetime
+
+    # Debug: log what we received
+    app_logger.info(f"map_to_comicinfo received type: {type(issue_data)}")
+    if isinstance(issue_data, dict):
+        app_logger.info(f"map_to_comicinfo keys: {list(issue_data.keys())[:10]}...")
 
     # Parse cover_date for Year/Month/Day
     cover_date = _get_attr(issue_data, 'cover_date', '')
@@ -363,7 +387,9 @@ def map_to_comicinfo(issue_data) -> Dict[str, Any]:
     }
 
     # Remove None values
-    return {k: v for k, v in comicinfo.items() if v is not None}
+    result = {k: v for k, v in comicinfo.items() if v is not None}
+    app_logger.info(f"map_to_comicinfo returning {len(result)} fields: {list(result.keys())}")
+    return result
 
 
 def get_metron_series_id(cvinfo_path: str, api) -> Optional[int]:

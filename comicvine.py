@@ -863,7 +863,8 @@ def auto_fetch_metadata_for_folder(folder_path: str, api_key: str, target_file: 
             existing = read_comicinfo_from_zip(file_path)
             existing_notes = existing.get('Notes', '').strip()
 
-            if existing_notes:
+            # Skip if has metadata, unless it's just Amazon scraped data
+            if existing_notes and 'Scraped metadata from Amazon' not in existing_notes:
                 app_logger.debug(f"Skipping {file_path} - already has metadata")
                 result['skipped'] += 1
                 result['details'].append({'file': file_path, 'status': 'skipped', 'reason': 'has metadata'})

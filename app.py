@@ -2104,7 +2104,8 @@ def auto_fetch_metron_metadata(destination_path):
             # Skip if already has metadata
             existing = read_comicinfo_from_zip(file_path)
             existing_notes = existing.get('Notes', '').strip() if existing else ''
-            if existing_notes:
+            # Skip if has metadata, unless it's just Amazon scraped data
+            if existing_notes and 'Scraped metadata from Amazon' not in existing_notes:
                 app_logger.debug(f"Skipping {file_path} - already has metadata")
                 continue
 
