@@ -2913,11 +2913,14 @@ def combine_cbz():
         return jsonify({"error": "Directory not specified"}), 400
 
     # Security: Validate all paths
+    watch_dir = config.get("SETTINGS", "WATCH", fallback="/temp")
+    target_dir = config.get("SETTINGS", "TARGET", fallback="/processed")
+
     for f in files:
         normalized = os.path.normpath(f)
         if not (normalized.startswith(os.path.normpath(DATA_DIR)) or
-                normalized.startswith(os.path.normpath(TEMP_DIR)) or
-                normalized.startswith(os.path.normpath(WATCH_DIR))):
+                normalized.startswith(os.path.normpath(watch_dir)) or
+                normalized.startswith(os.path.normpath(target_dir))):
             return jsonify({"error": "Access denied"}), 403
 
     temp_dir = None
@@ -7583,10 +7586,15 @@ def search_comicvine_metadata():
             # Continue execution - metadata was added successfully even if move failed
 
         # Return success with metadata and rename configuration
+        # Ensure image_url is a string (Pydantic HttpUrl isn't JSON serializable)
+        img_url = issue_data.get('image_url')
+        if img_url and not isinstance(img_url, str):
+            img_url = str(img_url)
+
         response_data = {
             "success": True,
             "metadata": comicinfo_data,
-            "image_url": issue_data.get('image_url'),
+            "image_url": img_url,
             "volume_info": {
                 "id": selected_volume['id'],
                 "name": selected_volume['name'],
@@ -7690,10 +7698,15 @@ def search_comicvine_metadata_with_selection():
             # Continue execution - metadata was added successfully even if move failed
 
         # Return success with metadata and rename configuration
+        # Ensure image_url is a string (Pydantic HttpUrl isn't JSON serializable)
+        img_url = issue_data.get('image_url')
+        if img_url and not isinstance(img_url, str):
+            img_url = str(img_url)
+
         response_data = {
             "success": True,
             "metadata": comicinfo_data,
-            "image_url": issue_data.get('image_url'),
+            "image_url": img_url,
             "rename_config": {
                 "enabled": app.config.get("ENABLE_CUSTOM_RENAME", False),
                 "pattern": app.config.get("CUSTOM_RENAME_PATTERN", ""),

@@ -60,13 +60,18 @@ def search_volumes(api_key: str, series_name: str, year: Optional[int] = None) -
         # Convert to simple dict format
         results = []
         for vol in volumes:
+            # Get image URL and convert to string (Pydantic HttpUrl isn't JSON serializable)
+            image_url = None
+            if hasattr(vol, 'image') and vol.image and hasattr(vol.image, 'thumbnail'):
+                image_url = str(vol.image.thumbnail) if vol.image.thumbnail else None
+
             vol_dict = {
                 "id": vol.id,
                 "name": vol.name,
                 "start_year": getattr(vol, 'start_year', None),
                 "publisher_name": vol.publisher.name if hasattr(vol, 'publisher') and vol.publisher else None,
                 "count_of_issues": getattr(vol, 'count_of_issues', None),
-                "image_url": vol.image.thumbnail if hasattr(vol, 'image') and vol.image and hasattr(vol.image, 'thumbnail') else None,
+                "image_url": image_url,
                 "description": getattr(vol, 'description', None)
             }
             # Truncate description if present
@@ -300,9 +305,9 @@ def _issue_to_dict(issue: Any) -> Dict[str, Any]:
     if volume and hasattr(volume, 'publisher') and volume.publisher:
         publisher = volume.publisher.name if hasattr(volume.publisher, 'name') else None
 
-    # Get image URL
+    # Get image URL (convert HttpUrl to string for JSON serialization)
     image = getattr(issue, 'image', None)
-    image_url = image.thumbnail if image and hasattr(image, 'thumbnail') else None
+    image_url = str(image.thumbnail) if image and hasattr(image, 'thumbnail') and image.thumbnail else None
 
     return {
         "id": issue.id,
@@ -847,15 +852,20 @@ def auto_fetch_metadata_for_folder(folder_path: str, api_key: str, target_file: 
 
     # Get list of comic files to process
     comic_files = []
-    for item in os.listdir(folder_path):
-        item_path = os.path.join(folder_path, item)
-        if os.path.isfile(item_path) and item.lower().endswith(('.cbz', '.cbr')):
-            comic_files.append(item_path)
 
-    # Prioritize target_file if specified
-    if target_file and target_file in comic_files:
-        comic_files.remove(target_file)
-        comic_files.insert(0, target_file)
+    # If target_file is specified, only process that file (not all files in folder)
+    if target_file:
+        if os.path.isfile(target_file) and target_file.lower().endswith(('.cbz', '.cbr')):
+            comic_files = [target_file]
+        else:
+            app_logger.debug(f"Target file not a valid comic: {target_file}")
+            return result
+    else:
+        # No target file - process all comics in folder (e.g., manual batch operation)
+        for item in os.listdir(folder_path):
+            item_path = os.path.join(folder_path, item)
+            if os.path.isfile(item_path) and item.lower().endswith(('.cbz', '.cbr')):
+                comic_files.append(item_path)
 
     for file_path in comic_files:
         try:

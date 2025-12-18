@@ -248,7 +248,18 @@ function combineSelectedFiles() {
   }
 
   const cbzFiles = Array.from(selectedFiles).filter(f => f.toLowerCase().endsWith('.cbz'));
-  const directory = cbzFiles[0].substring(0, cbzFiles[0].lastIndexOf('/'));
+
+  if (cbzFiles.length < 2) {
+    showToast('Error', 'Need at least 2 CBZ files', 'error');
+    return;
+  }
+
+  // Get directory - handle both forward and backslash
+  const firstFile = cbzFiles[0];
+  const lastSlash = Math.max(firstFile.lastIndexOf('/'), firstFile.lastIndexOf('\\'));
+  const directory = firstFile.substring(0, lastSlash);
+
+  console.log('Combining files:', { cbzFiles, directory, fileName });
 
   // Hide modal
   const modalEl = document.getElementById('combineFilesModal');
@@ -267,11 +278,19 @@ function combineSelectedFiles() {
       directory: directory
     })
   })
-  .then(response => response.json())
+  .then(response => {
+    if (!response.ok) {
+      return response.text().then(text => {
+        throw new Error(`Server error ${response.status}: ${text}`);
+      });
+    }
+    return response.json();
+  })
   .then(data => {
     if (data.success) {
       showToast('Success', `Created ${data.output_file}`, 'success');
-      clearSelection();
+      selectedFiles.clear();
+      updateSelectionBadge();
 
       // Refresh the directory
       if (contextMenuPanel === 'source') {
@@ -285,7 +304,7 @@ function combineSelectedFiles() {
   })
   .catch(error => {
     console.error('Error combining files:', error);
-    showToast('Error', 'An error occurred while combining files', 'error');
+    showToast('Error', error.message || 'An error occurred while combining files', 'error');
   });
 }
 

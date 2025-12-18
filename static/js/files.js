@@ -2983,7 +2983,7 @@ function updateRenameButtonVisibility(panel) {
     let cvInfoButton = renameRow.querySelector('.add-cvinfo-btn');
     if (!cvInfoButton) {
       cvInfoButton = document.createElement('button');
-      cvInfoButton.className = 'btn btn-outline-info btn-sm add-cvinfo-btn';
+      cvInfoButton.className = 'btn btn-outline-info btn-sm add-cvinfo-btn me-2';
       cvInfoButton.innerHTML = '<i class="bi bi-link-45deg me-2"></i>Add CVINFO';
       cvInfoButton.title = 'Save ComicVine URL to cvinfo file in this directory';
       renameRow.appendChild(cvInfoButton);
@@ -7333,18 +7333,18 @@ function saveCVInfo() {
       content: content
     })
   })
-  .then(response => response.json())
-  .then(data => {
-    if (data.success) {
-      showToast('Success', 'CVINFO file saved successfully!', 'success');
-      // Refresh the directory listing to show the new file
-      loadDirectories(directoryPath, panel);
-    } else {
-      showToast('Error', data.error || 'Failed to save CVINFO file', 'error');
-    }
-  })
-  .catch(error => {
-    console.error('Error saving CVINFO:', error);
-    showToast('Error', 'An error occurred while saving the CVINFO file', 'error');
-  });
+    .then(response => response.json())
+    .then(data => {
+      if (data.success) {
+        showToast('Success', 'CVINFO file saved successfully!', 'success');
+        // Refresh the directory listing to show the new file
+        loadDirectories(directoryPath, panel);
+      } else {
+        showToast('Error', data.error || 'Failed to save CVINFO file', 'error');
+      }
+    })
+    .catch(error => {
+      console.error('Error saving CVINFO:', error);
+      showToast('Error', 'An error occurred while saving the CVINFO file', 'error');
+    });
 }
