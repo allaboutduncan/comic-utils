@@ -2996,8 +2996,8 @@ function updateRenameButtonVisibility(panel) {
     // Update button click handler with current context
     cvInfoButton.onclick = function (e) {
       e.preventDefault();
-      const pathFromData = e.target.dataset.currentPath;
-      const panelFromData = e.target.dataset.currentPanel;
+      const pathFromData = this.dataset.currentPath;
+      const panelFromData = this.dataset.currentPanel;
       console.log('Add CVINFO button clicked, path:', pathFromData, 'panel:', panelFromData);
       promptForCVInfo(pathFromData, panelFromData);
     };
