@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Send Link to CLU",
-  "version": "1.0",
-  "description": "Right-click a link to send it to your CLU downloads.",
+  "version": "2.0",
+  "description": "Click a link to send it to your CLU downloads.",
   "icons": {
     "16": "icons/icon16.png",
     "48": "icons/icon48.png",
@@ -11,6 +11,28 @@
   "permissions": [
     "contextMenus",
     "storage"
+  ],
+  "content_scripts": [
+    {
+      "matches": [
+        "*://*.comicbookplus.com/*",
+        "*://*.getcomics.org/*"
+      ],
+      "js": [
+        "content.js"
+      ]
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "icons/icon16.png",
+        "icons/icon48.png"
+      ],
+      "matches": [
+        "<all_urls>"
+      ]
+    }
   ],
   "background": {
     "service_worker": "background.js"
