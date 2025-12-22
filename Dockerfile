@@ -107,7 +107,7 @@ EXPOSE 5577
 ENV PUID=99 \
     PGID=100 \
     UMASK=022 \
-    FLASK_ENV=development \
+    FLASK_ENV=production \
     MONITOR=no
 
 # Setup entrypoint
@@ -117,5 +117,5 @@ RUN chmod +x /usr/local/bin/entrypoint.sh
 # Use tini as PID 1
 ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/entrypoint.sh"]
 
-# Default command
-CMD ["python", "app.py"]
+# Default command - Gunicorn production WSGI server
+CMD ["gunicorn", "-w", "1", "--threads", "8", "-b", "0.0.0.0:5577", "--timeout", "120", "app:app"]

@@ -3491,9 +3491,15 @@ def api_browse_recursive():
             # Return tuple: (series_name, year, issue_number, original_name_for_secondary_sort)
             return (series_name, year, issue_number, filename.lower())
 
-        # Fallback to natural sorting for non-standard formats
-        return ('', 0, 0, [int(text) if text.isdigit() else text.lower()
-                           for text in re.split('([0-9]+)', filename)])
+        # Try pattern without year: "Series Name 123.ext" or "Series Name #123.ext"
+        match_no_year = re.match(r'^(.+?)\s+#?(\d+)', filename, re.IGNORECASE)
+        if match_no_year:
+            series_name = match_no_year.group(1).strip().lower()
+            issue_number = int(match_no_year.group(2))
+            return (series_name, 0, issue_number, filename.lower())
+
+        # Final fallback - use filename as series name for proper alphabetical sorting
+        return (filename.lower(), 0, 0, filename.lower())
 
     files.sort(key=natural_sort_key)
     
@@ -7774,39 +7780,54 @@ def api_insights():
 #   Application Start   #
 #########################
 
-if __name__ == '__main__':
+# Build search index in background thread
+def build_index_background():
+    try:
+        build_file_index()
+        app_logger.info("✅ Search index built successfully and ready for use")
+    except Exception as e:
+        app_logger.error(f"❌ Error building search index: {e}")
+
+# Cache maintenance background thread
+def cache_maintenance_background():
+    """Background thread that checks and rebuilds cache every hour."""
+    while True:
+        try:
+            time.sleep(60 * 60)  # Check every hour
+            if should_rebuild_cache():
+                rebuild_entire_cache()
+        except Exception as e:
+            app_logger.error(f"Error in cache maintenance thread: {e}")
+
+# Pre-build browse cache for root directory
+def prebuild_browse_cache():
+    """Pre-build browse cache for DATA_DIR root on startup."""
+    try:
+        app_logger.info(f"🔄 Pre-building browse cache for {DATA_DIR}...")
+        # Trigger a browse request internally to build and cache
+        with app.test_request_context(f'/api/browse?path={DATA_DIR}'):
+            api_browse()
+        app_logger.info(f"✅ Browse cache pre-built for {DATA_DIR}")
+    except Exception as e:
+        app_logger.error(f"❌ Error pre-building browse cache: {e}")
+
+# Start file watcher for /data directory in background
+def start_file_watcher_background():
+    try:
+        app_logger.info(f"Initializing file watcher for {DATA_DIR}...")
+        file_watcher = FileWatcher(watch_path=DATA_DIR, debounce_seconds=2)
+        if file_watcher.start():
+            app_logger.info(f"👁️  File watcher started for {DATA_DIR} (tracking recent files)...")
+        else:
+            app_logger.warning("⚠️  File watcher failed to start")
+    except Exception as e:
+        app_logger.error(f"❌ Failed to initialize file watcher: {e}")
+        import traceback
+        app_logger.error(f"Traceback: {traceback.format_exc()}")
+
+def start_background_services():
+    """Start all background services. Called once on app startup."""
     app_logger.info("Flask app is starting up...")
-    
-    # Build search index in background thread
-    def build_index_background():
-        try:
-            build_file_index()
-            app_logger.info("✅ Search index built successfully and ready for use")
-        except Exception as e:
-            app_logger.error(f"❌ Error building search index: {e}")
-    
-    # Cache maintenance background thread
-    def cache_maintenance_background():
-        """Background thread that checks and rebuilds cache every hour."""
-        while True:
-            try:
-                time.sleep(60 * 60)  # Check every hour
-                if should_rebuild_cache():
-                    rebuild_entire_cache()
-            except Exception as e:
-                app_logger.error(f"Error in cache maintenance thread: {e}")
-    
-    # Pre-build browse cache for root directory
-    def prebuild_browse_cache():
-        """Pre-build browse cache for DATA_DIR root on startup."""
-        try:
-            app_logger.info(f"🔄 Pre-building browse cache for {DATA_DIR}...")
-            # Trigger a browse request internally to build and cache
-            with app.test_request_context(f'/api/browse?path={DATA_DIR}'):
-                api_browse()
-            app_logger.info(f"✅ Browse cache pre-built for {DATA_DIR}")
-        except Exception as e:
-            app_logger.error(f"❌ Error pre-building browse cache: {e}")
 
     # Start index building in background
     threading.Thread(target=build_index_background, daemon=True).start()
@@ -7820,26 +7841,14 @@ if __name__ == '__main__':
     threading.Thread(target=cache_maintenance_background, daemon=True).start()
     app_logger.info("🔄 Cache maintenance thread started (checks every hour, rebuilds every 6 hours)...")
 
-    # Start file watcher for /data directory in background
-    def start_file_watcher_background():
-        try:
-            app_logger.info(f"Initializing file watcher for {DATA_DIR}...")
-            file_watcher = FileWatcher(watch_path=DATA_DIR, debounce_seconds=2)
-            if file_watcher.start():
-                app_logger.info(f"👁️  File watcher started for {DATA_DIR} (tracking recent files)...")
-            else:
-                app_logger.warning("⚠️  File watcher failed to start")
-        except Exception as e:
-            app_logger.error(f"❌ Failed to initialize file watcher: {e}")
-            import traceback
-            app_logger.error(f"Traceback: {traceback.format_exc()}")
-
+    # Start file watcher
     threading.Thread(target=start_file_watcher_background, daemon=True).start()
     app_logger.info("🔄 File watcher initialization started in background...")
 
     # Configure rebuild schedule from database
     configure_rebuild_schedule()
 
+    # Start monitor if enabled
     if os.environ.get("MONITOR", "").strip().lower() == "yes":
         app_logger.info("MONITOR=yes detected. Starting monitor.py...")
         threading.Thread(target=run_monitor, daemon=True).start()
@@ -7849,5 +7858,10 @@ if __name__ == '__main__':
     else:
         user_name = os.getenv('USERNAME', 'unknown')
     app_logger.info(f"Running as user: {user_name}")
-        
+
+# Start background services when module is imported (works with Gunicorn)
+start_background_services()
+
+if __name__ == '__main__':
+    # Only used for local development (python app.py)
     app.run(debug=True, use_reloader=False, threaded=True, host='0.0.0.0', port=5577)
