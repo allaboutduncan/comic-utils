@@ -7777,6 +7777,103 @@ def api_insights():
     })
 
 #########################
+#   Yearly Wrapped      #
+#########################
+
+@app.route('/api/wrapped/years')
+def api_wrapped_years():
+    """Get list of years with reading data. Defaults to current year if none found."""
+    from wrapped import get_years_with_reading_data
+    from datetime import datetime
+
+    try:
+        years = get_years_with_reading_data()
+    except Exception as e:
+        app_logger.error(f"Error getting wrapped years: {e}")
+        years = []
+
+    # Default to current year if no data found
+    if not years:
+        years = [datetime.now().year]
+
+    return jsonify({"years": years})
+
+
+@app.route('/api/wrapped/<int:year>')
+def api_wrapped_data(year):
+    """Return wrapped stats as JSON."""
+    from wrapped import get_all_wrapped_stats
+    try:
+        stats = get_all_wrapped_stats(year)
+        return jsonify(stats)
+    except Exception as e:
+        app_logger.error(f"Error getting wrapped stats: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/wrapped/<int:year>/image/<int:slide_num>')
+def api_wrapped_image(year, slide_num):
+    """Return individual wrapped slide as PNG image."""
+    from wrapped import (
+        generate_summary_slide,
+        generate_most_read_series_slide,
+        generate_series_highlights_slide
+    )
+
+    # Get current theme from config
+    # Get current theme from config
+    theme = config.get('SETTINGS', 'BOOTSTRAP_THEME', fallback='default')
+
+    try:
+        if slide_num == 1:
+            image_bytes = generate_summary_slide(year, theme)
+        elif slide_num == 2:
+            image_bytes = generate_most_read_series_slide(year, theme)
+        elif slide_num == 3:
+            image_bytes = generate_series_highlights_slide(year, theme)
+        else:
+            return jsonify({"error": "Invalid slide number (1-3)"}), 400
+
+        return Response(image_bytes, mimetype='image/png')
+    except Exception as e:
+        import traceback
+        app_logger.error(f"Error generating wrapped image: {e}")
+        app_logger.error(f"Traceback: {traceback.format_exc()}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/wrapped/<int:year>/download')
+def api_wrapped_download(year):
+    """Download all wrapped images as ZIP."""
+    from wrapped import generate_all_wrapped_images
+    import zipfile
+
+    theme = config.get('SETTINGS', 'BOOTSTRAP_THEME', fallback='default')
+
+    try:
+        slides = generate_all_wrapped_images(year, theme)
+
+        # Create ZIP in memory
+        zip_buffer = io.BytesIO()
+        with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zf:
+            for filename, image_bytes in slides:
+                zf.writestr(f"wrapped_{year}/{filename}", image_bytes)
+
+        zip_buffer.seek(0)
+
+        return Response(
+            zip_buffer.getvalue(),
+            mimetype='application/zip',
+            headers={
+                'Content-Disposition': f'attachment; filename=wrapped_{year}.zip'
+            }
+        )
+    except Exception as e:
+        app_logger.error(f"Error generating wrapped ZIP: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+#########################
 #   Application Start   #
 #########################
 

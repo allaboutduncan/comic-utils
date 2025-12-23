@@ -47,6 +47,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       gnupg \
       ca-certificates \
       fonts-liberation \
+      fonts-dejavu-core \
       libasound2 \
       libatk-bridge2.0-0 \
       libatk1.0-0 \

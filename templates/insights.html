@@ -9,9 +9,15 @@
 {% block content %}
 <div class="container-lg insights-page">
     <!-- Page Header -->
-    <div class="insights-header">
-        <h1><i class="bi bi-graph-up-arrow me-2 text-primary"></i>Library Insights</h1>
-        <p class="lead mb-0">Explore your collection statistics and reading habits</p>
+    <div class="insights-header d-flex justify-content-between align-items-start flex-wrap gap-3">
+        <div>
+            <h1><i class="bi bi-graph-up-arrow me-2 text-primary"></i>Library Insights</h1>
+            <p class="lead mb-0">Explore your collection statistics and reading habits</p>
+        </div>
+        <button class="btn btn-primary btn-lg" id="generateWrappedBtn" data-bs-toggle="modal"
+            data-bs-target="#wrappedModal">
+            <i class="bi bi-gift me-2"></i>Year Wrapped
+        </button>
     </div>
 
     <!-- Top Stats Row -->
@@ -157,6 +163,70 @@
                     <div class="chart-container" style="height: 500px;">
                         <canvas id="largestComicsChart"></canvas>
                     </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Wrapped Modal -->
+    <div class="modal fade" id="wrappedModal" tabindex="-1" aria-labelledby="wrappedModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-lg modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="wrappedModalLabel">
+                        <i class="bi bi-gift me-2"></i>Your Year Wrapped
+                    </h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <!-- Year Selection -->
+                    <div id="wrappedYearSelect" class="text-center py-4">
+                        <h4 class="mb-4">Select a year to generate your Wrapped</h4>
+                        <div class="d-flex justify-content-center gap-2 flex-wrap" id="yearButtonsContainer">
+                            <div class="spinner-border text-primary" role="status">
+                                <span class="visually-hidden">Loading...</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Loading State -->
+                    <div id="wrappedLoading" class="text-center py-5" style="display: none;">
+                        <div class="spinner-border text-primary mb-3" style="width: 3rem; height: 3rem;" role="status">
+                            <span class="visually-hidden">Generating...</span>
+                        </div>
+                        <p class="text-muted">Generating your Wrapped images...</p>
+                    </div>
+
+                    <!-- Carousel -->
+                    <div id="wrappedCarousel" class="carousel slide" style="display: none;" data-bs-ride="false">
+                        <div class="carousel-indicators">
+                            <button type="button" data-bs-target="#wrappedCarousel" data-bs-slide-to="0"
+                                class="active"></button>
+                            <button type="button" data-bs-target="#wrappedCarousel" data-bs-slide-to="1"></button>
+                            <button type="button" data-bs-target="#wrappedCarousel" data-bs-slide-to="2"></button>
+                        </div>
+                        <div class="carousel-inner" id="wrappedCarouselInner">
+                            <!-- Slides will be inserted here -->
+                        </div>
+                        <button class="carousel-control-prev" type="button" data-bs-target="#wrappedCarousel"
+                            data-bs-slide="prev">
+                            <span class="carousel-control-prev-icon" aria-hidden="true"></span>
+                            <span class="visually-hidden">Previous</span>
+                        </button>
+                        <button class="carousel-control-next" type="button" data-bs-target="#wrappedCarousel"
+                            data-bs-slide="next">
+                            <span class="carousel-control-next-icon" aria-hidden="true"></span>
+                            <span class="visually-hidden">Next</span>
+                        </button>
+                    </div>
+                </div>
+                <div class="modal-footer" id="wrappedFooter" style="display: none;">
+                    <button type="button" class="btn btn-outline-secondary" id="wrappedBackBtn">
+                        <i class="bi bi-arrow-left me-1"></i>Choose Another Year
+                    </button>
+                    <a href="#" class="btn btn-success" id="wrappedDownloadBtn">
+                        <i class="bi bi-download me-1"></i>Download All
+                    </a>
                 </div>
             </div>
         </div>
@@ -578,5 +648,107 @@
         if (diffDays < 30) return `${Math.floor(diffDays / 7)}w ago`;
         return date.toLocaleDateString();
     }
+
+    // ==========================================
+    // Wrapped Feature
+    // ==========================================
+
+    const wrappedModal = document.getElementById('wrappedModal');
+    const yearButtonsContainer = document.getElementById('yearButtonsContainer');
+    const wrappedYearSelect = document.getElementById('wrappedYearSelect');
+    const wrappedLoading = document.getElementById('wrappedLoading');
+    const wrappedCarousel = document.getElementById('wrappedCarousel');
+    const wrappedCarouselInner = document.getElementById('wrappedCarouselInner');
+    const wrappedFooter = document.getElementById('wrappedFooter');
+    const wrappedBackBtn = document.getElementById('wrappedBackBtn');
+    const wrappedDownloadBtn = document.getElementById('wrappedDownloadBtn');
+
+    let selectedYear = null;
+
+    // Load available years when modal opens
+    wrappedModal.addEventListener('show.bs.modal', async function () {
+        resetWrappedModal();
+        try {
+            const response = await fetch('/api/wrapped/years');
+            const data = await response.json();
+
+            if (data.years && data.years.length > 0) {
+                yearButtonsContainer.innerHTML = data.years.map(year =>
+                    `<button class="btn btn-outline-primary btn-lg wrapped-year-btn" data-year="${year}">${year}</button>`
+                ).join('');
+
+                // Add click handlers
+                document.querySelectorAll('.wrapped-year-btn').forEach(btn => {
+                    btn.addEventListener('click', () => generateWrapped(parseInt(btn.dataset.year)));
+                });
+            } else {
+                yearButtonsContainer.innerHTML = '<p class="text-muted">No reading data available yet. Start reading to generate your Wrapped!</p>';
+            }
+        } catch (error) {
+            console.error('Error loading years:', error);
+            yearButtonsContainer.innerHTML = '<p class="text-danger">Error loading years. Please try again.</p>';
+        }
+    });
+
+    function resetWrappedModal() {
+        wrappedYearSelect.style.display = 'block';
+        wrappedLoading.style.display = 'none';
+        wrappedCarousel.style.display = 'none';
+        wrappedFooter.style.display = 'none';
+        wrappedCarouselInner.innerHTML = '';
+    }
+
+    async function generateWrapped(year) {
+        selectedYear = year;
+        wrappedYearSelect.style.display = 'none';
+        wrappedLoading.style.display = 'block';
+
+        try {
+            // Pre-generate all images by loading them
+            const slidePromises = [];
+            for (let i = 1; i <= 3; i++) {
+                slidePromises.push(loadImage(`/api/wrapped/${year}/image/${i}`));
+            }
+
+            const images = await Promise.all(slidePromises);
+
+            // Build carousel
+            wrappedCarouselInner.innerHTML = images.map((imgSrc, idx) => `
+                <div class="carousel-item ${idx === 0 ? 'active' : ''}">
+                    <div class="d-flex justify-content-center">
+                        <img src="${imgSrc}" class="img-fluid rounded shadow" alt="Wrapped Slide ${idx + 1}"
+                             style="max-height: 70vh; object-fit: contain;">
+                    </div>
+                </div>
+            `).join('');
+
+            // Update download link
+            wrappedDownloadBtn.href = `/api/wrapped/${year}/download`;
+
+            // Show carousel
+            wrappedLoading.style.display = 'none';
+            wrappedCarousel.style.display = 'block';
+            wrappedFooter.style.display = 'flex';
+
+            // Reinitialize carousel
+            const carousel = new bootstrap.Carousel(wrappedCarousel);
+
+        } catch (error) {
+            console.error('Error generating wrapped:', error);
+            wrappedLoading.innerHTML = '<p class="text-danger">Error generating images. Please try again.</p>';
+        }
+    }
+
+    function loadImage(url) {
+        return new Promise((resolve, reject) => {
+            const img = new Image();
+            img.onload = () => resolve(url);
+            img.onerror = () => reject(new Error(`Failed to load ${url}`));
+            img.src = url;
+        });
+    }
+
+    // Back button handler
+    wrappedBackBtn.addEventListener('click', resetWrappedModal);
 </script>
 {% endblock %}
