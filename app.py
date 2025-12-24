@@ -3175,6 +3175,21 @@ def api_browse():
             "parent": os.path.dirname(path) if path != DATA_DIR else None
         }
 
+
+        
+        # Check for header image
+        for ext in ['.jpg', '.png', '.gif', '.jpeg']:
+            header_name = f'header{ext}'
+            header_path = os.path.join(path, header_name)
+            if os.path.exists(header_path):
+                result['header_image_url'] = url_for('serve_folder_thumbnail', path=header_path)
+                break
+        
+        # Check for overlay image
+        overlay_path = os.path.join(path, 'overlay.png')
+        if os.path.exists(overlay_path):
+            result['overlay_image_url'] = url_for('serve_folder_thumbnail', path=overlay_path)
+
         elapsed = time.time() - request_start
         app_logger.info(f"✅ /api/browse returned {len(directories)} dirs, {len(files)} files for {path} in {elapsed:.3f}s")
 

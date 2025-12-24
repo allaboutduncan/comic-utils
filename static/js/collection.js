@@ -126,6 +126,38 @@ async function loadDirectory(path, preservePage = false, forceRefresh = false) {
 
         renderBreadcrumbs(data.current_path);
 
+        // Handle Header Image
+        const headerImageContainer = document.getElementById('collection-header-image');
+        if (headerImageContainer) {
+            if (data.header_image_url) {
+                headerImageContainer.innerHTML = `<img src="${data.header_image_url}" class="img-fluid rounded shadow-sm w-100" alt="Collection Header" style="max-height: 400px; object-fit: cover;">`;
+                headerImageContainer.classList.remove('d-none');
+            } else {
+                headerImageContainer.classList.add('d-none');
+                headerImageContainer.innerHTML = '';
+            }
+        }
+
+        // Handle Overlay Background
+        const mainElement = document.querySelector('main');
+        if (mainElement) {
+            if (data.overlay_image_url) {
+                // Apply background image overlay
+                mainElement.style.backgroundImage = `url('${data.overlay_image_url}')`;
+                mainElement.style.backgroundSize = 'cover';
+                mainElement.style.backgroundPosition = 'center top';
+                mainElement.style.backgroundAttachment = 'fixed';
+                mainElement.style.backgroundRepeat = 'no-repeat';
+            } else {
+                // Reset background if no overlay exists
+                mainElement.style.backgroundImage = '';
+                mainElement.style.backgroundSize = '';
+                mainElement.style.backgroundPosition = '';
+                mainElement.style.backgroundAttachment = '';
+                mainElement.style.backgroundRepeat = '';
+            }
+        }
+
         // Process and store all items
         allItems = [];
 
