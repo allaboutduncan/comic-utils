@@ -49,8 +49,8 @@
     #destination-list,
     #source-list {
         /* 100vh is the full height of the screen.
-           We subtract approx 400px to account for the header, buttons, and breadcrumbs above it. */
-        height: calc(100vh - 400px);
+           We subtract approx 485px to account for the header, buttons, and breadcrumbs above it. */
+        height: calc(100vh - 485px);
         overflow-y: auto;
     }
 

@@ -29,6 +29,10 @@ let currentFilter = { source: 'all', destination: 'all' };
 // Store filter state per path for each panel (for persistence during navigation)
 let filterHistory = { source: {}, destination: {} };
 
+// Navigation history for scroll position preservation
+let sourceScrollHistory = {};  // { path: scrollTop }
+let destinationScrollHistory = {};
+
 // Global variable to track GCD MySQL availability
 let gcdMysqlAvailable = false;
 
@@ -1018,9 +1022,35 @@ function onDestinationDirectorySearch(val) {
     renderDirectoryListing(destinationDirectoriesData, 'destination');
   }
 }
+
+// Save scroll position before navigating away
+function saveScrollPosition(panel) {
+  const container = document.getElementById(panel === 'source' ? 'source-list' : 'destination-list');
+  const currentPath = panel === 'source' ? currentSourcePath : currentDestinationPath;
+  if (container && currentPath) {
+    const history = panel === 'source' ? sourceScrollHistory : destinationScrollHistory;
+    history[currentPath] = container.scrollTop;
+  }
+}
+
+// Restore scroll position after rendering
+function restoreScrollPosition(panel, path) {
+  const container = document.getElementById(panel === 'source' ? 'source-list' : 'destination-list');
+  const history = panel === 'source' ? sourceScrollHistory : destinationScrollHistory;
+  if (container && history[path] !== undefined) {
+    // Use setTimeout to ensure DOM has rendered
+    setTimeout(() => {
+      container.scrollTop = history[path];
+    }, 0);
+  }
+}
+
 // Updated loadDirectories function.
 function loadDirectories(path, panel) {
   console.log("loadDirectories called with path:", path, "panel:", panel);
+
+  // Save scroll position before loading new content
+  saveScrollPosition(panel);
   document.getElementById('btnDirectories').classList.add('active');
   document.getElementById('btnDownloads').classList.remove('active');
   const btnRecentFiles = document.getElementById('btnRecentFiles');
@@ -1068,6 +1098,8 @@ function loadDirectories(path, panel) {
         restoreFilterIfValid('source', data.current_path, data.directories);
 
         renderDirectoryListing(data, 'source');
+        // Restore scroll position if navigating back
+        restoreScrollPosition('source', data.current_path);
       } else {
         currentDestinationPath = data.current_path;
         updateBreadcrumb('destination', data.current_path);
@@ -1082,6 +1114,8 @@ function loadDirectories(path, panel) {
         restoreFilterIfValid('destination', data.current_path, data.directories);
 
         renderDirectoryListing(data, 'destination');
+        // Restore scroll position if navigating back
+        restoreScrollPosition('destination', data.current_path);
       }
     })
     .catch(error => {

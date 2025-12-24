@@ -2533,7 +2533,10 @@ def upload_to_folder():
                 file.save(file_path)
 
                 # Resize to match existing images in directory
-                resize_upload(file_path, target_dir)
+                # Skip resizing for 'header' and 'folder' images
+                base_name_check = os.path.splitext(filename)[0].lower()
+                if base_name_check not in ('header', 'folder'):
+                    resize_upload(file_path, target_dir)
 
                 file_size = os.path.getsize(file_path)  # Get size after resize
 

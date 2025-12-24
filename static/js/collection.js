@@ -32,7 +32,7 @@ let isLoading = false;
 let allItems = []; // Stores all files and folders for the current directory
 let readIssuesSet = new Set(); // Cached set of read issue paths for O(1) lookups
 let currentPage = 1;
-let itemsPerPage = 20; // Default to match the select dropdown
+let itemsPerPage = 21; // Default to match the select dropdown
 
 // All Books mode state
 let isAllBooksMode = false;
