@@ -4226,7 +4226,7 @@ async function loadWantToRead() {
 
         // Render slides
         swiper.innerHTML = data.items.map(item => {
-            const name = item.path.split('/').pop();
+            const name = item.name || item.path.split('/').pop();
             const escapedName = name.replace(/'/g, "\\'").replace(/"/g, '&quot;');
             const isFile = item.type === 'file';
 

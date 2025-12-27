@@ -1,5 +1,6 @@
 import sqlite3
 import os
+import re
 from config import config
 from app_logging import app_logger
 
@@ -1616,6 +1617,28 @@ def remove_to_read(path):
         return False
 
 
+def compute_display_name(path):
+    """
+    Compute a display name from a path.
+    If the folder name is a version pattern (v2024, v2023, etc.),
+    prepend the parent folder name.
+
+    Example: /data/Image/Geiger/v2024 -> "Geiger v2024"
+    """
+    # Get the folder/file name from path
+    name = os.path.basename(path.rstrip('/'))
+
+    # Check if name matches version pattern (v followed by 4 digits)
+    if re.match(r'^v\d{4}$', name, re.IGNORECASE):
+        # Get parent folder name
+        parent_path = os.path.dirname(path.rstrip('/'))
+        parent_name = os.path.basename(parent_path)
+        if parent_name and parent_name != 'data':
+            return f"{parent_name} {name}"
+
+    return name
+
+
 def get_to_read_items(limit=None):
     """
     Get all 'to read' items.
@@ -1624,7 +1647,7 @@ def get_to_read_items(limit=None):
         limit: Optional limit on number of items returned
 
     Returns:
-        List of dicts with path, type, created_at keys, or empty list on error
+        List of dicts with path, type, name, created_at keys, or empty list on error
     """
     try:
         conn = get_db_connection()
@@ -1637,7 +1660,13 @@ def get_to_read_items(limit=None):
         else:
             c.execute('SELECT path, type, created_at FROM to_read ORDER BY created_at DESC')
 
-        results = [dict(row) for row in c.fetchall()]
+        results = []
+        for row in c.fetchall():
+            item = dict(row)
+            # Compute display name from path
+            item['name'] = compute_display_name(item['path'])
+            results.append(item)
+
         conn.close()
 
         return results
