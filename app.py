@@ -30,6 +30,7 @@ import tempfile
 from api import app
 from favorites import favorites_bp
 from opds import opds_bp
+from models import gcd
 from config import config, load_flask_config, write_config, load_config
 from edit import get_edit_modal, save_cbz, cropCenter, cropLeft, cropRight, cropFreeForm, get_image_data_url, modal_body_template
 from memory_utils import initialize_memory_management, cleanup_on_exit, memory_context, get_global_monitor
@@ -373,77 +374,6 @@ def update_recent_files_from_scan(comic_files):
         app_logger.error(f"Error updating recent files from scan: {e}")
         import traceback
         app_logger.error(f"Traceback: {traceback.format_exc()}")
-
-#########################
-#   GCD Search Helpers  #
-#########################
-
-STOPWORDS = {"the", "a", "an", "of", "and", "vol", "volume", "season", "series"}
-
-def normalize_title(s: str) -> str:
-    """Normalize a title string for better matching."""
-    s = s.lower()
-    s = re.sub(r"[^a-z0-9]+", " ", s)   # remove punctuation/hyphens
-    s = " ".join(s.split())              # collapse spaces
-    return s
-
-def tokens_for_all_match(s: str):
-    """Normalize and drop stopwords for 'all tokens present' matching."""
-    norm = normalize_title(s)
-    toks = [t for t in norm.split() if t not in STOPWORDS]
-    return norm, toks
-
-def lookahead_regex(toks):
-    """Build ^(?=.*\bsuperman\b)(?=.*\bsecret\b)(?=.*\byears\b).*$
-    Works with MySQL REGEXP and is case-insensitive when we pass 'i' or pre-lowercase."""
-    if not toks:
-        return r".*"          # match-all fallback
-    parts = [rf"(?=.*\\b{re.escape(t)}\\b)" for t in toks]
-    return "^" + "".join(parts) + ".*$"
-
-def generate_search_variations(series_name: str, year: str = None):
-    """Generate progressive search variations for a comic title."""
-    variations = []
-
-    # Original exact search (current behavior)
-    variations.append(("exact", f"%{series_name}%"))
-
-    # Remove issue number pattern from title for broader search
-    clean_title = re.sub(r'\s+\d{3}\s*$', '', series_name)  # Remove trailing issue numbers like "001"
-    clean_title = re.sub(r'\s+#\d+\s*$', '', clean_title)   # Remove trailing issue numbers like "#1"
-
-    if clean_title != series_name:
-        variations.append(("no_issue", f"%{clean_title}%"))
-
-    # Remove year from title if present
-    title_no_year = re.sub(r'\s*\(\d{4}\)\s*', '', clean_title)
-    title_no_year = re.sub(r'\s+\d{4}\s*$', '', title_no_year)
-
-    if title_no_year != clean_title:
-        variations.append(("no_year", f"%{title_no_year}%"))
-
-    # Normalize and tokenize for advanced matching
-    norm, tokens = tokens_for_all_match(title_no_year)
-
-    # Remove hyphens/dashes for matching (Superman - The Secret Years -> Superman The Secret Years)
-    no_dash_title = re.sub(r'\s*-+\s*', ' ', title_no_year).strip()
-    if no_dash_title != title_no_year:
-        variations.append(("no_dash", f"%{no_dash_title}%"))
-
-    # Remove articles and common words for broader matching
-    if len(tokens) > 1:
-        regex_pattern = lookahead_regex(tokens)
-        variations.append(("tokenized", regex_pattern))
-
-    # Just the main character/franchise name (first significant word)
-    if len(tokens) > 0:
-        main_word = tokens[0]
-        if year:
-            variations.append(("main_with_year", f"%{main_word}%"))
-        else:
-            variations.append(("main_only", f"%{main_word}%"))
-
-    return variations
 
 #########################
 #   Critical Path Check #
@@ -5857,20 +5787,7 @@ def gcd_status():
 @app.route('/gcd-mysql-status')
 def gcd_mysql_status():
     """Check if GCD MySQL database is configured"""
-    try:
-        gcd_host = os.environ.get('GCD_MYSQL_HOST')
-        gcd_available = bool(gcd_host and gcd_host.strip())
-
-        return jsonify({
-            "gcd_mysql_available": gcd_available,
-            "gcd_host_configured": gcd_available
-        })
-    except Exception as e:
-        return jsonify({
-            "gcd_mysql_available": False,
-            "gcd_host_configured": False,
-            "error": str(e)
-        }), 500
+    return jsonify(gcd.check_mysql_status())
 
 @app.route('/gcd-import', methods=['POST'])
 def trigger_gcd_import():
@@ -6096,7 +6013,7 @@ def search_gcd_metadata():
             app_logger.debug(f"DEBUG: Starting progressive search for series: '{series_name}' with year: {year}")
 
             # Generate search variations
-            search_variations = generate_search_variations(series_name, year)
+            search_variations = gcd.generate_search_variations(series_name, year)
             app_logger.debug(f"DEBUG: Generated {len(search_variations)} search variations")
             app_logger.debug(f"DEBUG: Checkpoint 1 - About to initialize variables")
 
@@ -6971,88 +6888,40 @@ def add_comicinfo_to_cbz(file_path, comicinfo_xml_bytes):
 @app.route('/validate-gcd-issue', methods=['POST'])
 def validate_gcd_issue():
     """Validate that a specific issue number exists in the given series"""
-    try:
-        import mysql.connector
+    data = request.get_json()
+    series_id = data.get('series_id')
+    issue_number = data.get('issue_number')
 
-        data = request.get_json()
-        series_id = data.get('series_id')
-        issue_number = data.get('issue_number')
+    app_logger.debug(f"DEBUG: validate_gcd_issue called - series_id={series_id}, issue={issue_number}")
 
-        app_logger.debug(f"DEBUG: validate_gcd_issue called - series_id={series_id}, issue={issue_number}")
-
-        # Note: issue_number can be 0, so check for None explicitly
-        if series_id is None or issue_number is None:
-            app_logger.error(f"ERROR: Missing parameters in validate_gcd_issue - series_id={series_id}, issue_number={issue_number}")
-            return jsonify({
-                "success": False,
-                "error": "Missing required parameters"
-            }), 400
-
-        # Connect to GCD MySQL database
-        try:
-            gcd_host = os.environ.get('GCD_MYSQL_HOST')
-            gcd_port = int(os.environ.get('GCD_MYSQL_PORT'))
-            gcd_database = os.environ.get('GCD_MYSQL_DATABASE')
-            gcd_user = os.environ.get('GCD_MYSQL_USER')
-            gcd_password = os.environ.get('GCD_MYSQL_PASSWORD')
-
-            app_logger.debug(f"DEBUG: Connecting to database for validation...")
-            connection = mysql.connector.connect(
-                host=gcd_host,
-                port=gcd_port,
-                database=gcd_database,
-                user=gcd_user,
-                password=gcd_password,
-                charset='utf8mb4',
-                connection_timeout=30
-            )
-            cursor = connection.cursor(dictionary=True)
-
-            # Simple query to check if issue exists
-            validation_query = "SELECT id, title, number FROM gcd_issue WHERE series_id = %s AND (number = %s OR number = CONCAT('[', %s, ']') OR number LIKE CONCAT(%s, ' (%')) AND deleted = 0 LIMIT 1"
-            app_logger.debug(f"DEBUG: Executing validation query...")
-            cursor.execute(validation_query, (series_id, str(issue_number), str(issue_number), str(issue_number)))
-            issue_result = cursor.fetchone()
-
-            cursor.close()
-            connection.close()
-
-            app_logger.debug(f"DEBUG: Validation result: {'Found' if issue_result else 'Not found'}")
-
-            if issue_result:
-                return jsonify({
-                    "success": True,
-                    "issue_id": issue_result['id'],
-                    "issue_number": issue_result['number'],
-                    "issue_title": issue_result['title']
-                })
-            else:
-                app_logger.debug(f"DEBUG: Issue #{issue_number} not found in series {series_id}")
-                return jsonify({
-                    "success": False,
-                    "error": f"Issue #{issue_number} not found in series"
-                })
-
-        except mysql.connector.Error as db_error:
-            app_logger.error(f"ERROR: Database error in validate_gcd_issue: {db_error}")
-            return jsonify({
-                "success": False,
-                "error": f"Database error: {str(db_error)}"
-            }), 500
-
-    except ImportError:
-        app_logger.error(f"ERROR: MySQL connector not available in validate_gcd_issue")
+    # Note: issue_number can be 0, so check for None explicitly
+    if series_id is None or issue_number is None:
+        app_logger.error(f"ERROR: Missing parameters in validate_gcd_issue - series_id={series_id}, issue_number={issue_number}")
         return jsonify({
             "success": False,
-            "error": "MySQL connector not available"
-        }), 500
-    except Exception as e:
-        import traceback
-        app_logger.error(f"ERROR: Exception in validate_gcd_issue: {e}")
-        app_logger.debug(f"Traceback:\n{traceback.format_exc()}")
+            "error": "Missing required parameters"
+        }), 400
+
+    result = gcd.validate_issue(series_id, str(issue_number))
+
+    # Transform response to match expected format
+    if result.get('success') and result.get('valid'):
+        issue_data = result.get('issue', {})
+        return jsonify({
+            "success": True,
+            "issue_id": issue_data.get('id'),
+            "issue_number": issue_data.get('number'),
+            "issue_title": issue_data.get('title')
+        })
+    elif result.get('success') and not result.get('valid'):
         return jsonify({
             "success": False,
-            "error": f"Validation error: {str(e)}"
+            "error": f"Issue #{issue_number} not found in series"
+        })
+    else:
+        return jsonify({
+            "success": False,
+            "error": result.get('error', 'Validation error')
         }), 500
 
 @app.route('/search-gcd-metadata-with-selection', methods=['POST'])
