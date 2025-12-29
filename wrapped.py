@@ -10,7 +10,7 @@ import io
 import sqlite3
 import hashlib
 from datetime import datetime
-from PIL import Image, ImageDraw, ImageFont, ImageFilter, ImageOps, ImageChops
+from PIL import Image, ImageDraw, ImageFont, ImageFilter, ImageOps, ImageChops, ImageEnhance
 from database import get_db_connection
 from app_logging import app_logger
 from config import config
@@ -238,7 +238,7 @@ def get_all_wrapped_stats(year: int) -> dict:
         'most_read_series': get_most_read_series(year, limit=1),
         'busiest_day': get_busiest_day(year),
         'busiest_month': get_busiest_month(year),
-        'top_series': get_top_series_with_thumbnails(year, limit=6)
+        'top_series': get_top_series_with_thumbnails(year, limit=9)
     }
 
 # ==========================================
@@ -501,84 +501,120 @@ def generate_most_read_series_slide(year: int, theme: str) -> bytes:
     return buffer.getvalue()
 
 def generate_series_highlights_slide(year: int, theme: str) -> bytes:
-    """Generate grid of top series with full-fit images."""
+    """Generate a clean 3x3 grid using folder.png for series covers."""
     theme_colors = get_theme_colors(theme)
-    top_series = get_top_series_with_thumbnails(year, limit=6)
-
+    # Fetch exactly 9 series for the 3x3 grid
+    top_series = get_top_series_with_thumbnails(year, limit=9)
+    
     img = create_base_image(theme_colors)
     draw = ImageDraw.Draw(img)
 
-    text_color = hex_to_rgb(theme_colors['text'])
     primary_color = hex_to_rgb(theme_colors['primary'])
+    muted_color = hex_to_rgb(theme_colors.get('text_muted', '#666666'))
 
-    font_header = get_font(56, bold=True)
-    draw_centered_text(draw, "TOP SERIES REWIND", 150, font_header, primary_color, shadow=True, img_obj=img)
+    # 1. Header
+    font_header = get_font(68, bold=True)
+    draw_centered_text(draw, "TOP SERIES REWIND", 110, font_header, primary_color, shadow=True, img_obj=img)
 
-    cols = 2
-    rows = 3
+    # 2. 3x3 Grid Math
+    cols = 3
+    card_width = 330   
+    card_height = 430  
+    col_spacing = 35   
+    row_spacing = 35   
     
-    # Updated size for >25% larger images usage (1.25x area roughly)
-    card_width = 480
-    card_height = 520 
-    col_spacing = 30
-    row_spacing = 30
-    
-    start_x = (IMAGE_WIDTH - (cols * card_width + (cols-1)*col_spacing)) // 2
-    start_y = 220 # Moved up to fit taller cards
+    total_grid_w = (cols * card_width) + ((cols - 1) * col_spacing)
+    start_x = (img.width - total_grid_w) // 2
+    start_y = 240 
 
-    font_name = get_font(28, bold=True)
-    font_count = get_font(24)
+    font_count = get_font(26, bold=True)
 
-    for idx, series in enumerate(top_series[:6]):
+    for idx, series in enumerate(top_series):
         row = idx // cols
         col = idx % cols
         x = start_x + col * (card_width + col_spacing)
         y = start_y + row * (card_height + row_spacing)
 
-        # Card container
-        # Use ImageOps.contain to fit image inside card_width x (card_height - text_space)
-        img_space_h = card_height - 90
+        img_space_h = card_height - 60 
         
-        series_cover = ImageUtils.get_series_cover(series['series_path'])
-        thumb_path = ImageUtils.get_thumbnail_path(series['first_issue_path'])
-        img_to_show = series_cover if (series_cover and os.path.exists(series_cover)) else (thumb_path if (thumb_path and os.path.exists(thumb_path)) else None)
+        # --- Logic for folder.png ---
+        # Explicitly check for folder.png in the series directory
+        series_folder_path = series['series_path']
+        folder_png_path = os.path.join(series_folder_path, 'folder.png')
         
-        if img_to_show:
+        # Fallback logic: folder.png -> series_cover (db) -> first_issue_thumbnail
+        if os.path.exists(folder_png_path):
+            img_path = folder_png_path
+        else:
+            series_cover = ImageUtils.get_series_cover(series_folder_path)
+            thumb_path = ImageUtils.get_thumbnail_path(series['first_issue_path'])
+            img_path = series_cover if (series_cover and os.path.exists(series_cover)) else thumb_path
+        
+        if img_path and os.path.exists(img_path):
             try:
-                cover_art = Image.open(img_to_show).convert('RGBA')
-                # Contain within box
-                cover_art = ImageOps.contain(cover_art, (card_width - 20, img_space_h - 20), Image.Resampling.LANCZOS)
+                cover_art = Image.open(img_path).convert('RGBA')
+                cover_art = ImageOps.contain(cover_art, (card_width - 20, img_space_h), Image.Resampling.LANCZOS)
                 
-                # Center the contained image in the available space
                 img_x = x + (card_width - cover_art.width) // 2
-                img_y = y + (img_space_h - cover_art.height) // 2 + 10 # +10 padding top
+                img_y = y + (img_space_h - cover_art.height) // 2
                 
-                # Shadow for the book itself
-                shadow = Image.new("RGBA", (cover_art.width + 20, cover_art.height + 20), (0,0,0,0))
-                shadow_draw = ImageDraw.Draw(shadow)
-                shadow_draw.rounded_rectangle([(10, 10), (cover_art.width+10, cover_art.height+10)], radius=10, fill=(0,0,0,120))
-                shadow = shadow.filter(ImageFilter.GaussianBlur(8))
-                img.paste(shadow, (img_x - 10, img_y - 5), shadow)
-                
+                # --- CLEAN STACK LOGIC ---
+                # Draw two darkened offsets behind the main cover for depth
+                for offset in [12, 6]:
+                    enhancer = ImageEnhance.Brightness(cover_art)
+                    back_layer = enhancer.enhance(0.65) # Darker for better contrast
+                    img.paste(back_layer, (img_x + offset, img_y - offset), back_layer)
+
+                # Paste main cover
                 img.paste(cover_art, (img_x, img_y), cover_art)
+                
             except Exception:
                 pass
         
-        # Text
-        text_y = y + img_space_h + 10
-        name = series['name']
-        if len(name) > 22:
-             name = name[:20] + "..."
-        
-        # Center text in card area
-        draw.text((x + 20, text_y), name, font=font_name, fill=text_color)
-        draw.text((x + 20, text_y + 35), f"{series['count']} issues", font=font_count, fill=hex_to_rgb(theme_colors['text_muted']))
+        # 3. Stats
+        count_text = f"{series['count']} issues"
+        count_w = draw.textbbox((0, 0), count_text, font=font_count)[2]
+        draw.text((x + (card_width - count_w) // 2, y + img_space_h + 10), 
+                  count_text, font=font_count, fill=muted_color)
 
-    add_branding(img, draw, theme_colors, year)
+    # 4. Branding
+    add_enhanced_branding(img, draw, theme_colors, year)
+    
     buffer = io.BytesIO()
     img.save(buffer, format='PNG', quality=95)
     buffer.seek(0)
     return buffer.getvalue()
+
+def add_enhanced_branding(img, draw, theme_colors, year):
+    """Modernized footer branding for CLU."""
+    primary_color = hex_to_rgb(theme_colors['primary'])
+    text_color = hex_to_rgb(theme_colors['text'])
+    
+    font_year = get_font(80, bold=True)
+    font_wrapped = get_font(40, bold=False)
+    font_tagline = get_font(24)
+
+    # Branding Y position (Bottom 15% of image)
+    footer_y = img.height - 180
+
+    # Draw "2025" large and "WRAPPED" next to it
+    year_str = str(year)
+    year_w = draw.textbbox((0, 0), year_str, font=font_year)[2]
+    wrapped_str = " WRAPPED"
+    wrapped_w = draw.textbbox((0, 0), wrapped_str, font=font_wrapped)[2]
+    
+    total_w = year_w + wrapped_w
+    start_x = (img.width - total_w) // 2
+    
+    # Draw Year (Primary Color)
+    draw.text((start_x, footer_y), year_str, font=font_year, fill=primary_color)
+    # Draw Wrapped (Text Color)
+    draw.text((start_x + year_w, footer_y + 25), wrapped_str, font=font_wrapped, fill=text_color)
+    
+    # Subline
+    tagline = "Your Year in Comics • Comic Library Utilities"
+    tag_w = draw.textbbox((0, 0), tagline, font=font_tagline)[2]
+    draw.text(((img.width - tag_w) // 2, footer_y + 90), tagline, font=font_tagline, fill=hex_to_rgb(theme_colors.get('text_muted', '#888888')))
 
 def generate_all_wrapped_images(year: int, theme: str) -> list:
     """Generate all wrapped slides."""
