@@ -1085,11 +1085,10 @@ function loadDirectories(path, panel) {
         throw new Error(data.error);
       }
 
-      // Reset file tracking for this panel
-      resetFileTracking(panel, data.current_path);
-
       if (panel === 'source') {
         currentSourcePath = data.current_path;
+        // Reset file tracking AFTER updating global path variable
+        resetFileTracking(panel, data.current_path);
         updateBreadcrumb('source', data.current_path);
         sourceDirectoriesData = data;
         updateFilterBar('source', data.directories);
@@ -1102,6 +1101,8 @@ function loadDirectories(path, panel) {
         restoreScrollPosition('source', data.current_path);
       } else {
         currentDestinationPath = data.current_path;
+        // Reset file tracking AFTER updating global path variable
+        resetFileTracking(panel, data.current_path);
         updateBreadcrumb('destination', data.current_path);
         destinationDirectoriesData = data;
         // Reset search filter and input on navigation
@@ -1255,14 +1256,15 @@ function loadDownloads(path, panel) {
       console.log("Received data:", data);
       container.innerHTML = "";
 
-      // Reset file tracking for this panel
-      resetFileTracking(panel, data.current_path);
-
       if (panel === 'source') {
         currentSourcePath = data.current_path;
+        // Reset file tracking AFTER updating global path variable
+        resetFileTracking(panel, data.current_path);
         updateBreadcrumb('source', data.current_path);
       } else {
         currentDestinationPath = data.current_path;
+        // Reset file tracking AFTER updating global path variable
+        resetFileTracking(panel, data.current_path);
         updateBreadcrumb('destination', data.current_path);
       }
       if (data.parent) {
@@ -1339,13 +1341,14 @@ function loadRecentFiles(panel) {
       console.log("Received recent files data:", data);
       container.innerHTML = "";
 
-      // Reset file tracking for this panel
-      resetFileTracking(panel, 'recent-files');
-
       if (panel === 'source') {
         currentSourcePath = 'recent-files';
+        // Reset file tracking AFTER updating global path variable
+        resetFileTracking(panel, 'recent-files');
       } else {
         currentDestinationPath = 'recent-files';
+        // Reset file tracking AFTER updating global path variable
+        resetFileTracking(panel, 'recent-files');
       }
 
       // Display date range if available
