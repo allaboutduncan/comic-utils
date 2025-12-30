@@ -42,6 +42,9 @@ let comicVineAvailable = false;
 // Global variable to track Metron API availability
 let metronAvailable = false;
 
+// Global variable to store current folder path for XML update
+let updateXmlCurrentPath = '';
+
 // Format file size helper function
 function formatSize(bytes) {
   const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
@@ -578,6 +581,20 @@ function createListItem(itemName, fullPath, type, panel, isDraggable) {
       };
       missingItem.appendChild(missingLink);
       dropdownMenu.appendChild(missingItem);
+
+      // Update XML option
+      const updateXmlItem = document.createElement("li");
+      const updateXmlLink = document.createElement("a");
+      updateXmlLink.className = "dropdown-item";
+      updateXmlLink.href = "#";
+      updateXmlLink.innerHTML = '<i class="bi bi-code-slash me-2"></i>Update XML';
+      updateXmlLink.onclick = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        openUpdateXmlModal(fullPath, fileData.name);
+      };
+      updateXmlItem.appendChild(updateXmlLink);
+      dropdownMenu.appendChild(updateXmlItem);
 
       // Enhance Images option
       const enhanceItem = document.createElement("li");
@@ -1677,6 +1694,9 @@ document.addEventListener('DOMContentLoaded', function () {
   // Attach drop events.
   setupDropEvents(document.getElementById("source-list"), 'source');
   setupDropEvents(document.getElementById("destination-list"), 'destination');
+
+  // Add event listener for Update XML confirm button
+  document.getElementById('updateXmlConfirmBtn').addEventListener('click', submitUpdateXml);
 
 });
 
@@ -4018,6 +4038,64 @@ function showToastInternal(title, message, type) {
     // Final fallback to alert
     alert(`${title}: ${message}`);
   }
+}
+
+// Function to open the Update XML modal
+function openUpdateXmlModal(folderPath, folderName) {
+  updateXmlCurrentPath = folderPath;
+  document.getElementById('updateXmlFolderName').textContent = folderName;
+  document.getElementById('updateXmlValue').value = '';
+  document.getElementById('updateXmlField').value = 'Volume';
+
+  const modal = new bootstrap.Modal(document.getElementById('updateXmlModal'));
+  modal.show();
+}
+
+// Function to submit the Update XML form
+function submitUpdateXml() {
+  const field = document.getElementById('updateXmlField').value;
+  const value = document.getElementById('updateXmlValue').value.trim();
+
+  if (!value) {
+    showToast('Validation Error', 'Please enter a value', 'warning');
+    return;
+  }
+
+  // Validate 4-digit year for Volume
+  if (field === 'Volume' && !/^\d{4}$/.test(value)) {
+    showToast('Validation Error', 'Volume must be a 4-digit year', 'warning');
+    return;
+  }
+
+  // Close modal
+  bootstrap.Modal.getInstance(document.getElementById('updateXmlModal')).hide();
+
+  // Show progress toast
+  showToast('Updating XML', `Updating ${field} in all CBZ files...`, 'info');
+
+  // Call API
+  fetch('/api/update-xml', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      directory: updateXmlCurrentPath,
+      field: field,
+      value: value
+    })
+  })
+    .then(response => response.json())
+    .then(result => {
+      if (result.error) {
+        showToast('Update Error', result.error, 'error');
+      } else {
+        showToast('Update Complete',
+          `Updated ${result.updated} file(s), skipped ${result.skipped}`,
+          result.updated > 0 ? 'success' : 'info');
+      }
+    })
+    .catch(error => {
+      showToast('Update Error', error.message, 'error');
+    });
 }
 
 // Function to format timestamp in a user-friendly way

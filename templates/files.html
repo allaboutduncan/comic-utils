@@ -784,6 +784,39 @@
 </div>
 <!-- End of ComicVine URL Modal -->
 
+<!-- Update XML Modal -->
+<div class="modal fade" id="updateXmlModal" tabindex="-1" aria-labelledby="updateXmlModalLabel" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="updateXmlModalLabel">Update ComicInfo.xml</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <div class="mb-3">
+          <label for="updateXmlField" class="form-label">Field to Update</label>
+          <select class="form-select" id="updateXmlField">
+            <option value="Volume">Volume (Year)</option>
+          </select>
+        </div>
+        <div class="mb-3">
+          <label for="updateXmlValue" class="form-label">Value</label>
+          <input type="text" class="form-control" id="updateXmlValue" placeholder="Enter value" maxlength="4">
+          <div class="form-text" id="updateXmlHint">Enter a 4-digit year (e.g., 2024)</div>
+        </div>
+        <div class="text-muted small" id="updateXmlFolderInfo">
+          Folder: <span id="updateXmlFolderName"></span>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="button" class="btn btn-primary" id="updateXmlConfirmBtn">Update</button>
+      </div>
+    </div>
+  </div>
+</div>
+<!-- End of Update XML Modal -->
+
 {% endblock %}
 
 {% block scripts %}

@@ -4914,6 +4914,38 @@ def delete():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+
+@app.route('/api/update-xml', methods=['POST'])
+def update_xml():
+    """Update a field in ComicInfo.xml for all CBZ files in a directory."""
+    from models.update_xml import update_field_in_cbz_files
+
+    try:
+        data = request.get_json()
+        directory = data.get('directory')
+        field = data.get('field')
+        value = data.get('value')
+
+        if not directory or not field or not value:
+            return jsonify({"error": "Missing required parameters"}), 400
+
+        # Security check - ensure path is within allowed directories
+        normalized_path = os.path.normpath(directory)
+        if not (normalized_path.startswith(os.path.normpath(DATA_DIR)) or
+                normalized_path.startswith(os.path.normpath(TARGET_DIR))):
+            return jsonify({"error": "Access denied"}), 403
+
+        if not os.path.exists(directory) or not os.path.isdir(directory):
+            return jsonify({"error": "Directory not found"}), 404
+
+        result = update_field_in_cbz_files(directory, field, value)
+        return jsonify(result)
+
+    except Exception as e:
+        app_logger.error(f"Error in update_xml: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route('/api/delete-file', methods=['POST'])
 def api_delete_file():
     """Delete a file from the collection view (handles relative paths from DATA_DIR)"""
