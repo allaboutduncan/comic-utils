@@ -192,7 +192,7 @@ def process_image(directory: str) -> None:
         # Delete the original image
         os.remove(first_image_path)
 
-        app_logger.info(f"<strong>Processed:</strong> {os.path.basename(first_image_path)}<br /> original saved as {backup_path}, <br />right half saved as {new_image_path}.")
+        app_logger.info(f"Processed: {os.path.basename(first_image_path)} original saved as {backup_path}, right half saved as {new_image_path}.")
     except Exception as e:
         app_logger.error(f"Error processing the image: {e}")
 

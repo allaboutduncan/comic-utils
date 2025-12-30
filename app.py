@@ -4330,8 +4330,7 @@ def download_file():
     # Security: Ensure the file path is within allowed directories
     normalized_path = os.path.normpath(file_path)
     if not (normalized_path.startswith(os.path.normpath(DATA_DIR)) or
-            normalized_path.startswith(os.path.normpath(TEMP_DIR)) or
-            normalized_path.startswith(os.path.normpath(WATCH_DIR))):
+            normalized_path.startswith(os.path.normpath(TARGET_DIR))):
         return jsonify({"error": "Access denied"}), 403
 
     if not os.path.exists(file_path) or not os.path.isfile(file_path):
@@ -4364,8 +4363,7 @@ def read_text_file():
     # Security: Ensure the file path is within allowed directories
     normalized_path = os.path.normpath(file_path)
     if not (normalized_path.startswith(os.path.normpath(DATA_DIR)) or
-            normalized_path.startswith(os.path.normpath(TEMP_DIR)) or
-            normalized_path.startswith(os.path.normpath(WATCH_DIR))):
+            normalized_path.startswith(os.path.normpath(TARGET_DIR))):
         return "Access denied", 403
 
     if not os.path.exists(file_path) or not os.path.isfile(file_path):
@@ -4404,8 +4402,7 @@ def save_cvinfo():
     # Security: Ensure the directory path is within allowed directories
     normalized_path = os.path.normpath(directory)
     if not (normalized_path.startswith(os.path.normpath(DATA_DIR)) or
-            normalized_path.startswith(os.path.normpath(TEMP_DIR)) or
-            normalized_path.startswith(os.path.normpath(WATCH_DIR))):
+            normalized_path.startswith(os.path.normpath(TARGET_DIR))):
         return jsonify({"error": "Access denied"}), 403
 
     if not os.path.exists(directory) or not os.path.isdir(directory):
@@ -4420,6 +4417,230 @@ def save_cvinfo():
         return jsonify({"success": True, "path": cvinfo_path})
     except Exception as e:
         app_logger.error(f"Error saving cvinfo to {directory}: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/batch-metadata', methods=['POST'])
+def batch_metadata():
+    """
+    Batch fetch metadata for all comics in a folder.
+
+    Process order:
+    1. Check for cvinfo in folder
+    2. If no cvinfo, create via ComicVine search (using folder name as series)
+    3. Add Metron series ID to cvinfo if not present
+    4. For each CBZ/CBR without ComicInfo.xml:
+       a. Try Metron first (if series ID available)
+       b. Fall back to ComicVine (if API key available)
+       c. Fall back to GCD (if MySQL available)
+    """
+    import re
+    import time
+    import comicvine
+    from models import metron
+    from comicinfo import read_comicinfo_from_zip
+
+    try:
+        data = request.get_json()
+        directory = data.get('directory')
+
+        if not directory:
+            return jsonify({"error": "Missing directory parameter"}), 400
+
+        # Security: Ensure the directory path is within allowed directories
+        normalized_path = os.path.normpath(directory)
+        if not (normalized_path.startswith(os.path.normpath(DATA_DIR)) or
+                normalized_path.startswith(os.path.normpath(TARGET_DIR))):
+            return jsonify({"error": "Access denied"}), 403
+
+        if not os.path.exists(directory) or not os.path.isdir(directory):
+            return jsonify({"error": "Directory not found"}), 404
+
+        result = {
+            'cvinfo_created': False,
+            'metron_id_added': False,
+            'processed': 0,
+            'skipped': 0,
+            'errors': 0,
+            'details': []
+        }
+
+        # Get API credentials
+        comicvine_api_key = app.config.get('COMICVINE_API_KEY', '')
+        metron_username = app.config.get('METRON_USERNAME', '')
+        metron_password = app.config.get('METRON_PASSWORD', '')
+
+        comicvine_available = bool(comicvine_api_key and comicvine_api_key.strip())
+        metron_available = bool(metron_password and metron_password.strip())
+        gcd_available = gcd.is_mysql_available() and gcd.check_mysql_status().get('gcd_mysql_available', False)
+
+        app_logger.info(f"Batch metadata: CV={comicvine_available}, Metron={metron_available}, GCD={gcd_available}")
+
+        # Step 1: Check for cvinfo
+        cvinfo_path = os.path.join(directory, 'cvinfo')
+        cv_volume_id = None
+
+        if not os.path.exists(cvinfo_path):
+            # Create cvinfo via ComicVine search if ComicVine is available
+            if comicvine_available:
+                # Use folder name as series name
+                series_name = os.path.basename(directory)
+                # Clean up common patterns
+                series_name = re.sub(r'\s*\(\d{4}\).*$', '', series_name)  # Remove (1994) and everything after
+                series_name = re.sub(r'\s*v\d+.*$', '', series_name)  # Remove v1, v2 etc
+                series_name = re.sub(r'\s*-\s*complete.*$', '', series_name, flags=re.IGNORECASE)
+
+                app_logger.info(f"Searching ComicVine for series: {series_name}")
+
+                try:
+                    volumes = comicvine.search_volumes(comicvine_api_key, series_name)
+                    if volumes:
+                        cv_volume_id = volumes[0]['id']
+                        url = f"https://comicvine.gamespot.com/x/4050-{cv_volume_id}/"
+                        with open(cvinfo_path, 'w', encoding='utf-8') as f:
+                            f.write(url)
+                        result['cvinfo_created'] = True
+                        app_logger.info(f"Created cvinfo with ComicVine volume ID: {cv_volume_id}")
+                except Exception as e:
+                    app_logger.error(f"Error searching ComicVine: {e}")
+        else:
+            # Parse existing cvinfo for volume ID
+            cv_volume_id = comicvine.parse_cvinfo_volume_id(cvinfo_path)
+            app_logger.info(f"Found existing cvinfo with volume ID: {cv_volume_id}")
+
+        # Step 2: Add Metron series ID if not present
+        metron_series_id = None
+        metron_api = None
+
+        if metron_available and os.path.exists(cvinfo_path):
+            metron_api = metron.get_api(metron_username, metron_password)
+            if metron_api:
+                metron_series_id = metron.parse_cvinfo_for_metron_id(cvinfo_path)
+                if not metron_series_id:
+                    cv_id = metron.parse_cvinfo_for_comicvine_id(cvinfo_path)
+                    if cv_id:
+                        metron_series_id = metron.get_metron_series_id_by_comicvine_id(metron_api, cv_id)
+                        if metron_series_id:
+                            metron.update_cvinfo_with_metron_id(cvinfo_path, metron_series_id)
+                            result['metron_id_added'] = True
+                            app_logger.info(f"Added Metron series ID: {metron_series_id}")
+
+        # Step 3: Get list of comic files
+        comic_files = []
+        for item in os.listdir(directory):
+            item_path = os.path.join(directory, item)
+            if os.path.isfile(item_path) and item.lower().endswith(('.cbz', '.cbr')):
+                comic_files.append(item_path)
+
+        app_logger.info(f"Found {len(comic_files)} comic files to process")
+
+        # Step 4: Process each comic file
+        for file_path in comic_files:
+            filename = os.path.basename(file_path)
+            try:
+                # Check if already has ComicInfo.xml
+                if file_path.lower().endswith('.cbz'):
+                    existing = read_comicinfo_from_zip(file_path)
+                    existing_notes = existing.get('Notes', '').strip() if existing else ''
+
+                    # Skip if has metadata, unless it's just Amazon scraped data
+                    if existing_notes and 'Scraped metadata from Amazon' not in existing_notes:
+                        app_logger.debug(f"Skipping {filename} - already has metadata")
+                        result['skipped'] += 1
+                        result['details'].append({'file': filename, 'status': 'skipped', 'reason': 'has metadata'})
+                        continue
+                elif file_path.lower().endswith('.cbr'):
+                    # Skip CBR files - we can't check or modify them without conversion
+                    app_logger.debug(f"Skipping {filename} - CBR format not supported for metadata")
+                    result['skipped'] += 1
+                    result['details'].append({'file': filename, 'status': 'skipped', 'reason': 'CBR format'})
+                    continue
+
+                # Extract issue number from filename
+                issue_number = comicvine.extract_issue_number(filename)
+                if not issue_number:
+                    app_logger.warning(f"Could not extract issue number from {filename}")
+                    result['errors'] += 1
+                    result['details'].append({'file': filename, 'status': 'error', 'reason': 'no issue number'})
+                    continue
+
+                app_logger.info(f"Processing {filename} (issue #{issue_number})")
+
+                # Try sources in order: Metron -> ComicVine -> GCD
+                metadata = None
+                source = None
+
+                # Try Metron first
+                if metron_available and metron_api and metron_series_id:
+                    try:
+                        issue_data = metron.get_issue_metadata(metron_api, metron_series_id, issue_number)
+                        if issue_data:
+                            metadata = metron.map_to_comicinfo(issue_data)
+                            source = 'Metron'
+                            app_logger.info(f"Found metadata from Metron for {filename}")
+                    except Exception as e:
+                        app_logger.warning(f"Metron lookup failed for {filename}: {e}")
+
+                # Fall back to ComicVine
+                if not metadata and comicvine_available and cv_volume_id:
+                    try:
+                        metadata = comicvine.get_metadata_by_volume_id(comicvine_api_key, cv_volume_id, issue_number)
+                        if metadata:
+                            source = 'ComicVine'
+                            app_logger.info(f"Found metadata from ComicVine for {filename}")
+                    except Exception as e:
+                        app_logger.warning(f"ComicVine lookup failed for {filename}: {e}")
+
+                # Fall back to GCD
+                if not metadata and gcd_available:
+                    try:
+                        # Get series name from directory
+                        gcd_series_name = os.path.basename(directory)
+                        # Clean up series name
+                        gcd_series_name = re.sub(r'\s*\(\d{4}\).*$', '', gcd_series_name)
+                        gcd_series_name = re.sub(r'\s*v\d+.*$', '', gcd_series_name)
+
+                        # Extract year from directory name if present
+                        year_match = re.search(r'\((\d{4})\)', os.path.basename(directory))
+                        gcd_year = int(year_match.group(1)) if year_match else None
+
+                        # Search for series in GCD (auto-selects best match)
+                        gcd_series = gcd.search_series(gcd_series_name, gcd_year)
+                        if gcd_series:
+                            # Get issue metadata
+                            metadata = gcd.get_issue_metadata(gcd_series['id'], issue_number)
+                            if metadata:
+                                source = 'GCD'
+                                app_logger.info(f"Found metadata from GCD for {filename}")
+                    except Exception as e:
+                        app_logger.warning(f"GCD lookup failed for {filename}: {e}")
+
+                if metadata:
+                    # Generate and add ComicInfo.xml
+                    xml_bytes = comicvine.generate_comicinfo_xml(metadata)
+                    add_comicinfo_to_cbz(file_path, xml_bytes)
+                    result['processed'] += 1
+                    result['details'].append({'file': filename, 'status': 'success', 'source': source})
+                    app_logger.info(f"Added metadata to {filename} from {source}")
+                else:
+                    result['errors'] += 1
+                    result['details'].append({'file': filename, 'status': 'error', 'reason': 'not found'})
+                    app_logger.warning(f"No metadata found for {filename}")
+
+                # Rate limiting - wait between API calls
+                time.sleep(0.5)
+
+            except Exception as e:
+                app_logger.error(f"Error processing {filename}: {e}")
+                result['errors'] += 1
+                result['details'].append({'file': filename, 'status': 'error', 'reason': str(e)})
+
+        return jsonify(result)
+
+    except Exception as e:
+        app_logger.error(f"Error in batch_metadata: {e}")
+        import traceback
+        app_logger.error(f"Traceback: {traceback.format_exc()}")
         return jsonify({"error": str(e)}), 500
 
 

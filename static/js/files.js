@@ -39,6 +39,9 @@ let gcdMysqlAvailable = false;
 // Global variable to track ComicVine API availability
 let comicVineAvailable = false;
 
+// Global variable to track Metron API availability
+let metronAvailable = false;
+
 // Format file size helper function
 function formatSize(bytes) {
   const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
@@ -76,6 +79,24 @@ function checkComicVineAvailability() {
     .catch(error => {
       console.warn('Error checking ComicVine availability:', error);
       comicVineAvailable = false;
+    });
+}
+
+// Function to check Metron API availability
+function checkMetronAvailability() {
+  fetch('/config')
+    .then(response => response.text())
+    .then(html => {
+      // Check if Metron password is configured (not empty)
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(html, 'text/html');
+      const passwordInput = doc.getElementById('metronPassword');
+      metronAvailable = passwordInput && passwordInput.value && passwordInput.value.trim().length > 0;
+      console.log('Metron API availability checked:', metronAvailable);
+    })
+    .catch(error => {
+      console.warn('Error checking Metron availability:', error);
+      metronAvailable = false;
     });
 }
 
@@ -420,18 +441,18 @@ function createListItem(itemName, fullPath, type, panel, isDraggable) {
     infoWrapper.appendChild(sizeDisplay);
     iconContainer.appendChild(infoWrapper);
 
-    // Add GCD search button for directories (but not for Parent directory, and only if GCD is available)
-    if (fileData.name !== "Parent" && gcdMysqlAvailable) {
-      const gcdDirBtn = document.createElement("button");
-      gcdDirBtn.className = "btn btn-sm btn-outline-success";
-      gcdDirBtn.innerHTML = '<i class="bi bi-cloud-download"></i>';
-      gcdDirBtn.title = "Search GCD for All Comics in Directory";
-      gcdDirBtn.setAttribute("type", "button");
-      gcdDirBtn.onclick = function (e) {
+    // Add metadata fetch button for directories (but not for Parent directory, and only if any metadata source is available)
+    if (fileData.name !== "Parent" && (gcdMysqlAvailable || comicVineAvailable || metronAvailable)) {
+      const metadataBtn = document.createElement("button");
+      metadataBtn.className = "btn btn-sm btn-outline-success";
+      metadataBtn.innerHTML = '<i class="bi bi-cloud-download"></i>';
+      metadataBtn.title = "Fetch Metadata for All Comics in Directory";
+      metadataBtn.setAttribute("type", "button");
+      metadataBtn.onclick = function (e) {
         e.stopPropagation();
-        searchGCDMetadataForDirectory(fullPath, fileData.name);
+        fetchAllMetadata(fullPath, fileData.name);
       };
-      iconContainer.appendChild(gcdDirBtn);
+      iconContainer.appendChild(metadataBtn);
     }
 
     // Add rename button for directories (but not for Parent directory)
@@ -1641,6 +1662,9 @@ document.addEventListener('DOMContentLoaded', function () {
 
   // Check ComicVine API availability
   checkComicVineAvailability();
+
+  // Check Metron API availability
+  checkMetronAvailability();
 
   // Initialize rename rows as hidden
   document.getElementById('source-directory-rename-row').style.display = 'none';
@@ -4360,6 +4384,72 @@ function searchGCDMetadataForDirectory(directoryPath, directoryName) {
     .catch(error => {
       document.body.removeChild(loadingToast);
       showToast('Directory Scan Error', `Error scanning directory: ${error.message}`, 'error');
+    });
+}
+
+// Function to fetch metadata for all comics in a directory using multiple sources
+function fetchAllMetadata(directoryPath, directoryName) {
+  // Show loading toast
+  const loadingToast = document.createElement('div');
+  loadingToast.className = 'toast show position-fixed top-0 end-0 m-3';
+  loadingToast.style.zIndex = '1200';
+  loadingToast.innerHTML = `
+    <div class="toast-header bg-primary text-white">
+      <strong class="me-auto">Fetching Metadata</strong>
+      <small>Processing...</small>
+    </div>
+    <div class="toast-body">
+      <div class="d-flex align-items-center">
+        <div class="spinner-border spinner-border-sm me-2" role="status">
+          <span class="visually-hidden">Loading...</span>
+        </div>
+        Processing comics in "${directoryName}"...
+      </div>
+    </div>
+  `;
+  document.body.appendChild(loadingToast);
+
+  // Call batch-metadata endpoint
+  fetch('/api/batch-metadata', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ directory: directoryPath })
+  })
+    .then(response => response.json())
+    .then(result => {
+      document.body.removeChild(loadingToast);
+
+      if (result.error) {
+        showToast('Metadata Error', result.error, 'error');
+        return;
+      }
+
+      // Build summary message
+      let summaryParts = [];
+      if (result.cvinfo_created) {
+        summaryParts.push('cvinfo created');
+      }
+      if (result.metron_id_added) {
+        summaryParts.push('Metron ID added');
+      }
+      if (result.processed > 0) {
+        summaryParts.push(`${result.processed} file${result.processed !== 1 ? 's' : ''} updated`);
+      }
+      if (result.skipped > 0) {
+        summaryParts.push(`${result.skipped} skipped`);
+      }
+      if (result.errors > 0) {
+        summaryParts.push(`${result.errors} error${result.errors !== 1 ? 's' : ''}`);
+      }
+
+      const summary = summaryParts.length > 0 ? summaryParts.join(', ') : 'No changes made';
+      const toastType = result.errors > 0 ? 'warning' : (result.processed > 0 || result.cvinfo_created ? 'success' : 'info');
+
+      showToast('Metadata Fetch Complete', summary, toastType);
+    })
+    .catch(error => {
+      document.body.removeChild(loadingToast);
+      showToast('Metadata Error', `Error fetching metadata: ${error.message}`, 'error');
     });
 }
 

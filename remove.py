@@ -63,7 +63,7 @@ def handle_cbz_file(file_path):
     zip_path = base_name + '.zip'
     folder_name = base_name + '_folder'
     
-    app_logger.info(f"<strong>Processing CBZ:</strong> {file_path} --> {zip_path}")
+    app_logger.info(f"Processing CBZ: {file_path} --> {zip_path}")
 
     try:
         # Step 1: Rename .cbz to .zip
@@ -111,7 +111,7 @@ def handle_cbz_file(file_path):
                     else:
                         app_logger.info(f"Skipping unsupported file type: {file}")
 
-        app_logger.info(f"<strong>Successfully re-compressed:</strong> {file_path}")
+        app_logger.info(f"Successfully re-compressed: {file_path}")
 
         # Regenerate thumbnail for the modified file
         try:
@@ -219,9 +219,9 @@ def remove_first_image_file(dir_path):
     
     try:
         os.remove(first_image)
-        app_logger.info(f"<strong>Removed:</strong> {first_image}")
+        app_logger.info(f"Removed: {first_image}")
     except Exception as e:
-        app_logger.info(f"Failed to remove {first_image}. <strong>Error:</strong> {e}")
+        app_logger.info(f"Failed to remove {first_image}. Error: {e}")
         
 
 # Optional: Function to process images (e.g., apply a filter)
