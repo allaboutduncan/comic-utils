@@ -40,7 +40,8 @@ for d in /app/logs /app/static /config; do
       chown "${PUID}:${PGID}" "$d"
     fi
     # Fix nested items that are mismatched (fast when already correct)
-    find "$d" ! -user "${PUID}" -o ! -group "${PGID}" 2>/dev/null | xargs -r chown "${PUID}:${PGID}"
+    # Use -print0 and xargs -0 to handle filenames with spaces and special characters
+    find "$d" \( ! -user "${PUID}" -o ! -group "${PGID}" \) -print0 2>/dev/null | xargs -0 -r chown "${PUID}:${PGID}"
   fi
 done
 

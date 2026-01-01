@@ -1,0 +1,130 @@
+{% extends 'base.html' %}
+{% block title %}Reading Lists{% endblock %}
+{% block content %}
+<div class="container mt-4">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h2>Reading Lists</h2>
+        <div>
+            <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#uploadCBLModal">
+                <i class="bi bi-upload"></i> Upload CBL
+            </button>
+            <button class="btn btn-outline-primary ms-2" data-bs-toggle="modal" data-bs-target="#importGithubModal">
+                <i class="bi bi-github"></i> Import from GitHub
+            </button>
+        </div>
+    </div>
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+    {% for category, message in messages %}
+    <div class="alert alert-{{ category if category != 'error' else 'danger' }} alert-dismissible fade show"
+        role="alert">
+        {{ message }}
+        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+    </div>
+    {% endfor %}
+    {% endif %}
+    {% endwith %}
+
+    <div class="row row-cols-1 row-cols-md-2 row-cols-lg-3 g-4">
+        {% for list in lists %}
+        <div class="col">
+            <div class="card h-100">
+                <div class="card-body">
+                    <h5 class="card-title">{{ list.name }}</h5>
+                    <p class="card-text text-muted small">
+                        <i class="bi bi-calendar"></i> {{ list.created_at }}<br>
+                        <i class="bi bi-collection"></i> {{ list.entry_count }} issues
+                    </p>
+                    {% if list.source %}
+                    <p class="card-text text-truncate small" title="{{ list.source }}">
+                        Source: {{ list.source }}
+                    </p>
+                    {% endif %}
+                </div>
+                <div class="card-footer bg-transparent border-top-0 text-end">
+                    <a href="{{ url_for('reading_lists.view_list', list_id=list.id) }}"
+                        class="btn btn-primary btn-sm">View List</a>
+                    <button class="btn btn-outline-danger btn-sm ms-1" onclick="deleteReadingList({{ list.id }})">
+                        <i class="bi bi-trash"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+        {% else %}
+        <div class="col-12 text-center py-5">
+            <i class="bi bi-journal-album display-1 text-muted"></i>
+            <p class="lead text-muted mt-3">No reading lists found</p>
+            <p class="text-muted">Upload a .cbl file to get started</p>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+
+<!-- Upload Modal -->
+<div class="modal fade" id="uploadCBLModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Upload CBL File</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="uploadCBLForm">
+                    <div class="mb-3">
+                        <label for="cblFile" class="form-label">Select .cbl file</label>
+                        <input class="form-control" type="file" id="cblFile" accept=".cbl,.xml" required>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal" id="uploadCancelBtn">Cancel</button>
+                <button type="button" class="btn btn-primary" onclick="uploadCBL()" id="uploadBtn">
+                    <span class="btn-text">Upload</span>
+                    <span class="btn-loading d-none">
+                        <span class="spinner-border spinner-border-sm me-1" role="status"></span>
+                        Importing...
+                    </span>
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Import GitHub Modal -->
+<div class="modal fade" id="importGithubModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Import from GitHub</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="importGithubForm">
+                    <div class="mb-3">
+                        <label for="githubUrl" class="form-label">GitHub URL (Blob or Raw)</label>
+                        <input type="url" class="form-control" id="githubUrl" placeholder="https://github.com/..."
+                            required>
+                        <div class="form-text">Paste the URL of a .cbl file on GitHub.</div>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal" id="importCancelBtn">Cancel</button>
+                <button type="button" class="btn btn-primary" onclick="importGithub()" id="importBtn">
+                    <span class="btn-text">Import</span>
+                    <span class="btn-loading d-none">
+                        <span class="spinner-border spinner-border-sm me-1" role="status"></span>
+                        Importing...
+                    </span>
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+{{ super() }}
+<script src="{{ url_for('static', filename='js/reading_list.js') }}?v={{ range(1, 10000) | random }}"></script>
+{% endblock %}

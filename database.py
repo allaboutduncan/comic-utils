@@ -141,6 +141,32 @@ def init_db():
         ''')
         c.execute('CREATE INDEX IF NOT EXISTS idx_favorite_series_path ON favorite_series(series_path)')
 
+        # Create reading_lists table
+        c.execute('''
+            CREATE TABLE IF NOT EXISTS reading_lists (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                source TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+
+        # Create reading_list_entries table
+        c.execute('''
+            CREATE TABLE IF NOT EXISTS reading_list_entries (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                reading_list_id INTEGER NOT NULL,
+                series TEXT,
+                issue_number TEXT,
+                volume INTEGER,
+                year INTEGER,
+                matched_file_path TEXT,
+                manual_override_path TEXT,
+                FOREIGN KEY (reading_list_id) REFERENCES reading_lists (id) ON DELETE CASCADE
+            )
+        ''')
+        c.execute('CREATE INDEX IF NOT EXISTS idx_reading_list_entries_list_id ON reading_list_entries(reading_list_id)')
+
         # Create issues_read table (comic files marked as read)
         c.execute('''
             CREATE TABLE IF NOT EXISTS issues_read (
@@ -1966,3 +1992,180 @@ def get_all_reading_positions():
     except Exception as e:
         app_logger.error(f"Failed to get all reading positions: {e}")
         return []
+
+
+#########################
+#   Reading Lists       #
+#########################
+
+def create_reading_list(name, source=None):
+    """
+    Create a new reading list.
+    
+    Args:
+        name: Name of the reading list
+        source: Source of the list (e.g., filename or URL)
+        
+    Returns:
+        ID of the new reading list, or None on error
+    """
+    try:
+        conn = get_db_connection()
+        c = conn.cursor()
+        c.execute(
+            'INSERT INTO reading_lists (name, source) VALUES (?, ?)',
+            (name, source)
+        )
+        list_id = c.lastrowid
+        conn.commit()
+        conn.close()
+        return list_id
+    except Exception as e:
+        app_logger.error(f"Error creating reading list: {str(e)}")
+        return None
+
+def add_reading_list_entry(list_id, data):
+    """
+    Add an entry to a reading list.
+    
+    Args:
+        list_id: ID of the reading list
+        data: Dictionary containing entry data (series, issue_number, etc.)
+        
+    Returns:
+        True if successful, False otherwise
+    """
+    try:
+        conn = get_db_connection()
+        c = conn.cursor()
+        c.execute('''
+            INSERT INTO reading_list_entries 
+            (reading_list_id, series, issue_number, volume, year, matched_file_path)
+            VALUES (?, ?, ?, ?, ?, ?)
+        ''', (
+            list_id, 
+            data.get('series'), 
+            data.get('issue_number'), 
+            data.get('volume'), 
+            data.get('year'),
+            data.get('matched_file_path')
+        ))
+        conn.commit()
+        conn.close()
+        return True
+    except Exception as e:
+        app_logger.error(f"Error adding reading list entry: {str(e)}")
+        return False
+
+def get_reading_lists():
+    """
+    Get all reading lists.
+    
+    Returns:
+        List of dictionaries containing reading list info
+    """
+    try:
+        conn = get_db_connection()
+        conn.row_factory = sqlite3.Row
+        c = conn.cursor()
+        
+        # Get lists with entry counts
+        c.execute('''
+            SELECT rl.*, COUNT(rle.id) as entry_count 
+            FROM reading_lists rl
+            LEFT JOIN reading_list_entries rle ON rl.id = rle.reading_list_id
+            GROUP BY rl.id
+            ORDER BY rl.created_at DESC
+        ''')
+        
+        lists = [dict(row) for row in c.fetchall()]
+        conn.close()
+        return lists
+    except Exception as e:
+        app_logger.error(f"Error getting reading lists: {str(e)}")
+        return []
+
+def get_reading_list(list_id):
+    """
+    Get a specific reading list and its entries.
+    
+    Args:
+        list_id: ID of the reading list
+        
+    Returns:
+        Dictionary containing list info and entries, or None on error
+    """
+    try:
+        conn = get_db_connection()
+        conn.row_factory = sqlite3.Row
+        c = conn.cursor()
+        
+        # Get list info
+        c.execute('SELECT * FROM reading_lists WHERE id = ?', (list_id,))
+        list_row = c.fetchone()
+        
+        if not list_row:
+            conn.close()
+            return None
+            
+        result = dict(list_row)
+        
+        # Get entries
+        c.execute('''
+            SELECT * FROM reading_list_entries 
+            WHERE reading_list_id = ? 
+            ORDER BY id ASC
+        ''', (list_id,))
+        
+        result['entries'] = [dict(row) for row in c.fetchall()]
+        conn.close()
+        return result
+    except Exception as e:
+        app_logger.error(f"Error getting reading list {list_id}: {str(e)}")
+        return None
+
+def update_reading_list_entry_match(entry_id, file_path):
+    """
+    Update the matched file for a reading list entry.
+    
+    Args:
+        entry_id: ID of the entry
+        file_path: Path to the matched file (or None to clear)
+        
+    Returns:
+        True if successful, False otherwise
+    """
+    try:
+        conn = get_db_connection()
+        c = conn.cursor()
+        c.execute(
+            'UPDATE reading_list_entries SET manual_override_path = ? WHERE id = ?',
+            (file_path, entry_id)
+        )
+        conn.commit()
+        conn.close()
+        return True
+    except Exception as e:
+        app_logger.error(f"Error updating reading list entry {entry_id}: {str(e)}")
+        return False
+
+def delete_reading_list(list_id):
+    """
+    Delete a reading list and all its entries.
+    
+    Args:
+        list_id: ID of the reading list
+        
+    Returns:
+        True if successful, False otherwise
+    """
+    try:
+        conn = get_db_connection()
+        c = conn.cursor()
+        c.execute('DELETE FROM reading_lists WHERE id = ?', (list_id,))
+        conn.commit()
+        conn.close()
+        return True
+    except Exception as e:
+        app_logger.error(f"Error deleting reading list {list_id}: {str(e)}")
+        return False

@@ -25,3 +25,4 @@ logs/app.log
 *.log
 .claude
 readme/156342.json
+/static/cbl

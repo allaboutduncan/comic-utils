@@ -1,0 +1,275 @@
+{% extends 'base.html' %}
+{% block title %}{{ reading_list.name }}{% endblock %}
+{% block extra_css %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/collection.css') }}?v={{ range(1, 10000) | random }}">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/swiper@11/swiper-bundle.min.css" />
+<style>
+    .reading-list-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+        gap: 1.5rem;
+    }
+
+    .book-card {
+        cursor: pointer;
+        transition: transform 0.2s;
+        height: 100%;
+        display: flex;
+        flex-direction: column;
+    }
+
+    .book-card:hover {
+        transform: translateY(-5px);
+    }
+
+    .book-cover {
+        aspect-ratio: 2/3;
+        background-color: #f8f9fa;
+        background-size: cover;
+        background-position: center;
+        border-radius: 4px;
+        position: relative;
+        overflow: hidden;
+        border: 1px solid #dee2e6;
+    }
+
+    .book-cover.unmatched {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background-color: #e9ecef;
+        color: #adb5bd;
+    }
+
+    .match-status {
+        position: absolute;
+        top: 5px;
+        right: 5px;
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+    }
+
+    .status-matched {
+        background-color: #28a745;
+    }
+
+    .status-unmatched {
+        background-color: #dc3545;
+    }
+
+    .book-info {
+        margin-top: 0.5rem;
+        font-size: 0.9rem;
+    }
+
+    .book-title {
+        font-weight: 600;
+        line-height: 1.2;
+        margin-bottom: 0.2rem;
+    }
+
+    .book-meta {
+        color: #6c757d;
+        font-size: 0.8rem;
+    }
+
+    /* Search Modal Styles */
+    .search-result-item {
+        cursor: pointer;
+        padding: 10px;
+        border-bottom: 1px solid #eee;
+    }
+
+    .search-result-item:hover {
+        background-color: #f8f9fa;
+    }
+
+    .search-result-item.selected {
+        background-color: #e9ecef;
+        border-left: 3px solid #0d6efd;
+    }
+
+    /* Issue Badge Styles */
+    .issue-badge {
+        position: absolute;
+        bottom: 8px;
+        right: 8px;
+        padding: 2px 6px;
+        border-radius: 4px;
+        color: white;
+        font-size: 0.7rem;
+        font-weight: bold;
+        z-index: 10;
+        border: 1px solid black;
+        display: inline-block;
+        line-height: 1.2;
+        height: 20px;
+        width: auto;
+    }
+
+    .issue-badge-matched {
+        background: rgb(253 200 63 / 85%);
+    }
+
+    .issue-badge-unmatched {
+        background: rgba(220, 53, 69, 0.85);
+    }
+
+    .book-details {
+        min-width: 0;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <nav aria-label="breadcrumb">
+        <ol class="breadcrumb">
+            <li class="breadcrumb-item"><a href="{{ url_for('reading_lists.index') }}">Reading Lists</a></li>
+            <li class="breadcrumb-item active" aria-current="page">{{ reading_list.name }}</li>
+        </ol>
+    </nav>
+
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h2>{{ reading_list.name }}</h2>
+        <div>
+            <span class="badge bg-secondary">{{ reading_list.entries|length }} Issues</span>
+        </div>
+    </div>
+
+    <div class="reading-list-grid">
+        {% for entry in reading_list.entries %}
+        <div class="book-card" data-entry-id="{{ entry.id }}" data-series="{{ entry.series }}"
+            data-issue="{{ entry.issue_number }}">
+            {% set file_path = entry.manual_override_path or entry.matched_file_path %}
+            {% if file_path %}
+            <!-- Matched: clicking cover opens reader -->
+            <div class="book-cover" style="background-image: url('/api/thumbnail?path={{ file_path|urlencode }}')"
+                onclick="openComicReader('{{ file_path|replace('\\', '\\\\')|replace("'", "\\'") }}')">
+                <span class="issue-badge issue-badge-matched">
+                    #{{ entry.issue_number }}
+                </span>
+            </div>
+            {% else %}
+            <!-- Unmatched: clicking cover opens map modal -->
+            <div class="book-cover unmatched"
+                onclick="openMapModal({{ entry.id }}, '{{ entry.series|replace("'", "\\'") }}', '{{ entry.issue_number }}', '{{ entry.volume or '' }}', '{{ entry.year or '' }}')">
+                <div class="text-center p-2">
+                    <i class="bi bi-question-circle display-6 mb-2"></i>
+                    <br>Click to map
+                </div>
+                <span class="issue-badge issue-badge-unmatched">
+                    #{{ entry.issue_number }}
+                </span>
+            </div>
+            {% endif %}
+
+            <div class="book-info d-flex justify-content-between align-items-start">
+                <div class="book-details flex-grow-1">
+                    <div class="book-title text-truncate">{{ entry.series }} #{{ entry.issue_number }}</div>
+                    <div class="book-meta">{% if entry.year %}{{ entry.year }}{% endif %}</div>
+                </div>
+                <!-- Three-dots menu -->
+                <div class="dropdown">
+                    <button class="btn btn-link btn-sm p-0 text-dark" type="button" data-bs-toggle="dropdown"
+                        onclick="event.stopPropagation()">
+                        <i class="bi bi-three-dots-vertical"></i>
+                    </button>
+                    <ul class="dropdown-menu dropdown-menu-end shadow">
+                        <li><a class="dropdown-item" href="#"
+                                onclick="openMapModal({{ entry.id }}, '{{ entry.series|replace("'", "\\'") }}', '{{ entry.issue_number }}', '{{ entry.volume or '' }}', '{{ entry.year or '' }}'); return false;">
+                                <i class="bi bi-link-45deg me-2"></i>{% if file_path %}Re-map Issue{% else %}Map Issue{%
+                                endif %}
+                            </a></li>
+                        {% if file_path %}
+                        <li><a class="dropdown-item" href="#"
+                                onclick="currentEntryId = {{ entry.id }}; clearMapping(); return false;">
+                                <i class="bi bi-x-circle me-2"></i>Clear Mapping
+                            </a></li>
+                        {% endif %}
+                    </ul>
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+
+<!-- Map File Modal -->
+<div class="modal fade" id="mapFileModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Map Issue</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p>Select a file to map to: <strong id="mapTargetName"></strong></p>
+
+                <div class="input-group mb-3">
+                    <input type="text" class="form-control" id="fileSearchInput" placeholder="Search for file...">
+                    <button class="btn btn-outline-secondary" type="button" onclick="searchFiles()">Search</button>
+                    <button class="btn btn-outline-danger" type="button" onclick="clearMapping()">Clear Mapping</button>
+                </div>
+
+                <div id="searchResults" class="list-group" style="max-height: 400px; overflow-y: auto;">
+                    <!-- Results populated by JS -->
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" onclick="confirmMapping()" id="confirmMapBtn"
+                    disabled>Confirm Mapping</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Comic Reader Modal -->
+<div id="comicReaderModal" class="comic-reader-modal" style="display: none;">
+    <div class="comic-reader-overlay"></div>
+    <div class="comic-reader-container">
+        <!-- Header -->
+        <div class="comic-reader-header">
+            <div class="comic-reader-title" id="comicReaderTitle">Loading...</div>
+            <div class="comic-reader-progress">
+                <div class="comic-reader-progress-bar">
+                    <div class="comic-reader-progress-fill"></div>
+                </div>
+                <span class="comic-reader-progress-text">0%</span>
+            </div>
+            <div class="comic-reader-controls">
+                <span class="comic-reader-page-info" id="comicReaderPageInfo">Page 1 of 1</span>
+                <button class="btn btn-sm btn-outline-light" id="comicReaderClose" title="Close">
+                    <i class="bi bi-x-lg text-light"></i>
+                </button>
+            </div>
+        </div>
+        <!-- Swiper -->
+        <div class="swiper comic-reader-swiper" id="comicReaderSwiper">
+            <div class="swiper-wrapper" id="comicReaderWrapper">
+                <!-- Slides will be dynamically added here -->
+            </div>
+            <!-- Navigation -->
+            <div class="swiper-button-next"></div>
+            <div class="swiper-button-prev"></div>
+        </div>
+        <!-- Footer -->
+        <div class="comic-reader-footer">
+            <div class="swiper-pagination"></div>
+        </div>
+    </div>
+</div>
+
+<script>
+    const LIST_ID = {{ reading_list.id }};
+    const RENAME_PATTERN = '{{ rename_pattern|replace("'", "\\'") }}';
+</script>
+{% endblock %}
+
+{% block scripts %}
+{{ super() }}
+<script src="https://cdn.jsdelivr.net/npm/swiper@11/swiper-bundle.min.js"></script>
+<script src="{{ url_for('static', filename='js/reading_list.js') }}?v={{ range(1, 10000) | random }}"></script>
+{% endblock %}

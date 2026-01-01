@@ -14,6 +14,7 @@ from PIL import Image, ImageDraw, ImageFont, ImageFilter, ImageOps, ImageChops, 
 from database import get_db_connection
 from app_logging import app_logger
 from config import config
+import math
 
 # Image dimensions (9:16 aspect ratio for social sharing)
 IMAGE_WIDTH = 1080
@@ -227,8 +228,20 @@ def get_top_series_with_thumbnails(year: int, limit: int = 6) -> list:
             series_name = re.sub(r'\s*v\d{4}$', '', series_name)
             results.append({'name': series_name, 'count': count, 'first_issue_path': first_issues.get(series_path, ''), 'series_path': series_path})
         return results
+
     except Exception as e:
         app_logger.error(f"Error getting top series: {e}")
+        return []
+
+def get_read_issues(year: int) -> list:
+    try:
+        conn = get_db_connection()
+        cursor = conn.execute("SELECT issue_path FROM issues_read WHERE strftime('%Y', read_at) = ? ORDER BY read_at ASC", (str(year),))
+        rows = cursor.fetchall()
+        conn.close()
+        return [row[0] for row in rows]
+    except Exception as e:
+        app_logger.error(f"Error getting read issues: {e}")
         return []
 
 def get_all_wrapped_stats(year: int) -> dict:
@@ -616,6 +629,103 @@ def add_enhanced_branding(img, draw, theme_colors, year):
     tag_w = draw.textbbox((0, 0), tagline, font=font_tagline)[2]
     draw.text(((img.width - tag_w) // 2, footer_y + 90), tagline, font=font_tagline, fill=hex_to_rgb(theme_colors.get('text_muted', '#888888')))
 
+def generate_books_grid_slide(year: int, theme: str) -> bytes:
+    """Generate a grid of all books read in the year."""
+    try:
+        issues = get_read_issues(year)
+        if not issues:
+            return None
+
+        # Configuration
+        thumb_w = 60
+        thumb_h = 90  # ~2:3 ratio
+        spacing = 5
+        margin_x = 40
+        header_h = 350
+        footer_h = 250
+        
+        # Calculate Grid Layout
+        available_width = IMAGE_WIDTH - (2 * margin_x)
+        # Calculate columns to fit in available width
+        cols = available_width // (thumb_w + spacing)
+        # Recalculate horizontal margin to center the grid exactly
+        grid_actual_width = (cols * thumb_w) + ((cols - 1) * spacing)
+        start_x = (IMAGE_WIDTH - grid_actual_width) // 2
+        
+        rows = math.ceil(len(issues) / cols)
+        
+        grid_h = rows * (thumb_h + spacing)
+        total_h = header_h + grid_h + footer_h
+        
+        # Determine final image height (extend if needed)
+        final_h = max(IMAGE_HEIGHT, total_h)
+        
+        theme_colors = get_theme_colors(theme)
+        
+        # Create Background (Custom gradient for variable height)
+        if theme_colors['is_dark']:
+            img = create_gradient(IMAGE_WIDTH, final_h, theme_colors['bg'], theme_colors['bg_secondary'])
+        else:
+            primary_rgb = hex_to_rgb(theme_colors['primary'])
+            # Create a lighter version of primary for gradient
+            light_primary = '#{:02x}{:02x}{:02x}'.format(
+                min(255, primary_rgb[0] + 200), 
+                min(255, primary_rgb[1] + 200), 
+                min(255, primary_rgb[2] + 200)
+            )
+            img = create_gradient(IMAGE_WIDTH, final_h, theme_colors['bg'], light_primary)
+            
+        draw = ImageDraw.Draw(img)
+        primary_color = hex_to_rgb(theme_colors['primary'])
+        text_color = hex_to_rgb(theme_colors['text'])
+        
+        # 1. Header
+        font_header = get_font(68, bold=True)
+        draw_centered_text(draw, "READING HISTORY", 100, font_header, primary_color, shadow=True, img_obj=img)
+        
+        font_sub = get_font(32)
+        draw_centered_text(draw, f"{len(issues)} ISSUES READ IN {year}", 190, font_sub, text_color, shadow=True, img_obj=img)
+        
+        # 2. Draw Grid
+        y_start = header_h
+        
+        for i, issue_path in enumerate(issues):
+            row = i // cols
+            col = i % cols
+            
+            x = start_x + col * (thumb_w + spacing)
+            y = y_start + row * (thumb_h + spacing)
+            
+            # Optimization: Skip drawing if outside render bounds (not relevant here since we render full image)
+            
+            thumb_path = ImageUtils.get_thumbnail_path(issue_path)
+            drawn = False
+            
+            if thumb_path and os.path.exists(thumb_path):
+                try:
+                    thumb = Image.open(thumb_path).convert('RGB')
+                    # Fit to 60x90
+                    thumb = ImageOps.fit(thumb, (thumb_w, thumb_h), Image.Resampling.LANCZOS)
+                    img.paste(thumb, (x, y))
+                    drawn = True
+                except Exception:
+                    pass
+            
+            if not drawn:
+                # Placeholder rectangle
+                draw.rectangle([x, y, x + thumb_w, y + thumb_h], fill=(40, 40, 40, 128))
+                
+        # 3. Branding (adapts to bottom)
+        add_enhanced_branding(img, draw, theme_colors, year)
+        
+        buffer = io.BytesIO()
+        img.save(buffer, format='PNG', quality=90)
+        buffer.seek(0)
+        return buffer.getvalue()
+    except Exception as e:
+        app_logger.error(f"Error generating books grid slide: {e}", exc_info=True)
+        return None
+
 def generate_all_wrapped_images(year: int, theme: str) -> list:
     """Generate all wrapped slides."""
     # We now have fewer slides
@@ -623,5 +733,6 @@ def generate_all_wrapped_images(year: int, theme: str) -> list:
         ('01_summary.png', generate_summary_slide(year, theme)),
         ('02_most_read_series.png', generate_most_read_series_slide(year, theme)),
         ('03_series_highlights.png', generate_series_highlights_slide(year, theme)),
+        ('04_books_grid.png', generate_books_grid_slide(year, theme)),
     ]
     return slides

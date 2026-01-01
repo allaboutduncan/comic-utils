@@ -65,6 +65,8 @@ init_db()
 # Register Blueprints
 app.register_blueprint(favorites_bp)
 app.register_blueprint(opds_bp)
+from reading_lists import reading_lists_bp
+app.register_blueprint(reading_lists_bp)
 
 # Initialize APScheduler for scheduled file index rebuilds
 rebuild_scheduler = BackgroundScheduler(daemon=True)
