@@ -3,7 +3,7 @@ import time
 import threading
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
-from database import log_recent_file
+from database import add_file_index_entry, delete_file_index_entry
 from app_logging import app_logger
 
 
@@ -64,8 +64,11 @@ class DebouncedFileHandler(FileSystemEventHandler):
                     try:
                         file_name = os.path.basename(file_path)
                         file_size = os.path.getsize(file_path) if os.path.exists(file_path) else None
-                        log_recent_file(file_path, file_name, file_size)
-                        app_logger.info(f"✅ Logged recent file from watcher: {file_name}")
+                        modified_at = os.path.getmtime(file_path) if os.path.exists(file_path) else None
+                        parent = os.path.dirname(file_path)
+                        
+                        add_file_index_entry(file_name, file_path, 'file', size=file_size, parent=parent, modified_at=modified_at)
+                        app_logger.info(f"✅ Indexed recent file from watcher: {file_name}")
                     except Exception as e:
                         app_logger.error(f"Error processing file event for {file_path}: {e}")
                 else:
@@ -118,6 +121,29 @@ class DebouncedFileHandler(FileSystemEventHandler):
 
         file_path = event.dest_path
         self._add_event(file_path)
+
+    def on_deleted(self, event):
+        """Handle file deletion events."""
+        app_logger.info(f"File watcher DELETE event: {event.src_path} (is_dir: {event.is_directory})")
+        if event.is_directory:
+            # We also want to remove directories, but for now focusing on files as per request
+            # Logic for directories would be recursive delete which delete_file_index_entry handles
+            delete_file_index_entry(event.src_path)
+            return
+
+        file_path = event.src_path
+        # Check if it was a comic file (extension check)
+        # Since file is gone, we can't check isfile or open it, but we can check extension
+        ext = os.path.splitext(file_path)[1].lower()
+        if ext not in ['.cbz', '.cbr']:
+            return
+
+        try:
+             delete_file_index_entry(file_path)
+             app_logger.info(f"❌ Removed deleted file from index: {os.path.basename(file_path)}")
+        except Exception as e:
+             app_logger.error(f"Error removing deleted file {file_path}: {e}")
+
 
 
 class FileWatcher:

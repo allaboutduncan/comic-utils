@@ -63,6 +63,7 @@ def init_db():
                 size INTEGER,
                 parent TEXT,
                 has_thumbnail INTEGER DEFAULT 0,
+                modified_at REAL,
                 last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         ''')
@@ -72,6 +73,10 @@ def init_db():
         columns = [col[1] for col in c.fetchall()]
         if 'has_thumbnail' not in columns:
             c.execute('ALTER TABLE file_index ADD COLUMN has_thumbnail INTEGER DEFAULT 0')
+
+        # Migration: Add modified_at column if it doesn't exist
+        if 'modified_at' not in columns:
+            c.execute('ALTER TABLE file_index ADD COLUMN modified_at REAL')
 
         # Create indexes for file_index table
         c.execute('CREATE INDEX IF NOT EXISTS idx_file_index_name ON file_index(name)')
@@ -324,10 +329,16 @@ def get_recent_files(limit=100):
             return []
 
         c = conn.cursor()
+        
+        # Query file_index directly for recent comic files
         c.execute('''
-            SELECT file_path, file_name, file_size, added_at
-            FROM recent_files
-            ORDER BY added_at DESC
+            SELECT path as file_path, name as file_name, size as file_size, 
+                   datetime(modified_at, 'unixepoch', 'localtime') as added_at
+            FROM file_index
+            WHERE type = 'file' 
+            AND (name LIKE '%.cbz' OR name LIKE '%.cbr')
+            AND modified_at IS NOT NULL
+            ORDER BY modified_at DESC
             LIMIT ?
         ''', (limit,))
 
@@ -493,15 +504,16 @@ def save_file_index_to_db(file_index):
                 entry['type'],
                 entry.get('size'),
                 entry['parent'],
-                entry.get('has_thumbnail', 0)
+                entry.get('has_thumbnail', 0),
+                entry.get('modified_at')
             )
             for entry in file_index
         ]
 
         # Batch insert
         c.executemany('''
-            INSERT INTO file_index (name, path, type, size, parent, has_thumbnail)
-            VALUES (?, ?, ?, ?, ?, ?)
+            INSERT INTO file_index (name, path, type, size, parent, has_thumbnail, modified_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
         ''', records)
 
         conn.commit()
@@ -623,9 +635,7 @@ def update_file_index_entry(path, name=None, new_path=None, parent=None, size=No
         new_path: New path (optional, for move/rename operations)
         parent: New parent path (optional)
         size: New size (optional)
-
-    Returns:
-        True if successful, False otherwise
+        modified_at: New modification timestamp (optional)
     """
     try:
         conn = get_db_connection()
@@ -654,6 +664,10 @@ def update_file_index_entry(path, name=None, new_path=None, parent=None, size=No
             updates.append("size = ?")
             params.append(size)
 
+        if modified_at is not None:
+            updates.append("modified_at = ?")
+            params.append(modified_at)
+
         if not updates:
             conn.close()
             return True  # Nothing to update
@@ -679,7 +693,7 @@ def update_file_index_entry(path, name=None, new_path=None, parent=None, size=No
         app_logger.error(f"Failed to update file index entry {path}: {e}")
         return False
 
-def add_file_index_entry(name, path, entry_type, size=None, parent=None, has_thumbnail=0):
+def add_file_index_entry(name, path, entry_type, size=None, parent=None, has_thumbnail=0, modified_at=None):
     """
     Add a new entry to the file index.
 
@@ -690,6 +704,7 @@ def add_file_index_entry(name, path, entry_type, size=None, parent=None, has_thu
         size: File size in bytes (optional, None for directories)
         parent: Parent directory path (optional)
         has_thumbnail: 1 if directory has folder.png/jpg, 0 otherwise (optional)
+        modified_at: Modification timestamp (optional)
 
     Returns:
         True if successful, False otherwise
@@ -702,9 +717,9 @@ def add_file_index_entry(name, path, entry_type, size=None, parent=None, has_thu
         c = conn.cursor()
 
         c.execute('''
-            INSERT OR REPLACE INTO file_index (name, path, type, size, parent, has_thumbnail)
-            VALUES (?, ?, ?, ?, ?, ?)
-        ''', (name, path, entry_type, size, parent, has_thumbnail))
+            INSERT OR REPLACE INTO file_index (name, path, type, size, parent, has_thumbnail, modified_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        ''', (name, path, entry_type, size, parent, has_thumbnail, modified_at))
 
         conn.commit()
         conn.close()

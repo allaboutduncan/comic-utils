@@ -7,36 +7,43 @@ import shutil
 import uuid
 import sys
 import threading
-import click
 import time
 import logging
 import signal
-import psutil
 import select
 import random
+import comicvine
+from datetime import datetime, timedelta
+import time as time_module
 from PIL import Image, ImageFilter, ImageDraw
 try:
     import pwd
 except ImportError:
     pwd = None
 from functools import lru_cache
-from collections import defaultdict
 import hashlib
 import re
 import xml.etree.ElementTree as ET
-from datetime import datetime
+import heapq
+import hashlib
 import zipfile
-import tempfile
+import rarfile
+import traceback
+import shutil
+import mysql.connector
+import base64
+from io import BytesIO
 from api import app
 from favorites import favorites_bp
 from opds import opds_bp
 from models import gcd
+from models import metron
 from config import config, load_flask_config, write_config, load_config
 from edit import get_edit_modal, save_cbz, cropCenter, cropLeft, cropRight, cropFreeForm, get_image_data_url, modal_body_template
 from memory_utils import initialize_memory_management, cleanup_on_exit, memory_context, get_global_monitor
 from app_logging import app_logger, APP_LOG, MONITOR_LOG
 from helpers import is_hidden
-import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from collections import OrderedDict
 from version import __version__
 import requests
@@ -46,8 +53,8 @@ from database import (init_db, get_db_connection, get_recent_files, log_recent_f
                       add_file_index_entry, delete_file_index_entry, clear_file_index_from_db, search_file_index,
                       get_search_cache, save_search_cache, clear_search_cache,
                       get_rebuild_schedule, save_rebuild_schedule as db_save_rebuild_schedule, update_last_rebuild,
-                      get_browse_cache, save_browse_cache, invalidate_browse_cache, clear_browse_cache,
-                      get_path_counts, get_path_counts_batch, get_directory_children, clear_stats_cache,
+                      get_browse_cache, invalidate_browse_cache, clear_browse_cache,
+                      get_path_counts_batch, get_directory_children, clear_stats_cache,
                       clear_stats_cache_keys, mark_issue_read, get_issues_read)
 from models.stats import (get_library_stats, get_file_type_distribution, get_top_publishers,
                           get_reading_history_stats, get_largest_comics, get_top_series_by_count,
@@ -209,7 +216,7 @@ def scan_library_task():
                             # We need to calculate cache_path here or let the task do it?
                             # The task takes (file_path, cache_path).
                             # We need to replicate the cache path logic.
-                            import hashlib
+                            
                             path_hash = hashlib.md5(full_path.encode('utf-8')).hexdigest()
                             shard_dir = path_hash[:2]
                             filename = f"{path_hash}.jpg"
@@ -337,9 +344,6 @@ def update_recent_files_from_scan(comic_files):
         app_logger.info(f"Populating recent_files database from {len(comic_files)} scanned files ({current_count} existing)...")
 
         # Sort by modification time (most recent first) - use heapq for efficiency with large lists
-        import heapq
-        from datetime import datetime
-
         # If we have a huge number of files, use heapq.nlargest for better performance
         if len(comic_files) > 10000:
             app_logger.info("Large library detected, using optimized sorting...")
@@ -374,7 +378,6 @@ def update_recent_files_from_scan(comic_files):
 
     except Exception as e:
         app_logger.error(f"Error updating recent files from scan: {e}")
-        import traceback
         app_logger.error(f"Traceback: {traceback.format_exc()}")
 
 #########################
@@ -536,7 +539,6 @@ def cached_search(query):
 
 def filesystem_search(query):
     """Fallback filesystem search when index is not ready"""
-    import time
 
     query_lower = query.lower()
     results = []
@@ -1377,16 +1379,19 @@ def build_file_index():
                     full_path = os.path.join(root, name)
                     rel_path = os.path.relpath(full_path, DATA_DIR)
                     file_size = os.path.getsize(full_path)
+                    mtime = os.path.getmtime(full_path)
 
                     file_index.append({
                         "name": name,
                         "path": f"/data/{rel_path}",
                         "type": "file",
                         "size": file_size,
-                        "parent": f"/data/{os.path.dirname(rel_path)}" if os.path.dirname(rel_path) else "/data"
+                        "parent": f"/data/{os.path.dirname(rel_path)}" if os.path.dirname(rel_path) else "/data",
+                        "modified_at": mtime
                     })
 
-                    # Track comic files for recent files list
+                    # Track comic files for recent files list (Legacy logic, but strictly speaking we don't need the separate list anymore
+                    # since we populate modified_at directly in file_index. But keeping standard structure for now)
                     if name.lower().endswith(('.cbz', '.cbr')):
                         try:
                             mtime = os.path.getmtime(full_path)
@@ -1419,8 +1424,9 @@ def build_file_index():
     else:
         app_logger.warning("Failed to save file index to database")
 
-    # Update recent files database with 100 most recently modified comic files
-    update_recent_files_from_scan(comic_files)
+
+
+    # Legacy: update_recent_files_from_scan(comic_files) - Removed as we now use file_index directly
 
 def invalidate_file_index():
     """
@@ -1572,7 +1578,8 @@ def update_index_on_create(path):
                 return
 
             size = os.path.getsize(path) if os.path.exists(path) else None
-            add_file_index_entry(name, path, 'file', size=size, parent=parent)
+            mtime = os.path.getmtime(path) if os.path.exists(path) else None
+            add_file_index_entry(name, path, 'file', size=size, parent=parent, modified_at=mtime)
             app_logger.debug(f"Added file to index: {path}")
         else:
             # Directory - add it and recursively add all contents
@@ -1705,8 +1712,6 @@ def list_new_files():
         return jsonify({"error": "Directory not found"}), 404
 
     try:
-        from datetime import datetime, timedelta
-        import time as time_module
 
         # Calculate cutoff time (7 days ago)
         cutoff_time = datetime.now() - timedelta(days=days)
@@ -1966,7 +1971,6 @@ def auto_fetch_metron_metadata(destination_path):
         from comicvine import extract_issue_number, generate_comicinfo_xml, add_comicinfo_to_archive
         from comicinfo import read_comicinfo_from_zip
         from rename import load_custom_rename_config
-        import re
 
         # Check 1: Is Mokkari library available?
         if not is_mokkari_available():
@@ -2649,12 +2653,7 @@ def cbz_preview():
     if not file_path.lower().endswith(('.cbz', '.zip')):
         return jsonify({"error": "File is not a CBZ"}), 400
     
-    try:
-        import zipfile
-        import base64
-        from io import BytesIO
-        from PIL import Image
-        
+    try:       
         # Open the CBZ file
         with zipfile.ZipFile(file_path, 'r') as zf:
             # Get list of files in the archive
@@ -3014,8 +3013,6 @@ def find_folder_thumbnails_batch(folder_paths):
     """
     if not folder_paths:
         return {}
-
-    from concurrent.futures import ThreadPoolExecutor, as_completed
 
     results = {}
 
@@ -3494,7 +3491,6 @@ def serve_folder_thumbnail():
         return send_file(image_path, mimetype=mime_type)
     except Exception as e:
         app_logger.error(f"Error serving folder thumbnail {image_path}: {e}")
-        import traceback
         app_logger.error(traceback.format_exc())
         return send_file('static/images/error.svg', mimetype='image/svg+xml')
 
@@ -3572,7 +3568,6 @@ def read_comic_page(comic_path, page_num):
 
     except Exception as e:
         app_logger.error(f"Error reading comic page {page_num} from {comic_path}: {e}")
-        import traceback
         app_logger.error(traceback.format_exc())
         if archive:
             archive.close()
@@ -3581,8 +3576,6 @@ def read_comic_page(comic_path, page_num):
 @app.route('/api/read/<path:comic_path>/info')
 def read_comic_info(comic_path):
     """Get information about a comic file (page count, etc.)."""
-    import zipfile
-    import rarfile
 
     # Add leading slash if missing (for absolute paths on Unix systems)
     if not comic_path.startswith('/'):
@@ -3623,7 +3616,6 @@ def read_comic_info(comic_path):
 
     except Exception as e:
         app_logger.error(f"Error getting comic info for {comic_path}: {e}")
-        import traceback
         app_logger.error(traceback.format_exc())
         return jsonify({"error": str(e)}), 500
 
@@ -4293,7 +4285,6 @@ def check_missing_files():
                         missing_count += 1
                     elif '[Total missing:' in line:
                         # Extract count from condensed format
-                        import re
                         match = re.search(r'\[Total missing: (\d+)\]', line)
                         if match:
                             missing_count += int(match.group(1))
@@ -4436,10 +4427,6 @@ def batch_metadata():
        b. Fall back to ComicVine (if API key available)
        c. Fall back to GCD (if MySQL available)
     """
-    import re
-    import time
-    import comicvine
-    from models import metron
     from comicinfo import read_comicinfo_from_zip
 
     try:
@@ -4641,7 +4628,6 @@ def batch_metadata():
 
     except Exception as e:
         app_logger.error(f"Error in batch_metadata: {e}")
-        import traceback
         app_logger.error(f"Traceback: {traceback.format_exc()}")
         return jsonify({"error": str(e)}), 500
 
@@ -5333,7 +5319,6 @@ def scrape_erofus():
                 log_queue.put("__COMPLETED__")  # Signal completion
 
             except Exception as e:
-                import traceback
                 error_details = traceback.format_exc()
                 log_queue.put(f"\n=== Error: {str(e)} ===")
                 log_queue.put(f"Exception type: {type(e).__name__}")
@@ -6077,10 +6062,6 @@ def trigger_gcd_import():
 def search_gcd_metadata():
     """Search GCD database for comic metadata and add to CBZ file"""
     try:
-        import mysql.connector
-        from datetime import datetime
-        import tempfile
-        import zipfile
 
         app_logger.info(f"🔍 GCD search started")
         data = request.get_json()
@@ -6858,7 +6839,6 @@ def search_gcd_metadata():
                     app_logger.debug(f"DEBUG: ComicInfo.xml generated successfully (length: {len(comicinfo_xml)} chars)")
                 except Exception as xml_error:
                     app_logger.debug(f"DEBUG: Error generating ComicInfo.xml: {str(xml_error)}")
-                    import traceback
                     app_logger.debug(f"DEBUG: XML Error Traceback: {traceback.format_exc()}")
                     return jsonify({
                         "success": False,
@@ -6872,7 +6852,6 @@ def search_gcd_metadata():
                     app_logger.debug(f"DEBUG: Successfully added ComicInfo.xml!")
                 except Exception as cbz_error:
                     app_logger.debug(f"DEBUG: Error adding ComicInfo.xml: {str(cbz_error)}")
-                    import traceback
                     app_logger.debug(f"DEBUG: CBZ Error Traceback: {traceback.format_exc()}")
                     return jsonify({
                         "success": False,
@@ -6918,7 +6897,6 @@ def search_gcd_metadata():
                 }), 404
 
         except mysql.connector.Error as db_error:
-            import traceback
             app_logger.debug(f"MySQL Error: {str(db_error)}")
             app_logger.debug(f"MySQL Error Traceback: {traceback.format_exc()}")
             return jsonify({
@@ -6931,7 +6909,6 @@ def search_gcd_metadata():
                 connection.close()
 
     except Exception as e:
-        import traceback
         error_msg = str(e)
         error_traceback = traceback.format_exc()
         app_logger.error(f"ERROR in search_gcd_metadata: {error_msg}")
@@ -7034,7 +7011,6 @@ def add_comicinfo_to_cbz(file_path, comicinfo_xml_bytes):
     - Rebuilds the entire ZIP by extracting and recompressing (matches single_file.py approach)
     - Handles RAR files incorrectly named as CBZ
     """
-    import tempfile, shutil
     from single_file import convert_single_rar_file
 
     # Safety: ensure bytes
@@ -7183,10 +7159,6 @@ def validate_gcd_issue():
 def search_gcd_metadata_with_selection():
     """Search GCD database for comic metadata using user-selected series"""
     try:
-        import mysql.connector
-        from datetime import datetime
-        import tempfile
-        import zipfile
 
         data = request.get_json()
         file_path = data.get('file_path')
@@ -7532,7 +7504,6 @@ def search_gcd_metadata_with_selection():
                 }), 404
 
         except mysql.connector.Error as db_error:
-            import traceback
             app_logger.error(f"MySQL Error in search_gcd_metadata_with_selection: {str(db_error)}")
             app_logger.debug(f"MySQL Error Traceback:\n{traceback.format_exc()}")
             return jsonify({
@@ -7545,7 +7516,6 @@ def search_gcd_metadata_with_selection():
                 connection.close()
 
     except Exception as e:
-        import traceback
         app_logger.error(f"ERROR in search_gcd_metadata_with_selection: {str(e)}")
         app_logger.debug(f"Full Traceback:\n{traceback.format_exc()}")
         return jsonify({
@@ -7560,7 +7530,6 @@ def search_comicvine_metadata():
         app_logger.info(f"🔍 ComicVine search started")
 
         try:
-            import comicvine
             app_logger.debug("DEBUG: comicvine module imported successfully")
         except ImportError as import_err:
             app_logger.error(f"Failed to import comicvine module: {str(import_err)}")
@@ -7771,7 +7740,6 @@ def search_comicvine_metadata():
 
     except Exception as e:
         app_logger.error(f"Error in ComicVine search: {str(e)}")
-        import traceback
         app_logger.error(f"Traceback: {traceback.format_exc()}")
         return jsonify({
             "success": False,
@@ -7782,8 +7750,6 @@ def search_comicvine_metadata():
 def search_comicvine_metadata_with_selection():
     """Search ComicVine using user-selected volume"""
     try:
-        import comicvine
-
         data = request.get_json()
         file_path = data.get('file_path')
         file_name = data.get('file_name')
@@ -7878,7 +7844,6 @@ def search_comicvine_metadata_with_selection():
 
     except Exception as e:
         app_logger.error(f"Error in ComicVine search with selection: {str(e)}")
-        import traceback
         app_logger.error(f"Traceback: {traceback.format_exc()}")
         return jsonify({
             "success": False,
@@ -7926,7 +7891,6 @@ def api_insights():
 def api_wrapped_years():
     """Get list of years with reading data. Defaults to current year if none found."""
     from wrapped import get_years_with_reading_data
-    from datetime import datetime
 
     try:
         years = get_years_with_reading_data()
@@ -7978,7 +7942,6 @@ def api_wrapped_image(year, slide_num):
 
         return Response(image_bytes, mimetype='image/png')
     except Exception as e:
-        import traceback
         app_logger.error(f"Error generating wrapped image: {e}")
         app_logger.error(f"Traceback: {traceback.format_exc()}")
         return jsonify({"error": str(e)}), 500
@@ -8056,12 +8019,11 @@ def start_file_watcher_background():
         app_logger.info(f"Initializing file watcher for {DATA_DIR}...")
         file_watcher = FileWatcher(watch_path=DATA_DIR, debounce_seconds=2)
         if file_watcher.start():
-            app_logger.info(f"👁️  File watcher started for {DATA_DIR} (tracking recent files)...")
+            app_logger.info(f"👁️ File watcher started for {DATA_DIR} (tracking recent files)...")
         else:
-            app_logger.warning("⚠️  File watcher failed to start")
+            app_logger.warning("⚠️ File watcher failed to start")
     except Exception as e:
         app_logger.error(f"❌ Failed to initialize file watcher: {e}")
-        import traceback
         app_logger.error(f"Traceback: {traceback.format_exc()}")
 
 def start_background_services():
