@@ -4467,66 +4467,116 @@ function searchGCDMetadataForDirectory(directoryPath, directoryName) {
 
 // Function to fetch metadata for all comics in a directory using multiple sources
 function fetchAllMetadata(directoryPath, directoryName) {
-  // Show loading toast
+  // Show loading toast with progress
   const loadingToast = document.createElement('div');
-  loadingToast.className = 'toast show position-fixed top-0 end-0 m-3';
-  loadingToast.style.zIndex = '1200';
+  loadingToast.className = 'toast show position-fixed';
+  loadingToast.style.cssText = 'z-index: 1200; top: 60px; right: 1rem;';
   loadingToast.innerHTML = `
     <div class="toast-header bg-primary text-white">
       <strong class="me-auto">Fetching Metadata</strong>
-      <small>Processing...</small>
+      <small id="batch-progress-count">0/0</small>
     </div>
     <div class="toast-body">
       <div class="d-flex align-items-center">
         <div class="spinner-border spinner-border-sm me-2" role="status">
           <span class="visually-hidden">Loading...</span>
         </div>
-        Processing comics in "${directoryName}"...
+        <span id="batch-progress-file" class="text-truncate" style="max-width: 250px;">Starting...</span>
       </div>
     </div>
   `;
   document.body.appendChild(loadingToast);
 
-  // Call batch-metadata endpoint
+  const progressCount = loadingToast.querySelector('#batch-progress-count');
+  const progressFile = loadingToast.querySelector('#batch-progress-file');
+
+  // Call batch-metadata endpoint with SSE streaming
   fetch('/api/batch-metadata', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ directory: directoryPath })
   })
-    .then(response => response.json())
-    .then(result => {
-      document.body.removeChild(loadingToast);
-
-      if (result.error) {
-        showToast('Metadata Error', result.error, 'error');
-        return;
+    .then(response => {
+      // Check if response is SSE stream or JSON error
+      const contentType = response.headers.get('content-type');
+      if (contentType && contentType.includes('application/json')) {
+        // Error response as JSON
+        return response.json().then(data => {
+          if (data.error) {
+            throw new Error(data.error);
+          }
+        });
       }
 
-      // Build summary message
-      let summaryParts = [];
-      if (result.cvinfo_created) {
-        summaryParts.push('cvinfo created');
-      }
-      if (result.metron_id_added) {
-        summaryParts.push('Metron ID added');
-      }
-      if (result.processed > 0) {
-        summaryParts.push(`${result.processed} file${result.processed !== 1 ? 's' : ''} updated`);
-      }
-      if (result.skipped > 0) {
-        summaryParts.push(`${result.skipped} skipped`);
-      }
-      if (result.errors > 0) {
-        summaryParts.push(`${result.errors} error${result.errors !== 1 ? 's' : ''}`);
+      // SSE stream response - read it
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      function processStream() {
+        return reader.read().then(({ done, value }) => {
+          if (done) return;
+
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop(); // Keep incomplete line in buffer
+
+          for (const line of lines) {
+            if (line.startsWith('data: ')) {
+              try {
+                const data = JSON.parse(line.slice(6));
+
+                if (data.type === 'progress') {
+                  progressCount.textContent = `${data.current}/${data.total}`;
+                  progressFile.textContent = data.file;
+                  progressFile.title = data.file; // Show full name on hover
+                } else if (data.type === 'complete') {
+                  // Remove loading toast
+                  if (loadingToast.parentNode) {
+                    document.body.removeChild(loadingToast);
+                  }
+
+                  // Show final summary
+                  const result = data.result;
+                  let summaryParts = [];
+                  if (result.cvinfo_created) {
+                    summaryParts.push('cvinfo created');
+                  }
+                  if (result.metron_id_added) {
+                    summaryParts.push('Metron ID added');
+                  }
+                  if (result.processed > 0) {
+                    summaryParts.push(`${result.processed} file${result.processed !== 1 ? 's' : ''} updated`);
+                  }
+                  if (result.skipped > 0) {
+                    summaryParts.push(`${result.skipped} skipped`);
+                  }
+                  if (result.errors > 0) {
+                    summaryParts.push(`${result.errors} error${result.errors !== 1 ? 's' : ''}`);
+                  }
+
+                  const summary = summaryParts.length > 0 ? summaryParts.join(', ') : 'No changes made';
+                  const toastType = result.errors > 0 ? 'warning' : (result.processed > 0 || result.cvinfo_created ? 'success' : 'info');
+
+                  showToast('Metadata Fetch Complete', summary, toastType);
+                  return; // Stop processing
+                }
+              } catch (e) {
+                console.error('Error parsing SSE data:', e);
+              }
+            }
+          }
+
+          return processStream();
+        });
       }
 
-      const summary = summaryParts.length > 0 ? summaryParts.join(', ') : 'No changes made';
-      const toastType = result.errors > 0 ? 'warning' : (result.processed > 0 || result.cvinfo_created ? 'success' : 'info');
-
-      showToast('Metadata Fetch Complete', summary, toastType);
+      return processStream();
     })
     .catch(error => {
-      document.body.removeChild(loadingToast);
+      if (loadingToast.parentNode) {
+        document.body.removeChild(loadingToast);
+      }
       showToast('Metadata Error', `Error fetching metadata: ${error.message}`, 'error');
     });
 }

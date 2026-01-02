@@ -8,6 +8,7 @@ import uuid
 import sys
 import threading
 import time
+import json
 import logging
 import signal
 import select
@@ -4417,15 +4418,15 @@ def save_cvinfo():
 def batch_metadata():
     """
     Batch fetch metadata for all comics in a folder.
+    Returns Server-Sent Events (SSE) for real-time progress updates.
 
     Process order:
     1. Check for cvinfo in folder
     2. If no cvinfo, create via ComicVine search (using folder name as series)
     3. Add Metron series ID to cvinfo if not present
     4. For each CBZ/CBR without ComicInfo.xml:
-       a. Try Metron first (if series ID available)
-       b. Fall back to ComicVine (if API key available)
-       c. Fall back to GCD (if MySQL available)
+       - If year < 2022 or unknown: GCD -> ComicVine -> Metron
+       - If year >= 2022: Metron -> ComicVine -> GCD
     """
     from comicinfo import read_comicinfo_from_zip
 
@@ -4445,15 +4446,6 @@ def batch_metadata():
         if not os.path.exists(directory) or not os.path.isdir(directory):
             return jsonify({"error": "Directory not found"}), 404
 
-        result = {
-            'cvinfo_created': False,
-            'metron_id_added': False,
-            'processed': 0,
-            'skipped': 0,
-            'errors': 0,
-            'details': []
-        }
-
         # Get API credentials
         comicvine_api_key = app.config.get('COMICVINE_API_KEY', '')
         metron_username = app.config.get('METRON_USERNAME', '')
@@ -4468,6 +4460,7 @@ def batch_metadata():
         # Step 1: Check for cvinfo
         cvinfo_path = os.path.join(directory, 'cvinfo')
         cv_volume_id = None
+        cvinfo_created = False
 
         if not os.path.exists(cvinfo_path):
             # Create cvinfo via ComicVine search if ComicVine is available
@@ -4488,7 +4481,7 @@ def batch_metadata():
                         url = f"https://comicvine.gamespot.com/x/4050-{cv_volume_id}/"
                         with open(cvinfo_path, 'w', encoding='utf-8') as f:
                             f.write(url)
-                        result['cvinfo_created'] = True
+                        cvinfo_created = True
                         app_logger.info(f"Created cvinfo with ComicVine volume ID: {cv_volume_id}")
                 except Exception as e:
                     app_logger.error(f"Error searching ComicVine: {e}")
@@ -4500,6 +4493,7 @@ def batch_metadata():
         # Step 2: Add Metron series ID if not present
         metron_series_id = None
         metron_api = None
+        metron_id_added = False
 
         if metron_available and os.path.exists(cvinfo_path):
             metron_api = metron.get_api(metron_username, metron_password)
@@ -4511,7 +4505,7 @@ def batch_metadata():
                         metron_series_id = metron.get_metron_series_id_by_comicvine_id(metron_api, cv_id)
                         if metron_series_id:
                             metron.update_cvinfo_with_metron_id(cvinfo_path, metron_series_id)
-                            result['metron_id_added'] = True
+                            metron_id_added = True
                             app_logger.info(f"Added Metron series ID: {metron_series_id}")
 
         # Step 3: Get list of comic files
@@ -4523,108 +4517,164 @@ def batch_metadata():
 
         app_logger.info(f"Found {len(comic_files)} comic files to process")
 
-        # Step 4: Process each comic file
-        for file_path in comic_files:
-            filename = os.path.basename(file_path)
-            try:
-                # Check if already has ComicInfo.xml
-                if file_path.lower().endswith('.cbz'):
-                    existing = read_comicinfo_from_zip(file_path)
-                    existing_notes = existing.get('Notes', '').strip() if existing else ''
+        # Determine service order based on volume year
+        # If year < 2022 or no year found, use legacy order: GCD -> ComicVine -> Metron
+        # Otherwise use modern order: Metron -> ComicVine -> GCD
+        year_match = re.search(r'\((\d{4})\)|v(\d{4})', os.path.basename(directory))
+        volume_year = int(year_match.group(1) or year_match.group(2)) if year_match else None
+        use_legacy_order = volume_year is None or volume_year < 2022
 
-                    # Skip if has metadata, unless it's just Amazon scraped data
-                    if existing_notes and 'Scraped metadata from Amazon' not in existing_notes:
-                        app_logger.debug(f"Skipping {filename} - already has metadata")
+        if use_legacy_order:
+            app_logger.info(f"Using legacy service order (GCD first) - volume year: {volume_year or 'unknown'}")
+        else:
+            app_logger.info(f"Using modern service order (Metron first) - volume year: {volume_year}")
+
+        def generate():
+            """Generator for SSE streaming."""
+            result = {
+                'cvinfo_created': cvinfo_created,
+                'metron_id_added': metron_id_added,
+                'processed': 0,
+                'skipped': 0,
+                'errors': 0,
+                'details': []
+            }
+
+            total_files = len(comic_files)
+
+            # Emit initial progress
+            yield f"data: {json.dumps({'type': 'progress', 'current': 0, 'total': total_files, 'file': 'Starting...'})}\n\n"
+
+            # Step 4: Process each comic file
+            for i, file_path in enumerate(comic_files):
+                filename = os.path.basename(file_path)
+
+                # Emit progress event
+                yield f"data: {json.dumps({'type': 'progress', 'current': i + 1, 'total': total_files, 'file': filename})}\n\n"
+
+                try:
+                    # Check if already has ComicInfo.xml
+                    if file_path.lower().endswith('.cbz'):
+                        existing = read_comicinfo_from_zip(file_path)
+                        existing_notes = existing.get('Notes', '').strip() if existing else ''
+
+                        # Skip if has metadata, unless it's just Amazon scraped data
+                        if existing_notes and 'Scraped metadata from Amazon' not in existing_notes:
+                            app_logger.debug(f"Skipping {filename} - already has metadata")
+                            result['skipped'] += 1
+                            result['details'].append({'file': filename, 'status': 'skipped', 'reason': 'has metadata'})
+                            continue
+                    elif file_path.lower().endswith('.cbr'):
+                        # Skip CBR files - we can't check or modify them without conversion
+                        app_logger.debug(f"Skipping {filename} - CBR format not supported for metadata")
                         result['skipped'] += 1
-                        result['details'].append({'file': filename, 'status': 'skipped', 'reason': 'has metadata'})
+                        result['details'].append({'file': filename, 'status': 'skipped', 'reason': 'CBR format'})
                         continue
-                elif file_path.lower().endswith('.cbr'):
-                    # Skip CBR files - we can't check or modify them without conversion
-                    app_logger.debug(f"Skipping {filename} - CBR format not supported for metadata")
-                    result['skipped'] += 1
-                    result['details'].append({'file': filename, 'status': 'skipped', 'reason': 'CBR format'})
-                    continue
 
-                # Extract issue number from filename
-                issue_number = comicvine.extract_issue_number(filename)
-                if not issue_number:
-                    app_logger.warning(f"Could not extract issue number from {filename}")
-                    result['errors'] += 1
-                    result['details'].append({'file': filename, 'status': 'error', 'reason': 'no issue number'})
-                    continue
+                    # Extract issue number from filename
+                    issue_number = comicvine.extract_issue_number(filename)
+                    if not issue_number:
+                        app_logger.warning(f"Could not extract issue number from {filename}")
+                        result['errors'] += 1
+                        result['details'].append({'file': filename, 'status': 'error', 'reason': 'no issue number'})
+                        continue
 
-                app_logger.info(f"Processing {filename} (issue #{issue_number})")
+                    app_logger.info(f"Processing {filename} (issue #{issue_number})")
 
-                # Try sources in order: Metron -> ComicVine -> GCD
-                metadata = None
-                source = None
+                    # Try sources based on volume year
+                    metadata = None
+                    source = None
 
-                # Try Metron first
-                if metron_available and metron_api and metron_series_id:
-                    try:
-                        issue_data = metron.get_issue_metadata(metron_api, metron_series_id, issue_number)
-                        if issue_data:
-                            metadata = metron.map_to_comicinfo(issue_data)
-                            source = 'Metron'
-                            app_logger.info(f"Found metadata from Metron for {filename}")
-                    except Exception as e:
-                        app_logger.warning(f"Metron lookup failed for {filename}: {e}")
+                    # Helper function for GCD lookup
+                    def try_gcd():
+                        nonlocal metadata, source
+                        if not gcd_available:
+                            return False
+                        try:
+                            # Get series name from directory
+                            gcd_series_name = os.path.basename(directory)
+                            # Clean up series name
+                            gcd_series_name = re.sub(r'\s*\(\d{4}\).*$', '', gcd_series_name)
+                            gcd_series_name = re.sub(r'\s*v\d+.*$', '', gcd_series_name)
 
-                # Fall back to ComicVine
-                if not metadata and comicvine_available and cv_volume_id:
-                    try:
-                        metadata = comicvine.get_metadata_by_volume_id(comicvine_api_key, cv_volume_id, issue_number)
-                        if metadata:
-                            source = 'ComicVine'
-                            app_logger.info(f"Found metadata from ComicVine for {filename}")
-                    except Exception as e:
-                        app_logger.warning(f"ComicVine lookup failed for {filename}: {e}")
+                            # Use volume_year extracted earlier
+                            gcd_series = gcd.search_series(gcd_series_name, volume_year)
+                            if gcd_series:
+                                metadata = gcd.get_issue_metadata(gcd_series['id'], issue_number)
+                                if metadata:
+                                    source = 'GCD'
+                                    app_logger.info(f"Found metadata from GCD for {filename}")
+                                    return True
+                        except Exception as e:
+                            app_logger.warning(f"GCD lookup failed for {filename}: {e}")
+                        return False
 
-                # Fall back to GCD
-                if not metadata and gcd_available:
-                    try:
-                        # Get series name from directory
-                        gcd_series_name = os.path.basename(directory)
-                        # Clean up series name
-                        gcd_series_name = re.sub(r'\s*\(\d{4}\).*$', '', gcd_series_name)
-                        gcd_series_name = re.sub(r'\s*v\d+.*$', '', gcd_series_name)
-
-                        # Extract year from directory name if present
-                        year_match = re.search(r'\((\d{4})\)', os.path.basename(directory))
-                        gcd_year = int(year_match.group(1)) if year_match else None
-
-                        # Search for series in GCD (auto-selects best match)
-                        gcd_series = gcd.search_series(gcd_series_name, gcd_year)
-                        if gcd_series:
-                            # Get issue metadata
-                            metadata = gcd.get_issue_metadata(gcd_series['id'], issue_number)
+                    # Helper function for ComicVine lookup
+                    def try_comicvine():
+                        nonlocal metadata, source
+                        if not (comicvine_available and cv_volume_id):
+                            return False
+                        try:
+                            metadata = comicvine.get_metadata_by_volume_id(comicvine_api_key, cv_volume_id, issue_number)
                             if metadata:
-                                source = 'GCD'
-                                app_logger.info(f"Found metadata from GCD for {filename}")
-                    except Exception as e:
-                        app_logger.warning(f"GCD lookup failed for {filename}: {e}")
+                                source = 'ComicVine'
+                                app_logger.info(f"Found metadata from ComicVine for {filename}")
+                                return True
+                        except Exception as e:
+                            app_logger.warning(f"ComicVine lookup failed for {filename}: {e}")
+                        return False
 
-                if metadata:
-                    # Generate and add ComicInfo.xml
-                    xml_bytes = comicvine.generate_comicinfo_xml(metadata)
-                    add_comicinfo_to_cbz(file_path, xml_bytes)
-                    result['processed'] += 1
-                    result['details'].append({'file': filename, 'status': 'success', 'source': source})
-                    app_logger.info(f"Added metadata to {filename} from {source}")
-                else:
+                    # Helper function for Metron lookup
+                    def try_metron():
+                        nonlocal metadata, source
+                        if not (metron_available and metron_api and metron_series_id):
+                            return False
+                        try:
+                            issue_data = metron.get_issue_metadata(metron_api, metron_series_id, issue_number)
+                            if issue_data:
+                                metadata = metron.map_to_comicinfo(issue_data)
+                                source = 'Metron'
+                                app_logger.info(f"Found metadata from Metron for {filename}")
+                                return True
+                        except Exception as e:
+                            app_logger.warning(f"Metron lookup failed for {filename}: {e}")
+                        return False
+
+                    if use_legacy_order:
+                        # Legacy order: GCD -> ComicVine -> Metron (for pre-2022 or unknown year)
+                        if not try_gcd():
+                            if not try_comicvine():
+                                try_metron()
+                    else:
+                        # Modern order: Metron -> ComicVine -> GCD (for 2022+)
+                        if not try_metron():
+                            if not try_comicvine():
+                                try_gcd()
+
+                    if metadata:
+                        # Generate and add ComicInfo.xml
+                        xml_bytes = comicvine.generate_comicinfo_xml(metadata)
+                        add_comicinfo_to_cbz(file_path, xml_bytes)
+                        result['processed'] += 1
+                        result['details'].append({'file': filename, 'status': 'success', 'source': source})
+                        app_logger.info(f"Added metadata to {filename} from {source}")
+                    else:
+                        result['errors'] += 1
+                        result['details'].append({'file': filename, 'status': 'error', 'reason': 'not found'})
+                        app_logger.warning(f"No metadata found for {filename}")
+
+                    # Rate limiting - wait between API calls
+                    time.sleep(0.5)
+
+                except Exception as e:
+                    app_logger.error(f"Error processing {filename}: {e}")
                     result['errors'] += 1
-                    result['details'].append({'file': filename, 'status': 'error', 'reason': 'not found'})
-                    app_logger.warning(f"No metadata found for {filename}")
+                    result['details'].append({'file': filename, 'status': 'error', 'reason': str(e)})
 
-                # Rate limiting - wait between API calls
-                time.sleep(0.5)
+            # Emit final complete event
+            yield f"data: {json.dumps({'type': 'complete', 'result': result})}\n\n"
 
-            except Exception as e:
-                app_logger.error(f"Error processing {filename}: {e}")
-                result['errors'] += 1
-                result['details'].append({'file': filename, 'status': 'error', 'reason': str(e)})
-
-        return jsonify(result)
+        return Response(stream_with_context(generate()), mimetype='text/event-stream')
 
     except Exception as e:
         app_logger.error(f"Error in batch_metadata: {e}")
