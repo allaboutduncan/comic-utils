@@ -3142,6 +3142,8 @@ let currentComicSiblings = [];  // All comic files in current folder
 let currentComicIndex = -1;     // Index of current comic in siblings
 let nextIssueOverlayShown = false;  // Track if overlay is currently shown
 let savedReadingPosition = null;  // Track saved reading position for current comic
+let readingStartTime = null;      // Start time of current reading session
+let accumulatedTime = 0;          // Total time spent reading prior to this session
 
 // Comic file extensions
 const COMIC_EXTENSIONS = ['.cbz', '.cbr', '.cb7', '.zip', '.rar', '.7z', '.pdf'];
@@ -3159,6 +3161,20 @@ function encodeFilePath(path) {
 }
 
 /**
+ * Handle keydown events for comic reader navigation
+ * @param {KeyboardEvent} e - The keydown event
+ */
+function handleComicReaderKeydown(e) {
+    if (!comicReaderSwiper) return;
+
+    // Spacebar to advance
+    if (e.code === 'Space') {
+        e.preventDefault(); // Prevent page scroll
+        comicReaderSwiper.slideNext();
+    }
+}
+
+/**
  * Open comic reader for a specific file
  * @param {string} filePath - Path to the comic file
  */
@@ -3167,6 +3183,8 @@ function openComicReader(filePath) {
     highestPageViewed = 0;
     nextIssueOverlayShown = false;
     savedReadingPosition = null;
+    readingStartTime = Date.now();
+    accumulatedTime = 0;
 
     // Track sibling comics for "next issue" feature
     currentComicSiblings = allItems.filter(item => {
@@ -3210,6 +3228,11 @@ function openComicReader(filePath) {
             if (comicData.success) {
                 currentComicPageCount = comicData.page_count;
 
+                // Get accumulated time if available
+                if (positionData && positionData.time_spent) {
+                    accumulatedTime = positionData.time_spent;
+                }
+
                 // Check if there's a saved position
                 if (positionData.page_number !== null && positionData.page_number > 0) {
                     savedReadingPosition = positionData.page_number;
@@ -3231,6 +3254,9 @@ function openComicReader(filePath) {
             showError('An error occurred while loading the comic.');
             closeComicReader();
         });
+
+    // Add keyboard listener
+    document.addEventListener('keydown', handleComicReaderKeydown);
 }
 
 /**
@@ -3277,6 +3303,7 @@ function initializeComicReader(pageCount, startPage = 0) {
             enabled: true,
             onlyInViewport: false,
         },
+        mousewheel: true, // Enable mousewheel navigation
         navigation: {
             nextEl: '.swiper-button-next',
             prevEl: '.swiper-button-prev',
@@ -3476,11 +3503,20 @@ function closeComicReader() {
         const withinLastPages = currentPage > currentComicPageCount - 3;
 
         if (progress >= 90 || withinLastPages) {
+            // Calculate final time spent
+            let sessionTime = (Date.now() - readingStartTime) / 1000;
+            if (sessionTime < 10) sessionTime = 0;
+            const totalTime = Math.round(accumulatedTime + sessionTime);
+
             // User finished or nearly finished - mark as read and delete bookmark
             fetch('/api/mark-comic-read', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ path: currentComicPath })
+                body: JSON.stringify({
+                    path: currentComicPath,
+                    page_count: currentComicPageCount,
+                    time_spent: totalTime
+                })
             }).then(() => {
                 readIssuesSet.add(currentComicPath);
             }).catch(err => console.error('Failed to mark comic as read:', err));
@@ -3491,13 +3527,18 @@ function closeComicReader() {
             }).catch(err => console.error('Failed to delete reading position:', err));
         } else if (currentPage > 1) {
             // User stopped mid-read - auto-save position silently
+            let sessionTime = (Date.now() - readingStartTime) / 1000;
+            if (sessionTime < 10) sessionTime = 0;
+            const totalTime = Math.round(accumulatedTime + sessionTime);
+
             fetch('/api/reading-position', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     comic_path: currentComicPath,
                     page_number: currentPage,
-                    total_pages: currentComicPageCount
+                    total_pages: currentComicPageCount,
+                    time_spent: totalTime
                 })
             }).catch(err => console.error('Failed to auto-save reading position:', err));
         }
@@ -3525,6 +3566,9 @@ function closeComicReader() {
     // Hide overlays
     hideNextIssueOverlay();
     hideResumeReadingOverlay();
+
+    // Remove keyboard listener
+    document.removeEventListener('keydown', handleComicReaderKeydown);
 }
 
 /**
@@ -3639,13 +3683,19 @@ function saveReadingPosition() {
 
     const currentPage = comicReaderSwiper.activeIndex + 1; // 1-indexed for display
 
+    // Calculate time spent
+    let sessionTime = (Date.now() - readingStartTime) / 1000;
+    if (sessionTime < 10) sessionTime = 0; // Ignore sessions shorter than 10 seconds (previewing)
+    const totalTime = Math.round(accumulatedTime + sessionTime);
+
     fetch('/api/reading-position', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
             comic_path: currentComicPath,
             page_number: currentPage,
-            total_pages: currentComicPageCount
+            total_pages: currentComicPageCount,
+            time_spent: totalTime
         })
     }).then(response => response.json())
         .then(data => {
@@ -3677,11 +3727,21 @@ function continueToNextIssue() {
     const nextComic = currentComicSiblings[currentComicIndex + 1];
 
     // Mark current comic as read and delete bookmark (since we finished it)
+    // Mark current comic as read and delete bookmark (since we finished it)
     if (currentComicPath) {
+        // Calculate final time spent
+        let sessionTime = (Date.now() - readingStartTime) / 1000;
+        if (sessionTime < 10) sessionTime = 0;
+        const totalTime = Math.round(accumulatedTime + sessionTime);
+
         fetch('/api/mark-comic-read', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ path: currentComicPath })
+            body: JSON.stringify({
+                path: currentComicPath,
+                page_count: currentComicPageCount,
+                time_spent: totalTime
+            })
         }).then(() => {
             readIssuesSet.add(currentComicPath);
         }).catch(err => console.error('Failed to mark comic as read:', err));
@@ -3742,10 +3802,19 @@ document.addEventListener('DOMContentLoaded', () => {
         nextIssueClose.addEventListener('click', () => {
             // Mark as read and delete bookmark since user finished the comic
             if (currentComicPath) {
+                // Calculate final time spent
+                let sessionTime = (Date.now() - readingStartTime) / 1000;
+                if (sessionTime < 10) sessionTime = 0;
+                const totalTime = Math.round(accumulatedTime + sessionTime);
+
                 fetch('/api/mark-comic-read', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ path: currentComicPath })
+                    body: JSON.stringify({
+                        path: currentComicPath,
+                        page_count: currentComicPageCount,
+                        time_spent: totalTime
+                    })
                 }).then(() => {
                     readIssuesSet.add(currentComicPath);
                 }).catch(err => console.error('Failed to mark comic as read:', err));

@@ -63,6 +63,30 @@
         </div>
     </div>
 
+    <!-- Reading Stats Row -->
+    <div class="row g-3 mb-4">
+        <div class="col-6">
+            <div class="stat-card">
+                <div class="stat-icon primary">
+                    <i class="bi bi-files"></i>
+                </div>
+                <div class="stat-value">{{ "{:,}".format(reading_totals.total_pages) }}</div>
+                <div class="stat-label">Total Pages Read</div>
+            </div>
+        </div>
+        <div class="col-6">
+            <div class="stat-card">
+                <div class="stat-icon danger">
+                    <i class="bi bi-stopwatch"></i>
+                </div>
+                {% set hours = reading_totals.total_time // 3600 %}
+                {% set minutes = (reading_totals.total_time % 3600) // 60 %}
+                <div class="stat-value">{{ hours }}h {{ minutes }}m</div>
+                <div class="stat-label">Total Time Reading</div>
+            </div>
+        </div>
+    </div>
+
     <!-- Charts Row -->
     <div class="row g-4 mb-4">
         <div class="col-lg-5">

@@ -3497,9 +3497,6 @@ def serve_folder_thumbnail():
 @app.route('/api/read/<path:comic_path>/page/<int:page_num>')
 def read_comic_page(comic_path, page_num):
     """Serve a specific page from a comic file."""
-    import zipfile
-    import rarfile
-    from PIL import Image
 
     # Add leading slash if missing (for absolute paths on Unix systems)
     if not comic_path.startswith('/'):
@@ -3535,7 +3532,6 @@ def read_comic_page(comic_path, page_num):
                     image_files.append(filename)
 
         # Sort naturally
-        import re
         def natural_sort_key(s):
             return [int(text) if text.isdigit() else text.lower() for text in re.split('([0-9]+)', s)]
         image_files.sort(key=natural_sort_key)
@@ -3626,12 +3622,14 @@ def api_mark_comic_read():
     data = request.get_json()
     comic_path = data.get('path')
     read_at = data.get('read_at')  # Optional ISO timestamp for backfilling
+    page_count = data.get('page_count', 0)
+    time_spent = data.get('time_spent', 0)
 
     if not comic_path:
         return jsonify({"error": "Missing path parameter"}), 400
 
     try:
-        mark_issue_read(comic_path, read_at)
+        mark_issue_read(comic_path, read_at, page_count, time_spent)
         clear_stats_cache_keys(['library_stats', 'reading_history', 'reading_heatmap'])
         app_logger.info(f"Marked comic as read: {comic_path}" + (f" at {read_at}" if read_at else ""))
         return jsonify({"success": True})
@@ -3679,7 +3677,8 @@ def api_reading_position():
             return jsonify({
                 "page_number": position['page_number'],
                 "total_pages": position['total_pages'],
-                "updated_at": position['updated_at']
+                "updated_at": position['updated_at'],
+                "time_spent": position.get('time_spent', 0)
             })
         return jsonify({"page_number": None})
 
@@ -3688,11 +3687,12 @@ def api_reading_position():
         comic_path = data.get('comic_path')
         page_number = data.get('page_number')
         total_pages = data.get('total_pages')
+        time_spent = data.get('time_spent', 0)
 
         if not comic_path or page_number is None:
             return jsonify({"error": "Missing comic_path or page_number"}), 400
 
-        success = save_reading_position(comic_path, page_number, total_pages)
+        success = save_reading_position(comic_path, page_number, total_pages, time_spent)
         return jsonify({"success": success})
 
     elif request.method == 'DELETE':
@@ -7852,6 +7852,7 @@ def search_comicvine_metadata_with_selection():
 
 @app.route('/insights')
 def insights_page():
+    from database import get_reading_totals
     library_stats = get_library_stats()
     file_types = get_file_type_distribution()
     top_publishers = get_top_publishers()
@@ -7859,6 +7860,7 @@ def insights_page():
     largest_comics = get_largest_comics()
     top_series = get_top_series_by_count()
     reading_heatmap = get_reading_heatmap_data()
+    reading_totals = get_reading_totals()
 
     return render_template('insights.html',
                            library_stats=library_stats,
@@ -7867,7 +7869,8 @@ def insights_page():
                            reading_history=reading_history,
                            largest_comics=largest_comics,
                            top_series=top_series,
-                           reading_heatmap=reading_heatmap)
+                           reading_heatmap=reading_heatmap,
+                           reading_totals=reading_totals)
 
 @app.route('/api/insights')
 def api_insights():

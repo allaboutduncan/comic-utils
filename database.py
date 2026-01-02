@@ -177,9 +177,21 @@ def init_db():
             CREATE TABLE IF NOT EXISTS issues_read (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 issue_path TEXT NOT NULL UNIQUE,
-                read_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                read_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                page_count INTEGER DEFAULT 0,
+                time_spent INTEGER DEFAULT 0
             )
         ''')
+        
+        # Check if we need to migrate issues_read table
+        c.execute("PRAGMA table_info(issues_read)")
+        columns = [row[1] for row in c.fetchall()]
+        if 'page_count' not in columns:
+            app_logger.info("Migrating issues_read table: adding page_count column")
+            c.execute("ALTER TABLE issues_read ADD COLUMN page_count INTEGER DEFAULT 0")
+        if 'time_spent' not in columns:
+            app_logger.info("Migrating issues_read table: adding time_spent column")
+            c.execute("ALTER TABLE issues_read ADD COLUMN time_spent INTEGER DEFAULT 0")
         c.execute('CREATE INDEX IF NOT EXISTS idx_issues_read_path ON issues_read(issue_path)')
 
         # Create to_read table (files and folders marked as "want to read")
@@ -209,9 +221,17 @@ def init_db():
                 comic_path TEXT NOT NULL UNIQUE,
                 page_number INTEGER NOT NULL,
                 total_pages INTEGER,
-                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                time_spent INTEGER DEFAULT 0
             )
         ''')
+
+        # Check if we need to migrate reading_positions table
+        c.execute("PRAGMA table_info(reading_positions)")
+        columns = [row[1] for row in c.fetchall()]
+        if 'time_spent' not in columns:
+            app_logger.info("Migrating reading_positions table: adding time_spent column")
+            c.execute("ALTER TABLE reading_positions ADD COLUMN time_spent INTEGER DEFAULT 0")
         c.execute('CREATE INDEX IF NOT EXISTS idx_reading_positions_path ON reading_positions(comic_path)')
 
         # Migration: Check if file_mtime column exists, add if not
@@ -1444,7 +1464,7 @@ def is_favorite_series(series_path):
 # Issues Read CRUD Operations
 # =============================================================================
 
-def mark_issue_read(issue_path, read_at=None):
+def mark_issue_read(issue_path, read_at=None, page_count=0, time_spent=0):
     """
     Mark an issue as read.
 
@@ -1452,6 +1472,8 @@ def mark_issue_read(issue_path, read_at=None):
         issue_path: Full path to the issue file
         read_at: Optional ISO timestamp string (e.g. "2024-01-15T14:30:00").
                  If None, uses CURRENT_TIMESTAMP.
+        page_count: Number of pages in the issue (optional)
+        time_spent: Time spent reading in seconds (optional)
 
     Returns:
         True if successful, False otherwise
@@ -1465,14 +1487,14 @@ def mark_issue_read(issue_path, read_at=None):
 
         if read_at:
             c.execute('''
-                INSERT OR REPLACE INTO issues_read (issue_path, read_at)
-                VALUES (?, ?)
-            ''', (issue_path, read_at))
+                INSERT OR REPLACE INTO issues_read (issue_path, read_at, page_count, time_spent)
+                VALUES (?, ?, ?, ?)
+            ''', (issue_path, read_at, page_count, time_spent))
         else:
             c.execute('''
-                INSERT OR REPLACE INTO issues_read (issue_path, read_at)
-                VALUES (?, CURRENT_TIMESTAMP)
-            ''', (issue_path,))
+                INSERT OR REPLACE INTO issues_read (issue_path, read_at, page_count, time_spent)
+                VALUES (?, CURRENT_TIMESTAMP, ?, ?)
+            ''', (issue_path, page_count, time_spent))
 
         conn.commit()
         conn.close()
@@ -1527,7 +1549,7 @@ def get_issues_read():
             return []
 
         c = conn.cursor()
-        c.execute('SELECT issue_path, read_at FROM issues_read ORDER BY read_at DESC')
+        c.execute('SELECT issue_path, read_at, page_count, time_spent FROM issues_read ORDER BY read_at DESC')
         rows = c.fetchall()
         conn.close()
 
@@ -1536,6 +1558,33 @@ def get_issues_read():
     except Exception as e:
         app_logger.error(f"Failed to get read issues: {e}")
         return []
+
+
+def get_reading_totals():
+    """
+    Get total pages read and total time spent.
+
+    Returns:
+        Dict with 'total_pages' and 'total_time' (in seconds)
+    """
+    try:
+        conn = get_db_connection()
+        if not conn:
+            return {'total_pages': 0, 'total_time': 0}
+
+        c = conn.cursor()
+        c.execute('SELECT SUM(page_count), SUM(time_spent) FROM issues_read')
+        row = c.fetchone()
+        conn.close()
+
+        total_pages = row[0] if row and row[0] else 0
+        total_time = row[1] if row and row[1] else 0
+
+        return {'total_pages': total_pages, 'total_time': total_time}
+
+    except Exception as e:
+        app_logger.error(f"Failed to get reading totals: {e}")
+        return {'total_pages': 0, 'total_time': 0}
 
 
 def is_issue_read(issue_path):
@@ -1879,7 +1928,7 @@ def clear_stats_cache_keys(keys):
 # Reading Positions (bookmark reading progress in comics)
 # =============================================================================
 
-def save_reading_position(comic_path, page_number, total_pages=None):
+def save_reading_position(comic_path, page_number, total_pages=None, time_spent=0):
     """
     Save or update reading position for a comic.
 
@@ -1887,6 +1936,7 @@ def save_reading_position(comic_path, page_number, total_pages=None):
         comic_path: Full path to the comic file
         page_number: Current page number (0-indexed)
         total_pages: Total pages in the comic (optional)
+        time_spent: Total time spent reading in seconds (optional)
 
     Returns:
         True if successful, False otherwise
@@ -1898,9 +1948,9 @@ def save_reading_position(comic_path, page_number, total_pages=None):
 
         c = conn.cursor()
         c.execute('''
-            INSERT OR REPLACE INTO reading_positions (comic_path, page_number, total_pages, updated_at)
-            VALUES (?, ?, ?, CURRENT_TIMESTAMP)
-        ''', (comic_path, page_number, total_pages))
+            INSERT OR REPLACE INTO reading_positions (comic_path, page_number, total_pages, updated_at, time_spent)
+            VALUES (?, ?, ?, CURRENT_TIMESTAMP, ?)
+        ''', (comic_path, page_number, total_pages, time_spent))
 
         conn.commit()
         conn.close()
@@ -1930,7 +1980,7 @@ def get_reading_position(comic_path):
 
         c = conn.cursor()
         c.execute('''
-            SELECT page_number, total_pages, updated_at
+            SELECT page_number, total_pages, updated_at, time_spent
             FROM reading_positions
             WHERE comic_path = ?
         ''', (comic_path,))
@@ -1942,7 +1992,8 @@ def get_reading_position(comic_path):
             return {
                 'page_number': row['page_number'],
                 'total_pages': row['total_pages'],
-                'updated_at': row['updated_at']
+                'updated_at': row['updated_at'],
+                'time_spent': row['time_spent'] if 'time_spent' in row.keys() else 0
             }
         return None
 
