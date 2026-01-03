@@ -52,30 +52,49 @@
         <div class="reading-list-card stagger-load"
             onclick="window.location.href='{{ url_for('reading_lists.view_list', list_id=list.id) }}'">
 
-            <!-- Background Image -->
-            <div class="card-bg-container">
-                {% if list.thumbnail_path %}
-                <img src="/api/thumbnail?path={{ list.thumbnail_path|urlencode }}" class="card-bg-img"
-                    alt="{{ list.name }}"
-                    onerror="this.parentElement.innerHTML='<div class=\'no-image-placeholder\'><i class=\'bi bi-journal-album placeholder-icon\'></i></div>'">
+            <!-- Background / Stack -->
+            <div class="card-stack-container">
+                {% if list.covers and list.covers|length > 0 %}
+                {% for cover in list.covers %}
+                <div class="card-stack-item"
+                    style="background-image: url('/api/thumbnail?path={{ cover|urlencode }}');"></div>
+                {% endfor %}
                 {% else %}
-                <div class="no-image-placeholder">
-                    <i class="bi bi-journal-album placeholder-icon"></i>
+                <!-- Fallback -->
+                <div class="card-stack-item">
+                    <div class="no-image-placeholder">
+                        <i class="bi bi-journal-album placeholder-icon"></i>
+                    </div>
+                </div>
+                {% endif %}
+                {% if list.entry_count > 0 and list.read_count == list.entry_count %}
+                <div class="completion-badge" title="Completed!">
+                    <i class="bi bi-check-circle-fill"></i>
                 </div>
                 {% endif %}
             </div>
 
-            <!-- Gradient Overlay -->
-            <div class="card-overlay"></div>
-
             <!-- Content -->
-            <div class="card-content">
-                <h3 class="card-title-lg text-truncate">{{ list.name }}</h3>
+            <div class="card-content text-primary">
+                <h3 class="card-title-lg text-truncate"
+                    onclick="event.stopPropagation(); editTitle({{ list.id }}, this)"
+                    title="Click to edit">
+                    {{ list.name }}
+                </h3>
 
                 <div class="card-meta">
-                    <span title="Issue Count">
-                        <i class="bi bi-collection-fill me-1"></i> {{ list.entry_count }}
+                    <span title="Read {{ list.read_count }} of {{ list.entry_count }} issues">
+                        <i class="bi bi-collection-fill me-1"></i> {{ list.read_count }}/{{ list.entry_count }}
                     </span>
+                    {% if list.tags %}
+                    <div class="card-tags">
+                        {% for tag in list.tags %}
+                        <span class="tag-badge" data-tag="{{ tag }}" title="{{ tag }}">
+                            <i class="bi bi-tag-fill"></i>
+                        </span>
+                        {% endfor %}
+                    </div>
+                    {% endif %}
                 </div>
 
                 <div class="card-actions">
@@ -83,11 +102,22 @@
                         onclick="event.stopPropagation(); window.location.href='{{ url_for('reading_lists.view_list', list_id=list.id) }}'">
                         View Details
                     </button>
+                    <button class="btn btn-secondary btn-sm"
+                        onclick="event.stopPropagation(); openTagsModal({{ list.id }}, {{ list.tags|tojson|safe }})"
+                        title="Manage Tags">
+                        <i class="bi bi-tags"></i>
+                    </button>
                     <button class="btn btn-danger btn-sm"
                         onclick="event.stopPropagation(); deleteReadingList({{ list.id }})">
                         <i class="bi bi-trash"></i>
                     </button>
                 </div>
+
+                {% if list.entry_count > 0 %}
+                <div class="progress-bar-container">
+                    <div class="progress-bar-fill" style="width: {{ (list.read_count / list.entry_count * 100)|round }}%"></div>
+                </div>
+                {% endif %}
             </div>
         </div>
         {% endfor %}
@@ -174,6 +204,37 @@
                         Importing...
                     </span>
                 </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Tags Modal -->
+<div class="modal fade" id="tagsModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title fw-bold">Manage Tags</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body p-4">
+                <div class="mb-3 position-relative">
+                    <input type="text" class="form-control" id="tagInput"
+                           placeholder="Type to add tag..." autocomplete="off">
+                    <div id="tagSuggestions" class="list-group position-absolute w-100 shadow" style="z-index:1050; max-height: 200px; overflow-y: auto;"></div>
+                </div>
+                <div id="selectedTags" class="d-flex flex-wrap gap-2 mb-3">
+                    <!-- Selected tags rendered here -->
+                </div>
+                <hr>
+                <div class="mb-2 text-muted small">Suggestions:</div>
+                <div id="predefinedTags" class="d-flex flex-wrap gap-2">
+                    <!-- Predefined tag buttons -->
+                </div>
+            </div>
+            <div class="modal-footer bg-light">
+                <button type="button" class="btn btn-link text-decoration-none text-muted" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary px-4" onclick="saveTags()">Save Tags</button>
             </div>
         </div>
     </div>

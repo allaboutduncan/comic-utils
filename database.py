@@ -163,6 +163,9 @@ def init_db():
         if 'thumbnail_path' not in columns:
             app_logger.info("Migrating reading_lists table: adding thumbnail_path column")
             c.execute("ALTER TABLE reading_lists ADD COLUMN thumbnail_path TEXT")
+        if 'tags' not in columns:
+            app_logger.info("Migrating reading_lists table: adding tags column")
+            c.execute("ALTER TABLE reading_lists ADD COLUMN tags TEXT DEFAULT '[]'")
 
         # Create reading_list_entries table
         c.execute('''
@@ -2143,16 +2146,49 @@ def get_reading_lists():
         conn.row_factory = sqlite3.Row
         c = conn.cursor()
         
-        # Get lists with entry counts
+        # Get lists with entry counts and read counts
         c.execute('''
-            SELECT rl.*, COUNT(rle.id) as entry_count 
+            SELECT rl.*,
+                   COUNT(DISTINCT rle.id) as entry_count,
+                   COUNT(DISTINCT ir.id) as read_count
             FROM reading_lists rl
             LEFT JOIN reading_list_entries rle ON rl.id = rle.reading_list_id
+            LEFT JOIN issues_read ir ON COALESCE(rle.manual_override_path, rle.matched_file_path) = ir.issue_path
             GROUP BY rl.id
             ORDER BY rl.created_at DESC
         ''')
         
         lists = [dict(row) for row in c.fetchall()]
+        
+        import json
+        # Get covers for each list
+        for lst in lists:
+            c.execute('''
+                SELECT COALESCE(manual_override_path, matched_file_path) as path
+                FROM reading_list_entries
+                WHERE reading_list_id = ?
+                AND COALESCE(manual_override_path, matched_file_path) IS NOT NULL
+                LIMIT 5
+            ''', (lst['id'],))
+
+            # Get valid covers from entries
+            covers = [row['path'] for row in c.fetchall() if row['path']]
+
+            # If there's a specific thumbnail set, ensure it's first
+            if lst['thumbnail_path']:
+                if lst['thumbnail_path'] in covers:
+                    covers.remove(lst['thumbnail_path'])
+                covers.insert(0, lst['thumbnail_path'])
+
+            # Limit to 5 covers
+            lst['covers'] = covers[:5]
+
+            # Parse tags JSON
+            try:
+                lst['tags'] = json.loads(lst.get('tags') or '[]')
+            except (json.JSONDecodeError, TypeError):
+                lst['tags'] = []
+
         conn.close()
         return lists
     except Exception as e:
@@ -2321,3 +2357,80 @@ def update_reading_list_thumbnail(list_id, thumbnail_path):
     except Exception as e:
         app_logger.error(f"Error updating reading list thumbnail {list_id}: {str(e)}")
         return False
+
+
+def update_reading_list_name(list_id, name):
+    """
+    Update the name of a reading list.
+
+    Args:
+        list_id: ID of the reading list
+        name: New name for the reading list
+
+    Returns:
+        True if successful, False otherwise
+    """
+    try:
+        conn = get_db_connection()
+        c = conn.cursor()
+        c.execute('UPDATE reading_lists SET name = ? WHERE id = ?', (name, list_id))
+        conn.commit()
+        conn.close()
+        return True
+    except Exception as e:
+        app_logger.error(f"Error updating reading list name {list_id}: {str(e)}")
+        return False
+
+
+def update_reading_list_tags(list_id, tags):
+    """
+    Update the tags for a reading list.
+
+    Args:
+        list_id: ID of the reading list
+        tags: List of tag strings
+
+    Returns:
+        True if successful, False otherwise
+    """
+    import json
+    try:
+        conn = get_db_connection()
+        c = conn.cursor()
+        tags_json = json.dumps(tags) if tags else '[]'
+        c.execute('UPDATE reading_lists SET tags = ? WHERE id = ?', (tags_json, list_id))
+        conn.commit()
+        conn.close()
+        return True
+    except Exception as e:
+        app_logger.error(f"Error updating reading list tags {list_id}: {str(e)}")
+        return False
+
+
+def get_all_reading_list_tags():
+    """
+    Get all unique tags across all reading lists for autocomplete.
+
+    Returns:
+        List of unique tag strings
+    """
+    import json
+    try:
+        conn = get_db_connection()
+        c = conn.cursor()
+        c.execute('SELECT tags FROM reading_lists WHERE tags IS NOT NULL AND tags != "[]"')
+        rows = c.fetchall()
+        conn.close()
+
+        all_tags = set()
+        for row in rows:
+            try:
+                tags = json.loads(row[0]) if row[0] else []
+                all_tags.update(tags)
+            except json.JSONDecodeError:
+                pass
+
+        return sorted(list(all_tags))
+    except Exception as e:
+        app_logger.error(f"Error getting all reading list tags: {str(e)}")
+        return []

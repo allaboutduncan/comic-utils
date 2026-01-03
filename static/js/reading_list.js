@@ -313,6 +313,290 @@ function setAsThumbnail(filePath) {
         });
 }
 
+// ==========================================
+// Inline Title Editing
+// ==========================================
+
+function editTitle(listId, element) {
+    const currentName = element.textContent.trim();
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.value = currentName;
+    input.className = 'form-control form-control-sm';
+    input.style.maxWidth = '200px';
+    input.style.display = 'inline-block';
+
+    // Prevent clicks on input from navigating to the card link
+    input.addEventListener('click', (e) => e.stopPropagation());
+
+    // Store original element reference
+    const originalElement = element.cloneNode(true);
+
+    element.replaceWith(input);
+    input.focus();
+    input.select();
+
+    let saved = false;
+
+    function saveTitle() {
+        if (saved) return;
+        saved = true;
+
+        const newName = input.value.trim();
+        if (newName && newName !== currentName) {
+            fetch(`/api/reading-lists/${listId}/name`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name: newName })
+            })
+                .then(r => r.json())
+                .then(data => {
+                    if (data.success) {
+                        originalElement.textContent = newName;
+                        showToast('Title updated', 'success');
+                    } else {
+                        showToast('Failed to update title', 'error');
+                    }
+                })
+                .catch(() => {
+                    showToast('Error updating title', 'error');
+                });
+        }
+        originalElement.textContent = newName || currentName;
+        input.replaceWith(originalElement);
+    }
+
+    function cancelEdit() {
+        if (saved) return;
+        saved = true;
+        input.replaceWith(originalElement);
+    }
+
+    input.addEventListener('blur', saveTitle);
+    input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            saveTitle();
+        }
+        if (e.key === 'Escape') {
+            e.preventDefault();
+            cancelEdit();
+        }
+    });
+}
+
+// ==========================================
+// Tags Modal
+// ==========================================
+
+const PREDEFINED_TAGS = ['Event', 'Marvel', 'DC', 'Reading Order', 'Crossover', 'Complete'];
+const TAG_ICONS = {
+    'Marvel': 'bi-lightning-fill',
+    'DC': 'bi-shield-fill',
+    'Event': 'bi-calendar-event-fill',
+    'Reading Order': 'bi-list-ol',
+    'Crossover': 'bi-arrows-move',
+    'Complete': 'bi-check-circle-fill'
+};
+
+let currentListIdForTags = null;
+let selectedTagsSet = new Set();
+let allExistingTags = [];
+let tagsModal = null;
+
+function openTagsModal(listId, currentTags = []) {
+    currentListIdForTags = listId;
+    selectedTagsSet = new Set(currentTags || []);
+
+    // Fetch all existing tags for autocomplete
+    fetch('/api/reading-lists/tags')
+        .then(r => r.json())
+        .then(data => {
+            allExistingTags = data.tags || [];
+            renderPredefinedTags();
+        })
+        .catch(() => {
+            allExistingTags = [];
+            renderPredefinedTags();
+        });
+
+    renderSelectedTags();
+
+    // Clear input and set up handlers
+    const tagInput = document.getElementById('tagInput');
+    if (tagInput) tagInput.value = '';
+    hideSuggestions();
+    setupTagInputHandlers();
+
+    if (!tagsModal) {
+        tagsModal = new bootstrap.Modal(document.getElementById('tagsModal'));
+    }
+    tagsModal.show();
+}
+
+function renderSelectedTags() {
+    const container = document.getElementById('selectedTags');
+    if (!container) return;
+
+    container.innerHTML = '';
+    selectedTagsSet.forEach(tag => {
+        const pill = document.createElement('span');
+        pill.className = 'tag-pill';
+        pill.innerHTML = `
+            <i class="bi ${TAG_ICONS[tag] || 'bi-tag-fill'}"></i>
+            ${tag}
+            <span class="remove-tag" onclick="removeTag('${tag.replace(/'/g, "\\'")}')">
+                <i class="bi bi-x"></i>
+            </span>
+        `;
+        container.appendChild(pill);
+    });
+}
+
+function renderPredefinedTags() {
+    const container = document.getElementById('predefinedTags');
+    if (!container) return;
+
+    // Combine predefined and existing tags, remove duplicates
+    const allTags = [...new Set([...PREDEFINED_TAGS, ...allExistingTags])];
+
+    container.innerHTML = '';
+    allTags.forEach(tag => {
+        if (!selectedTagsSet.has(tag)) {
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'btn btn-outline-secondary btn-sm';
+            btn.innerHTML = `<i class="bi ${TAG_ICONS[tag] || 'bi-tag'}"></i> ${tag}`;
+            btn.onclick = () => addTag(tag);
+            container.appendChild(btn);
+        }
+    });
+}
+
+function addTag(tag) {
+    tag = tag.trim();
+    if (tag && !selectedTagsSet.has(tag)) {
+        selectedTagsSet.add(tag);
+        renderSelectedTags();
+        renderPredefinedTags();
+    }
+    // Clear input
+    const tagInput = document.getElementById('tagInput');
+    if (tagInput) tagInput.value = '';
+    hideSuggestions();
+}
+
+function removeTag(tag) {
+    selectedTagsSet.delete(tag);
+    renderSelectedTags();
+    renderPredefinedTags();
+}
+
+function saveTags() {
+    fetch(`/api/reading-lists/${currentListIdForTags}/tags`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tags: Array.from(selectedTagsSet) })
+    })
+        .then(r => r.json())
+        .then(data => {
+            if (data.success) {
+                tagsModal.hide();
+                showToast('Tags updated', 'success');
+                location.reload();
+            } else {
+                showToast('Failed to update tags: ' + data.message, 'error');
+            }
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            showToast('Error saving tags', 'error');
+        });
+}
+
+function showSuggestions(suggestions) {
+    const container = document.getElementById('tagSuggestions');
+    if (!container) return;
+
+    container.innerHTML = '';
+    suggestions.forEach(tag => {
+        const item = document.createElement('a');
+        item.href = '#';
+        item.className = 'list-group-item list-group-item-action';
+        item.innerHTML = `<i class="bi ${TAG_ICONS[tag] || 'bi-tag'} me-2"></i>${tag}`;
+        item.onclick = (e) => {
+            e.preventDefault();
+            addTag(tag);
+        };
+        container.appendChild(item);
+    });
+}
+
+function hideSuggestions() {
+    const container = document.getElementById('tagSuggestions');
+    if (container) container.innerHTML = '';
+}
+
+// Set up tag input event handlers (called when modal opens)
+function setupTagInputHandlers() {
+    const tagInput = document.getElementById('tagInput');
+    if (!tagInput || tagInput.dataset.handlersAttached) return;
+    tagInput.dataset.handlersAttached = 'true';
+
+    tagInput.addEventListener('input', function(e) {
+        let value = e.target.value;
+
+        // Check for comma - add tag when comma is typed
+        if (value.includes(',')) {
+            const parts = value.split(',');
+            parts.forEach((part, index) => {
+                const tag = part.trim();
+                if (tag && index < parts.length - 1) {
+                    // Add all complete tags (before the last comma)
+                    addTag(tag);
+                }
+            });
+            // Keep only the part after the last comma
+            e.target.value = parts[parts.length - 1];
+            value = e.target.value;
+        }
+
+        const query = value.toLowerCase().trim();
+        if (!query) {
+            hideSuggestions();
+            return;
+        }
+
+        const allTags = [...new Set([...PREDEFINED_TAGS, ...allExistingTags])];
+        const suggestions = allTags.filter(t =>
+            t.toLowerCase().includes(query) && !selectedTagsSet.has(t)
+        );
+
+        if (suggestions.length > 0) {
+            showSuggestions(suggestions);
+        } else {
+            hideSuggestions();
+        }
+    });
+
+    tagInput.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            const value = e.target.value.trim();
+            if (value) {
+                addTag(value);
+            }
+        }
+    });
+}
+
+// Hide suggestions when clicking outside
+document.addEventListener('click', function(e) {
+    if (!e.target.closest('#tagInput') && !e.target.closest('#tagSuggestions')) {
+        hideSuggestions();
+    }
+});
+
 // Mapping Logic
 let currentEntryId = null;
 let selectedFilePath = null;

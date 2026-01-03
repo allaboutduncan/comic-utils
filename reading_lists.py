@@ -12,7 +12,10 @@ from database import (
     delete_reading_list,
     search_file_index,
     update_reading_list_thumbnail,
-    clear_thumbnail_if_matches_entry
+    clear_thumbnail_if_matches_entry,
+    update_reading_list_name,
+    update_reading_list_tags,
+    get_all_reading_list_tags
 )
 from models.cbl import CBLLoader
 from app_logging import app_logger
@@ -268,3 +271,44 @@ def set_thumbnail(list_id):
         return jsonify({'success': True, 'message': 'Thumbnail updated'})
     else:
         return jsonify({'success': False, 'message': 'Failed to update thumbnail'})
+
+
+@reading_lists_bp.route('/api/reading-lists/<int:list_id>/name', methods=['POST'])
+def update_name(list_id):
+    """Update the name of a reading list."""
+    data = request.json
+    name = data.get('name', '').strip()
+
+    if not name:
+        return jsonify({'success': False, 'message': 'Name is required'})
+
+    if update_reading_list_name(list_id, name):
+        return jsonify({'success': True, 'message': 'Name updated'})
+    else:
+        return jsonify({'success': False, 'message': 'Failed to update name'})
+
+
+@reading_lists_bp.route('/api/reading-lists/<int:list_id>/tags', methods=['POST'])
+def update_tags(list_id):
+    """Update the tags for a reading list."""
+    data = request.json
+    tags = data.get('tags', [])
+
+    # Ensure tags is a list of strings
+    if not isinstance(tags, list):
+        return jsonify({'success': False, 'message': 'Tags must be a list'})
+
+    # Clean tags - strip whitespace and remove empty
+    tags = [t.strip() for t in tags if isinstance(t, str) and t.strip()]
+
+    if update_reading_list_tags(list_id, tags):
+        return jsonify({'success': True, 'message': 'Tags updated'})
+    else:
+        return jsonify({'success': False, 'message': 'Failed to update tags'})
+
+
+@reading_lists_bp.route('/api/reading-lists/tags')
+def get_tags():
+    """Get all unique tags across all reading lists for autocomplete."""
+    tags = get_all_reading_list_tags()
+    return jsonify({'tags': tags})

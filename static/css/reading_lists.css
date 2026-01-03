@@ -19,39 +19,117 @@
     position: relative;
     height: var(--card-height);
     border-radius: var(--card-border-radius);
-    overflow: hidden;
     background-color: var(--bs-card-bg);
     box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
-    transition: var(--card-transition);
+    transition: var(--card-transition), z-index 0s;
     cursor: pointer;
     border: 1px solid rgba(255, 255, 255, 0.1);
+    z-index: 1;
+    display: flex;
+    flex-direction: column;
+}
+
+.card-stack-container {
+    position: relative;
+    flex: 1;
+    min-height: 0;
 }
 
 .reading-list-card:hover {
     transform: translateY(-10px) scale(var(--hover-scale));
     box-shadow: 0 20px 40px rgba(0, 0, 0, 0.2);
     border-color: var(--bs-primary);
+    z-index: 100;
+    /* Bring to front on hover */
+    overflow: visible;
 }
 
-/* Background Image Area */
-.card-bg-container {
+/* Ensure content stays clipped to border-radius for the main container if needed, 
+   but since we want images to pop out, we rely on the image border radius if any. 
+   Actually, let's keep overflow hidden for the rounded corners on the static state 
+   but allow popout for the stack items.
+   
+   Better approach: Keep card overflow visible, but use a wrapper for the background/content 
+   that mimics the card shape? 
+   
+   Let's try simpler: reading-list-card allows visible overflow. 
+   We add border-radius to the stack items themselves.
+*/
+
+.card-stack-item {
     position: absolute;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
+    top: 3%;
+    left: 18%;
+    width: 65%;
+    height: 90%;
+    background-size: cover;
+    /* background-position: center; */
+    transition: all 0.5s cubic-bezier(0.25, 0.8, 0.25, 1);
+    transform-origin: center bottom;
+    /* box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3); */
+    /* border-radius: var(--card-border-radius); */
+    /* Add radius to items */
+}
+
+/* Stacking Order */
+.card-stack-item:nth-child(1) {
+    z-index: 5;
+}
+
+.card-stack-item:nth-child(2) {
+    z-index: 4;
+    transform: scale(0.98) translateY(5px);
+    opacity: 0;
+}
+
+.card-stack-item:nth-child(3) {
+    z-index: 3;
+    transform: scale(0.96) translateY(10px);
+    opacity: 0;
+}
+
+.card-stack-item:nth-child(4) {
+    z-index: 2;
+    transform: scale(0.94) translateY(15px);
+    opacity: 0;
+}
+
+.card-stack-item:nth-child(5) {
     z-index: 1;
+    transform: scale(0.92) translateY(20px);
+    opacity: 0;
 }
 
-.card-bg-img {
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-    transition: transform 0.6s ease;
+/* Reveal stack items on hover/init if present */
+.reading-list-card .card-stack-item {
+    opacity: 1;
+    /* Show all items underneath initially but hidden by stacking */
 }
 
-.reading-list-card:hover .card-bg-img {
-    transform: scale(1.1);
+/* Fan Effect on Hover */
+.reading-list-card:hover .card-stack-item:nth-child(1) {
+    transform: translateY(-40px) scale(1.05);
+    box-shadow: 0 20px 40px rgba(0, 0, 0, 0.4);
+}
+
+.reading-list-card:hover .card-stack-item:nth-child(2) {
+    transform: translateY(-20px) rotate(-5deg) translateX(-15px) scale(0.98);
+    opacity: 1;
+}
+
+.reading-list-card:hover .card-stack-item:nth-child(3) {
+    transform: translateY(-20px) rotate(5deg) translateX(15px) scale(0.98);
+    opacity: 1;
+}
+
+.reading-list-card:hover .card-stack-item:nth-child(4) {
+    transform: translateY(-10px) rotate(-10deg) translateX(-30px) scale(0.95);
+    opacity: 0.8;
+}
+
+.reading-list-card:hover .card-stack-item:nth-child(5) {
+    transform: translateY(-10px) rotate(10deg) translateX(30px) scale(0.95);
+    opacity: 0.8;
 }
 
 .card-overlay {
@@ -60,7 +138,7 @@
     left: 0;
     width: 100%;
     height: 100%;
-    background: var(--overlay-gradient);
+    /* background: var(--overlay-gradient); */
     z-index: 2;
     opacity: 0.8;
     transition: opacity 0.3s ease;
@@ -68,34 +146,28 @@
 
 .reading-list-card:hover .card-overlay {
     opacity: 0.9;
-    background: linear-gradient(to top, rgba(0, 0, 0, 0.95) 0%, rgba(0, 0, 0, 0.6) 60%, rgba(0, 0, 0, 0.2) 100%);
+    /* background: linear-gradient(to top, rgba(0, 0, 0, 0.95) 0%, rgba(0, 0, 0, 0.6) 60%, rgba(0, 0, 0, 0.2) 100%); */
 }
 
 /* Content Area */
 .card-content {
-    position: absolute;
-    bottom: 0;
-    left: 0;
-    width: 100%;
-    padding: 1.5rem;
-    z-index: 3;
-    color: white;
-    transform: translateY(0);
-    transition: transform 0.4s ease;
+    padding: 1rem 1.25rem;
+    /* background: linear-gradient(to top, rgba(0, 0, 0, 0.95) 0%, rgba(0, 0, 0, 0.8) 100%); */
+    border-radius: 0 0 var(--card-border-radius) var(--card-border-radius);
+    flex-shrink: 0;
 }
 
 .card-title-lg {
-    font-size: 1.5rem;
-    font-weight: 700;
-    margin-bottom: 0.5rem;
+    font-size: 1.1rem;
+    font-weight: 600;
+    margin-bottom: 0.25rem;
     line-height: 1.2;
-    text-shadow: 0 2px 4px rgba(0, 0, 0, 0.5);
 }
 
 .card-meta {
-    font-size: 0.9rem;
-    opacity: 0.8;
-    margin-bottom: 1rem;
+    font-size: 0.85rem;
+    opacity: 0.7;
+    margin-bottom: 0.5rem;
     display: flex;
     gap: 1rem;
     align-items: center;
@@ -105,17 +177,15 @@
     display: flex;
     gap: 0.5rem;
     opacity: 0;
-    transform: translateY(20px);
-    transition: all 0.3s ease;
-    height: 0;
+    max-height: 0;
     overflow: hidden;
+    transition: all 0.3s ease;
 }
 
 .reading-list-card:hover .card-actions {
     opacity: 1;
-    transform: translateY(0);
-    height: auto;
-    margin-top: 1rem;
+    max-height: 50px;
+    margin-top: 0.5rem;
 }
 
 /* Empty State / Fallback */
@@ -142,6 +212,7 @@
         opacity: 0;
         transform: translateY(20px);
     }
+
     to {
         opacity: 1;
         transform: translateY(0);
@@ -152,24 +223,158 @@
     animation: slideUpFade 0.5s ease backwards;
 }
 
-.stagger-load:nth-child(1) { animation-delay: 0.1s; }
-.stagger-load:nth-child(2) { animation-delay: 0.2s; }
-.stagger-load:nth-child(3) { animation-delay: 0.3s; }
-.stagger-load:nth-child(4) { animation-delay: 0.4s; }
-.stagger-load:nth-child(5) { animation-delay: 0.5s; }
-.stagger-load:nth-child(6) { animation-delay: 0.6s; }
+.stagger-load:nth-child(1) {
+    animation-delay: 0.1s;
+}
+
+.stagger-load:nth-child(2) {
+    animation-delay: 0.2s;
+}
+
+.stagger-load:nth-child(3) {
+    animation-delay: 0.3s;
+}
+
+.stagger-load:nth-child(4) {
+    animation-delay: 0.4s;
+}
+
+.stagger-load:nth-child(5) {
+    animation-delay: 0.5s;
+}
+
+.stagger-load:nth-child(6) {
+    animation-delay: 0.6s;
+}
 
 /* Modal Improvements */
 .modal-content {
     border-radius: 1rem;
     border: none;
-    box-shadow: 0 15px 35px rgba(0,0,0,0.2);
+    box-shadow: 0 15px 35px rgba(0, 0, 0, 0.2);
 }
 
 .modal-header {
-    border-bottom: 1px solid rgba(0,0,0,0.05);
+    border-bottom: 1px solid rgba(0, 0, 0, 0.05);
 }
 
 .modal-footer {
-    border-top: 1px solid rgba(0,0,0,0.05);
+    border-top: 1px solid rgba(0, 0, 0, 0.05);
+}
+
+/* Tag Badges on Cards */
+.card-tags {
+    display: inline-flex;
+    gap: 0.25rem;
+    margin-left: 0.5rem;
+}
+
+.tag-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.2);
+    font-size: 0.7rem;
+    color: inherit;
+}
+
+/* Special colors for known tags */
+.tag-badge[data-tag="Marvel"] {
+    background: #e23636;
+    color: white;
+}
+
+.tag-badge[data-tag="DC"] {
+    background: #0476f2;
+    color: white;
+}
+
+.tag-badge[data-tag="Event"] {
+    background: #ffc107;
+    color: #000;
+}
+
+.tag-badge[data-tag="Complete"] {
+    background: #28a745;
+    color: white;
+}
+
+.tag-badge[data-tag="Crossover"] {
+    background: #6f42c1;
+    color: white;
+}
+
+.tag-badge[data-tag="Reading Order"] {
+    background: #17a2b8;
+    color: white;
+}
+
+/* Tag Pills in Modal */
+.tag-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.35rem 0.75rem;
+    background: var(--bs-primary);
+    color: white;
+    border-radius: 1rem;
+    font-size: 0.875rem;
+}
+
+.tag-pill .remove-tag {
+    cursor: pointer;
+    opacity: 0.7;
+    display: inline-flex;
+    align-items: center;
+}
+
+.tag-pill .remove-tag:hover {
+    opacity: 1;
+}
+
+/* Editable Title Cursor */
+.card-title-lg {
+    cursor: text;
+}
+
+.card-title-lg:hover {
+    text-decoration: underline;
+    text-decoration-style: dotted;
+}
+
+/* Progress Bar */
+.progress-bar-container {
+    height: 4px;
+    background: rgba(255, 255, 255, 0.2);
+    border-radius: 2px;
+    overflow: hidden;
+    margin-top: 0.75rem;
+}
+
+.progress-bar-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #28a745, #20c997);
+    border-radius: 2px;
+    transition: width 0.3s ease;
+}
+
+/* Completion Badge */
+.completion-badge {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    background: #28a745;
+    color: white;
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1rem;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+    z-index: 10;
 }

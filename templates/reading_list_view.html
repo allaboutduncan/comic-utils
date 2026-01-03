@@ -146,7 +146,7 @@
     </nav>
 
     <div class="d-flex justify-content-between align-items-center mb-4">
-        <h2>{{ reading_list.name }}</h2>
+        <h2 id="reading-list-title">{{ reading_list.name }}</h2>
         <div>
             <span class="badge bg-secondary">{{ reading_list.entries|length }} Issues</span>
         </div>
@@ -260,7 +260,8 @@
             </div>
             <div class="comic-reader-controls">
                 <span class="comic-reader-page-info" id="comicReaderPageInfo">Page 1 of 1</span>
-                <button class="btn btn-sm btn-outline-light me-2" id="comicReaderBookmark" title="Save Reading Position">
+                <button class="btn btn-sm btn-outline-light me-2" id="comicReaderBookmark"
+                    title="Save Reading Position">
                     <i class="bi bi-bookmark"></i>
                 </button>
                 <button class="btn btn-sm btn-outline-light" id="comicReaderClose" title="Close">
