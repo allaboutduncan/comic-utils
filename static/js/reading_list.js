@@ -488,8 +488,30 @@ let currentComicPath = null;
 let currentComicPageCount = 0;
 let comicReaderSwiper = null;
 
+// Reading list navigation
+let readingListEntries = [];      // All matched entries [{path, name, thumbnail, series, issue}, ...]
+let currentEntryIndex = -1;       // Index in readingListEntries
+
+// Reading progress tracking
+let savedReadingPosition = null;  // Saved page for resume
+let highestPageViewed = 0;        // Track progress
+let nextIssueOverlayShown = false;
+let readingStartTime = null;
+let accumulatedTime = 0;
+
+// Read status tracking
+let readIssuesSet = new Set();
+
 function openComicReader(filePath) {
     currentComicPath = filePath;
+    savedReadingPosition = null;
+    highestPageViewed = 0;
+    nextIssueOverlayShown = false;
+    accumulatedTime = 0;
+    readingStartTime = Date.now();
+
+    // Find index in reading list entries
+    currentEntryIndex = readingListEntries.findIndex(e => e.path === filePath);
 
     const modal = document.getElementById('comicReaderModal');
     const titleEl = document.getElementById('comicReaderTitle');
@@ -502,17 +524,42 @@ function openComicReader(filePath) {
     titleEl.textContent = fileName;
     pageInfoEl.textContent = 'Loading...';
 
+    // Hide any overlays from previous sessions
+    hideNextIssueOverlay();
+    hideResumeReadingOverlay();
+
     // Encode path for URL - handle both forward and back slashes
     const encodedPath = filePath.replace(/\\/g, '/').split('/').map(encodeURIComponent).join('/');
 
-    fetch(`/api/read/${encodedPath}/info`)
-        .then(r => r.json())
-        .then(data => {
-            if (data.success) {
-                initializeComicReader(data.page_count, 0);
-            } else {
-                alert('Failed to load comic: ' + (data.error || 'Unknown error'));
+    // Fetch comic info and saved reading position in parallel
+    Promise.all([
+        fetch(`/api/read/${encodedPath}/info`).then(r => r.json()),
+        fetch(`/api/reading-position?path=${encodeURIComponent(filePath)}`).then(r => r.json()).catch(() => ({ page_number: null }))
+    ])
+        .then(([comicData, positionData]) => {
+            if (!comicData.success) {
+                alert('Failed to load comic: ' + (comicData.error || 'Unknown error'));
                 closeComicReader();
+                return;
+            }
+
+            const pageCount = comicData.page_count;
+
+            // Get accumulated time if available
+            if (positionData && positionData.time_spent) {
+                accumulatedTime = positionData.time_spent;
+            }
+
+            // Check if we have a saved reading position
+            if (positionData && positionData.page_number !== null && positionData.page_number > 0) {
+                savedReadingPosition = positionData.page_number;
+                // Show resume prompt
+                showResumeReadingOverlay(positionData.page_number, pageCount);
+                // Initialize reader but don't navigate yet
+                initializeComicReader(pageCount, 0);
+                updateBookmarkButtonState(true);
+            } else {
+                initializeComicReader(pageCount, 0);
             }
         })
         .catch(error => {
@@ -523,6 +570,55 @@ function openComicReader(filePath) {
 }
 
 function closeComicReader() {
+    // Smart auto-save/cleanup logic for reading position
+    if (currentComicPath && currentComicPageCount > 0) {
+        const currentPage = comicReaderSwiper ? comicReaderSwiper.activeIndex + 1 : 1;
+        const progress = ((highestPageViewed + 1) / currentComicPageCount) * 100;
+        const withinLastPages = currentPage > currentComicPageCount - 3;
+
+        if (progress >= 90 || withinLastPages) {
+            // Calculate final time spent
+            let sessionTime = (Date.now() - readingStartTime) / 1000;
+            if (sessionTime < 10) sessionTime = 0;
+            const totalTime = Math.round(accumulatedTime + sessionTime);
+
+            // User finished or nearly finished - mark as read and delete bookmark
+            fetch('/api/mark-comic-read', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    path: currentComicPath,
+                    page_count: currentComicPageCount,
+                    time_spent: totalTime
+                })
+            }).then(() => {
+                readIssuesSet.add(currentComicPath);
+                updateReadIcon(currentComicPath, true);
+            }).catch(err => console.error('Failed to mark comic as read:', err));
+
+            // Delete saved reading position (fire and forget)
+            fetch(`/api/reading-position?path=${encodeURIComponent(currentComicPath)}`, {
+                method: 'DELETE'
+            }).catch(err => console.error('Failed to delete reading position:', err));
+        } else if (currentPage > 1) {
+            // User stopped mid-read - auto-save position silently
+            let sessionTime = (Date.now() - readingStartTime) / 1000;
+            if (sessionTime < 10) sessionTime = 0;
+            const totalTime = Math.round(accumulatedTime + sessionTime);
+
+            fetch('/api/reading-position', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    comic_path: currentComicPath,
+                    page_number: currentPage,
+                    total_pages: currentComicPageCount,
+                    time_spent: totalTime
+                })
+            }).catch(err => console.error('Failed to auto-save reading position:', err));
+        }
+    }
+
     const modal = document.getElementById('comicReaderModal');
     modal.style.display = 'none';
     document.body.style.overflow = '';
@@ -531,6 +627,17 @@ function closeComicReader() {
         comicReaderSwiper.destroy(true, true);
         comicReaderSwiper = null;
     }
+
+    // Clear state
+    currentComicPath = null;
+    currentComicPageCount = 0;
+    highestPageViewed = 0;
+    nextIssueOverlayShown = false;
+    savedReadingPosition = null;
+
+    // Hide overlays
+    hideNextIssueOverlay();
+    hideResumeReadingOverlay();
 }
 
 function initializeComicReader(pageCount, startPage) {
@@ -552,6 +659,7 @@ function initializeComicReader(pageCount, startPage) {
     comicReaderSwiper = new Swiper('#comicReaderSwiper', {
         slidesPerView: 1,
         spaceBetween: 0,
+        initialSlide: startPage,
         keyboard: { enabled: true },
         navigation: {
             nextEl: '.swiper-button-next',
@@ -563,8 +671,15 @@ function initializeComicReader(pageCount, startPage) {
         },
         on: {
             slideChange: function () {
-                const currentPage = this.activeIndex + 1;
+                const currentIndex = this.activeIndex;
+                const currentPage = currentIndex + 1;
                 pageInfoEl.textContent = `Page ${currentPage} of ${pageCount}`;
+
+                // Track highest page viewed
+                if (currentIndex > highestPageViewed) {
+                    highestPageViewed = currentIndex;
+                }
+
                 // Update progress bar
                 const progressFill = document.querySelector('.comic-reader-progress-fill');
                 const progressText = document.querySelector('.comic-reader-progress-text');
@@ -573,31 +688,360 @@ function initializeComicReader(pageCount, startPage) {
                     progressFill.style.width = percent + '%';
                     progressText.textContent = percent + '%';
                 }
+
+                // Check if on last page - show next issue overlay
+                if (currentIndex === pageCount - 1) {
+                    checkAndShowNextIssueOverlay();
+                } else {
+                    hideNextIssueOverlay();
+                }
             }
         }
     });
 
-    pageInfoEl.textContent = `Page 1 of ${pageCount}`;
+    const initialPage = startPage + 1;
+    pageInfoEl.textContent = `Page ${initialPage} of ${pageCount}`;
     // Initialize progress
     const progressFill = document.querySelector('.comic-reader-progress-fill');
     const progressText = document.querySelector('.comic-reader-progress-text');
     if (progressFill && progressText) {
-        const percent = Math.round((1 / pageCount) * 100);
+        const percent = Math.round((initialPage / pageCount) * 100);
         progressFill.style.width = percent + '%';
         progressText.textContent = percent + '%';
     }
+
+    // Update bookmark button state
+    updateBookmarkButtonState(savedReadingPosition !== null);
 }
 
-// Set up reader event listeners when DOM is ready
+// ==========================================
+// Overlay Functions
+// ==========================================
+
+function checkAndShowNextIssueOverlay() {
+    if (currentEntryIndex >= 0 && currentEntryIndex + 1 < readingListEntries.length) {
+        const nextEntry = readingListEntries[currentEntryIndex + 1];
+        showNextIssueOverlay(nextEntry);
+    }
+}
+
+function showNextIssueOverlay(nextEntry) {
+    if (nextIssueOverlayShown) return;
+
+    const overlay = document.getElementById('nextIssueOverlay');
+    const thumbnail = document.getElementById('nextIssueThumbnail');
+    const nameEl = document.getElementById('nextIssueName');
+
+    if (!overlay || !thumbnail || !nameEl) return;
+
+    nameEl.textContent = `${nextEntry.series} #${nextEntry.issue}`;
+    thumbnail.src = nextEntry.thumbnail || '/static/img/placeholder.png';
+    thumbnail.onerror = function() { this.src = '/static/img/placeholder.png'; };
+
+    overlay.style.display = 'flex';
+    nextIssueOverlayShown = true;
+}
+
+function hideNextIssueOverlay() {
+    const overlay = document.getElementById('nextIssueOverlay');
+    if (overlay) {
+        overlay.style.display = 'none';
+    }
+    nextIssueOverlayShown = false;
+}
+
+function showResumeReadingOverlay(pageNumber, totalPages) {
+    const overlay = document.getElementById('resumeReadingOverlay');
+    const info = document.getElementById('resumeReadingInfo');
+
+    if (!overlay || !info) return;
+
+    info.textContent = `Continue from page ${pageNumber} of ${totalPages}?`;
+    overlay.style.display = 'flex';
+}
+
+function hideResumeReadingOverlay() {
+    const overlay = document.getElementById('resumeReadingOverlay');
+    if (overlay) {
+        overlay.style.display = 'none';
+    }
+}
+
+function saveReadingPosition() {
+    if (!currentComicPath || !comicReaderSwiper) return;
+
+    const currentPage = comicReaderSwiper.activeIndex + 1; // 1-indexed
+
+    // Calculate time spent in this session
+    let sessionTime = (Date.now() - readingStartTime) / 1000;
+    if (sessionTime < 10) sessionTime = 0; // Ignore quick previews
+    const totalTime = Math.round(accumulatedTime + sessionTime);
+
+    fetch('/api/reading-position', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            comic_path: currentComicPath,
+            page_number: currentPage,
+            total_pages: currentComicPageCount,
+            time_spent: totalTime
+        })
+    })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                savedReadingPosition = currentPage;
+                updateBookmarkButtonState(true);
+                // Visual feedback
+                showToast(`Position saved: Page ${currentPage}`, 'success', 2000);
+            }
+        })
+        .catch(error => {
+            console.error('Error saving reading position:', error);
+        });
+}
+
+function updateBookmarkButtonState(hasSavedPosition) {
+    const btn = document.getElementById('comicReaderBookmark');
+    if (!btn) return;
+
+    const icon = btn.querySelector('i');
+    if (icon) {
+        if (hasSavedPosition) {
+            icon.classList.remove('bi-bookmark');
+            icon.classList.add('bi-bookmark-fill');
+        } else {
+            icon.classList.remove('bi-bookmark-fill');
+            icon.classList.add('bi-bookmark');
+        }
+    }
+}
+
+function continueToNextIssue() {
+    if (currentEntryIndex < 0 || currentEntryIndex + 1 >= readingListEntries.length) {
+        return;
+    }
+
+    const nextEntry = readingListEntries[currentEntryIndex + 1];
+
+    // Calculate time spent
+    let sessionTime = (Date.now() - readingStartTime) / 1000;
+    const totalTime = Math.round(accumulatedTime + sessionTime);
+
+    // Mark current comic as read
+    fetch('/api/mark-comic-read', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            path: currentComicPath,
+            page_count: currentComicPageCount,
+            time_spent: totalTime
+        })
+    }).then(() => {
+        // Update read icon in grid
+        updateReadIcon(currentComicPath, true);
+        // Add to local set
+        readIssuesSet.add(currentComicPath);
+    });
+
+    // Delete saved reading position
+    fetch(`/api/reading-position?path=${encodeURIComponent(currentComicPath)}`, {
+        method: 'DELETE'
+    });
+
+    // Close current reader and open next
+    const modal = document.getElementById('comicReaderModal');
+    modal.style.display = 'none';
+
+    if (comicReaderSwiper) {
+        comicReaderSwiper.destroy(true, true);
+        comicReaderSwiper = null;
+    }
+
+    // Open next comic
+    openComicReader(nextEntry.path);
+}
+
+function markCurrentAsReadAndClose() {
+    // Calculate time spent
+    let sessionTime = (Date.now() - readingStartTime) / 1000;
+    const totalTime = Math.round(accumulatedTime + sessionTime);
+
+    // Mark current comic as read
+    fetch('/api/mark-comic-read', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            path: currentComicPath,
+            page_count: currentComicPageCount,
+            time_spent: totalTime
+        })
+    }).then(() => {
+        // Update read icon in grid
+        updateReadIcon(currentComicPath, true);
+        // Add to local set
+        readIssuesSet.add(currentComicPath);
+    });
+
+    // Delete saved reading position
+    fetch(`/api/reading-position?path=${encodeURIComponent(currentComicPath)}`, {
+        method: 'DELETE'
+    });
+
+    closeComicReader();
+}
+
+function updateReadIcon(comicPath, isRead) {
+    // Find the book cover with this path and update its read icon
+    const covers = document.querySelectorAll('.book-cover[data-file-path]');
+    covers.forEach(cover => {
+        if (cover.dataset.filePath === comicPath) {
+            const readIcon = cover.querySelector('.read-icon');
+            if (readIcon) {
+                if (isRead) {
+                    readIcon.classList.remove('bi-book');
+                    readIcon.classList.add('bi-book-fill');
+                } else {
+                    readIcon.classList.remove('bi-book-fill');
+                    readIcon.classList.add('bi-book');
+                }
+            }
+        }
+    });
+}
+
+function buildReadingListEntries() {
+    readingListEntries = [];
+    const bookCards = document.querySelectorAll('.book-card');
+
+    bookCards.forEach(card => {
+        const cover = card.querySelector('.book-cover[data-file-path]');
+        if (cover) {
+            const filePath = cover.dataset.filePath;
+            const series = card.dataset.series || '';
+            const issue = card.dataset.issue || '';
+            const thumbnailUrl = cover.style.backgroundImage.replace(/url\(['"]?([^'"]+)['"]?\)/, '$1');
+
+            readingListEntries.push({
+                path: filePath,
+                series: series,
+                issue: issue,
+                thumbnail: thumbnailUrl,
+                name: `${series} #${issue}`
+            });
+        }
+    });
+
+    console.log(`Built reading list entries: ${readingListEntries.length} matched issues`);
+}
+
+function loadReadIssues() {
+    fetch('/api/issues-read-paths')
+        .then(r => r.json())
+        .then(data => {
+            readIssuesSet = new Set(data.paths || []);
+            console.log(`Loaded ${readIssuesSet.size} read issues`);
+
+            // Update icons for already-read issues
+            const covers = document.querySelectorAll('.book-cover[data-file-path]');
+            covers.forEach(cover => {
+                const filePath = cover.dataset.filePath;
+                if (readIssuesSet.has(filePath)) {
+                    const readIcon = cover.querySelector('.read-icon');
+                    if (readIcon) {
+                        readIcon.classList.remove('bi-book');
+                        readIcon.classList.add('bi-book-fill');
+                    }
+                }
+            });
+        })
+        .catch(err => console.warn('Failed to load read issues:', err));
+}
+
+// ==========================================
+// Set up event listeners when DOM is ready
+// ==========================================
 document.addEventListener('DOMContentLoaded', function () {
+    // Build the reading list entries from DOM
+    buildReadingListEntries();
+
+    // Load read issues for status icons
+    loadReadIssues();
+
+    // Close button
     const closeBtn = document.getElementById('comicReaderClose');
     if (closeBtn) {
         closeBtn.addEventListener('click', closeComicReader);
     }
 
+    // Overlay click to close
     const overlay = document.querySelector('.comic-reader-overlay');
     if (overlay) {
         overlay.addEventListener('click', closeComicReader);
+    }
+
+    // Bookmark button
+    const bookmarkBtn = document.getElementById('comicReaderBookmark');
+    if (bookmarkBtn) {
+        bookmarkBtn.addEventListener('click', saveReadingPosition);
+    }
+
+    // Resume reading overlay buttons
+    const resumeYes = document.getElementById('resumeReadingYes');
+    if (resumeYes) {
+        resumeYes.addEventListener('click', function() {
+            hideResumeReadingOverlay();
+            if (comicReaderSwiper && savedReadingPosition) {
+                comicReaderSwiper.slideTo(savedReadingPosition - 1); // Convert 1-indexed to 0-indexed
+            }
+        });
+    }
+
+    const resumeNo = document.getElementById('resumeReadingNo');
+    if (resumeNo) {
+        resumeNo.addEventListener('click', function() {
+            hideResumeReadingOverlay();
+            if (comicReaderSwiper) {
+                comicReaderSwiper.slideTo(0);
+            }
+            savedReadingPosition = null;
+            updateBookmarkButtonState(false);
+        });
+    }
+
+    // Next issue overlay buttons
+    const nextIssueContinue = document.getElementById('nextIssueContinue');
+    if (nextIssueContinue) {
+        nextIssueContinue.addEventListener('click', continueToNextIssue);
+    }
+
+    const nextIssueClose = document.getElementById('nextIssueClose');
+    if (nextIssueClose) {
+        nextIssueClose.addEventListener('click', markCurrentAsReadAndClose);
+    }
+
+    // Click outside next issue overlay to dismiss
+    const nextIssueOverlay = document.getElementById('nextIssueOverlay');
+    if (nextIssueOverlay) {
+        nextIssueOverlay.addEventListener('click', function(e) {
+            if (e.target === nextIssueOverlay) {
+                hideNextIssueOverlay();
+            }
+        });
+    }
+
+    // Click outside resume overlay to dismiss
+    const resumeOverlay = document.getElementById('resumeReadingOverlay');
+    if (resumeOverlay) {
+        resumeOverlay.addEventListener('click', function(e) {
+            if (e.target === resumeOverlay) {
+                hideResumeReadingOverlay();
+                // Start from beginning if dismissed
+                if (comicReaderSwiper) {
+                    comicReaderSwiper.slideTo(0);
+                }
+            }
+        });
     }
 
     // Escape key to close reader

@@ -36,11 +36,6 @@
                         <i class="bi bi-calendar"></i> {{ list.created_at }}<br>
                         <i class="bi bi-collection"></i> {{ list.entry_count }} issues
                     </p>
-                    {% if list.source %}
-                    <p class="card-text text-truncate small" title="{{ list.source }}">
-                        Source: {{ list.source }}
-                    </p>
-                    {% endif %}
                 </div>
                 <div class="card-footer bg-transparent border-top-0 text-end">
                     <a href="{{ url_for('reading_lists.view_list', list_id=list.id) }}"
@@ -78,7 +73,8 @@
                 </form>
             </div>
             <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal" id="uploadCancelBtn">Cancel</button>
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal"
+                    id="uploadCancelBtn">Cancel</button>
                 <button type="button" class="btn btn-primary" onclick="uploadCBL()" id="uploadBtn">
                     <span class="btn-text">Upload</span>
                     <span class="btn-loading d-none">
@@ -110,7 +106,8 @@
                 </form>
             </div>
             <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal" id="importCancelBtn">Cancel</button>
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal"
+                    id="importCancelBtn">Cancel</button>
                 <button type="button" class="btn btn-primary" onclick="importGithub()" id="importBtn">
                     <span class="btn-text">Import</span>
                     <span class="btn-loading d-none">

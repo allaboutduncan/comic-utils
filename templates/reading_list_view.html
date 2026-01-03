@@ -146,9 +146,10 @@
             {% if file_path %}
             <!-- Matched: clicking cover opens reader -->
             <div class="book-cover" style="background-image: url('/api/thumbnail?path={{ file_path|urlencode }}')"
+                data-file-path="{{ file_path }}"
                 onclick="openComicReader('{{ file_path|replace('\\', '\\\\')|replace("'", "\\'") }}')">
                 <span class="issue-badge issue-badge-matched">
-                    #{{ entry.issue_number }}
+                    #{{ entry.issue_number }}<i class="bi bi-book read-icon ms-1"></i>
                 </span>
             </div>
             {% else %}
@@ -241,6 +242,9 @@
             </div>
             <div class="comic-reader-controls">
                 <span class="comic-reader-page-info" id="comicReaderPageInfo">Page 1 of 1</span>
+                <button class="btn btn-sm btn-outline-light me-2" id="comicReaderBookmark" title="Save Reading Position">
+                    <i class="bi bi-bookmark"></i>
+                </button>
                 <button class="btn btn-sm btn-outline-light" id="comicReaderClose" title="Close">
                     <i class="bi bi-x-lg text-light"></i>
                 </button>
@@ -254,6 +258,35 @@
             <!-- Navigation -->
             <div class="swiper-button-next"></div>
             <div class="swiper-button-prev"></div>
+        </div>
+        <!-- Next Issue Overlay -->
+        <div id="nextIssueOverlay" class="next-issue-overlay" style="display: none;">
+            <div class="next-issue-panel">
+                <h4>Continue Reading?</h4>
+                <div class="next-issue-thumbnail-container">
+                    <img id="nextIssueThumbnail" src="" alt="Next Issue">
+                </div>
+                <p id="nextIssueName" class="next-issue-name">Next Issue Name</p>
+                <div class="next-issue-buttons">
+                    <button id="nextIssueContinue" class="btn btn-primary">
+                        <i class="bi bi-arrow-right-circle me-1"></i>Continue
+                    </button>
+                    <button id="nextIssueClose" class="btn btn-outline-light">Close</button>
+                </div>
+            </div>
+        </div>
+        <!-- Resume Reading Overlay -->
+        <div id="resumeReadingOverlay" class="resume-reading-overlay" style="display: none;">
+            <div class="resume-reading-panel">
+                <h4><i class="bi bi-bookmark-check me-2"></i>Resume Reading?</h4>
+                <p id="resumeReadingInfo" class="resume-reading-info">Continue from page 5 of 32?</p>
+                <div class="resume-reading-buttons">
+                    <button id="resumeReadingYes" class="btn btn-primary">
+                        <i class="bi bi-play-fill me-1"></i>Resume
+                    </button>
+                    <button id="resumeReadingNo" class="btn btn-outline-light">Start Over</button>
+                </div>
+            </div>
         </div>
         <!-- Footer -->
         <div class="comic-reader-footer">
