@@ -47,6 +47,12 @@
           </a>  
         </li> -->
         <li class="nav-item">
+          <a href="{{ url_for('reading_lists.index') }}"
+            class="nav-link {% if current_page == url_for('reading_lists.index') %}active{% endif %}">
+            Reading Lists
+          </a>
+        </li>
+        <li class="nav-item">
           <a href="{{ url_for('status') }}"
             class="nav-link position-relative {% if current_page == url_for('status') %}active{% endif %}">
             Downloads

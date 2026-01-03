@@ -188,6 +188,10 @@
                                 onclick="currentEntryId = {{ entry.id }}; clearMapping(); return false;">
                                 <i class="bi bi-x-circle me-2"></i>Clear Mapping
                             </a></li>
+                        <li><a class="dropdown-item" href="#"
+                                onclick="setAsThumbnail('{{ file_path|replace('\\', '\\\\')|replace("'", "\\'") }}'); return false;">
+                                <i class="bi bi-image me-2"></i>Set as List Thumbnail
+                            </a></li>
                         {% endif %}
                     </ul>
                 </div>

@@ -152,9 +152,17 @@ def init_db():
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 name TEXT NOT NULL,
                 source TEXT,
+                thumbnail_path TEXT,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         ''')
+
+        # Migrate reading_lists table: add thumbnail_path if not exists
+        c.execute("PRAGMA table_info(reading_lists)")
+        columns = [row[1] for row in c.fetchall()]
+        if 'thumbnail_path' not in columns:
+            app_logger.info("Migrating reading_lists table: adding thumbnail_path column")
+            c.execute("ALTER TABLE reading_lists ADD COLUMN thumbnail_path TEXT")
 
         # Create reading_list_entries table
         c.execute('''
@@ -2218,10 +2226,10 @@ def update_reading_list_entry_match(entry_id, file_path):
 def delete_reading_list(list_id):
     """
     Delete a reading list and all its entries.
-    
+
     Args:
         list_id: ID of the reading list
-        
+
     Returns:
         True if successful, False otherwise
     """
@@ -2234,4 +2242,28 @@ def delete_reading_list(list_id):
         return True
     except Exception as e:
         app_logger.error(f"Error deleting reading list {list_id}: {str(e)}")
+        return False
+
+
+def update_reading_list_thumbnail(list_id, thumbnail_path):
+    """
+    Update the thumbnail for a reading list.
+
+    Args:
+        list_id: ID of the reading list
+        thumbnail_path: Path to the comic file to use as thumbnail
+
+    Returns:
+        True if successful, False otherwise
+    """
+    try:
+        conn = get_db_connection()
+        c = conn.cursor()
+        c.execute('UPDATE reading_lists SET thumbnail_path = ? WHERE id = ?',
+                  (thumbnail_path, list_id))
+        conn.commit()
+        conn.close()
+        return True
+    except Exception as e:
+        app_logger.error(f"Error updating reading list thumbnail {list_id}: {str(e)}")
         return False

@@ -30,19 +30,37 @@
         {% for list in lists %}
         <div class="col">
             <div class="card h-100">
-                <div class="card-body">
-                    <h5 class="card-title">{{ list.name }}</h5>
-                    <p class="card-text text-muted small">
-                        <i class="bi bi-calendar"></i> {{ list.created_at }}<br>
-                        <i class="bi bi-collection"></i> {{ list.entry_count }} issues
-                    </p>
-                </div>
-                <div class="card-footer bg-transparent border-top-0 text-end">
-                    <a href="{{ url_for('reading_lists.view_list', list_id=list.id) }}"
-                        class="btn btn-primary btn-sm">View List</a>
-                    <button class="btn btn-outline-danger btn-sm ms-1" onclick="deleteReadingList({{ list.id }})">
-                        <i class="bi bi-trash"></i>
-                    </button>
+                <div class="row g-0 h-100">
+                    <!-- Thumbnail column -->
+                    <div class="col-4">
+                        {% if list.thumbnail_path %}
+                        <img src="/api/thumbnail?path={{ list.thumbnail_path|urlencode }}"
+                            class="img-fluid rounded-start h-100 w-100"
+                            style="object-fit: cover;"
+                            onerror="this.parentNode.innerHTML='<div class=\'bg-secondary h-100 rounded-start d-flex align-items-center justify-content-center\'><i class=\'bi bi-journal-text text-white display-6\'></i></div>'">
+                        {% else %}
+                        <div class="bg-secondary h-100 rounded-start d-flex align-items-center justify-content-center">
+                            <i class="bi bi-journal-text text-white display-6"></i>
+                        </div>
+                        {% endif %}
+                    </div>
+                    <!-- Content column -->
+                    <div class="col-8 d-flex flex-column">
+                        <div class="card-body py-2 flex-grow-1">
+                            <h6 class="card-title mb-1">{{ list.name }}</h6>
+                            <p class="card-text text-muted small mb-0">
+                                <i class="bi bi-calendar"></i> {{ list.created_at }}<br>
+                                <i class="bi bi-collection"></i> {{ list.entry_count }} issues
+                            </p>
+                        </div>
+                        <div class="card-footer bg-transparent border-top-0 py-2">
+                            <a href="{{ url_for('reading_lists.view_list', list_id=list.id) }}"
+                                class="btn btn-primary btn-sm">View</a>
+                            <button class="btn btn-outline-danger btn-sm ms-1" onclick="deleteReadingList({{ list.id }})">
+                                <i class="bi bi-trash"></i>
+                            </button>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>

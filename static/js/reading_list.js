@@ -293,6 +293,26 @@ function deleteReadingList(id) {
         });
 }
 
+function setAsThumbnail(filePath) {
+    fetch(`/api/reading-lists/${LIST_ID}/thumbnail`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ file_path: filePath })
+    })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                showToast('Thumbnail updated', 'success');
+            } else {
+                showToast('Failed to update thumbnail: ' + data.message, 'error');
+            }
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            showToast('An error occurred', 'error');
+        });
+}
+
 // Mapping Logic
 let currentEntryId = null;
 let selectedFilePath = null;

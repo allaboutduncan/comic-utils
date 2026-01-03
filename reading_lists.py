@@ -10,7 +10,8 @@ from database import (
     get_reading_list,
     update_reading_list_entry_match,
     delete_reading_list,
-    search_file_index
+    search_file_index,
+    update_reading_list_thumbnail
 )
 from models.cbl import CBLLoader
 from app_logging import app_logger
@@ -248,3 +249,17 @@ def search_file():
 
     results = search_file_index(query, limit=20)
     return jsonify(results)
+
+@reading_lists_bp.route('/api/reading-lists/<int:list_id>/thumbnail', methods=['POST'])
+def set_thumbnail(list_id):
+    """Set the thumbnail for a reading list."""
+    data = request.json
+    file_path = data.get('file_path')
+
+    if not file_path:
+        return jsonify({'success': False, 'message': 'File path is required'})
+
+    if update_reading_list_thumbnail(list_id, file_path):
+        return jsonify({'success': True, 'message': 'Thumbnail updated'})
+    else:
+        return jsonify({'success': False, 'message': 'Failed to update thumbnail'})
