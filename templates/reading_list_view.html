@@ -119,6 +119,20 @@
     .book-details {
         min-width: 0;
     }
+
+    /* Fix dropdown z-index issue */
+    .book-card {
+        position: relative;
+        z-index: 1;
+    }
+
+    .book-card:has(.dropdown-menu.show) {
+        z-index: 1000;
+    }
+
+    .book-card .dropdown-menu {
+        z-index: 1050;
+    }
 </style>
 {% endblock %}
 

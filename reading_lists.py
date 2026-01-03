@@ -11,7 +11,8 @@ from database import (
     update_reading_list_entry_match,
     delete_reading_list,
     search_file_index,
-    update_reading_list_thumbnail
+    update_reading_list_thumbnail,
+    clear_thumbnail_if_matches_entry
 )
 from models.cbl import CBLLoader
 from app_logging import app_logger
@@ -206,10 +207,14 @@ def map_entry(list_id):
     data = request.json
     entry_id = data.get('entry_id')
     file_path = data.get('file_path')
-    
+
     if not entry_id:
         return jsonify({'success': False, 'message': 'Entry ID is required'})
-        
+
+    # If clearing mapping, also clear thumbnail if it matches this entry
+    if file_path is None:
+        clear_thumbnail_if_matches_entry(list_id, entry_id)
+
     if update_reading_list_entry_match(entry_id, file_path):
         return jsonify({'success': True, 'message': 'Entry mapped successfully'})
     else:

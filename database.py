@@ -2201,27 +2201,81 @@ def get_reading_list(list_id):
 def update_reading_list_entry_match(entry_id, file_path):
     """
     Update the matched file for a reading list entry.
-    
+
     Args:
         entry_id: ID of the entry
-        file_path: Path to the matched file (or None to clear)
-        
+        file_path: Path to the matched file (or None to clear both paths)
+
     Returns:
         True if successful, False otherwise
     """
     try:
         conn = get_db_connection()
         c = conn.cursor()
-        c.execute(
-            'UPDATE reading_list_entries SET manual_override_path = ? WHERE id = ?',
-            (file_path, entry_id)
-        )
+        if file_path is None:
+            # Clear both manual override and auto-matched path
+            c.execute(
+                'UPDATE reading_list_entries SET manual_override_path = NULL, matched_file_path = NULL WHERE id = ?',
+                (entry_id,)
+            )
+        else:
+            # Set manual override
+            c.execute(
+                'UPDATE reading_list_entries SET manual_override_path = ? WHERE id = ?',
+                (file_path, entry_id)
+            )
         conn.commit()
         conn.close()
         return True
     except Exception as e:
         app_logger.error(f"Error updating reading list entry {entry_id}: {str(e)}")
         return False
+
+def clear_thumbnail_if_matches_entry(list_id, entry_id):
+    """
+    Clear the list's thumbnail if it matches the entry's file path.
+
+    Args:
+        list_id: ID of the reading list
+        entry_id: ID of the entry being cleared
+
+    Returns:
+        True if thumbnail was cleared, False otherwise
+    """
+    try:
+        conn = get_db_connection()
+        c = conn.cursor()
+        # Get entry's current file paths
+        c.execute(
+            'SELECT manual_override_path, matched_file_path FROM reading_list_entries WHERE id = ?',
+            (entry_id,)
+        )
+        entry = c.fetchone()
+        if not entry:
+            conn.close()
+            return False
+
+        entry_path = entry[0] or entry[1]  # manual_override_path or matched_file_path
+        if not entry_path:
+            conn.close()
+            return False
+
+        # Get list's thumbnail
+        c.execute('SELECT thumbnail_path FROM reading_lists WHERE id = ?', (list_id,))
+        result = c.fetchone()
+        if result and result[0] == entry_path:
+            # Thumbnail matches entry being cleared, so clear it
+            c.execute('UPDATE reading_lists SET thumbnail_path = NULL WHERE id = ?', (list_id,))
+            conn.commit()
+            conn.close()
+            return True
+
+        conn.close()
+        return False
+    except Exception as e:
+        app_logger.error(f"Error checking/clearing thumbnail for list {list_id}: {str(e)}")
+        return False
+
 
 def delete_reading_list(list_id):
     """
