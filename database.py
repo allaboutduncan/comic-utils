@@ -30,6 +30,8 @@ def init_db():
         # Enable WAL mode for better concurrency (allows reads during writes)
         c.execute('PRAGMA journal_mode=WAL')
         c.execute('PRAGMA busy_timeout=30000')
+        # Enable foreign key enforcement for ON DELETE CASCADE
+        c.execute('PRAGMA foreign_keys=ON')
         
         # Create thumbnail_jobs table
         c.execute('''
@@ -258,6 +260,14 @@ def init_db():
             app_logger.info("Migrating database: dropping file_move_history table (removed feature)")
             c.execute("DROP TABLE file_move_history")
 
+        # Clean up orphaned reading list entries from previous deletes
+        c.execute('''
+            DELETE FROM reading_list_entries
+            WHERE reading_list_id NOT IN (SELECT id FROM reading_lists)
+        ''')
+        if c.rowcount > 0:
+            app_logger.info(f"Cleaned up {c.rowcount} orphaned reading list entries")
+
         conn.commit()
         conn.close()
         app_logger.info("Database initialized successfully")
@@ -273,6 +283,8 @@ def get_db_connection():
         conn.row_factory = sqlite3.Row
         # Ensure WAL mode and busy timeout for better concurrency
         conn.execute('PRAGMA busy_timeout=30000')
+        # Enable foreign key enforcement for ON DELETE CASCADE
+        conn.execute('PRAGMA foreign_keys=ON')
         return conn
     except Exception as e:
         app_logger.error(f"Failed to connect to database: {e}")
@@ -2326,6 +2338,8 @@ def delete_reading_list(list_id):
     try:
         conn = get_db_connection()
         c = conn.cursor()
+        # Delete entries first, then the list
+        c.execute('DELETE FROM reading_list_entries WHERE reading_list_id = ?', (list_id,))
         c.execute('DELETE FROM reading_lists WHERE id = ?', (list_id,))
         conn.commit()
         conn.close()
@@ -2333,6 +2347,31 @@ def delete_reading_list(list_id):
     except Exception as e:
         app_logger.error(f"Error deleting reading list {list_id}: {str(e)}")
         return False
+
+
+def cleanup_orphaned_reading_list_entries():
+    """
+    Delete reading_list_entries that reference non-existent reading lists.
+
+    Returns:
+        Number of orphaned entries deleted
+    """
+    try:
+        conn = get_db_connection()
+        c = conn.cursor()
+        c.execute('''
+            DELETE FROM reading_list_entries
+            WHERE reading_list_id NOT IN (SELECT id FROM reading_lists)
+        ''')
+        deleted_count = c.rowcount
+        conn.commit()
+        conn.close()
+        if deleted_count > 0:
+            app_logger.info(f"Cleaned up {deleted_count} orphaned reading list entries")
+        return deleted_count
+    except Exception as e:
+        app_logger.error(f"Error cleaning up orphaned entries: {str(e)}")
+        return 0
 
 
 def update_reading_list_thumbnail(list_id, thumbnail_path):

@@ -45,11 +45,28 @@
     {% endif %}
     {% endwith %}
 
+    <!-- Tag Filter -->
+    {% if lists %}
+    {% set all_tags = lists|map(attribute='tags')|sum(start=[])|unique|sort %}
+    {% if all_tags|length > 0 %}
+    <div class="tag-filter-bar mb-4">
+        <div class="d-flex align-items-center gap-2 flex-wrap">
+            <span class="text-muted me-2"><i class="bi bi-funnel"></i> Filter:</span>
+            <button class="tag-filter-btn active" data-tag="all">All</button>
+            {% for tag in all_tags %}
+            <button class="tag-filter-btn" data-tag="{{ tag }}">{{ tag }}</button>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+    {% endif %}
+
     <!-- Reading Lists Grid -->
     {% if lists %}
     <div class="reading-list-grid">
         {% for list in lists %}
         <div class="reading-list-card stagger-load"
+            data-tags='{{ list.tags|tojson|safe }}'
             onclick="window.location.href='{{ url_for('reading_lists.view_list', list_id=list.id) }}'">
 
             <!-- Background / Stack -->

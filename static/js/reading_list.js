@@ -1,5 +1,66 @@
 console.log('reading_list.js loaded');
 
+// ==========================================
+// Tag Filter System
+// ==========================================
+
+let activeTagFilters = new Set();
+
+function initTagFilters() {
+    document.querySelectorAll('.tag-filter-btn').forEach(btn => {
+        btn.addEventListener('click', () => toggleTagFilter(btn));
+    });
+}
+
+function toggleTagFilter(btn) {
+    const tag = btn.dataset.tag;
+
+    if (tag === 'all') {
+        // Clear all filters, show all
+        activeTagFilters.clear();
+        document.querySelectorAll('.tag-filter-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+    } else {
+        // Remove 'all' active state
+        document.querySelector('.tag-filter-btn[data-tag="all"]')?.classList.remove('active');
+
+        // Toggle this filter
+        if (activeTagFilters.has(tag)) {
+            activeTagFilters.delete(tag);
+            btn.classList.remove('active');
+        } else {
+            activeTagFilters.add(tag);
+            btn.classList.add('active');
+        }
+
+        // If no filters active, activate 'all'
+        if (activeTagFilters.size === 0) {
+            document.querySelector('.tag-filter-btn[data-tag="all"]')?.classList.add('active');
+        }
+    }
+
+    applyTagFilters();
+}
+
+function applyTagFilters() {
+    const cards = document.querySelectorAll('.reading-list-card');
+
+    cards.forEach(card => {
+        const cardTags = JSON.parse(card.dataset.tags || '[]');
+
+        if (activeTagFilters.size === 0) {
+            card.style.display = '';
+        } else {
+            // Show if card has ALL of the active filter tags (AND logic)
+            const hasAllTags = [...activeTagFilters].every(t => cardTags.includes(t));
+            card.style.display = hasAllTags ? '' : 'none';
+        }
+    });
+}
+
+// Initialize tag filters on page load
+document.addEventListener('DOMContentLoaded', initTagFilters);
+
 // Toast notification system
 let currentProgressToast = null;
 
