@@ -355,9 +355,25 @@
 
 .progress-bar-fill {
     height: 100%;
-    background: linear-gradient(90deg, #28a745, #20c997);
     border-radius: 2px;
-    transition: width 0.3s ease;
+    transition: width 0.3s ease, background 0.3s ease;
+}
+
+/* Progress colors based on completion */
+.progress-bar-fill.progress-low {
+    background: linear-gradient(90deg, #dc3545, #e85d6b);
+}
+
+.progress-bar-fill.progress-medium {
+    background: linear-gradient(90deg, #fd7e14, #ffc107);
+}
+
+.progress-bar-fill.progress-high {
+    background: linear-gradient(90deg, #20c997, #28a745);
+}
+
+.progress-bar-fill.progress-complete {
+    background: linear-gradient(90deg, #28a745, #20c997);
 }
 
 /* Completion Badge */

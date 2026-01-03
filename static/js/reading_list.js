@@ -389,14 +389,13 @@ function editTitle(listId, element) {
 // Tags Modal
 // ==========================================
 
-const PREDEFINED_TAGS = ['Event', 'Marvel', 'DC', 'Reading Order', 'Crossover', 'Complete'];
+const PREDEFINED_TAGS = ['Event', 'Marvel', 'DC', 'Reading Order', 'Crossover'];
 const TAG_ICONS = {
     'Marvel': 'bi-lightning-fill',
     'DC': 'bi-shield-fill',
     'Event': 'bi-calendar-event-fill',
     'Reading Order': 'bi-list-ol',
-    'Crossover': 'bi-arrows-move',
-    'Complete': 'bi-check-circle-fill'
+    'Crossover': 'bi-arrows-move'
 };
 
 let currentListIdForTags = null;
@@ -543,7 +542,7 @@ function setupTagInputHandlers() {
     if (!tagInput || tagInput.dataset.handlersAttached) return;
     tagInput.dataset.handlersAttached = 'true';
 
-    tagInput.addEventListener('input', function(e) {
+    tagInput.addEventListener('input', function (e) {
         let value = e.target.value;
 
         // Check for comma - add tag when comma is typed
@@ -579,7 +578,7 @@ function setupTagInputHandlers() {
         }
     });
 
-    tagInput.addEventListener('keydown', function(e) {
+    tagInput.addEventListener('keydown', function (e) {
         if (e.key === 'Enter') {
             e.preventDefault();
             const value = e.target.value.trim();
@@ -591,7 +590,7 @@ function setupTagInputHandlers() {
 }
 
 // Hide suggestions when clicking outside
-document.addEventListener('click', function(e) {
+document.addEventListener('click', function (e) {
     if (!e.target.closest('#tagInput') && !e.target.closest('#tagSuggestions')) {
         hideSuggestions();
     }
@@ -1098,7 +1097,7 @@ function showNextIssueOverlay(nextEntry) {
 
     nameEl.textContent = `${nextEntry.series} #${nextEntry.issue}`;
     thumbnail.src = nextEntry.thumbnail || '/static/img/placeholder.png';
-    thumbnail.onerror = function() { this.src = '/static/img/placeholder.png'; };
+    thumbnail.onerror = function () { this.src = '/static/img/placeholder.png'; };
 
     overlay.style.display = 'flex';
     nextIssueOverlayShown = true;
@@ -1351,7 +1350,7 @@ document.addEventListener('DOMContentLoaded', function () {
     // Resume reading overlay buttons
     const resumeYes = document.getElementById('resumeReadingYes');
     if (resumeYes) {
-        resumeYes.addEventListener('click', function() {
+        resumeYes.addEventListener('click', function () {
             hideResumeReadingOverlay();
             if (comicReaderSwiper && savedReadingPosition) {
                 comicReaderSwiper.slideTo(savedReadingPosition - 1); // Convert 1-indexed to 0-indexed
@@ -1361,7 +1360,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
     const resumeNo = document.getElementById('resumeReadingNo');
     if (resumeNo) {
-        resumeNo.addEventListener('click', function() {
+        resumeNo.addEventListener('click', function () {
             hideResumeReadingOverlay();
             if (comicReaderSwiper) {
                 comicReaderSwiper.slideTo(0);
@@ -1385,7 +1384,7 @@ document.addEventListener('DOMContentLoaded', function () {
     // Click outside next issue overlay to dismiss
     const nextIssueOverlay = document.getElementById('nextIssueOverlay');
     if (nextIssueOverlay) {
-        nextIssueOverlay.addEventListener('click', function(e) {
+        nextIssueOverlay.addEventListener('click', function (e) {
             if (e.target === nextIssueOverlay) {
                 hideNextIssueOverlay();
             }
@@ -1395,7 +1394,7 @@ document.addEventListener('DOMContentLoaded', function () {
     // Click outside resume overlay to dismiss
     const resumeOverlay = document.getElementById('resumeReadingOverlay');
     if (resumeOverlay) {
-        resumeOverlay.addEventListener('click', function(e) {
+        resumeOverlay.addEventListener('click', function (e) {
             if (e.target === resumeOverlay) {
                 hideResumeReadingOverlay();
                 // Start from beginning if dismissed

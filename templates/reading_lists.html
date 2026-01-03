@@ -101,7 +101,7 @@
                         View Details
                     </button>
                     <button class="btn btn-secondary btn-sm"
-                        onclick="event.stopPropagation(); openTagsModal({{ list.id }}, {{ list.tags|tojson|safe }})"
+                        onclick='event.stopPropagation(); openTagsModal({{ list.id }}, {{ list.tags|tojson|safe }})'
                         title="Manage Tags">
                         <i class="bi bi-tags"></i>
                     </button>
