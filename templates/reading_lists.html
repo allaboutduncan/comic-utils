@@ -89,9 +89,7 @@
                     {% if list.tags %}
                     <div class="card-tags">
                         {% for tag in list.tags %}
-                        <span class="tag-badge" data-tag="{{ tag }}" title="{{ tag }}">
-                            <i class="bi bi-tag-fill"></i>
-                        </span>
+                        <span class="tag-badge" data-tag="{{ tag }}">{{ tag }}</span>
                         {% endfor %}
                     </div>
                     {% endif %}
@@ -114,8 +112,9 @@
                 </div>
 
                 {% if list.entry_count > 0 %}
+                {% set percent = (list.read_count / list.entry_count * 100)|round %}
                 <div class="progress-bar-container">
-                    <div class="progress-bar-fill" style="width: {{ (list.read_count / list.entry_count * 100)|round }}%"></div>
+                    <div class="progress-bar-fill {% if percent == 100 %}progress-complete{% elif percent >= 66 %}progress-high{% elif percent >= 33 %}progress-medium{% else %}progress-low{% endif %}" style="width: {{ percent }}%"></div>
                 </div>
                 {% endif %}
             </div>

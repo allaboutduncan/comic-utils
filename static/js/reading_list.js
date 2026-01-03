@@ -951,12 +951,12 @@ function initializeComicReader(pageCount, startPage) {
 
     wrapper.innerHTML = '';
 
-    const encodedPath = currentComicPath.replace(/\\/g, '/').split('/').map(encodeURIComponent).join('/');
-
+    // Create empty slides - images loaded on demand
     for (let i = 0; i < pageCount; i++) {
         const slide = document.createElement('div');
         slide.className = 'swiper-slide';
-        slide.innerHTML = `<img src="/api/read/${encodedPath}/page/${i}" alt="Page ${i + 1}" loading="lazy">`;
+        slide.dataset.pageNum = i;
+        slide.innerHTML = '<div class="swiper-lazy-preloader"></div>';
         wrapper.appendChild(slide);
     }
 
@@ -971,7 +971,8 @@ function initializeComicReader(pageCount, startPage) {
         },
         pagination: {
             el: '.swiper-pagination',
-            type: 'progressbar',
+            type: 'bullets',
+            clickable: true,
         },
         on: {
             slideChange: function () {
@@ -991,6 +992,22 @@ function initializeComicReader(pageCount, startPage) {
                     const percent = Math.round((currentPage / pageCount) * 100);
                     progressFill.style.width = percent + '%';
                     progressText.textContent = percent + '%';
+                }
+
+                // Preload current page
+                loadComicPage(currentIndex);
+
+                // Preload next 2 pages
+                if (currentIndex + 1 < pageCount) {
+                    loadComicPage(currentIndex + 1);
+                }
+                if (currentIndex + 2 < pageCount) {
+                    loadComicPage(currentIndex + 2);
+                }
+
+                // Preload previous page for backward navigation
+                if (currentIndex - 1 >= 0) {
+                    loadComicPage(currentIndex - 1);
                 }
 
                 // Check if on last page - show next issue overlay
@@ -1016,6 +1033,47 @@ function initializeComicReader(pageCount, startPage) {
 
     // Update bookmark button state
     updateBookmarkButtonState(savedReadingPosition !== null);
+
+    // Preload initial pages
+    loadComicPage(startPage);
+    if (startPage + 1 < pageCount) loadComicPage(startPage + 1);
+    if (startPage + 2 < pageCount) loadComicPage(startPage + 2);
+    if (startPage - 1 >= 0) loadComicPage(startPage - 1);
+}
+
+function loadComicPage(pageNum) {
+    const slide = document.querySelector(`.swiper-slide[data-page-num="${pageNum}"]`);
+    if (!slide) return;
+
+    // Check if already loaded or loading
+    if (slide.querySelector('img') || slide.dataset.loading === 'true') return;
+
+    // Mark as loading to prevent duplicate requests
+    slide.dataset.loading = 'true';
+
+    const encodedPath = currentComicPath.replace(/\\/g, '/').split('/').map(encodeURIComponent).join('/');
+    const imageUrl = `/api/read/${encodedPath}/page/${pageNum}`;
+
+    const img = document.createElement('img');
+    img.src = imageUrl;
+    img.alt = `Page ${pageNum + 1}`;
+    img.decoding = 'async';
+
+    // Set fetch priority based on distance from current page
+    const currentIndex = comicReaderSwiper ? comicReaderSwiper.activeIndex : 0;
+    img.fetchPriority = Math.abs(pageNum - currentIndex) <= 1 ? 'high' : 'low';
+
+    img.onload = function () {
+        // Remove preloader and add image
+        slide.innerHTML = '';
+        slide.appendChild(img);
+        delete slide.dataset.loading;
+    };
+
+    img.onerror = function () {
+        slide.innerHTML = '<div class="text-center text-muted p-4">Failed to load page</div>';
+        delete slide.dataset.loading;
+    };
 }
 
 // ==========================================
