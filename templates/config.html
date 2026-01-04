@@ -43,8 +43,14 @@
                     Performance</button>
             </li>
             <li class="nav-item" role="presentation">
-                <button class="nav-link" id="styling-tab" data-bs-toggle="tab" data-bs-target="#styling"
-                    type="button" role="tab" aria-controls="styling" aria-selected="false">Styling</button>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link" id="styling-tab" data-bs-toggle="tab" data-bs-target="#styling" type="button"
+                    role="tab" aria-controls="styling" aria-selected="false">Styling</button>
+            </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link" id="recommendations-tab" data-bs-toggle="tab" data-bs-target="#recommendations"
+                    type="button" role="tab" aria-controls="recommendations"
+                    aria-selected="false">Recommendations</button>
             </li>
         </ul>
 
@@ -358,9 +364,8 @@
                     <div class="row mt-3">
                         <div class="col-md-6">
                             <label for="metronUsername" class="form-label">Metron Username</label>
-                            <input type="text" name="metronUsername" id="metronUsername"
-                                value="{{ metronUsername }}" class="form-control"
-                                placeholder="Enter your Metron username">
+                            <input type="text" name="metronUsername" id="metronUsername" value="{{ metronUsername }}"
+                                class="form-control" placeholder="Enter your Metron username">
                             <small class="form-text text-muted">
                                 Optional: Enter your Metron credentials for metadata lookup. Get credentials at
                                 <a href="https://metron.cloud/" target="_blank">metron.cloud</a>
@@ -489,25 +494,27 @@
                         <div class="col-md-6">
                             <label for="timezone" class="form-label">Timezone:</label>
                             <select name="timezone" id="timezone" class="form-select">
-                                <option value="UTC" {% if timezone == 'UTC' %}selected{% endif %}>UTC</option>
-                                <option value="-12" {% if timezone == '-12' %}selected{% endif %}>UTC-12 (Baker Island)</option>
-                                <option value="-11" {% if timezone == '-11' %}selected{% endif %}>UTC-11 (Samoa)</option>
-                                <option value="-10" {% if timezone == '-10' %}selected{% endif %}>UTC-10 (Hawaii)</option>
-                                <option value="-9" {% if timezone == '-9' %}selected{% endif %}>UTC-9 (Alaska)</option>
-                                <option value="-8" {% if timezone == '-8' %}selected{% endif %}>UTC-8 (Pacific)</option>
-                                <option value="-7" {% if timezone == '-7' %}selected{% endif %}>UTC-7 (Mountain)</option>
-                                <option value="-6" {% if timezone == '-6' %}selected{% endif %}>UTC-6 (Central)</option>
-                                <option value="-5" {% if timezone == '-5' %}selected{% endif %}>UTC-5 (Eastern)</option>
-                                <option value="-4" {% if timezone == '-4' %}selected{% endif %}>UTC-4 (Atlantic)</option>
-                                <option value="-3" {% if timezone == '-3' %}selected{% endif %}>UTC-3 (Brazil)</option>
-                                <option value="0" {% if timezone == '0' %}selected{% endif %}>UTC+0 (London)</option>
-                                <option value="1" {% if timezone == '1' %}selected{% endif %}>UTC+1 (Paris)</option>
-                                <option value="2" {% if timezone == '2' %}selected{% endif %}>UTC+2 (Cairo)</option>
-                                <option value="5.5" {% if timezone == '5.5' %}selected{% endif %}>UTC+5:30 (India)</option>
-                                <option value="8" {% if timezone == '8' %}selected{% endif %}>UTC+8 (Singapore)</option>
-                                <option value="9" {% if timezone == '9' %}selected{% endif %}>UTC+9 (Tokyo)</option>
-                                <option value="10" {% if timezone == '10' %}selected{% endif %}>UTC+10 (Sydney)</option>
-                                <option value="12" {% if timezone == '12' %}selected{% endif %}>UTC+12 (Auckland)</option>
+                                <option value="UTC" {% if timezone=='UTC' %}selected{% endif %}>UTC</option>
+                                <option value="-12" {% if timezone=='-12' %}selected{% endif %}>UTC-12 (Baker Island)
+                                </option>
+                                <option value="-11" {% if timezone=='-11' %}selected{% endif %}>UTC-11 (Samoa)</option>
+                                <option value="-10" {% if timezone=='-10' %}selected{% endif %}>UTC-10 (Hawaii)</option>
+                                <option value="-9" {% if timezone=='-9' %}selected{% endif %}>UTC-9 (Alaska)</option>
+                                <option value="-8" {% if timezone=='-8' %}selected{% endif %}>UTC-8 (Pacific)</option>
+                                <option value="-7" {% if timezone=='-7' %}selected{% endif %}>UTC-7 (Mountain)</option>
+                                <option value="-6" {% if timezone=='-6' %}selected{% endif %}>UTC-6 (Central)</option>
+                                <option value="-5" {% if timezone=='-5' %}selected{% endif %}>UTC-5 (Eastern)</option>
+                                <option value="-4" {% if timezone=='-4' %}selected{% endif %}>UTC-4 (Atlantic)</option>
+                                <option value="-3" {% if timezone=='-3' %}selected{% endif %}>UTC-3 (Brazil)</option>
+                                <option value="0" {% if timezone=='0' %}selected{% endif %}>UTC+0 (London)</option>
+                                <option value="1" {% if timezone=='1' %}selected{% endif %}>UTC+1 (Paris)</option>
+                                <option value="2" {% if timezone=='2' %}selected{% endif %}>UTC+2 (Cairo)</option>
+                                <option value="5.5" {% if timezone=='5.5' %}selected{% endif %}>UTC+5:30 (India)
+                                </option>
+                                <option value="8" {% if timezone=='8' %}selected{% endif %}>UTC+8 (Singapore)</option>
+                                <option value="9" {% if timezone=='9' %}selected{% endif %}>UTC+9 (Tokyo)</option>
+                                <option value="10" {% if timezone=='10' %}selected{% endif %}>UTC+10 (Sydney)</option>
+                                <option value="12" {% if timezone=='12' %}selected{% endif %}>UTC+12 (Auckland)</option>
                             </select>
                             <small class="form-text text-muted">
                                 Affects how reading history dates are displayed on the Insights page.
@@ -526,7 +533,8 @@
                                 <i class="bi bi-trash"></i> Clear All Caches
                             </button>
                             <small class="form-text text-muted d-block mt-2">
-                                Clears directory cache and statistics cache (Insights charts). Use this if data appears stale.
+                                Clears directory cache and statistics cache (Insights charts). Use this if data appears
+                                stale.
                             </small>
                         </div>
                     </div>
@@ -646,7 +654,8 @@
                 <div class="container p-4 border rounded shadow-sm mb-4">
                     <h4>Missing Issue Configuration</h4>
                     <p class="text-muted">Update these settings to ignore terms or files when the app is performing a
-                        <strong>Missing Issue</strong> scan.</p>
+                        <strong>Missing Issue</strong> scan.
+                    </p>
 
                     <div class="row">
                         <div class="col-md-6">
@@ -762,57 +771,62 @@
                 <!-- Theme Selection -->
                 <div class="container p-4 border rounded shadow-sm mb-4">
                     <h4>Theme Selection</h4>
-                    <p class="text-muted">Choose a Bootstrap theme for the application. Themes provided by <a href="https://bootswatch.com/" target="_blank">Bootswatch</a>.</p>
+                    <p class="text-muted">Choose a Bootstrap theme for the application. Themes provided by <a
+                            href="https://bootswatch.com/" target="_blank">Bootswatch</a>.</p>
 
                     <div class="row">
                         <div class="col-md-6">
                             <label for="bootstrapTheme" class="form-label">Bootstrap Theme:</label>
                             <select class="form-select" id="bootstrapTheme" name="bootstrapTheme">
-                                <option value="default" {% if bootstrapTheme == 'default' %}selected{% endif %}>Default (Bootstrap)</option>
-                                <option value="cerulean" {% if bootstrapTheme == 'cerulean' %}selected{% endif %}>Cerulean</option>
-                                <option value="cosmo" {% if bootstrapTheme == 'cosmo' %}selected{% endif %}>Cosmo</option>
-                                <option value="cyborg" {% if bootstrapTheme == 'cyborg' %}selected{% endif %}>Cyborg (Dark)</option>
-                                <option value="darkly" {% if bootstrapTheme == 'darkly' %}selected{% endif %}>Darkly (Dark)</option>
-                                <option value="flatly" {% if bootstrapTheme == 'flatly' %}selected{% endif %}>Flatly</option>
-                                <option value="journal" {% if bootstrapTheme == 'journal' %}selected{% endif %}>Journal</option>
-                                <option value="litera" {% if bootstrapTheme == 'litera' %}selected{% endif %}>Litera</option>
-                                <option value="lumen" {% if bootstrapTheme == 'lumen' %}selected{% endif %}>Lumen</option>
-                                <option value="lux" {% if bootstrapTheme == 'lux' %}selected{% endif %}>Lux</option>
-                                <option value="materia" {% if bootstrapTheme == 'materia' %}selected{% endif %}>Materia</option>
-                                <option value="minty" {% if bootstrapTheme == 'minty' %}selected{% endif %}>Minty</option>
-                                <option value="morph" {% if bootstrapTheme == 'morph' %}selected{% endif %}>Morph</option>
-                                <option value="pulse" {% if bootstrapTheme == 'pulse' %}selected{% endif %}>Pulse</option>
-                                <option value="quartz" {% if bootstrapTheme == 'quartz' %}selected{% endif %}>Quartz (Dark)</option>
-                                <option value="sandstone" {% if bootstrapTheme == 'sandstone' %}selected{% endif %}>Sandstone</option>
-                                <option value="simplex" {% if bootstrapTheme == 'simplex' %}selected{% endif %}>Simplex</option>
-                                <option value="sketchy" {% if bootstrapTheme == 'sketchy' %}selected{% endif %}>Sketchy</option>
-                                <option value="slate" {% if bootstrapTheme == 'slate' %}selected{% endif %}>Slate (Dark)</option>
-                                <option value="solar" {% if bootstrapTheme == 'solar' %}selected{% endif %}>Solar (Dark)</option>
-                                <option value="spacelab" {% if bootstrapTheme == 'spacelab' %}selected{% endif %}>Spacelab</option>
-                                <option value="superhero" {% if bootstrapTheme == 'superhero' %}selected{% endif %}>Superhero (Dark)</option>
-                                <option value="united" {% if bootstrapTheme == 'united' %}selected{% endif %}>United</option>
-                                <option value="vapor" {% if bootstrapTheme == 'vapor' %}selected{% endif %}>Vapor (Dark)</option>
-                                <option value="yeti" {% if bootstrapTheme == 'yeti' %}selected{% endif %}>Yeti</option>
-                                <option value="zephyr" {% if bootstrapTheme == 'zephyr' %}selected{% endif %}>Zephyr</option>
+                                <option value="default" {% if bootstrapTheme=='default' %}selected{% endif %}>Default
+                                    (Bootstrap)</option>
+                                <option value="cerulean" {% if bootstrapTheme=='cerulean' %}selected{% endif %}>Cerulean
+                                </option>
+                                <option value="cosmo" {% if bootstrapTheme=='cosmo' %}selected{% endif %}>Cosmo</option>
+                                <option value="cyborg" {% if bootstrapTheme=='cyborg' %}selected{% endif %}>Cyborg
+                                    (Dark)</option>
+                                <option value="darkly" {% if bootstrapTheme=='darkly' %}selected{% endif %}>Darkly
+                                    (Dark)</option>
+                                <option value="flatly" {% if bootstrapTheme=='flatly' %}selected{% endif %}>Flatly
+                                </option>
+                                <option value="journal" {% if bootstrapTheme=='journal' %}selected{% endif %}>Journal
+                                </option>
+                                <option value="litera" {% if bootstrapTheme=='litera' %}selected{% endif %}>Litera
+                                </option>
+                                <option value="lumen" {% if bootstrapTheme=='lumen' %}selected{% endif %}>Lumen</option>
+                                <option value="lux" {% if bootstrapTheme=='lux' %}selected{% endif %}>Lux</option>
+                                <option value="materia" {% if bootstrapTheme=='materia' %}selected{% endif %}>Materia
+                                </option>
+                                <option value="minty" {% if bootstrapTheme=='minty' %}selected{% endif %}>Minty</option>
+                                <option value="morph" {% if bootstrapTheme=='morph' %}selected{% endif %}>Morph</option>
+                                <option value="pulse" {% if bootstrapTheme=='pulse' %}selected{% endif %}>Pulse</option>
+                                <option value="quartz" {% if bootstrapTheme=='quartz' %}selected{% endif %}>Quartz
+                                    (Dark)</option>
+                                <option value="sandstone" {% if bootstrapTheme=='sandstone' %}selected{% endif %}>
+                                    Sandstone</option>
+                                <option value="simplex" {% if bootstrapTheme=='simplex' %}selected{% endif %}>Simplex
+                                </option>
+                                <option value="sketchy" {% if bootstrapTheme=='sketchy' %}selected{% endif %}>Sketchy
+                                </option>
+                                <option value="slate" {% if bootstrapTheme=='slate' %}selected{% endif %}>Slate (Dark)
+                                </option>
+                                <option value="solar" {% if bootstrapTheme=='solar' %}selected{% endif %}>Solar (Dark)
+                                </option>
+                                <option value="spacelab" {% if bootstrapTheme=='spacelab' %}selected{% endif %}>Spacelab
+                                </option>
+                                <option value="superhero" {% if bootstrapTheme=='superhero' %}selected{% endif %}>
+                                    Superhero (Dark)</option>
+                                <option value="united" {% if bootstrapTheme=='united' %}selected{% endif %}>United
+                                </option>
+                                <option value="vapor" {% if bootstrapTheme=='vapor' %}selected{% endif %}>Vapor (Dark)
+                                </option>
+                                <option value="yeti" {% if bootstrapTheme=='yeti' %}selected{% endif %}>Yeti</option>
+                                <option value="zephyr" {% if bootstrapTheme=='zephyr' %}selected{% endif %}>Zephyr
+                                </option>
                             </select>
                             <small class="form-text text-muted">
                                 Select a theme to change the look and feel of the application. Dark themes are marked.
                             </small>
-                        </div>
-                        <div class="col-md-6">
-                            <label class="form-label">Theme Preview:</label>
-                            <div class="border rounded p-2 text-center">
-                                <img id="themePreviewImg"
-                                     src="https://bootswatch.com/{{ bootstrapTheme|default('default') }}/thumbnail.png"
-                                     alt="Theme preview"
-                                     class="img-fluid rounded"
-                                     style="max-height: 200px;"
-                                     onerror="this.src='https://bootswatch.com/default/thumbnail.png'">
-                                <div class="mt-2">
-                                    <strong id="themePreviewName">{{ bootstrapTheme|default('default')|title }}</strong>
-                                    <br><small class="text-muted">Save settings to apply this theme.</small>
-                                </div>
-                            </div>
                         </div>
                     </div>
                 </div>
@@ -826,15 +840,107 @@
 
             </div>
 
+            <!-- ========================================== -->
+            <!-- TAB 5: Recommendations -->
+            <!-- ========================================== -->
+            <div class="tab-pane fade" id="recommendations" role="tabpanel" aria-labelledby="recommendations-tab">
+
+                <!-- Recommendation Settings -->
+                <div class="container p-4 border rounded shadow-sm mb-4">
+                    <h4><i class="bi bi-stars text-warning"></i> Recommendation Service</h4>
+                    <p class="text-muted">Configure AI-powered recommendations for your reading list. Requires an API
+                        key from your preferred provider.</p>
+
+                    <div class="form-check form-switch mb-3">
+                        <input class="form-check-input" type="checkbox" id="recEnabled" name="recEnabled" {% if
+                            rec_enabled %}checked{% endif %}>
+                        <label class="form-check-label" for="recEnabled">Enable Recommendations</label>
+                    </div>
+
+                    <div class="row">
+                        <div class="col-md-4">
+                            <label for="recProvider" class="form-label">AI Provider:</label>
+                            <select class="form-select" id="recProvider" name="recProvider"
+                                onchange="updateModelOptions()">
+                                <option value="gemini" {% if rec_provider=='gemini' %}selected{% endif %}>Google Gemini
+                                </option>
+                                <option value="openai" {% if rec_provider=='openai' %}selected{% endif %}>OpenAI
+                                    (ChatGPT)</option>
+                                <option value="anthropic" {% if rec_provider=='anthropic' %}selected{% endif %}>
+                                    Anthropic (Claude)</option>
+                            </select>
+                            <small class="form-text text-muted">
+                                Select the AI service provider.
+                            </small>
+                        </div>
+
+                        <div class="col-md-8">
+                            <label for="recApiKey" class="form-label">API Key:</label>
+                            <input type="password" name="recApiKey" id="recApiKey" value="{{ rec_api_key }}"
+                                class="form-control" autocomplete="off">
+                            <small class="form-text text-muted">
+                                Your API key is stored locally in <code>config.ini</code>.
+                            </small>
+                        </div>
+                    </div>
+
+                    <div class="row mt-3">
+                        <div class="col-md-6">
+                            <label for="recModel" class="form-label">Model:</label>
+                            <select class="form-select" id="recModel" name="recModel">
+                                <!-- Populated via JS based on provider -->
+                                <option value="{{ rec_model }}" selected>{{ rec_model }}</option>
+                            </select>
+                            <small class="form-text text-muted">
+                                Select the specific model to use.
+                            </small>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Save Button for Tab 5 -->
+                <div class="mb-3 text-center">
+                    <button type="submit" class="btn btn-primary">
+                        <i class="bi bi-floppy"></i> Save Recommendation Settings
+                    </button>
+                </div>
+
+            </div>
         </div>
+        <div class="col-md-6">
+            <label class="form-label">Theme Preview:</label>
+            <div class="border rounded p-2 text-center">
+                <img id="themePreviewImg"
+                    src="https://bootswatch.com/{{ bootstrapTheme|default('default') }}/thumbnail.png"
+                    alt="Theme preview" class="img-fluid rounded" style="max-height: 200px;"
+                    onerror="this.src='https://bootswatch.com/default/thumbnail.png'">
+                <div class="mt-2">
+                    <strong id="themePreviewName">{{ bootstrapTheme|default('default')|title }}</strong>
+                    <br><small class="text-muted">Save settings to apply this theme.</small>
+                </div>
+            </div>
+        </div>
+</div>
+</div>
 
-    </form>
+<!-- Save Button for Tab 4 -->
+<div class="mb-3 text-center">
+    <button type="submit" class="btn btn-primary">
+        <i class="bi bi-floppy"></i> Save Styling Settings
+    </button>
+</div>
 
-    <!-- Restart Button -->
-    <div class="container p-4 border rounded shadow-sm text-center">
-        <h6>Restart Flask App</h6>
-        <button onclick="restartApp()" class="btn btn-secondary">Restart App</button>
-    </div>
+</div>
+
+</div>
+
+</form>
+
+<!-- Restart Button -->
+<div class="container p-4 border rounded shadow-sm text-center">
+    <h6>Restart Flask App</h6>
+    <button onclick="restartApp()" class="btn btn-secondary">Restart App</button>
+</div>
 </div>
 
 {% endblock %}
@@ -927,7 +1033,7 @@
         setTimeout(loadRebuildSchedule, 1500);
 
         // Clear cache button handler
-        document.getElementById('clearCacheBtn').addEventListener('click', function() {
+        document.getElementById('clearCacheBtn').addEventListener('click', function () {
             const button = this;
             const originalText = button.innerHTML;
 
@@ -938,33 +1044,33 @@
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' }
             })
-            .then(response => response.json())
-            .then(data => {
-                if (data.success) {
-                    button.innerHTML = '<i class="bi bi-check"></i> Cleared!';
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        button.innerHTML = '<i class="bi bi-check"></i> Cleared!';
+                        button.classList.remove('btn-warning');
+                        button.classList.add('btn-success');
+                        setTimeout(() => {
+                            button.innerHTML = originalText;
+                            button.classList.remove('btn-success');
+                            button.classList.add('btn-warning');
+                            button.disabled = false;
+                        }, 2000);
+                    } else {
+                        throw new Error(data.message || 'Failed to clear cache');
+                    }
+                })
+                .catch(error => {
+                    button.innerHTML = '<i class="bi bi-x"></i> Error';
                     button.classList.remove('btn-warning');
-                    button.classList.add('btn-success');
+                    button.classList.add('btn-danger');
                     setTimeout(() => {
                         button.innerHTML = originalText;
-                        button.classList.remove('btn-success');
+                        button.classList.remove('btn-danger');
                         button.classList.add('btn-warning');
                         button.disabled = false;
                     }, 2000);
-                } else {
-                    throw new Error(data.message || 'Failed to clear cache');
-                }
-            })
-            .catch(error => {
-                button.innerHTML = '<i class="bi bi-x"></i> Error';
-                button.classList.remove('btn-warning');
-                button.classList.add('btn-danger');
-                setTimeout(() => {
-                    button.innerHTML = originalText;
-                    button.classList.remove('btn-danger');
-                    button.classList.add('btn-warning');
-                    button.disabled = false;
-                }, 2000);
-            });
+                });
         });
 
         // Show/hide weekday selector based on frequency
@@ -1248,8 +1354,54 @@
     }
 
     // Initialize theme preview on page load
-    document.addEventListener('DOMContentLoaded', function() {
+    document.addEventListener('DOMContentLoaded', function () {
         initializeThemePreview();
     });
+</script>
+</script>
+
+<script>
+    function updateModelOptions() {
+        const provider = document.getElementById('recProvider').value;
+        const modelSelect = document.getElementById('recModel');
+        const currentModel = "{{ rec_model }}";
+
+        // Clear existing options
+        modelSelect.innerHTML = '';
+
+        let models = [];
+
+        if (provider === 'gemini') {
+            models = [
+                { value: 'gemini-3-flash', text: 'Gemini 3 Flash (Latest)' },
+                { value: 'gemini-2.5-pro', text: 'Gemini 2.5 Pro' },
+                { value: 'gemini-2.0-flash', text: 'Gemini 2.0 Flash' }
+            ];
+        } else if (provider === 'openai') {
+            models = [
+                { value: 'gpt-4.1', text: 'GPT-4.1 (Smartest)' },
+                { value: 'gpt-4.1-mini', text: 'GPT-4.1 Mini' },
+                { value: 'gpt-4o', text: 'GPT-4o (Legacy)' }
+            ];
+        } else if (provider === 'anthropic') {
+            models = [
+                { value: 'claude-sonnet-4-5-20250929', text: 'Claude Sonnet 4.5' },
+                { value: 'claude-3-haiku-20240307', text: 'Claude Haiku 3' }
+            ];
+        }
+
+        models.forEach(model => {
+            const option = document.createElement('option');
+            option.value = model.value;
+            option.text = model.text;
+            if (model.value === currentModel) {
+                option.selected = true;
+            }
+            modelSelect.appendChild(option);
+        });
+    }
+
+    // Initialize on load
+    document.addEventListener('DOMContentLoaded', updateModelOptions);
 </script>
 {% endblock %}

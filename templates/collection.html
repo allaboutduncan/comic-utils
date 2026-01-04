@@ -114,6 +114,39 @@
                 <div class="swiper-button-prev"></div>
             </div>
         </section>
+
+        {% if rec_enabled %}
+        <!-- Discover / Recommendations -->
+        <section class="mb-4 dashboard-section" id="discoverSection">
+            <div class="d-flex justify-content-between align-items-center mb-3 px-2">
+                <h4 class="m-0"><i class="bi bi-stars text-warning me-2"></i>Discover</h4>
+                <button class="btn btn-sm btn-outline-primary" onclick="refreshRecommendations()">
+                    <i class="bi bi-arrow-clockwise"></i> Refresh
+                </button>
+            </div>
+
+            <div class="position-relative">
+                <!-- Loading State -->
+                <div id="recommendationsLoading" class="text-center p-5" style="display: none;">
+                    <div class="spinner-border text-primary" role="status">
+                        <span class="visually-hidden">Loading...</span>
+                    </div>
+                    <p class="mt-2 text-muted">Consulting the Oracle...</p>
+                </div>
+
+                <!-- Initial Search State (Empty) -->
+                <div id="recommendationsPlaceholder" class="text-center p-5 text-muted">
+                    <i class="bi bi-lightbulb fs-1 mb-3"></i>
+                    <p>Click Refresh to get AI-powered recommendations based on your reading history.</p>
+                </div>
+
+                <!-- Results Grid -->
+                <div class="row row-cols-1 row-cols-md-2 row-cols-lg-3 row-cols-xl-5 g-3" id="recommendationsGrid">
+                    <!-- Cards injected here -->
+                </div>
+            </div>
+        </section>
+        {% endif %}
         <!-- Recently Added -->
         <!--
         <section class="mb-4 dashboard-section">
@@ -600,9 +633,90 @@
         // Initialize all dashboard swipers with the same config
         document.querySelectorAll('.dashboard-swiper').forEach(el => {
             new Swiper(el, swiperConfig);
+            // Dashboard visibility is handled by loadDirectory() in collection.js
         });
 
-        // Dashboard visibility is handled by loadDirectory() in collection.js
+        // Load saved recommendations on startup
+        loadSavedRecommendations();
     });
+
+    async function loadSavedRecommendations() {
+        const grid = document.getElementById('recommendationsGrid');
+        const placeholder = document.getElementById('recommendationsPlaceholder');
+
+        try {
+            const response = await fetch('/api/recommendations'); // Default GET
+            if (response.ok) {
+                const data = await response.json();
+                if (Array.isArray(data) && data.length > 0) {
+                    if (placeholder) placeholder.style.display = 'none';
+                    renderRecommendations(data, grid);
+                }
+            }
+        } catch (e) {
+            console.warn("Could not load saved recommendations", e);
+        }
+    }
+
+    function renderRecommendations(data, grid) {
+        grid.innerHTML = '';
+        data.forEach(rec => {
+            const title = rec.title || rec.Series || "Unknown Title";
+            const publisher = rec.publisher || rec.Publisher || "";
+            const reason = rec.reason || rec.Reason || "Read to find out why!";
+
+            const card = `
+                <div class="col">
+                    <div class="card h-100 shadow-sm border-0" style="background: var(--card-bg, #fff);">
+                        <div class="card-body">
+                            <h6 class="card-title text-primary text-truncate" title="${title}">${title}</h6>
+                            <h6 class="card-subtitle mb-2 text-muted small">${publisher}</h6>
+                            <p class="card-text small" style="font-size: 0.85rem;">${reason}</p>
+                        </div>
+                    </div>
+                </div>
+            `;
+            grid.insertAdjacentHTML('beforeend', card);
+        });
+    }
+    async function refreshRecommendations() {
+        const grid = document.getElementById('recommendationsGrid');
+        const loading = document.getElementById('recommendationsLoading');
+        const placeholder = document.getElementById('recommendationsPlaceholder');
+
+        // Reset UI
+        grid.innerHTML = '';
+        if (placeholder) placeholder.style.display = 'none';
+        loading.style.display = 'block';
+
+        try {
+            const response = await fetch('/api/recommendations', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({}) // Use server-side default settings
+            });
+
+            const data = await response.json();
+
+            if (loading) loading.style.display = 'none'; // Hide loading spinner
+
+
+            if (response.ok) {
+                if (!Array.isArray(data) || data.length === 0) {
+                    grid.innerHTML = '<div class="col-12 text-center text-muted">No recommendations found. Try reading more comics first!</div>';
+                    return;
+                }
+
+                renderRecommendations(data, grid);
+            } else {
+                grid.innerHTML = `<div class="col-12 text-center text-danger">Error: ${data.error || 'Failed to get recommendations'}</div>`;
+            }
+        } catch (error) {
+            if (loading) loading.style.display = 'none'; // Hide loading spinner on error
+            grid.innerHTML = `<div class="col-12 text-center text-danger">Network Error: ${error.message}</div>`;
+        }
+    }
 </script>
 {% endblock %}

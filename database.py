@@ -2473,3 +2473,50 @@ def get_all_reading_list_tags():
     except Exception as e:
         app_logger.error(f"Error getting all reading list tags: {str(e)}")
         return []
+
+def get_recent_read_issues(limit=200):
+    """
+    Get the most recently read issues for recommendation context.
+    
+    Args:
+        limit: Maximum number of issues to return (default 200)
+        
+    Returns:
+        List of dictionaries with 'issue_path', 'series_name' (inferred), 'read_at'
+    """
+    try:
+        conn = get_db_connection()
+        if not conn:
+            return []
+            
+        c = conn.cursor()
+        
+        # We need to extract series info. For now, we'll return the path and let the consumer process it,
+        # or we can try to be smart about it.
+        c.execute('''
+            SELECT issue_path, read_at
+            FROM issues_read
+            ORDER BY read_at DESC
+            LIMIT ?
+        ''', (limit,))
+        
+        rows = c.fetchall()
+        conn.close()
+        
+        results = []
+        for row in rows:
+            # Simple inference: get the parent folder name as series name
+            path = row['issue_path']
+            series_name = os.path.basename(os.path.dirname(path))
+            
+            results.append({
+                'title': os.path.basename(path), # Filename as title
+                'series': series_name,
+                'path': path,
+                'read_at': row['read_at']
+            })
+            
+        return results
+    except Exception as e:
+        app_logger.error(f"Error fetching recent read issues: {e}")
+        return []

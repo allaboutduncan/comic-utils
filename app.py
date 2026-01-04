@@ -56,7 +56,8 @@ from database import (init_db, get_db_connection, get_recent_files, log_recent_f
                       get_rebuild_schedule, save_rebuild_schedule as db_save_rebuild_schedule, update_last_rebuild,
                       get_browse_cache, invalidate_browse_cache, clear_browse_cache,
                       get_path_counts_batch, get_directory_children, clear_stats_cache,
-                      clear_stats_cache_keys, mark_issue_read, get_issues_read)
+                      clear_stats_cache_keys, mark_issue_read, get_issues_read, get_recent_read_issues)
+import recommendations
 from models.stats import (get_library_stats, get_file_type_distribution, get_top_publishers,
                           get_reading_history_stats, get_largest_comics, get_top_series_by_count,
                           get_reading_heatmap_data)
@@ -2966,7 +2967,9 @@ def collection(subpath=''):
     """Render the visual browse page with optional path."""
     # Convert URL path to filesystem path (e.g., /collection/Marvel -> /data/Marvel)
     initial_path = f'/data/{subpath}' if subpath else ''
-    return render_template('collection.html', initial_path=initial_path)
+    return render_template('collection.html', 
+                           initial_path=initial_path,
+                           rec_enabled=config.get("SETTINGS", "REC_ENABLED", fallback="True") == "True")
 
 
 @app.route('/to-read')
@@ -5544,6 +5547,12 @@ def config_page():
         config["SETTINGS"]["ENABLE_DEBUG_LOGGING"] = str(request.form.get("enableDebugLogging") == "on")
         config["SETTINGS"]["BOOTSTRAP_THEME"] = request.form.get("bootstrapTheme", "default")
         config["SETTINGS"]["TIMEZONE"] = request.form.get("timezone", "UTC")
+        
+        # Recommendations
+        config["SETTINGS"]["REC_ENABLED"] = str(request.form.get("recEnabled") == "on")
+        config["SETTINGS"]["REC_PROVIDER"] = request.form.get("recProvider", "gemini")
+        config["SETTINGS"]["REC_API_KEY"] = request.form.get("recApiKey", "")
+        config["SETTINGS"]["REC_MODEL"] = request.form.get("recModel", "gemini-2.0-flash")
 
         write_config()  # Save changes to config.ini
         load_flask_config(app)  # Reload into Flask config
@@ -5598,6 +5607,10 @@ def config_page():
         bootstrapTheme=settings.get("BOOTSTRAP_THEME", "default"),
         timezone=settings.get("TIMEZONE", "UTC"),
         config=settings,  # Pass full settings dictionary
+        rec_enabled=settings.get("REC_ENABLED", "True") == "True",
+        rec_provider=settings.get("REC_PROVIDER", "gemini"),
+        rec_api_key=settings.get("REC_API_KEY", ""),
+        rec_model=settings.get("REC_MODEL", "gemini-2.0-flash")
     )
 
 #########################
@@ -5871,7 +5884,11 @@ def index():
     # These environment variables are set/updated by load_config_into_env()
     watch = config.get("SETTINGS", "WATCH", fallback="/temp")
     convert_subdirectories = config.getboolean('SETTINGS', 'CONVERT_SUBDIRECTORIES', fallback=False)
-    return render_template('collection.html', watch=watch, config=app.config, convertSubdirectories=convert_subdirectories)
+    return render_template('collection.html', 
+                           watch=watch, 
+                           config=app.config, 
+                           convertSubdirectories=convert_subdirectories,
+                           rec_enabled=config.get("SETTINGS", "REC_ENABLED", fallback="True") == "True")
     
 #########################
 #        App Logs       #
@@ -7920,7 +7937,8 @@ def insights_page():
                            largest_comics=largest_comics,
                            top_series=top_series,
                            reading_heatmap=reading_heatmap,
-                           reading_totals=reading_totals)
+                           reading_totals=reading_totals,
+                           rec_enabled=config.get("SETTINGS", "REC_ENABLED", fallback="True") == "True")
 
 @app.route('/api/insights')
 def api_insights():
@@ -8115,6 +8133,57 @@ def start_background_services():
 
 # Start background services when module is imported (works with Gunicorn)
 start_background_services()
+
+@app.route('/api/recommendations', methods=['GET', 'POST'])
+def api_recommendations():
+    try:
+        from config import CONFIG_DIR
+        recommendations_file = os.path.join(CONFIG_DIR, 'recommendations.json')
+
+        if request.method == 'GET':
+            if os.path.exists(recommendations_file):
+                try:
+                    with open(recommendations_file, 'r') as f:
+                        return jsonify(json.load(f))
+                except json.JSONDecodeError:
+                    return jsonify([])
+            return jsonify([])
+
+        data = request.json or {}
+        
+        # Get settings from request or config
+        provider = data.get('provider') or config["SETTINGS"].get("REC_PROVIDER", "gemini")
+        api_key = data.get('api_key') or config["SETTINGS"].get("REC_API_KEY", "")
+        model = data.get('model') or config["SETTINGS"].get("REC_MODEL", "gemini-2.0-flash")
+        
+        # If no API key in request or config, error
+        if not api_key:
+             return jsonify({"error": "API Key is required. Please configure it in Settings."}), 400
+
+        # Fetch reading history
+        reading_history = get_recent_read_issues(limit=200)
+        
+        if not reading_history:
+             return jsonify({"error": "No reading history found to generate recommendations from."}), 404
+             
+        # Call recommendations module
+        recommendations_list = recommendations.get_recommendations(api_key, provider, model, reading_history)
+        
+        if isinstance(recommendations_list, dict) and "error" in recommendations_list:
+             return jsonify(recommendations_list), 500
+        
+        # Save recommendations
+        try:
+             with open(recommendations_file, 'w') as f:
+                 json.dump(recommendations_list, f)
+        except Exception as e:
+             app_logger.error(f"Failed to save recommendations: {e}")
+             
+        return jsonify(recommendations_list)
+        
+    except Exception as e:
+        app_logger.error(f"Error generating recommendations: {e}")
+        return jsonify({"error": str(e)}), 500
 
 if __name__ == '__main__':
     # Only used for local development (python app.py)
