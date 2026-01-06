@@ -7645,6 +7645,141 @@ def search_comicvine_metadata():
             }), 500
         app_logger.debug(f"DEBUG: Simyan library is available")
 
+        # Check for cvinfo file in parent folder - can skip volume search if found
+        folder_path = os.path.dirname(file_path)
+        cvinfo_path = comicvine.find_cvinfo_in_folder(folder_path)
+
+        if cvinfo_path:
+            app_logger.info(f"Found cvinfo file at {cvinfo_path}")
+
+            # Parse issue number from filename first (needed for cvinfo lookup)
+            name_without_ext = file_name
+            for ext in ('.cbz', '.cbr', '.zip'):
+                name_without_ext = name_without_ext.replace(ext, '')
+
+            # Extract issue number using comicvine helper
+            issue_number = comicvine.extract_issue_number(name_without_ext)
+            if not issue_number:
+                issue_number = "1"  # Default for graphic novels/one-shots
+
+            # Extract year from filename if present
+            year_match = re.search(r'\((\d{4})\)', name_without_ext)
+            year = int(year_match.group(1)) if year_match else None
+
+            # Try Metron first if configured and metron_series_id exists
+            from models import metron as metron_module
+            metron_series_id = metron_module.parse_cvinfo_for_metron_id(cvinfo_path)
+            metron_username = app.config.get("METRON_USERNAME", "").strip()
+            metron_password = app.config.get("METRON_PASSWORD", "").strip()
+
+            if metron_series_id and metron_username and metron_password and metron_module.is_mokkari_available():
+                app_logger.info(f"Trying Metron first with series ID {metron_series_id}")
+                metron_api = metron_module.get_api(metron_username, metron_password)
+
+                if metron_api:
+                    metron_issue_data = metron_module.get_issue_metadata(metron_api, metron_series_id, issue_number)
+
+                    if metron_issue_data:
+                        # Check if summary/description is not blank
+                        metron_comicinfo = metron_module.map_to_comicinfo(metron_issue_data)
+                        summary = metron_comicinfo.get('Summary', '').strip()
+
+                        if summary:
+                            app_logger.info(f"Metron returned valid metadata with summary for issue #{issue_number}")
+
+                            # Generate and add ComicInfo.xml
+                            comicinfo_xml = generate_comicinfo_xml(metron_comicinfo)
+                            add_comicinfo_to_cbz(file_path, comicinfo_xml)
+
+                            # Get image URL if available
+                            img_url = None
+                            if isinstance(metron_issue_data, dict):
+                                image = metron_issue_data.get('image')
+                                if image:
+                                    img_url = str(image) if not isinstance(image, str) else image
+
+                            return jsonify({
+                                "success": True,
+                                "metadata": metron_comicinfo,
+                                "image_url": img_url,
+                                "source": "metron",
+                                "rename_config": {
+                                    "enabled": app.config.get("ENABLE_CUSTOM_RENAME", False),
+                                    "pattern": app.config.get("CUSTOM_RENAME_PATTERN", ""),
+                                    "auto_rename": app.config.get("ENABLE_AUTO_RENAME", False)
+                                }
+                            })
+                        else:
+                            app_logger.info("Metron summary is blank, falling back to ComicVine")
+
+            # Try ComicVine with volume ID from cvinfo
+            cv_volume_id = comicvine.parse_cvinfo_volume_id(cvinfo_path)
+
+            if cv_volume_id:
+                app_logger.info(f"Using ComicVine volume ID {cv_volume_id} from cvinfo")
+                issue_data = comicvine.get_issue_by_number(api_key, cv_volume_id, issue_number, year)
+
+                if issue_data:
+                    app_logger.info(f"Found issue #{issue_number} using cvinfo volume ID")
+
+                    # Create minimal volume_data for mapping
+                    volume_data = {
+                        'id': cv_volume_id,
+                        'name': issue_data.get('volume_name', ''),
+                        'start_year': issue_data.get('year'),
+                        'publisher_name': issue_data.get('publisher_name', '')
+                    }
+
+                    # Map to ComicInfo format
+                    comicinfo_data = comicvine.map_to_comicinfo(issue_data, volume_data)
+
+                    # Generate ComicInfo.xml
+                    comicinfo_xml = generate_comicinfo_xml(comicinfo_data)
+
+                    # Add ComicInfo.xml to the CBZ file
+                    add_comicinfo_to_cbz(file_path, comicinfo_xml)
+
+                    # Auto-move file if enabled
+                    new_file_path = None
+                    try:
+                        new_file_path = comicvine.auto_move_file(file_path, volume_data, app.config)
+                    except Exception as move_error:
+                        app_logger.error(f"Auto-move failed but metadata was added successfully: {str(move_error)}")
+
+                    # Get image URL
+                    img_url = issue_data.get('image_url')
+                    if img_url and not isinstance(img_url, str):
+                        img_url = str(img_url)
+
+                    response_data = {
+                        "success": True,
+                        "metadata": comicinfo_data,
+                        "image_url": img_url,
+                        "source": "comicvine_cvinfo",
+                        "volume_info": {
+                            "id": cv_volume_id,
+                            "name": volume_data.get('name', ''),
+                            "start_year": volume_data.get('start_year')
+                        },
+                        "rename_config": {
+                            "enabled": app.config.get("ENABLE_CUSTOM_RENAME", False),
+                            "pattern": app.config.get("CUSTOM_RENAME_PATTERN", ""),
+                            "auto_rename": app.config.get("ENABLE_AUTO_RENAME", False)
+                        }
+                    }
+
+                    if new_file_path:
+                        response_data["moved"] = True
+                        response_data["new_file_path"] = new_file_path
+                        log_file_if_in_data(new_file_path)
+                        invalidate_cache_for_path(os.path.dirname(file_path))
+                        invalidate_cache_for_path(os.path.dirname(new_file_path))
+                        update_index_on_move(file_path, new_file_path)
+
+                    return jsonify(response_data)
+                else:
+                    app_logger.info(f"Issue #{issue_number} not found using cvinfo, falling back to volume search")
+
         # Parse series name and issue from filename (reuse GCD parsing logic)
         name_without_ext = file_name
         for ext in ('.cbz', '.cbr', '.zip'):

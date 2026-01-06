@@ -43,7 +43,6 @@
                     Performance</button>
             </li>
             <li class="nav-item" role="presentation">
-            <li class="nav-item" role="presentation">
                 <button class="nav-link" id="styling-tab" data-bs-toggle="tab" data-bs-target="#styling" type="button"
                     role="tab" aria-controls="styling" aria-selected="false">Styling</button>
             </li>
@@ -828,6 +827,19 @@
                                 Select a theme to change the look and feel of the application. Dark themes are marked.
                             </small>
                         </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Theme Preview:</label>
+                            <div class="border rounded p-2 text-center">
+                                <img id="themePreviewImg"
+                                    src="https://bootswatch.com/{{ bootstrapTheme|default('default') }}/thumbnail.png"
+                                    alt="Theme preview" class="img-fluid rounded" style="max-height: 200px;"
+                                    onerror="this.src='https://bootswatch.com/default/thumbnail.png'">
+                                <div class="mt-2">
+                                    <strong id="themePreviewName">{{ bootstrapTheme|default('default')|title }}</strong>
+                                    <br><small class="text-muted">Save settings to apply this theme.</small>
+                                </div>
+                            </div>
+                        </div>
                     </div>
                 </div>
 
@@ -907,32 +919,6 @@
 
             </div>
         </div>
-        <div class="col-md-6">
-            <label class="form-label">Theme Preview:</label>
-            <div class="border rounded p-2 text-center">
-                <img id="themePreviewImg"
-                    src="https://bootswatch.com/{{ bootstrapTheme|default('default') }}/thumbnail.png"
-                    alt="Theme preview" class="img-fluid rounded" style="max-height: 200px;"
-                    onerror="this.src='https://bootswatch.com/default/thumbnail.png'">
-                <div class="mt-2">
-                    <strong id="themePreviewName">{{ bootstrapTheme|default('default')|title }}</strong>
-                    <br><small class="text-muted">Save settings to apply this theme.</small>
-                </div>
-            </div>
-        </div>
-</div>
-</div>
-
-<!-- Save Button for Tab 4 -->
-<div class="mb-3 text-center">
-    <button type="submit" class="btn btn-primary">
-        <i class="bi bi-floppy"></i> Save Styling Settings
-    </button>
-</div>
-
-</div>
-
-</div>
 
 </form>
 
@@ -1357,7 +1343,6 @@
     document.addEventListener('DOMContentLoaded', function () {
         initializeThemePreview();
     });
-</script>
 </script>
 
 <script>
