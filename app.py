@@ -85,12 +85,24 @@ app_logger.info("📅 Rebuild scheduler initialized")
 # Function to perform scheduled file index rebuild
 def scheduled_file_index_rebuild():
     """Rebuild the file index on schedule."""
+    global index_built
+    
     try:
         app_logger.info("🔄 Starting scheduled file index rebuild...")
         start_time = time.time()
 
-        # Clear and rebuild the file index
+        # Reset the index_built flag to force a full rebuild
+        index_built = False
+
+        # Clear the database so build_file_index() will scan the filesystem
+        app_logger.info("Clearing file index database...")
+        clear_file_index_from_db()
+
+        # Clear the in-memory file index
         file_index.clear()
+
+        # Build from filesystem (will scan since database is now empty)
+        app_logger.info("Scanning filesystem to rebuild index...")
         build_file_index()
 
         # Update last rebuild timestamp
