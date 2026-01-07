@@ -65,8 +65,7 @@
     {% if lists %}
     <div class="reading-list-grid">
         {% for list in lists %}
-        <div class="reading-list-card stagger-load"
-            data-tags='{{ list.tags|tojson|safe }}'
+        <div class="reading-list-card stagger-load" data-tags='{{ list.tags|tojson|safe }}'
             onclick="window.location.href='{{ url_for('reading_lists.view_list', list_id=list.id) }}'">
 
             <!-- Background / Stack -->
@@ -94,8 +93,7 @@
             <!-- Content -->
             <div class="card-content text-primary">
                 <h3 class="card-title-lg text-truncate"
-                    onclick="event.stopPropagation(); editTitle({{ list.id }}, this)"
-                    title="Click to edit">
+                    onclick="event.stopPropagation(); editTitle({{ list.id }}, this)" title="Click to edit">
                     {{ list.name }}
                 </h3>
 
@@ -131,7 +129,8 @@
                 {% if list.entry_count > 0 %}
                 {% set percent = (list.read_count / list.entry_count * 100)|round %}
                 <div class="progress-bar-container">
-                    <div class="progress-bar-fill {% if percent == 100 %}progress-complete{% elif percent >= 66 %}progress-high{% elif percent >= 33 %}progress-medium{% else %}progress-low{% endif %}" style="width: {{ percent }}%"></div>
+                    <div class="progress-bar-fill {% if percent == 100 %}progress-complete{% elif percent >= 66 %}progress-high{% elif percent >= 33 %}progress-medium{% else %}progress-low{% endif %}"
+                        style="width: {{ percent }}%"></div>
                 </div>
                 {% endif %}
             </div>
@@ -206,7 +205,10 @@
                             <input type="url" class="form-control" id="githubUrl"
                                 placeholder="https://github.com/user/repo/blob/main/list.cbl" required>
                         </div>
-                        <div class="form-text mt-2">Paste the URL of a .cbl file directly from GitHub.</div>
+                        <div class="form-text mt-2">Paste the `raw` URL of a .cbl file directly from GitHub.</div>
+                        <div class="form-text mt-2">Reading lists are available from the <a
+                                href="https://github.com/DieselTech/CBL-ReadingLists" target="_blank">CBL-ReadingLists
+                                GitHub repository</a>.</div>
                     </div>
                 </form>
             </div>
@@ -235,9 +237,10 @@
             </div>
             <div class="modal-body p-4">
                 <div class="mb-3 position-relative">
-                    <input type="text" class="form-control" id="tagInput"
-                           placeholder="Type to add tag..." autocomplete="off">
-                    <div id="tagSuggestions" class="list-group position-absolute w-100 shadow" style="z-index:1050; max-height: 200px; overflow-y: auto;"></div>
+                    <input type="text" class="form-control" id="tagInput" placeholder="Type to add tag..."
+                        autocomplete="off">
+                    <div id="tagSuggestions" class="list-group position-absolute w-100 shadow"
+                        style="z-index:1050; max-height: 200px; overflow-y: auto;"></div>
                 </div>
                 <div id="selectedTags" class="d-flex flex-wrap gap-2 mb-3">
                     <!-- Selected tags rendered here -->
@@ -249,7 +252,8 @@
                 </div>
             </div>
             <div class="modal-footer bg-light">
-                <button type="button" class="btn btn-link text-decoration-none text-muted" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-link text-decoration-none text-muted"
+                    data-bs-dismiss="modal">Cancel</button>
                 <button type="button" class="btn btn-primary px-4" onclick="saveTags()">Save Tags</button>
             </div>
         </div>
