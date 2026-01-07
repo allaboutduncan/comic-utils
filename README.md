@@ -20,7 +20,7 @@ The app is intended to allow users to manage their remote comic collections, per
 ![Comic Library Utilities (CLU)](/images/home_v1.png "Comic Library Utilities Homepage")
 
 ### Full Documentation
-Full documention and install steps have [moved to Gitbook.io](https://phillips-organization-6.gitbook.io/clu-comic-library-utilities/)
+Full documention and install steps have [moved to clucomics.org](https://clucomics.org)
 
 ## Features
 Here's a quick list of features
