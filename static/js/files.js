@@ -18,6 +18,11 @@ let cbzCurrentDirectory = '';
 let cbzCurrentFileList = [];
 let cbzCurrentIndex = -1;
 let cbzCurrentFilePath = '';
+// CBZ Page Preview Viewer State
+let cbzViewerPath = null;
+let cbzViewerPageCount = 0;
+let cbzViewerCurrentPage = 0;
+let cbzViewerPreloadedPages = new Set();
 
 // Store raw data for each panel.
 let sourceDirectoriesData = null;
@@ -51,6 +56,123 @@ function formatSize(bytes) {
   if (bytes === 0) return '0 B';
   const i = parseInt(Math.floor(Math.log(bytes) / Math.log(1024)));
   return (bytes / Math.pow(1024, i)).toFixed(1) + ' ' + sizes[i];
+}
+
+// ==========================================
+// CBZ Page Preview Viewer Functions
+// ==========================================
+
+function encodeFilePathForReader(path) {
+  const cleanPath = path.startsWith('/') ? path.substring(1) : path;
+  return cleanPath.split('/').map(c => encodeURIComponent(c)).join('/');
+}
+
+function loadCbzPage(pageNum) {
+  if (!cbzViewerPath || pageNum < 0 || pageNum >= cbzViewerPageCount) return;
+
+  const container = document.getElementById('cbzPreviewContainer');
+  const encodedPath = encodeFilePathForReader(cbzViewerPath);
+  const imageUrl = `/api/read/${encodedPath}/page/${pageNum}`;
+
+  container.innerHTML = '<div class="spinner-border text-primary" role="status"></div>';
+
+  const img = new Image();
+  img.src = imageUrl;
+  img.className = 'img-fluid';
+  img.style.maxHeight = '400px';
+  img.decoding = 'async';
+
+  img.onload = () => {
+    container.innerHTML = '';
+    container.appendChild(img);
+    cbzViewerCurrentPage = pageNum;
+    document.getElementById('cbzCurrentPage').textContent = pageNum + 1;
+    updateCbzPageButtons();
+  };
+
+  img.onerror = () => {
+    container.innerHTML = '<div class="text-danger">Failed to load page</div>';
+  };
+}
+
+function preloadCbzPages(currentPage) {
+  [currentPage + 1, currentPage + 2, currentPage - 1].forEach(pageNum => {
+    if (pageNum >= 0 && pageNum < cbzViewerPageCount && !cbzViewerPreloadedPages.has(pageNum)) {
+      const img = new Image();
+      img.src = `/api/read/${encodeFilePathForReader(cbzViewerPath)}/page/${pageNum}`;
+      cbzViewerPreloadedPages.add(pageNum);
+    }
+  });
+}
+
+function cbzPagePrev() {
+  if (cbzViewerCurrentPage > 0) {
+    loadCbzPage(cbzViewerCurrentPage - 1);
+    preloadCbzPages(cbzViewerCurrentPage - 1);
+  }
+}
+
+function cbzPageNext() {
+  if (cbzViewerCurrentPage < cbzViewerPageCount - 1) {
+    loadCbzPage(cbzViewerCurrentPage + 1);
+    preloadCbzPages(cbzViewerCurrentPage + 1);
+  }
+}
+
+function updateCbzPageButtons() {
+  const prevBtn = document.querySelector('.cbz-page-prev');
+  const nextBtn = document.querySelector('.cbz-page-next');
+  if (prevBtn) prevBtn.disabled = cbzViewerCurrentPage <= 0;
+  if (nextBtn) nextBtn.disabled = cbzViewerCurrentPage >= cbzViewerPageCount - 1;
+}
+
+function handleCbzViewerKeydown(e) {
+  // Only handle if modal is visible
+  const modal = document.getElementById('cbzInfoModal');
+  if (!modal || !modal.classList.contains('show')) return;
+
+  if (e.key === 'ArrowLeft') {
+    cbzPagePrev();
+  } else if (e.key === 'ArrowRight' || e.code === 'Space') {
+    e.preventDefault();
+    cbzPageNext();
+  }
+}
+
+function initCbzPageViewer(filePath) {
+  const encodedPath = encodeFilePathForReader(filePath);
+  fetch(`/api/read/${encodedPath}/info`)
+    .then(r => r.json())
+    .then(info => {
+      cbzViewerPath = filePath;
+      cbzViewerPageCount = info.page_count || 0;
+      cbzViewerCurrentPage = 0;
+      cbzViewerPreloadedPages.clear();
+
+      const pageNav = document.getElementById('cbzPageNav');
+      const totalPages = document.getElementById('cbzTotalPages');
+
+      if (cbzViewerPageCount > 1 && pageNav && totalPages) {
+        totalPages.textContent = cbzViewerPageCount;
+        pageNav.style.display = 'flex';
+        loadCbzPage(0);
+        preloadCbzPages(0);
+      } else if (pageNav) {
+        pageNav.style.display = 'none';
+      }
+    })
+    .catch(err => {
+      console.error('Error initializing page viewer:', err);
+    });
+}
+
+function resetCbzPageViewer() {
+  cbzViewerPath = null;
+  cbzViewerPageCount = 0;
+  cbzViewerCurrentPage = 0;
+  cbzViewerPreloadedPages.clear();
+  const pageNav = document.getElementById('cbzPageNav');
+  if (pageNav) pageNav.style.display = 'none';
 }
 
 // Function to check GCD MySQL availability
@@ -2721,9 +2843,24 @@ function showCBZInfo(filePath, fileName, directoryPath, fileList) {
               </div>
               <div class="col-md-5">
                 <h6>Preview</h6>
-                <div id="cbzPreviewContainer" class="text-center">
-                  <div class="spinner-border spinner-border-sm" role="status">
-                    <span class="visually-hidden">Loading...</span>
+                <div id="cbzPageViewer" class="position-relative">
+                  <div id="cbzPreviewContainer" class="text-center">
+                    <div class="spinner-border spinner-border-sm" role="status">
+                      <span class="visually-hidden">Loading...</span>
+                    </div>
+                  </div>
+                  <!-- Page Navigation (hidden until multi-page comic loaded) -->
+                  <div id="cbzPageNav" class="cbz-page-nav" style="display: none;">
+                    <button class="cbz-page-btn cbz-page-prev" onclick="cbzPagePrev()" title="Previous (←)">
+                      <i class="bi bi-chevron-left"></i>
+                    </button>
+                    <button class="cbz-page-btn cbz-page-next" onclick="cbzPageNext()" title="Next (→ or Space)">
+                      <i class="bi bi-chevron-right"></i>
+                    </button>
+                  </div>
+                  <!-- Page Counter -->
+                  <div class="cbz-page-counter">
+                    <span id="cbzCurrentPage">1</span> / <span id="cbzTotalPages">1</span>
                   </div>
                 </div>
               </div>
@@ -2774,10 +2911,12 @@ function showCBZInfo(filePath, fileName, directoryPath, fileList) {
           const previewContainer = document.getElementById('cbzPreviewContainer');
           if (previewData.success) {
             previewContainer.innerHTML = `
-                  <img src="${previewData.preview}" class="img-fluid" style="max-width: 100%; max-height: 600px;" alt="CBZ Preview">
+                  <img src="${previewData.preview}" class="img-fluid" style="max-width: 100%; max-height: 400px;" alt="CBZ Preview">
                   <p class="small text-muted mt-2">${previewData.file_name}</p>
                   <small class="text-muted">Images: ${previewData.total_images} | Original: ${previewData.original_size.width}×${previewData.original_size.height} | Display: ${previewData.display_size.width}×${previewData.display_size.height}</small>
                 `;
+            // Initialize page viewer for multi-page navigation
+            initCbzPageViewer(filePath);
           } else {
             previewContainer.innerHTML = '<p class="text-muted">Preview not available</p>';
           }
@@ -2919,6 +3058,19 @@ document.addEventListener('DOMContentLoaded', () => {
   }
   if (confirmClearBtn) {
     confirmClearBtn.addEventListener('click', clearComicInfoXml);
+  }
+
+  // CBZ Page Viewer keyboard support
+  const cbzInfoModal = document.getElementById('cbzInfoModal');
+  if (cbzInfoModal) {
+    cbzInfoModal.addEventListener('shown.bs.modal', () => {
+      document.addEventListener('keydown', handleCbzViewerKeydown);
+    });
+
+    cbzInfoModal.addEventListener('hidden.bs.modal', () => {
+      document.removeEventListener('keydown', handleCbzViewerKeydown);
+      resetCbzPageViewer();
+    });
   }
 });
 
