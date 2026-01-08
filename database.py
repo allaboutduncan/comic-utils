@@ -115,6 +115,26 @@ def init_db():
                 VALUES (1, 'disabled', '02:00', 0)
             ''')
 
+        # Create sync_schedule table (store series sync schedule)
+        c.execute('''
+            CREATE TABLE IF NOT EXISTS sync_schedule (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                frequency TEXT NOT NULL DEFAULT 'disabled',
+                time TEXT NOT NULL DEFAULT '03:00',
+                weekday INTEGER DEFAULT 0,
+                last_sync TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+
+        # Insert default sync schedule if not exists
+        c.execute('SELECT COUNT(*) FROM sync_schedule WHERE id = 1')
+        if c.fetchone()[0] == 0:
+            c.execute('''
+                INSERT INTO sync_schedule (id, frequency, time, weekday)
+                VALUES (1, 'disabled', '03:00', 0)
+            ''')
+
         # Create browse_cache table (cache pre-computed browse results)
         c.execute('''
             CREATE TABLE IF NOT EXISTS browse_cache (
@@ -277,9 +297,9 @@ def init_db():
             )
         ''')
 
-        # Create metron_series table (Metron series with local mapping)
+        # Create series table (Metron series with local mapping)
         c.execute('''
-            CREATE TABLE IF NOT EXISTS metron_series (
+            CREATE TABLE IF NOT EXISTS series (
                 id INTEGER PRIMARY KEY,
                 name TEXT NOT NULL,
                 sort_name TEXT,
@@ -299,9 +319,39 @@ def init_db():
                 FOREIGN KEY (publisher_id) REFERENCES publishers(id)
             )
         ''')
-        c.execute('CREATE INDEX IF NOT EXISTS idx_metron_series_cv_id ON metron_series(cv_id)')
-        c.execute('CREATE INDEX IF NOT EXISTS idx_metron_series_gcd_id ON metron_series(gcd_id)')
-        c.execute('CREATE INDEX IF NOT EXISTS idx_metron_series_mapped_path ON metron_series(mapped_path)')
+        c.execute('CREATE INDEX IF NOT EXISTS idx_series_cv_id ON series(cv_id)')
+        c.execute('CREATE INDEX IF NOT EXISTS idx_series_gcd_id ON series(gcd_id)')
+        c.execute('CREATE INDEX IF NOT EXISTS idx_series_mapped_path ON series(mapped_path)')
+
+        # Migration: Add issue_count and last_synced_at columns to series table
+        c.execute("PRAGMA table_info(series)")
+        series_columns = [col[1] for col in c.fetchall()]
+        if 'issue_count' not in series_columns:
+            c.execute('ALTER TABLE series ADD COLUMN issue_count INTEGER')
+            app_logger.info("Added issue_count column to series table")
+        if 'last_synced_at' not in series_columns:
+            c.execute('ALTER TABLE series ADD COLUMN last_synced_at TIMESTAMP')
+            app_logger.info("Added last_synced_at column to series table")
+
+        # Create issues table (Metron issues cached for tracked series)
+        c.execute('''
+            CREATE TABLE IF NOT EXISTS issues (
+                id INTEGER PRIMARY KEY,
+                series_id INTEGER NOT NULL,
+                number TEXT,
+                name TEXT,
+                cover_date TEXT,
+                store_date TEXT,
+                image TEXT,
+                resource_url TEXT,
+                cv_id INTEGER,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (series_id) REFERENCES series(id) ON DELETE CASCADE
+            )
+        ''')
+        c.execute('CREATE INDEX IF NOT EXISTS idx_issues_series_id ON issues(series_id)')
+        c.execute('CREATE INDEX IF NOT EXISTS idx_issues_store_date ON issues(store_date)')
 
         conn.commit()
         conn.close()
@@ -1131,6 +1181,110 @@ def update_last_rebuild():
     except Exception as e:
         app_logger.error(f"Failed to update last rebuild timestamp: {e}")
         return False
+
+
+#########################
+#   Sync Schedule       #
+#########################
+
+def get_sync_schedule():
+    """
+    Get the current series sync schedule.
+
+    Returns:
+        Dictionary with schedule settings, or None on error
+    """
+    try:
+        conn = get_db_connection()
+        if not conn:
+            return None
+
+        c = conn.cursor()
+        c.execute('''
+            SELECT frequency, time, weekday, last_sync
+            FROM sync_schedule
+            WHERE id = 1
+        ''')
+
+        row = c.fetchone()
+        conn.close()
+
+        if row:
+            return {
+                'frequency': row['frequency'],
+                'time': row['time'],
+                'weekday': row['weekday'],
+                'last_sync': row['last_sync']
+            }
+        return None
+
+    except Exception as e:
+        app_logger.error(f"Failed to get sync schedule: {e}")
+        return None
+
+def save_sync_schedule(frequency, time, weekday=0):
+    """
+    Save the series sync schedule.
+
+    Args:
+        frequency: 'disabled', 'daily', or 'weekly'
+        time: Time in HH:MM format
+        weekday: Day of week (0=Monday, 6=Sunday)
+
+    Returns:
+        True if successful, False otherwise
+    """
+    try:
+        conn = get_db_connection()
+        if not conn:
+            return False
+
+        c = conn.cursor()
+        c.execute('''
+            UPDATE sync_schedule
+            SET frequency = ?, time = ?, weekday = ?, updated_at = CURRENT_TIMESTAMP
+            WHERE id = 1
+        ''', (frequency, time, weekday))
+
+        conn.commit()
+        conn.close()
+
+        app_logger.info(f"Saved sync schedule: {frequency} at {time}")
+        return True
+
+    except Exception as e:
+        app_logger.error(f"Failed to save sync schedule: {e}")
+        return False
+
+def update_last_sync():
+    """
+    Update the last_sync timestamp to current time.
+
+    Returns:
+        True if successful, False otherwise
+    """
+    try:
+        conn = get_db_connection()
+        if not conn:
+            return False
+
+        c = conn.cursor()
+        c.execute('''
+            UPDATE sync_schedule
+            SET last_sync = CURRENT_TIMESTAMP
+            WHERE id = 1
+        ''')
+
+        conn.commit()
+        conn.close()
+
+        app_logger.info("Updated last sync timestamp")
+        return True
+
+    except Exception as e:
+        app_logger.error(f"Failed to update last sync timestamp: {e}")
+        return False
+
 
 #########################
 #   Browse Cache        #
@@ -2572,6 +2726,7 @@ def save_publisher(publisher_id, name):
     Returns:
         True if successful, False otherwise
     """
+    conn = None
     try:
         conn = get_db_connection()
         if not conn:
@@ -2587,14 +2742,16 @@ def save_publisher(publisher_id, name):
         ''', (publisher_id, name, publisher_id))
 
         conn.commit()
-        conn.close()
-
         app_logger.info(f"Saved publisher: {name} (ID: {publisher_id})")
         return True
 
     except Exception as e:
         app_logger.error(f"Failed to save publisher {publisher_id}: {e}")
         return False
+
+    finally:
+        if conn:
+            conn.close()
 
 
 def get_publisher(publisher_id):
@@ -2656,12 +2813,12 @@ def save_series_mapping(series_data, mapped_path):
             status = status.get('name', str(status))
 
         c.execute('''
-            INSERT OR REPLACE INTO metron_series
+            INSERT OR REPLACE INTO series
             (id, name, sort_name, volume, status, publisher_id, imprint,
              volume_year, year_end, desc, cv_id, gcd_id, resource_url, mapped_path,
              created_at, updated_at)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                    COALESCE((SELECT created_at FROM metron_series WHERE id = ?), CURRENT_TIMESTAMP),
+                    COALESCE((SELECT created_at FROM series WHERE id = ?), CURRENT_TIMESTAMP),
                     CURRENT_TIMESTAMP)
         ''', (
             series_data.get('id'),
@@ -2708,7 +2865,7 @@ def get_series_mapping(series_id):
             return None
 
         c = conn.cursor()
-        c.execute('SELECT mapped_path FROM metron_series WHERE id = ?', (series_id,))
+        c.execute('SELECT mapped_path FROM series WHERE id = ?', (series_id,))
         row = c.fetchone()
         conn.close()
 
@@ -2737,7 +2894,7 @@ def get_series_by_id(series_id):
         c = conn.cursor()
         c.execute('''
             SELECT ms.*, p.name as publisher_name
-            FROM metron_series ms
+            FROM series ms
             LEFT JOIN publishers p ON ms.publisher_id = p.id
             WHERE ms.id = ?
         ''', (series_id,))
@@ -2766,7 +2923,7 @@ def get_all_mapped_series():
         c = conn.cursor()
         c.execute('''
             SELECT ms.*, p.name as publisher_name
-            FROM metron_series ms
+            FROM series ms
             LEFT JOIN publishers p ON ms.publisher_id = p.id
             WHERE ms.mapped_path IS NOT NULL
             ORDER BY ms.name
@@ -2798,7 +2955,7 @@ def remove_series_mapping(series_id):
 
         c = conn.cursor()
         c.execute('''
-            UPDATE metron_series
+            UPDATE series
             SET mapped_path = NULL, updated_at = CURRENT_TIMESTAMP
             WHERE id = ?
         ''', (series_id,))
@@ -2811,4 +2968,346 @@ def remove_series_mapping(series_id):
 
     except Exception as e:
         app_logger.error(f"Failed to remove series mapping for {series_id}: {e}")
+        return False
+
+
+# =============================================================================
+# Issues CRUD Operations (Metron Issue Caching)
+# =============================================================================
+
+def save_issue(issue_data, series_id):
+    """
+    Save or update a single issue in the database.
+
+    Args:
+        issue_data: Dict with issue data from Metron API
+        series_id: Metron series ID
+
+    Returns:
+        True if successful, False otherwise
+    """
+    try:
+        conn = get_db_connection()
+        if not conn:
+            return False
+
+        c = conn.cursor()
+
+        # Extract issue ID
+        issue_id = issue_data.get('id')
+        if not issue_id:
+            app_logger.error("Issue data missing 'id' field")
+            return False
+
+        c.execute('''
+            INSERT OR REPLACE INTO issues
+            (id, series_id, number, name, cover_date, store_date, image, resource_url, cv_id,
+             created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?,
+                    COALESCE((SELECT created_at FROM issues WHERE id = ?), CURRENT_TIMESTAMP),
+                    CURRENT_TIMESTAMP)
+        ''', (
+            issue_id,
+            series_id,
+            str(issue_data.get('number', '')),
+            issue_data.get('issue_name') or issue_data.get('name'),
+            issue_data.get('cover_date'),
+            issue_data.get('store_date'),
+            str(issue_data.get('image')) if issue_data.get('image') else None,
+            str(issue_data.get('resource_url')) if issue_data.get('resource_url') else None,
+            issue_data.get('cv_id'),
+            issue_id
+        ))
+
+        conn.commit()
+        conn.close()
+        return True
+
+    except Exception as e:
+        app_logger.error(f"Failed to save issue {issue_data.get('id')}: {e}")
+        return False
+
+
+def save_issues_bulk(issues_list, series_id):
+    """
+    Save multiple issues in a single transaction.
+
+    Args:
+        issues_list: List of issue dicts from Metron API
+        series_id: Metron series ID
+
+    Returns:
+        Number of issues saved, or -1 on error
+    """
+    conn = None
+    try:
+        conn = get_db_connection()
+        if not conn:
+            return -1
+
+        c = conn.cursor()
+        saved_count = 0
+
+        for issue_data in issues_list:
+            # Handle Pydantic models or dicts - convert first
+            if hasattr(issue_data, 'model_dump'):
+                issue_dict = issue_data.model_dump(mode='json')
+            elif hasattr(issue_data, 'dict'):
+                issue_dict = issue_data.dict()
+            elif hasattr(issue_data, 'id'):
+                # Object with attributes - convert to dict
+                issue_dict = {
+                    'id': getattr(issue_data, 'id', None),
+                    'number': getattr(issue_data, 'number', ''),
+                    'name': getattr(issue_data, 'issue_name', None) or getattr(issue_data, 'name', None),
+                    'cover_date': getattr(issue_data, 'cover_date', None),
+                    'store_date': getattr(issue_data, 'store_date', None),
+                    'image': getattr(issue_data, 'image', None),
+                    'resource_url': getattr(issue_data, 'resource_url', None),
+                    'cv_id': getattr(issue_data, 'cv_id', None),
+                }
+            else:
+                issue_dict = issue_data
+
+            issue_id = issue_dict.get('id')
+            if not issue_id:
+                continue
+
+            c.execute('''
+                INSERT OR REPLACE INTO issues
+                (id, series_id, number, name, cover_date, store_date, image, resource_url, cv_id,
+                 created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?,
+                        COALESCE((SELECT created_at FROM issues WHERE id = ?), CURRENT_TIMESTAMP),
+                        CURRENT_TIMESTAMP)
+            ''', (
+                issue_id,
+                series_id,
+                str(issue_dict.get('number', '')),
+                issue_dict.get('issue_name') or issue_dict.get('name'),
+                issue_dict.get('cover_date'),
+                issue_dict.get('store_date'),
+                str(issue_dict.get('image')) if issue_dict.get('image') else None,
+                str(issue_dict.get('resource_url')) if issue_dict.get('resource_url') else None,
+                issue_dict.get('cv_id'),
+                issue_id
+            ))
+            saved_count += 1
+
+        conn.commit()
+        app_logger.info(f"Saved {saved_count} issues for series {series_id}")
+        return saved_count
+
+    except Exception as e:
+        app_logger.error(f"Failed to save issues bulk for series {series_id}: {e}")
+        return -1
+
+    finally:
+        if conn:
+            conn.close()
+
+
+def get_issues_for_series(series_id):
+    """
+    Get all cached issues for a series.
+
+    Args:
+        series_id: Metron series ID
+
+    Returns:
+        List of issue dicts, or empty list on error
+    """
+    try:
+        conn = get_db_connection()
+        if not conn:
+            return []
+
+        c = conn.cursor()
+        c.execute('''
+            SELECT id, series_id, number, name, cover_date, store_date, image, resource_url, cv_id,
+                   created_at, updated_at
+            FROM issues
+            WHERE series_id = ?
+            ORDER BY
+                CASE WHEN number GLOB '[0-9]*' THEN CAST(number AS INTEGER) ELSE 999999 END,
+                number
+        ''', (series_id,))
+
+        rows = c.fetchall()
+        conn.close()
+
+        return [dict(row) for row in rows]
+
+    except Exception as e:
+        app_logger.error(f"Failed to get issues for series {series_id}: {e}")
+        return []
+
+
+def get_issue_by_id(issue_id):
+    """
+    Get a single issue by ID.
+
+    Args:
+        issue_id: Metron issue ID
+
+    Returns:
+        Issue dict, or None if not found
+    """
+    try:
+        conn = get_db_connection()
+        if not conn:
+            return None
+
+        c = conn.cursor()
+        c.execute('SELECT * FROM issues WHERE id = ?', (issue_id,))
+        row = c.fetchone()
+        conn.close()
+
+        return dict(row) if row else None
+
+    except Exception as e:
+        app_logger.error(f"Failed to get issue {issue_id}: {e}")
+        return None
+
+
+def get_wanted_issues():
+    """
+    Get all wanted issues (future store_date OR missing from collection)
+    from mapped series.
+
+    Returns:
+        List of issue dicts with series info, or empty list on error
+    """
+    try:
+        conn = get_db_connection()
+        if not conn:
+            return []
+
+        c = conn.cursor()
+        c.execute('''
+            SELECT i.*, s.name as series_name, s.volume as series_volume,
+                   s.mapped_path, s.publisher_id
+            FROM issues i
+            JOIN series s ON i.series_id = s.id
+            WHERE s.mapped_path IS NOT NULL
+              AND (i.store_date > date('now') OR i.store_date IS NULL)
+            ORDER BY i.store_date ASC, s.name, i.number
+        ''')
+
+        rows = c.fetchall()
+        conn.close()
+
+        return [dict(row) for row in rows]
+
+    except Exception as e:
+        app_logger.error(f"Failed to get wanted issues: {e}")
+        return []
+
+
+def update_series_sync_time(series_id, issue_count=None):
+    """
+    Update the last_synced_at timestamp for a series.
+
+    Args:
+        series_id: Metron series ID
+        issue_count: Optional issue count to update
+
+    Returns:
+        True if successful, False otherwise
+    """
+    conn = None
+    try:
+        conn = get_db_connection()
+        if not conn:
+            return False
+
+        c = conn.cursor()
+        if issue_count is not None:
+            c.execute('''
+                UPDATE series
+                SET last_synced_at = CURRENT_TIMESTAMP, issue_count = ?, updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+            ''', (issue_count, series_id))
+        else:
+            c.execute('''
+                UPDATE series
+                SET last_synced_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+            ''', (series_id,))
+
+        conn.commit()
+        app_logger.info(f"Updated sync time for series {series_id}")
+        return True
+
+    except Exception as e:
+        app_logger.error(f"Failed to update sync time for series {series_id}: {e}")
+        return False
+
+    finally:
+        if conn:
+            conn.close()
+
+
+def get_series_needing_sync(hours=24):
+    """
+    Get mapped series that haven't been synced recently.
+
+    Args:
+        hours: Number of hours since last sync to consider stale
+
+    Returns:
+        List of series dicts needing sync
+    """
+    try:
+        conn = get_db_connection()
+        if not conn:
+            return []
+
+        c = conn.cursor()
+        c.execute('''
+            SELECT *
+            FROM series
+            WHERE mapped_path IS NOT NULL
+              AND (last_synced_at IS NULL
+                   OR last_synced_at < datetime('now', ? || ' hours'))
+            ORDER BY last_synced_at ASC NULLS FIRST
+        ''', (f'-{hours}',))
+
+        rows = c.fetchall()
+        conn.close()
+
+        return [dict(row) for row in rows]
+
+    except Exception as e:
+        app_logger.error(f"Failed to get series needing sync: {e}")
+        return []
+
+
+def delete_issues_for_series(series_id):
+    """
+    Delete all cached issues for a series.
+
+    Args:
+        series_id: Metron series ID
+
+    Returns:
+        True if successful, False otherwise
+    """
+    try:
+        conn = get_db_connection()
+        if not conn:
+            return False
+
+        c = conn.cursor()
+        c.execute('DELETE FROM issues WHERE series_id = ?', (series_id,))
+
+        deleted = c.rowcount
+        conn.commit()
+        conn.close()
+
+        app_logger.info(f"Deleted {deleted} issues for series {series_id}")
+        return True
+
+    except Exception as e:
+        app_logger.error(f"Failed to delete issues for series {series_id}: {e}")
         return False

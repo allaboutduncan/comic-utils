@@ -50,6 +50,9 @@ let metronAvailable = false;
 // Global variable to store current folder path for XML update
 let updateXmlCurrentPath = '';
 
+// Global variable to store current file path for editing
+let currentEditFilePath = null;
+
 // Format file size helper function
 function formatSize(bytes) {
   const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
@@ -1805,20 +1808,27 @@ document.addEventListener('DOMContentLoaded', function () {
   // Check Metron API availability
   checkMetronAvailability();
 
-  // Initialize rename rows as hidden
-  document.getElementById('source-directory-rename-row').style.display = 'none';
-  document.getElementById('destination-directory-rename-row').style.display = 'none';
+  // Initialize rename rows as hidden (only on files page)
+  const sourceRenameRow = document.getElementById('source-directory-rename-row');
+  const destRenameRow = document.getElementById('destination-directory-rename-row');
+  if (sourceRenameRow) sourceRenameRow.style.display = 'none';
+  if (destRenameRow) destRenameRow.style.display = 'none';
 
-  // Initial load for both panels.
-  loadDirectories(currentSourcePath, 'source');
-  loadDirectories(currentDestinationPath, 'destination');
+  // Initial load for both panels (only on files page)
+  const sourceList = document.getElementById("source-list");
+  const destList = document.getElementById("destination-list");
+  if (sourceList && destList) {
+    loadDirectories(currentSourcePath, 'source');
+    loadDirectories(currentDestinationPath, 'destination');
 
-  // Attach drop events.
-  setupDropEvents(document.getElementById("source-list"), 'source');
-  setupDropEvents(document.getElementById("destination-list"), 'destination');
+    // Attach drop events.
+    setupDropEvents(sourceList, 'source');
+    setupDropEvents(destList, 'destination');
+  }
 
   // Add event listener for Update XML confirm button
-  document.getElementById('updateXmlConfirmBtn').addEventListener('click', submitUpdateXml);
+  const updateXmlBtn = document.getElementById('updateXmlConfirmBtn');
+  if (updateXmlBtn) updateXmlBtn.addEventListener('click', submitUpdateXml);
 
 });
 
@@ -2056,10 +2066,12 @@ let createFolderModalEl = document.getElementById('createFolderModal');
 let createFolderNameInput = document.getElementById('createFolderName');
 let confirmCreateFolderBtn = document.getElementById('confirmCreateFolderBtn');
 
-// Focus input when modal opens
-createFolderModalEl.addEventListener('shown.bs.modal', function () {
-  createFolderNameInput.focus();
-});
+// Focus input when modal opens (only if modal exists)
+if (createFolderModalEl) {
+  createFolderModalEl.addEventListener('shown.bs.modal', function () {
+    createFolderNameInput.focus();
+  });
+}
 
 // Open modal function
 function openCreateFolderModal() {
@@ -2101,11 +2113,13 @@ function createFolder() {
     });
 }
 
-// Click event for "Create" button
-confirmCreateFolderBtn.addEventListener('click', createFolder);
+// Click event for "Create" button (only if button exists)
+if (confirmCreateFolderBtn) {
+  confirmCreateFolderBtn.addEventListener('click', createFolder);
+}
 
-// Listen for "Enter" keypress inside input field
-createFolderNameInput.addEventListener('keypress', function (event) {
+// Listen for "Enter" keypress inside input field (only if input exists)
+if (createFolderNameInput) createFolderNameInput.addEventListener('keypress', function (event) {
   if (event.key === 'Enter') {
     event.preventDefault(); // Prevent form submission if inside a form
     createFolder();
@@ -3074,22 +3088,28 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 });
 
-// Delete confirmation handler.
-document.getElementById("confirmDeleteBtn").addEventListener("click", function () {
-  let deleteModalEl = document.getElementById("deleteModal");
-  let deleteModal = bootstrap.Modal.getInstance(deleteModalEl);
-  deleteModal.hide();
-  deleteItem(deleteTarget, deletePanel);
-});
+// Delete confirmation handler (only if elements exist)
+const confirmDeleteBtn = document.getElementById("confirmDeleteBtn");
+const deleteModalEl = document.getElementById("deleteModal");
+
+if (confirmDeleteBtn) {
+  confirmDeleteBtn.addEventListener("click", function () {
+    let deleteModal = bootstrap.Modal.getInstance(deleteModalEl);
+    deleteModal.hide();
+    deleteItem(deleteTarget, deletePanel);
+  });
+}
 
 // Add keyboard support for delete modal (Enter key to confirm)
-document.getElementById("deleteModal").addEventListener("keydown", function (event) {
-  if (event.key === "Enter") {
-    event.preventDefault();
-    // Trigger the delete confirmation
-    document.getElementById("confirmDeleteBtn").click();
-  }
-});
+if (deleteModalEl) {
+  deleteModalEl.addEventListener("keydown", function (event) {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      // Trigger the delete confirmation
+      document.getElementById("confirmDeleteBtn").click();
+    }
+  });
+}
 
 // Track file counts and current paths for rename button
 let fileTracking = {
@@ -3622,12 +3642,15 @@ function escapeRegExp(string) {
   return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-// Add Enter key support for the text input
-document.getElementById('textToRemove').addEventListener('keypress', function (e) {
-  if (e.key === 'Enter') {
-    previewCustomRename();
-  }
-});
+// Add Enter key support for the text input (only if element exists)
+const textToRemoveEl = document.getElementById('textToRemove');
+if (textToRemoveEl) {
+  textToRemoveEl.addEventListener('keypress', function (e) {
+    if (e.key === 'Enter') {
+      previewCustomRename();
+    }
+  });
+}
 
 // ============================================================================
 // Series Rename Modal functionality
@@ -3869,12 +3892,15 @@ function executeRenameFiles() {
     });
 }
 
-// Add Enter key support for the series name input
-document.getElementById('newSeriesName').addEventListener('keypress', function (e) {
-  if (e.key === 'Enter') {
-    previewRenameFiles();
-  }
-});
+// Add Enter key support for the series name input (only if element exists)
+const newSeriesNameEl = document.getElementById('newSeriesName');
+if (newSeriesNameEl) {
+  newSeriesNameEl.addEventListener('keypress', function (e) {
+    if (e.key === 'Enter') {
+      previewRenameFiles();
+    }
+  });
+}
 
 // Search functionality
 let searchModal;
@@ -4037,54 +4063,63 @@ function navigateToSearchResult(item) {
 // Debounced search functionality
 let searchTimeout = null;
 
-// Add input event listener for debounced search
-document.getElementById('searchQuery').addEventListener('input', function (e) {
-  const query = e.target.value.trim();
+// Add input event listener for debounced search (only if elements exist)
+const searchQueryEl = document.getElementById('searchQuery');
+const searchModalEl = document.getElementById('searchModal');
 
-  // Clear existing timeout
-  if (searchTimeout) {
-    clearTimeout(searchTimeout);
-  }
+if (searchQueryEl) {
+  searchQueryEl.addEventListener('input', function (e) {
+    const query = e.target.value.trim();
 
-  // Cancel current search if there is one
-  cancelCurrentSearch();
+    // Clear existing timeout
+    if (searchTimeout) {
+      clearTimeout(searchTimeout);
+    }
 
-  // Hide loading and results for new input
-  document.getElementById('searchLoading').style.display = 'none';
-  document.getElementById('searchResults').style.display = 'none';
+    // Cancel current search if there is one
+    cancelCurrentSearch();
 
-  // Only search if query is at least 2 characters
-  if (query.length >= 2) {
-    searchTimeout = setTimeout(() => {
+    // Hide loading and results for new input
+    document.getElementById('searchLoading').style.display = 'none';
+    document.getElementById('searchResults').style.display = 'none';
+
+    // Only search if query is at least 2 characters
+    if (query.length >= 2) {
+      searchTimeout = setTimeout(() => {
+        performSearch();
+      }, 500); // 500ms delay
+    }
+  });
+
+  // Add Enter key support for search input
+  searchQueryEl.addEventListener('keypress', function (e) {
+    if (e.key === 'Enter') {
+      // Clear the timeout and perform immediate search
+      if (searchTimeout) {
+        clearTimeout(searchTimeout);
+        searchTimeout = null;
+      }
       performSearch();
-    }, 500); // 500ms delay
-  }
-});
+    }
+  });
+}
 
-// Add Enter key support for search input
-document.getElementById('searchQuery').addEventListener('keypress', function (e) {
-  if (e.key === 'Enter') {
-    // Clear the timeout and perform immediate search
+// Cancel search when modal is closed
+if (searchModalEl) {
+  searchModalEl.addEventListener('hidden.bs.modal', function () {
+    cancelCurrentSearch();
+    // Clear any pending search timeout
     if (searchTimeout) {
       clearTimeout(searchTimeout);
       searchTimeout = null;
     }
-    performSearch();
-  }
-});
-
-// Cancel search when modal is closed
-document.getElementById('searchModal').addEventListener('hidden.bs.modal', function () {
-  cancelCurrentSearch();
-  // Clear any pending search timeout
-  if (searchTimeout) {
-    clearTimeout(searchTimeout);
-    searchTimeout = null;
-  }
-  // Hide loading and results when modal is closed
-  document.getElementById('searchLoading').style.display = 'none';
-  document.getElementById('searchResults').style.display = 'none';
-});
+    // Hide loading and results when modal is closed
+    const searchLoading = document.getElementById('searchLoading');
+    const searchResults = document.getElementById('searchResults');
+    if (searchLoading) searchLoading.style.display = 'none';
+    if (searchResults) searchResults.style.display = 'none';
+  });
+}
 
 
 
@@ -6605,9 +6640,6 @@ function executeScriptOnDirectory(scriptType, directoryPath, panel) {
   };
 }
 
-// Store the current file being edited
-let currentEditFilePath = null;
-
 /**
  * Open the edit modal for a CBZ file
  * @param {string} filePath - Path to the CBZ file to edit
@@ -7723,7 +7755,7 @@ function saveCVInfo() {
   // Build the file content
   let content = `https://comicvine.gamespot.com/volume/4050-${cvId}`;
   if (metronId) {
-    content += `\nmetron_series_id: ${metronId}`;
+    content += `\nseries_id: ${metronId}`;
   }
 
   // Hide the modal

@@ -10,17 +10,17 @@ ComicVine is still the most widely used metadata source, but Metron has more det
 
 I want the Metron class to have methods to fetch metadata for a single comic and each function should be separate, allowing us to combine and call them as needed. Build the model, class and base functions and then I will note in later steps where to call them based on other criteria 
 
-1. Using the cvinfo file in the directory, we are going to look for the metron_series_id. 
+1. Using the cvinfo file in the directory, we are going to look for the series_id. 
 
-    a. metron_series_id: 10354
+    a. series_id: 10354
     
-2. If not found, we can use the comicvine series id to get the metron_series_id
+2. If not found, we can use the comicvine series id to get the series_id
 
     a. cvinfo will have https://comicvine.gamespot.com/absolute-flash/4050-162847/
-    b. We will use the 162847 to get the metron_series_id
-    c. Add the metron_series_id to the cvinfo file
+    b. We will use the 162847 to get the series_id
+    c. Add the series_id to the cvinfo file
 
-3. Use the metron_series_id to get the issue metadata
+3. Use the series_id to get the issue metadata
 4. map the issue metadata from Metron to the ComicInfo.xml file 
 5. Use this data mapping to pass the data 'generate_comicinfo_xml' function in app.py
 

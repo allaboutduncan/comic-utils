@@ -647,6 +647,69 @@
                             </button>
                         </div>
                     </div>
+
+                    <!-- Scheduled Series Sync Configuration -->
+                    <hr>
+                    <h5 class="mt-3 mb-3">Automatic Series Sync Schedule</h5>
+                    <p class="text-muted">Configure automatic syncing of tracked series from Metron API to check for new issues.</p>
+
+                    <div class="row">
+                        <div class="col-md-4">
+                            <label for="syncFrequency" class="form-label">Sync Frequency:</label>
+                            <select class="form-select" id="syncFrequency" name="syncFrequency">
+                                <option value="disabled">Disabled</option>
+                                <option value="daily">Daily</option>
+                                <option value="weekly">Weekly</option>
+                            </select>
+                            <small class="form-text text-muted">
+                                How often to sync series data from Metron API.
+                            </small>
+                        </div>
+
+                        <div class="col-md-4">
+                            <label for="syncTime" class="form-label">Sync Time:</label>
+                            <input type="time" class="form-control" id="syncTime" name="syncTime" value="03:00">
+                            <small class="form-text text-muted">
+                                Time of day to run the sync (24-hour format).
+                            </small>
+                        </div>
+
+                        <div class="col-md-4" id="syncWeekdaySelectContainer" style="display: none;">
+                            <label for="syncWeekday" class="form-label">Day of Week:</label>
+                            <select class="form-select" id="syncWeekday" name="syncWeekday">
+                                <option value="0">Monday</option>
+                                <option value="1">Tuesday</option>
+                                <option value="2">Wednesday</option>
+                                <option value="3">Thursday</option>
+                                <option value="4">Friday</option>
+                                <option value="5">Saturday</option>
+                                <option value="6">Sunday</option>
+                            </select>
+                            <small class="form-text text-muted">
+                                Which day of the week to run the sync.
+                            </small>
+                        </div>
+                    </div>
+
+                    <div class="row mt-3">
+                        <div class="col-md-6">
+                            <button type="button" class="btn btn-success w-100" onclick="saveSyncSchedule()"
+                                title="Save the sync schedule">
+                                <i class="bi bi-floppy"></i> Save Sync Schedule
+                            </button>
+                        </div>
+                        <div class="col-md-6">
+                            <button type="button" class="btn btn-outline-primary w-100" onclick="runSyncNow()"
+                                title="Run sync immediately">
+                                <i class="bi bi-arrow-repeat"></i> Sync Now
+                            </button>
+                        </div>
+                    </div>
+                    <div class="row mt-2">
+                        <div class="col-md-12">
+                            <small class="text-muted" id="lastSyncDisplay"></small>
+                        </div>
+                    </div>
                 </div>
 
                 <!-- Missing Issue Configuration -->
@@ -779,6 +842,8 @@
                             <select class="form-select" id="bootstrapTheme" name="bootstrapTheme">
                                 <option value="default" {% if bootstrapTheme=='default' %}selected{% endif %}>Default
                                     (Bootstrap)</option>
+                                <option value="brite" {% if bootstrapTheme=='brite' %}selected{% endif %}>Brite
+                                </option>
                                 <option value="cerulean" {% if bootstrapTheme=='cerulean' %}selected{% endif %}>Cerulean
                                 </option>
                                 <option value="cosmo" {% if bootstrapTheme=='cosmo' %}selected{% endif %}>Cosmo</option>
@@ -920,13 +985,13 @@
             </div>
         </div>
 
-</form>
+    </form>
 
-<!-- Restart Button -->
-<div class="container p-4 border rounded shadow-sm text-center">
-    <h6>Restart Flask App</h6>
-    <button onclick="restartApp()" class="btn btn-secondary">Restart App</button>
-</div>
+    <!-- Restart Button -->
+    <div class="container p-4 border rounded shadow-sm text-center">
+        <h6>Restart Flask App</h6>
+        <button onclick="restartApp()" class="btn btn-secondary">Restart App</button>
+    </div>
 </div>
 
 {% endblock %}
@@ -1068,6 +1133,19 @@
                 weekdayContainer.style.display = 'none';
             }
         });
+
+        // Show/hide sync weekday selector based on frequency
+        document.getElementById('syncFrequency').addEventListener('change', function () {
+            const weekdayContainer = document.getElementById('syncWeekdaySelectContainer');
+            if (this.value === 'weekly') {
+                weekdayContainer.style.display = 'block';
+            } else {
+                weekdayContainer.style.display = 'none';
+            }
+        });
+
+        // Load sync schedule on page load
+        loadSyncSchedule();
     });
 
     // File Index Management Functions
@@ -1200,6 +1278,113 @@
             })
             .catch(error => {
                 console.error('Error saving schedule:', error);
+                showToast('Network error occurred', 'error');
+            })
+            .finally(() => {
+                button.innerHTML = originalText;
+                button.disabled = false;
+            });
+    }
+
+    // Sync Schedule Functions
+    function loadSyncSchedule() {
+        fetch('/api/get-sync-schedule', {
+            headers: { 'Cache-Control': 'no-cache' }
+        })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    const schedule = data.schedule;
+                    document.getElementById('syncFrequency').value = schedule.frequency || 'disabled';
+                    document.getElementById('syncTime').value = schedule.time || '03:00';
+                    document.getElementById('syncWeekday').value = schedule.weekday || '0';
+
+                    // Show weekday selector if weekly
+                    const weekdayContainer = document.getElementById('syncWeekdaySelectContainer');
+                    if (schedule.frequency === 'weekly') {
+                        weekdayContainer.style.display = 'block';
+                    } else {
+                        weekdayContainer.style.display = 'none';
+                    }
+
+                    // Update last sync display
+                    const lastSyncEl = document.getElementById('lastSyncDisplay');
+                    if (lastSyncEl) {
+                        if (data.last_sync) {
+                            lastSyncEl.innerHTML = `<i class="bi bi-clock me-1"></i>Last sync: ${data.last_sync}`;
+                        } else {
+                            lastSyncEl.innerHTML = '<i class="bi bi-clock me-1"></i>Last sync: Never';
+                        }
+                        if (data.next_run && data.next_run !== 'Not scheduled') {
+                            lastSyncEl.innerHTML += ` | <i class="bi bi-calendar-event me-1"></i>Next: ${data.next_run}`;
+                        }
+                    }
+                }
+            })
+            .catch(error => {
+                console.error('Error loading sync schedule:', error);
+            });
+    }
+
+    function saveSyncSchedule() {
+        const button = event.target.closest('button');
+        const originalText = button.innerHTML;
+
+        button.innerHTML = '<i class="bi bi-floppy spin"></i> Saving...';
+        button.disabled = true;
+
+        const schedule = {
+            frequency: document.getElementById('syncFrequency').value,
+            time: document.getElementById('syncTime').value,
+            weekday: document.getElementById('syncWeekday').value
+        };
+
+        fetch('/api/save-sync-schedule', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(schedule)
+        })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    showToast(data.message, 'success');
+                    // Reload schedule to update next run time
+                    setTimeout(loadSyncSchedule, 500);
+                } else {
+                    showToast(data.error || 'Unknown error', 'error');
+                }
+            })
+            .catch(error => {
+                console.error('Error saving sync schedule:', error);
+                showToast('Network error occurred', 'error');
+            })
+            .finally(() => {
+                button.innerHTML = originalText;
+                button.disabled = false;
+            });
+    }
+
+    function runSyncNow() {
+        const button = event.target.closest('button');
+        const originalText = button.innerHTML;
+
+        button.innerHTML = '<i class="bi bi-arrow-repeat spin"></i> Syncing...';
+        button.disabled = true;
+
+        fetch('/api/run-sync-now', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' }
+        })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    showToast(data.message, 'success');
+                } else {
+                    showToast(data.error || 'Unknown error', 'error');
+                }
+            })
+            .catch(error => {
+                console.error('Error running sync:', error);
                 showToast('Network error occurred', 'error');
             })
             .finally(() => {

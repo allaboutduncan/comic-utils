@@ -308,6 +308,51 @@ function removeMappingConfirm() {
 
 
 /**
+ * Sync series data from Metron API
+ */
+function syncSeries() {
+    if (!seriesData || !seriesData.id) {
+        console.error('No series data available');
+        return;
+    }
+
+    const syncBtn = document.getElementById('sync-btn');
+    const originalHtml = syncBtn.innerHTML;
+
+    // Show loading state
+    syncBtn.disabled = true;
+    syncBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Syncing...';
+
+    fetch(`/api/sync/series/${seriesData.id}`, {
+        method: 'POST'
+    })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                // Update last synced display
+                const syncedDisplay = document.getElementById('last-synced-display');
+                if (syncedDisplay) {
+                    const now = new Date().toLocaleString();
+                    syncedDisplay.innerHTML = `<i class="bi bi-clock me-1"></i>Synced: ${now}`;
+                }
+
+                // Refresh collection status to update table
+                setTimeout(() => refreshCollectionStatus(), 300);
+            } else {
+                alert('Failed to sync: ' + (data.error || 'Unknown error'));
+            }
+        })
+        .catch(error => {
+            console.error('Error syncing series:', error);
+            alert('Error syncing: ' + error.message);
+        })
+        .finally(() => {
+            syncBtn.disabled = false;
+            syncBtn.innerHTML = originalHtml;
+        });
+}
+
+/**
  * Refresh the collection status without reloading the page
  */
 function refreshCollectionStatus() {
@@ -349,7 +394,9 @@ function refreshCollectionStatus() {
                             const iconClass = status.found ? 'check-circle-fill' : 'x-circle-fill';
                             const textClass = status.found ? 'text-success' : 'text-danger';
                             issueNumCell.className = `ps-4 fw-bold ${textClass}`;
-                            issueNumCell.innerHTML = `<i class="bi bi-${iconClass} me-1"></i>#${issueNum}`;
+                            // Pad issue number with leading zeros if numeric
+                            const paddedNum = /^\d+$/.test(issueNum) ? issueNum.padStart(3, '0') : issueNum;
+                            issueNumCell.innerHTML = `<i class="bi bi-${iconClass} me-1"></i>#${paddedNum}`;
                         }
                     });
                 }
@@ -376,4 +423,44 @@ function refreshCollectionStatus() {
             refreshBtn.disabled = false;
             refreshBtn.innerHTML = originalHtml;
         });
+}
+
+/**
+ * View CBZ info for an issue file
+ * @param {string} filePath - Full path to the file
+ * @param {string} issueNumber - Issue number (for reference)
+ */
+function viewIssueFile(filePath, issueNumber) {
+    const fileName = filePath.split('/').pop();
+    const directoryPath = filePath.substring(0, filePath.lastIndexOf('/'));
+    // Call files.js function - pass empty array for fileList since we're viewing single file
+    showCBZInfo(filePath, fileName, directoryPath, []);
+}
+
+/**
+ * Edit an issue file
+ * @param {string} filePath - Full path to the file
+ */
+function editIssueFile(filePath) {
+    openEditModal(filePath);
+}
+
+/**
+ * Execute a script on an issue file
+ * @param {string} scriptType - crop, remove, single_file, enhance_single, add
+ * @param {string} filePath - Full path to the file
+ */
+function executeIssueScript(scriptType, filePath) {
+    // Call files.js function with 'source' panel (doesn't matter for single file ops)
+    executeScriptOnFile(scriptType, filePath, 'source');
+}
+
+/**
+ * Hide the progress indicator
+ */
+function hideProgressIndicator() {
+    const progressContainer = document.getElementById('progress-container');
+    if (progressContainer) {
+        progressContainer.style.display = 'none';
+    }
 }

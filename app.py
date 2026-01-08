@@ -49,13 +49,16 @@ from collections import OrderedDict
 from version import __version__
 import requests
 from packaging import version as pkg_version
-from database import (init_db, get_db_connection, get_recent_files, log_recent_file,
+from database import (init_db, get_db_connection, get_recent_files, log_recent_file, invalidate_browse_cache,
                       get_file_index_from_db, save_file_index_to_db, update_file_index_entry,
                       add_file_index_entry, delete_file_index_entry, clear_file_index_from_db, search_file_index,
                       get_search_cache, save_search_cache, clear_search_cache,
                       get_rebuild_schedule, save_rebuild_schedule as db_save_rebuild_schedule, update_last_rebuild,
+                      get_sync_schedule, save_sync_schedule as db_save_sync_schedule, update_last_sync,
                       get_path_counts_batch, get_directory_children, clear_stats_cache,
-                      clear_stats_cache_keys, mark_issue_read, get_issues_read, get_recent_read_issues)
+                      clear_stats_cache_keys, mark_issue_read, get_issues_read, get_recent_read_issues,
+                      save_issues_bulk, get_issues_for_series, update_series_sync_time, get_wanted_issues,
+                      delete_issues_for_series, get_series_needing_sync, get_all_mapped_series, get_series_by_id)
 import recommendations
 from models.stats import (get_library_stats, get_file_type_distribution, get_top_publishers,
                           get_reading_history_stats, get_largest_comics, get_top_series_by_count,
@@ -212,6 +215,124 @@ def configure_rebuild_schedule():
 
     except Exception as e:
         app_logger.error(f"Failed to configure rebuild schedule: {e}")
+
+# Initialize APScheduler for scheduled series sync
+sync_scheduler = BackgroundScheduler(daemon=True)
+sync_scheduler.start()
+app_logger.info("📅 Sync scheduler initialized")
+
+# Function to perform scheduled series sync
+def scheduled_series_sync():
+    """Sync all mapped series from Metron API on schedule."""
+    try:
+        app_logger.info("🔄 Starting scheduled series sync...")
+        start_time = time.time()
+
+        # Get Metron API with credentials from config
+        metron_username = app.config.get("METRON_USERNAME", "").strip()
+        metron_password = app.config.get("METRON_PASSWORD", "").strip()
+        if not metron_username or not metron_password:
+            app_logger.warning("Metron credentials not configured, skipping scheduled sync")
+            return
+
+        api = metron.get_api(metron_username, metron_password)
+        if not api:
+            app_logger.warning("Failed to initialize Metron API, skipping scheduled sync")
+            return
+
+        # Get all mapped series
+        series_list = get_all_mapped_series()
+        if not series_list:
+            app_logger.info("No mapped series to sync")
+            update_last_sync()
+            return
+
+        success_count = 0
+        fail_count = 0
+
+        for series in series_list:
+            series_id = series['id']
+            try:
+                # Fetch series info from API
+                series_info = api.series(series_id)
+                if not series_info:
+                    fail_count += 1
+                    continue
+
+                # Fetch all issues
+                all_issues_result = metron.get_all_issues_for_series(api, series_id)
+                all_issues = list(all_issues_result) if all_issues_result else []
+
+                # Delete existing cached issues and save new ones
+                delete_issues_for_series(series_id)
+                save_issues_bulk(all_issues, series_id)
+                update_series_sync_time(series_id, len(all_issues))
+
+                success_count += 1
+                app_logger.debug(f"Synced series {series_id}: {len(all_issues)} issues")
+
+            except Exception as e:
+                app_logger.error(f"Error syncing series {series_id}: {e}")
+                fail_count += 1
+
+        # Update last sync timestamp
+        update_last_sync()
+
+        elapsed = time.time() - start_time
+        app_logger.info(f"✅ Scheduled series sync completed in {elapsed:.2f}s ({success_count} synced, {fail_count} failed)")
+
+    except Exception as e:
+        app_logger.error(f"❌ Scheduled series sync failed: {e}")
+
+# Function to configure scheduled sync based on database settings
+def configure_sync_schedule():
+    """Configure the sync schedule based on database settings."""
+    try:
+        schedule = get_sync_schedule()
+        if not schedule:
+            app_logger.warning("No sync schedule found in database")
+            return
+
+        # Remove existing jobs
+        sync_scheduler.remove_all_jobs()
+
+        if schedule['frequency'] == 'disabled':
+            app_logger.info("📅 Scheduled series sync is disabled")
+            return
+
+        # Parse time
+        time_parts = schedule['time'].split(':')
+        hour = int(time_parts[0])
+        minute = int(time_parts[1])
+
+        if schedule['frequency'] == 'daily':
+            # Daily at specified time
+            trigger = CronTrigger(hour=hour, minute=minute)
+            sync_scheduler.add_job(
+                scheduled_series_sync,
+                trigger=trigger,
+                id='series_sync',
+                name='Daily Series Sync',
+                replace_existing=True
+            )
+            app_logger.info(f"📅 Scheduled daily series sync at {schedule['time']}")
+
+        elif schedule['frequency'] == 'weekly':
+            # Weekly on specified day at specified time
+            weekday = int(schedule['weekday'])
+            trigger = CronTrigger(day_of_week=weekday, hour=hour, minute=minute)
+            sync_scheduler.add_job(
+                scheduled_series_sync,
+                trigger=trigger,
+                id='series_sync',
+                name='Weekly Series Sync',
+                replace_existing=True
+            )
+            days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+            app_logger.info(f"📅 Scheduled weekly series sync on {days[weekday]} at {schedule['time']}")
+
+    except Exception as e:
+        app_logger.error(f"Failed to configure sync schedule: {e}")
 
 # Thread pool for thumbnail generation
 thumbnail_executor = ThreadPoolExecutor(max_workers=2)
@@ -416,6 +537,114 @@ def releases():
                          next_date=next_week_date)
 
 
+@app.route('/wanted')
+def wanted():
+    """
+    Wanted Issues page - shows all missing issues from mapped series.
+    """
+    from database import get_all_mapped_series, get_issues_for_series
+
+    wanted_issues = []
+    series_stats = []
+
+    # Get all mapped series
+    mapped_series = get_all_mapped_series()
+
+    for series in mapped_series:
+        series_id = series['id']
+        mapped_path = series.get('mapped_path')
+
+        if not mapped_path or not os.path.exists(mapped_path):
+            continue
+
+        # Get cached issues for this series
+        issues = get_issues_for_series(series_id)
+        if not issues:
+            continue
+
+        # Convert issues to objects for matching function
+        class IssueObj:
+            def __init__(self, data):
+                self.number = data.get('number')
+                self.id = data.get('id')
+                self.name = data.get('name')
+                self.store_date = data.get('store_date')
+                self.cover_date = data.get('cover_date')
+                self.image = data.get('image')
+
+        issue_objs = [IssueObj(i) for i in issues]
+
+        # Create a minimal series_info object for matching
+        class SeriesObj:
+            def __init__(self, data):
+                self.name = data.get('name')
+                self.volume = data.get('volume')
+                self.id = data.get('id')
+
+        series_obj = SeriesObj(series)
+
+        # Check which issues are in collection
+        issue_status = match_issues_to_collection(mapped_path, issue_objs, series_obj)
+
+        # Find missing/wanted issues
+        found_count = 0
+        missing_count = 0
+        for issue in issues:
+            issue_num = str(issue.get('number', ''))
+            status = issue_status.get(issue_num, {})
+
+            if status.get('found'):
+                found_count += 1
+            else:
+                missing_count += 1
+                # Add to wanted list
+                wanted_issues.append({
+                    'issue': issue,
+                    'series': series,
+                    'series_id': series_id,
+                    'series_name': series.get('name'),
+                    'series_volume': series.get('volume'),
+                })
+
+        # Track series stats
+        if missing_count > 0:
+            series_stats.append({
+                'series': series,
+                'found': found_count,
+                'missing': missing_count,
+                'total': len(issues)
+            })
+
+    # Sort wanted issues by store_date (future first, then by series/number)
+    from datetime import date
+    today = date.today().isoformat()
+
+    def sort_key(item):
+        store_date = item['issue'].get('store_date') or '9999-99-99'
+        series_name = item['series_name'] or ''
+        issue_num = item['issue'].get('number') or ''
+        # Try to convert issue number to int for proper sorting
+        try:
+            issue_num_int = int(issue_num)
+        except (ValueError, TypeError):
+            issue_num_int = 999999
+        return (store_date, series_name, issue_num_int)
+
+    wanted_issues.sort(key=sort_key)
+
+    # Group by upcoming (future store_date) vs missing (past/no date)
+    upcoming = [w for w in wanted_issues if w['issue'].get('store_date') and w['issue']['store_date'] > today]
+    missing = [w for w in wanted_issues if not w['issue'].get('store_date') or w['issue']['store_date'] <= today]
+
+    return render_template('wanted.html',
+                         upcoming=upcoming,
+                         missing=missing,
+                         series_stats=series_stats,
+                         total_wanted=len(wanted_issues),
+                         total_upcoming=len(upcoming),
+                         total_missing=len(missing))
+
+
 def match_issues_to_collection(mapped_path, issues, series_info):
     """
     Match Metron issues to local files in the mapped directory.
@@ -523,57 +752,150 @@ def match_issues_to_collection(mapped_path, issues, series_info):
 def series_view(slug):
     """
     View all issues in a series.
-    URL format: /series/series-name-vVOLUME-ISSUEID (e.g., /series/amazing-spider-man-v1-159721)
-    The issue_id is extracted from the end of the slug, then used to get the series.
+    URL format: /series/series-name-vVOLUME-ID (e.g., /series/amazing-spider-man-v1-4984)
+    The ID at the end can be either a series_id or an issue_id.
+    We first try to look it up as a series_id, then fall back to issue_id.
+
+    Uses cached data if available and recently synced, otherwise fetches from API.
     """
     import re
+    from datetime import datetime, timedelta
+    from database import (get_series_by_id, get_issues_for_series, save_issues_bulk,
+                          update_series_sync_time, save_series_mapping, get_publisher)
 
-    # Extract issue_id from the end of the slug
+    # Extract ID from the end of the slug
     match = re.search(r'-(\d+)$', slug)
     if not match:
-        app_logger.error(f"Invalid series URL format - no issue_id found in slug: {slug}")
+        app_logger.error(f"Invalid series URL format - no ID found in slug: {slug}")
         flash("Invalid series URL format", "error")
         return redirect(url_for('releases'))
 
-    issue_id = int(match.group(1))
+    slug_id = int(match.group(1))
+
+    # First, try to look up as a series_id (preferred for wanted page links)
+    from database import get_issue_by_id
+    cached_series = get_series_by_id(slug_id)
+    series_id = slug_id if cached_series else None
+
+    # If not found as series, try to look up as an issue_id (for releases page links)
+    cached_issue = None
+    if not series_id:
+        cached_issue = get_issue_by_id(slug_id)
+        series_id = cached_issue['series_id'] if cached_issue else None
+        if series_id:
+            cached_series = get_series_by_id(series_id)
+
+    # Check for cached series with recent sync (within 24 hours)
+    use_cache = False
+
+    if cached_series and cached_series.get('last_synced_at'):
+        try:
+            last_sync = datetime.fromisoformat(cached_series['last_synced_at'].replace('Z', '+00:00'))
+            if datetime.now(last_sync.tzinfo if last_sync.tzinfo else None) - last_sync < timedelta(hours=24):
+                use_cache = True
+                app_logger.info(f"Using cached data for series {series_id} (synced {cached_series['last_synced_at']})")
+        except Exception as e:
+            app_logger.warning(f"Could not parse last_synced_at: {e}")
 
     api = None
-    if metron.is_mokkari_available():
-        metron_username = app.config.get("METRON_USERNAME", "").strip()
-        metron_password = app.config.get("METRON_PASSWORD", "").strip()
-        if metron_username and metron_password:
-            api = metron.get_api(metron_username, metron_password)
+    if not use_cache:
+        # Need API to fetch fresh data
+        if metron.is_mokkari_available():
+            metron_username = app.config.get("METRON_USERNAME", "").strip()
+            metron_password = app.config.get("METRON_PASSWORD", "").strip()
+            if metron_username and metron_password:
+                api = metron.get_api(metron_username, metron_password)
 
-    if not api:
-        flash("Metron API not configured", "error")
-        return redirect(url_for('releases'))
+        if not api:
+            # No API available - try to use stale cache if we have any data
+            if cached_series:
+                app_logger.warning(f"API not available, using stale cache for series {series_id}")
+                use_cache = True
+            else:
+                flash("Metron API not configured", "error")
+                return redirect(url_for('releases'))
 
     try:
-        # Get full issue detail to access series.id
-        app_logger.info(f"Fetching issue details for issue_id: {issue_id}")
-        full_issue = api.issue(issue_id)
-        series_id = full_issue.series.id
-        app_logger.info(f"Got series_id: {series_id} from issue")
+        if use_cache and cached_series:
+            # Use cached data
+            app_logger.info(f"Loading series {series_id} from cache")
+            series_info = cached_series  # Already a dict
 
-        # Get full series details (has issue_count, cv_id, gcd_id, etc.)
-        app_logger.info(f"Fetching series details for series_id: {series_id}")
-        series_info = api.series(series_id)
-        app_logger.info(f"Got series_info: {series_info.name if series_info else 'None'}")
+            # Add publisher info if we have publisher_id
+            if cached_series.get('publisher_id'):
+                publisher = get_publisher(cached_series['publisher_id'])
+                if publisher:
+                    series_info['publisher'] = {'id': publisher['id'], 'name': publisher['name']}
 
-        # Get all issues for this series
-        app_logger.info(f"Fetching all issues for series_id: {series_id}")
-        all_issues_result = metron.get_all_issues_for_series(api, series_id)
-        # Convert to list in case it's a generator
-        all_issues = list(all_issues_result) if all_issues_result else []
-        app_logger.info(f"Got {len(all_issues)} issues")
+            # Get cached issues
+            all_issues = get_issues_for_series(series_id)
+            app_logger.info(f"Loaded {len(all_issues)} cached issues")
+
+        else:
+            # Fetch from API - slug_id could be a series_id or issue_id
+            # If we already have a series_id from cache lookup, use it directly
+            if series_id:
+                app_logger.info(f"Fetching series details for series_id: {series_id}")
+            else:
+                # Try to get series from issue
+                app_logger.info(f"Fetching issue details for issue_id: {slug_id}")
+                full_issue = api.issue(slug_id)
+                series_id = full_issue.series.id
+                app_logger.info(f"Got series_id: {series_id} from issue")
+
+            # Get full series details (has issue_count, cv_id, gcd_id, etc.)
+            app_logger.info(f"Fetching series details for series_id: {series_id}")
+            series_info = api.series(series_id)
+            app_logger.info(f"Got series_info: {series_info.name if series_info else 'None'}")
+
+            # Get all issues for this series
+            app_logger.info(f"Fetching all issues for series_id: {series_id}")
+            all_issues_result = metron.get_all_issues_for_series(api, series_id)
+            # Convert to list in case it's a generator
+            all_issues = list(all_issues_result) if all_issues_result else []
+            app_logger.info(f"Got {len(all_issues)} issues")
+
+            # Cache the data for future requests
+            from database import save_publisher
+            if hasattr(series_info, 'publisher') and series_info.publisher:
+                save_publisher(series_info.publisher.id, series_info.publisher.name)
+
+            # Convert series_info to dict for saving
+            if hasattr(series_info, 'model_dump'):
+                series_dict_for_save = series_info.model_dump(mode='json')
+            elif hasattr(series_info, 'dict'):
+                series_dict_for_save = series_info.dict()
+            else:
+                series_dict_for_save = {'id': series_id, 'name': getattr(series_info, 'name', '')}
+
+            # Save series to database FIRST (required for foreign key constraint)
+            # Use empty mapped_path for now - it will be set when user maps the directory
+            from database import get_series_mapping
+            existing_mapping = get_series_mapping(series_id)
+            save_series_mapping(series_dict_for_save, existing_mapping or '')
+
+            # Now save issues to cache (series must exist first)
+            save_issues_bulk(all_issues, series_id)
+            update_series_sync_time(series_id, len(all_issues))
+
+        # Helper to get attribute from dict or object
+        def get_attr(obj, key, default=None):
+            if isinstance(obj, dict):
+                return obj.get(key, default)
+            return getattr(obj, key, default)
 
         # Get cover image from first issue (if available)
         first_issue_image = None
         if all_issues:
             # Sort by issue number to get the first issue
-            sorted_issues = sorted(all_issues, key=lambda x: float(x.number) if x.number and str(x.number).replace('.', '').isdigit() else 999)
-            if sorted_issues and hasattr(sorted_issues[0], 'image'):
-                first_issue_image = sorted_issues[0].image
+            def sort_key(x):
+                num = get_attr(x, 'number')
+                if num and str(num).replace('.', '').isdigit():
+                    return float(num)
+                return 999
+            sorted_issues = sorted(all_issues, key=sort_key)
+            if sorted_issues:
+                first_issue_image = get_attr(sorted_issues[0], 'image')
 
         # Check for existing mapping
         from database import get_series_mapping
@@ -587,43 +909,56 @@ def series_view(slug):
         # Convert series_info to dict for JSON serialization
         series_dict = None
         if series_info:
-            try:
-                if hasattr(series_info, 'model_dump'):
-                    # Pydantic v2 - use mode='json' for JSON-safe output
-                    series_dict = series_info.model_dump(mode='json')
-                elif hasattr(series_info, 'dict'):
-                    # Pydantic v1
-                    series_dict = series_info.dict()
-                    # Convert any non-serializable types to strings
-                    import json
-                    series_dict = json.loads(json.dumps(series_dict, default=str))
-                elif hasattr(series_info, '__dict__'):
-                    import json
-                    series_dict = json.loads(json.dumps(vars(series_info), default=str))
-            except Exception as e:
-                app_logger.warning(f"Could not serialize series_info: {e}")
-                # Fallback: manually build dict with known fields
-                series_dict = {
-                    'id': getattr(series_info, 'id', None),
-                    'name': getattr(series_info, 'name', None),
-                    'sort_name': getattr(series_info, 'sort_name', None),
-                    'volume': getattr(series_info, 'volume', None),
-                    'status': str(getattr(series_info, 'status', '')),
-                    'year_began': getattr(series_info, 'year_began', None),
-                    'year_end': getattr(series_info, 'year_end', None),
-                    'desc': getattr(series_info, 'desc', None),
-                    'cv_id': getattr(series_info, 'cv_id', None),
-                    'gcd_id': getattr(series_info, 'gcd_id', None),
-                    'issue_count': getattr(series_info, 'issue_count', None),
-                    'resource_url': str(getattr(series_info, 'resource_url', '')),
-                }
-                # Add publisher if available
-                publisher = getattr(series_info, 'publisher', None)
-                if publisher:
-                    series_dict['publisher'] = {
-                        'id': getattr(publisher, 'id', None),
-                        'name': getattr(publisher, 'name', None),
+            if isinstance(series_info, dict):
+                # Already a dict (from cache)
+                series_dict = series_info
+            else:
+                try:
+                    if hasattr(series_info, 'model_dump'):
+                        # Pydantic v2 - use mode='json' for JSON-safe output
+                        series_dict = series_info.model_dump(mode='json')
+                    elif hasattr(series_info, 'dict'):
+                        # Pydantic v1
+                        series_dict = series_info.dict()
+                        # Convert any non-serializable types to strings
+                        import json
+                        series_dict = json.loads(json.dumps(series_dict, default=str))
+                    elif hasattr(series_info, '__dict__'):
+                        import json
+                        series_dict = json.loads(json.dumps(vars(series_info), default=str))
+                except Exception as e:
+                    app_logger.warning(f"Could not serialize series_info: {e}")
+                    # Fallback: manually build dict with known fields
+                    series_dict = {
+                        'id': getattr(series_info, 'id', None),
+                        'name': getattr(series_info, 'name', None),
+                        'sort_name': getattr(series_info, 'sort_name', None),
+                        'volume': getattr(series_info, 'volume', None),
+                        'status': str(getattr(series_info, 'status', '')),
+                        'year_began': getattr(series_info, 'year_began', None),
+                        'year_end': getattr(series_info, 'year_end', None),
+                        'desc': getattr(series_info, 'desc', None),
+                        'cv_id': getattr(series_info, 'cv_id', None),
+                        'gcd_id': getattr(series_info, 'gcd_id', None),
+                        'issue_count': getattr(series_info, 'issue_count', None),
+                        'resource_url': str(getattr(series_info, 'resource_url', '')),
                     }
+                    # Add publisher if available
+                    publisher = getattr(series_info, 'publisher', None)
+                    if publisher:
+                        series_dict['publisher'] = {
+                            'id': getattr(publisher, 'id', None),
+                            'name': getattr(publisher, 'name', None),
+                        }
+
+        # Get last_synced_at for UI display
+        last_synced_at = None
+        if cached_series and cached_series.get('last_synced_at'):
+            try:
+                sync_dt = datetime.fromisoformat(cached_series['last_synced_at'])
+                last_synced_at = sync_dt.strftime('%Y-%m-%d %H:%M')
+            except (ValueError, TypeError):
+                last_synced_at = cached_series.get('last_synced_at')
 
         return render_template('series.html',
                              series=series_info,
@@ -631,7 +966,9 @@ def series_view(slug):
                              issues=all_issues,
                              first_issue_image=first_issue_image,
                              mapped_path=mapped_path,
-                             issue_status=issue_status)
+                             issue_status=issue_status,
+                             last_synced_at=last_synced_at,
+                             today=datetime.now().strftime('%Y-%m-%d'))
     except Exception as e:
         import traceback
         app_logger.error(f"Error fetching series data for series {series_id}: {e}")
@@ -741,6 +1078,135 @@ def check_series_collection(series_id):
 
     except Exception as e:
         app_logger.error(f"Error checking collection for series {series_id}: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/sync/series/<int:series_id>', methods=['POST'])
+def sync_series(series_id):
+    """Force sync a specific series from Metron API"""
+    metron_username = app.config.get("METRON_USERNAME", "").strip()
+    metron_password = app.config.get("METRON_PASSWORD", "").strip()
+    if not metron_username or not metron_password:
+        return jsonify({'error': 'Metron credentials not configured'}), 500
+
+    api = metron.get_api(metron_username, metron_password)
+    if not api:
+        return jsonify({'error': 'Failed to initialize Metron API'}), 500
+
+    try:
+        # Get mapped path for this series
+        series_mapping = get_series_by_id(series_id)
+        mapped_path = series_mapping.get('mapped_path') if series_mapping else None
+
+        # Fetch series info from API
+        series_info = api.series(series_id)
+        if not series_info:
+            return jsonify({'error': 'Series not found'}), 404
+
+        # Fetch all issues
+        all_issues_result = metron.get_all_issues_for_series(api, series_id)
+        all_issues = list(all_issues_result) if all_issues_result else []
+
+        # Delete existing cached issues and save new ones
+        delete_issues_for_series(series_id)
+        save_issues_bulk(all_issues, series_id)
+        update_series_sync_time(series_id, len(all_issues))
+
+        # Check collection status if mapped
+        issue_status = {}
+        found_count = 0
+        missing_count = len(all_issues)
+
+        if mapped_path and os.path.exists(mapped_path):
+            issue_status = match_issues_to_collection(mapped_path, all_issues, series_info)
+            found_count = sum(1 for s in issue_status.values() if s.get('found'))
+            missing_count = len(all_issues) - found_count
+
+        return jsonify({
+            'success': True,
+            'series_id': series_id,
+            'issue_count': len(all_issues),
+            'issue_status': issue_status,
+            'found_count': found_count,
+            'missing_count': missing_count,
+            'synced_at': datetime.now().isoformat()
+        })
+
+    except Exception as e:
+        app_logger.error(f"Error syncing series {series_id}: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/wanted', methods=['GET'])
+def get_wanted_issues_api():
+    """Get all wanted issues across all tracked series"""
+    try:
+        wanted = get_wanted_issues()
+        return jsonify({
+            'success': True,
+            'issues': wanted,
+            'count': len(wanted)
+        })
+    except Exception as e:
+        app_logger.error(f"Error getting wanted issues: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/sync/all', methods=['POST'])
+def sync_all_series():
+    """Sync all mapped series that need updating"""
+    metron_username = app.config.get("METRON_USERNAME", "").strip()
+    metron_password = app.config.get("METRON_PASSWORD", "").strip()
+    if not metron_username or not metron_password:
+        return jsonify({'error': 'Metron credentials not configured'}), 500
+
+    api = metron.get_api(metron_username, metron_password)
+    if not api:
+        return jsonify({'error': 'Failed to initialize Metron API'}), 500
+
+    try:
+        # Get series that need sync (stale > 24 hours)
+        hours = request.json.get('hours', 24) if request.is_json else 24
+        series_to_sync = get_series_needing_sync(hours)
+
+        results = []
+        for series in series_to_sync:
+            series_id = series['id']
+            try:
+                # Fetch series info from API
+                series_info = api.series(series_id)
+                if not series_info:
+                    results.append({'series_id': series_id, 'success': False, 'error': 'Not found'})
+                    continue
+
+                # Fetch all issues
+                all_issues_result = metron.get_all_issues_for_series(api, series_id)
+                all_issues = list(all_issues_result) if all_issues_result else []
+
+                # Delete existing cached issues and save new ones
+                delete_issues_for_series(series_id)
+                save_issues_bulk(all_issues, series_id)
+                update_series_sync_time(series_id, len(all_issues))
+
+                results.append({
+                    'series_id': series_id,
+                    'success': True,
+                    'issue_count': len(all_issues)
+                })
+
+            except Exception as e:
+                app_logger.error(f"Error syncing series {series_id}: {e}")
+                results.append({'series_id': series_id, 'success': False, 'error': str(e)})
+
+        return jsonify({
+            'success': True,
+            'synced': len([r for r in results if r['success']]),
+            'failed': len([r for r in results if not r['success']]),
+            'results': results
+        })
+
+    except Exception as e:
+        app_logger.error(f"Error in sync_all_series: {e}")
         return jsonify({'error': str(e)}), 500
 
 
@@ -1710,6 +2176,93 @@ def api_save_rebuild_schedule():
         app_logger.error(f"Failed to save rebuild schedule: {e}")
         return jsonify({"success": False, "error": str(e)}), 500
 
+@app.route('/api/get-sync-schedule', methods=['GET'])
+def api_get_sync_schedule():
+    """Get the current series sync schedule configuration."""
+    try:
+        schedule = get_sync_schedule()
+        if not schedule:
+            return jsonify({
+                "success": True,
+                "schedule": {
+                    "frequency": "disabled",
+                    "time": "03:00",
+                    "weekday": 0
+                },
+                "next_run": "Not scheduled",
+                "last_sync": None
+            })
+
+        # Calculate next run time
+        next_run = "Not scheduled"
+        if schedule['frequency'] != 'disabled':
+            try:
+                jobs = sync_scheduler.get_jobs()
+                if jobs:
+                    next_run_time = jobs[0].next_run_time
+                    if next_run_time:
+                        next_run = next_run_time.strftime('%Y-%m-%d %H:%M:%S')
+            except Exception:
+                pass
+
+        return jsonify({
+            "success": True,
+            "schedule": {
+                "frequency": schedule['frequency'],
+                "time": schedule['time'],
+                "weekday": schedule['weekday']
+            },
+            "next_run": next_run,
+            "last_sync": schedule.get('last_sync')
+        })
+    except Exception as e:
+        app_logger.error(f"Failed to get sync schedule: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+@app.route('/api/save-sync-schedule', methods=['POST'])
+def api_save_sync_schedule():
+    """Save the series sync schedule configuration."""
+    try:
+        data = request.get_json()
+        frequency = data.get('frequency', 'disabled')
+        time_str = data.get('time', '03:00')
+        weekday = int(data.get('weekday', 0))
+
+        # Validate inputs
+        if frequency not in ['disabled', 'daily', 'weekly']:
+            return jsonify({"success": False, "error": "Invalid frequency"}), 400
+
+        # Save to database
+        if not db_save_sync_schedule(frequency, time_str, weekday):
+            return jsonify({"success": False, "error": "Failed to save schedule to database"}), 500
+
+        # Reconfigure the scheduler
+        configure_sync_schedule()
+
+        app_logger.info(f"✅ Sync schedule saved: {frequency} at {time_str}")
+
+        return jsonify({
+            "success": True,
+            "message": f"Sync schedule saved successfully: {frequency} at {time_str}"
+        })
+    except Exception as e:
+        app_logger.error(f"Failed to save sync schedule: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+@app.route('/api/run-sync-now', methods=['POST'])
+def api_run_sync_now():
+    """Manually trigger a series sync immediately."""
+    try:
+        # Run in a background thread to not block the request
+        threading.Thread(target=scheduled_series_sync, daemon=True).start()
+        return jsonify({
+            "success": True,
+            "message": "Series sync started in background"
+        })
+    except Exception as e:
+        app_logger.error(f"Failed to start sync: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
 # Cache for directory statistics to avoid repeated filesystem walks
 _data_dir_stats_cache = {}
 _data_dir_stats_last_update = 0
@@ -2456,7 +3009,7 @@ def auto_fetch_metron_metadata(destination_path):
     """
     try:
         from models.metron import (
-            is_mokkari_available, get_api, get_metron_series_id,
+            is_mokkari_available, get_api, get_series_id,
             get_issue_metadata, map_to_comicinfo
         )
         from comicvine import extract_issue_number, generate_comicinfo_xml, add_comicinfo_to_archive
@@ -2509,7 +3062,7 @@ def auto_fetch_metron_metadata(destination_path):
             return destination_path
 
         # Get Metron series ID (from cvinfo or lookup by CV ID)
-        series_id = get_metron_series_id(cvinfo_path, api)
+        series_id = get_series_id(cvinfo_path, api)
         if not series_id:
             app_logger.debug("Could not determine Metron series ID")
             return destination_path
@@ -4983,22 +5536,22 @@ def batch_metadata():
             app_logger.info(f"Found existing cvinfo with volume ID: {cv_volume_id}")
 
         # Step 2: Add Metron series ID if not present
-        metron_series_id = None
+        series_id = None
         metron_api = None
         metron_id_added = False
 
         if metron_available and os.path.exists(cvinfo_path):
             metron_api = metron.get_api(metron_username, metron_password)
             if metron_api:
-                metron_series_id = metron.parse_cvinfo_for_metron_id(cvinfo_path)
-                if not metron_series_id:
+                series_id = metron.parse_cvinfo_for_metron_id(cvinfo_path)
+                if not series_id:
                     cv_id = metron.parse_cvinfo_for_comicvine_id(cvinfo_path)
                     if cv_id:
-                        metron_series_id = metron.get_metron_series_id_by_comicvine_id(metron_api, cv_id)
-                        if metron_series_id:
-                            metron.update_cvinfo_with_metron_id(cvinfo_path, metron_series_id)
+                        series_id = metron.get_series_id_by_comicvine_id(metron_api, cv_id)
+                        if series_id:
+                            metron.update_cvinfo_with_metron_id(cvinfo_path, series_id)
                             metron_id_added = True
-                            app_logger.info(f"Added Metron series ID: {metron_series_id}")
+                            app_logger.info(f"Added Metron series ID: {series_id}")
 
         # Step 3: Get list of comic files
         comic_files = []
@@ -5119,10 +5672,10 @@ def batch_metadata():
                     # Helper function for Metron lookup
                     def try_metron():
                         nonlocal metadata, source
-                        if not (metron_available and metron_api and metron_series_id):
+                        if not (metron_available and metron_api and series_id):
                             return False
                         try:
-                            issue_data = metron.get_issue_metadata(metron_api, metron_series_id, issue_number)
+                            issue_data = metron.get_issue_metadata(metron_api, series_id, issue_number)
                             if issue_data:
                                 metadata = metron.map_to_comicinfo(issue_data)
                                 source = 'Metron'
@@ -8155,18 +8708,18 @@ def search_comicvine_metadata():
             year_match = re.search(r'\((\d{4})\)', name_without_ext)
             year = int(year_match.group(1)) if year_match else None
 
-            # Try Metron first if configured and metron_series_id exists
+            # Try Metron first if configured and series_id exists
             from models import metron as metron_module
-            metron_series_id = metron_module.parse_cvinfo_for_metron_id(cvinfo_path)
+            series_id = metron_module.parse_cvinfo_for_metron_id(cvinfo_path)
             metron_username = app.config.get("METRON_USERNAME", "").strip()
             metron_password = app.config.get("METRON_PASSWORD", "").strip()
 
-            if metron_series_id and metron_username and metron_password and metron_module.is_mokkari_available():
-                app_logger.info(f"Trying Metron first with series ID {metron_series_id}")
+            if series_id and metron_username and metron_password and metron_module.is_mokkari_available():
+                app_logger.info(f"Trying Metron first with series ID {series_id}")
                 metron_api = metron_module.get_api(metron_username, metron_password)
 
                 if metron_api:
-                    metron_issue_data = metron_module.get_issue_metadata(metron_api, metron_series_id, issue_number)
+                    metron_issue_data = metron_module.get_issue_metadata(metron_api, series_id, issue_number)
 
                     if metron_issue_data:
                         # Check if summary/description is not blank
@@ -8743,6 +9296,9 @@ def start_background_services():
 
     # Configure rebuild schedule from database
     configure_rebuild_schedule()
+
+    # Configure sync schedule from database
+    configure_sync_schedule()
 
     # Start monitor if enabled
     if os.environ.get("MONITOR", "").strip().lower() == "yes":

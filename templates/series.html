@@ -2,6 +2,10 @@
 
 {% block title %}{{ series.name }} - Series{% endblock %}
 
+{% block extra_css %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/files.css') }}">
+{% endblock %}
+
 {% block content %}
 <div class="container py-5">
     <div class="row mb-5" id="series">
@@ -27,6 +31,11 @@
                             <p class="lead mb-4">{{ series.desc or 'No description available.' }}</p>
 
                             <div class="row g-3 text-muted">
+                                <div class="col-6 col-md-4">
+                                    <small class="text-uppercase fw-bold d-block mb-1"
+                                        style="font-size: 0.75rem;">Publisher</small>
+                                    <span>{{ series.publisher.name if series.publisher else '-' }}</span>
+                                </div>
                                 <div class="col-6 col-md-4">
                                     <small class="text-uppercase fw-bold d-block mb-1"
                                         style="font-size: 0.75rem;">Metron ID</small>
@@ -82,7 +91,7 @@
                                 <div class="col-6 col-md-4">
                                     <small class="text-uppercase fw-bold d-block mb-1" style="font-size: 0.75rem;">Year
                                         Ended</small>
-                                    <span>{{ series.year_ended or series.year_end or 'Present' }}</span>
+                                    <span>{{ series.year_ended or series.year_end or 'Ongoing' }}</span>
                                 </div>
                             </div>
                         </div>
@@ -149,23 +158,57 @@
                                 {% endif %}
                             </p>
                         </div>
-                        <div class="d-flex gap-2">
-                            {% if mapped_path %}
-                            <button class="btn btn-outline-danger" onclick="removeMappingConfirm()">
-                                <i class="bi bi-x-circle me-1"></i>Remove
-                            </button>
+                        <div class="d-flex align-items-center gap-3">
+                            {% if last_synced_at %}
+                            <small class="text-muted" id="last-synced-display">
+                                <i class="bi bi-clock me-1"></i>Synced: {{ last_synced_at }}
+                            </small>
                             {% endif %}
-                            <button class="btn btn-outline-primary" onclick="openMappingModal()">
-                                <i class="bi bi-folder-symlink me-1"></i>
-                                {% if mapped_path %}Change{% else %}Map{% endif %} Location
-                            </button>
-                            {% if mapped_path %}
-                            <button class="btn btn-outline-success" onclick="refreshCollectionStatus()" id="refresh-btn">
-                                <i class="bi bi-arrow-clockwise me-1"></i>Refresh
-                            </button>
-                            {% endif %}
+                            <div class="d-flex gap-2">
+                                {% if mapped_path %}
+                                <button class="btn btn-outline-danger" onclick="removeMappingConfirm()">
+                                    <i class="bi bi-x-circle me-1"></i>Remove
+                                </button>
+                                {% endif %}
+                                <button class="btn btn-outline-primary" onclick="openMappingModal()">
+                                    <i class="bi bi-folder-symlink me-1"></i>
+                                    {% if mapped_path %}Change{% else %}Map{% endif %} Location
+                                </button>
+                                {% if mapped_path %}
+                                <button class="btn btn-outline-secondary" onclick="syncSeries()" id="sync-btn">
+                                    <i class="bi bi-arrow-repeat me-1"></i>Sync
+                                </button>
+                                <button class="btn btn-outline-success" onclick="refreshCollectionStatus()"
+                                    id="refresh-btn">
+                                    <i class="bi bi-arrow-clockwise me-1"></i>Refresh
+                                </button>
+                                {% endif %}
+                            </div>
                         </div>
                     </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Progress indicator -->
+    <div class="row p-3" id="progress-container" style="display: none;">
+        <div class="col-12">
+            <div class="card border-primary">
+                <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center">
+                    <h5 class="card-title mb-0"><i class="bi bi-hourglass-split me-2"></i>Processing Progress</h5>
+                    <button type="button" class="btn-close btn-close-white" onclick="hideProgressIndicator()"
+                        aria-label="Close"></button>
+                </div>
+                <div class="card-body">
+                    <div class="progress mb-3" style="height: 25px;">
+                        <div id="progress-bar" class="progress-bar progress-bar-striped progress-bar-animated"
+                            role="progressbar" style="width: 0%" aria-valuenow="0" aria-valuemin="0"
+                            aria-valuemax="100">
+                            0%
+                        </div>
+                    </div>
+                    <div id="progress-text" class="text-muted">Initializing...</div>
                 </div>
             </div>
         </div>
@@ -177,32 +220,76 @@
         <div class="card-body p-0">
             <div class="table-responsive">
                 <table class="table table-hover align-middle mb-0">
-                    <thead class="bg-light">
+                    <thead>
                         <tr>
-                            <th scope="col" class="ps-4" style="width: 100px;">Number</th>
-                            <th scope="col" style="width: 150px;">Store Date</th>
-                            <th scope="col" class="text-end pe-4" style="width: 100px;">Action</th>
+                            <th scope="col" class="ps-4">Issue Number</th>
+                            <th scope="col">Store Date</th>
+                            <th scope="col" class="text-end pe-4">Action</th>
                         </tr>
                     </thead>
                     <tbody>
                         {% for issue in issues %}
                         {% set status = issue_status.get(issue.number|string, {}) if issue_status else {} %}
+                        {% set is_upcoming = issue.store_date and issue.store_date > today %}
                         <tr
-                            class="{% if mapped_path %}{% if status.get('found') %}table-success{% else %}table-danger{% endif %}{% endif %}">
-                            <td
-                                class="ps-4 fw-bold {% if mapped_path and status.get('found') %}text-success{% elif mapped_path %}text-danger{% else %}text-primary{% endif %}">
+                            class="{% if mapped_path %}{% if status.get('found') %}table-success{% elif is_upcoming %}table-info{% else %}table-danger{% endif %}{% endif %}">
+                            <td class="ps-4 fw-bold">
                                 {% if mapped_path %}
                                 <i
                                     class="bi bi-{% if status.get('found') %}check-circle-fill{% else %}x-circle-fill{% endif %} me-1"></i>
                                 {% endif %}
-                                #{{ issue.number }}
+                                #{{ '%03d'|format(issue.number|int) if issue.number|int|string == issue.number|string
+                                else issue.number }}
+                                {% if mapped_path and not status.get('found') %}
+                                <span class="badge bg-warning text-dark ms-2">Wanted</span>
+                                {% endif %}
                             </td>
                             <td>{{ issue.store_date or '-' }}</td>
                             <td class="text-end pe-4">
-                                <a href="{{ issue.resource_url }}" target="_blank"
-                                    class="btn btn-sm btn-outline-primary" title="View on Metron">
-                                    <i class="bi bi-link-45deg"></i>
-                                </a>
+                                {% if mapped_path and status.get('found') and status.get('file_path') %}
+                                <div class="btn-group" role="group">
+                                    <button type="button" class="btn btn-sm btn-outline-info text-info"
+                                        onclick="viewIssueFile('{{ status.get('file_path')|replace('\\', '/')|e }}', '{{ issue.number }}')"
+                                        title="View CBZ Info">
+                                        <i class="bi bi-eye"></i>
+                                    </button>
+                                    <button type="button" class="btn btn-sm btn-outline-primary"
+                                        onclick="editIssueFile('{{ status.get('file_path')|replace('\\', '/')|e }}')"
+                                        title="Edit CBZ">
+                                        <i class="bi bi-pencil"></i>
+                                    </button>
+                                    <div class="dropdown d-inline-block">
+                                        <button class="btn btn-sm btn-outline-secondary" type="button"
+                                            data-bs-toggle="dropdown" aria-expanded="false" title="More options">
+                                            <i class="bi bi-three-dots-vertical"></i>
+                                        </button>
+                                        <ul class="dropdown-menu dropdown-menu-end shadow">
+                                            <li><a class="dropdown-item" href="#"
+                                                    onclick="executeIssueScript('crop', '{{ status.get('file_path')|replace('\\', '/')|e }}'); return false;">
+                                                    <i class="bi bi-crop me-2"></i>Crop Cover
+                                                </a></li>
+                                            <li><a class="dropdown-item" href="#"
+                                                    onclick="executeIssueScript('remove', '{{ status.get('file_path')|replace('\\', '/')|e }}'); return false;">
+                                                    <i class="bi bi-file-minus me-2"></i>Remove 1st Image
+                                                </a></li>
+                                            <li><a class="dropdown-item" href="#"
+                                                    onclick="executeIssueScript('single_file', '{{ status.get('file_path')|replace('\\', '/')|e }}'); return false;">
+                                                    <i class="bi bi-hammer me-2"></i>Rebuild
+                                                </a></li>
+                                            <li><a class="dropdown-item" href="#"
+                                                    onclick="executeIssueScript('enhance_single', '{{ status.get('file_path')|replace('\\', '/')|e }}'); return false;">
+                                                    <i class="bi bi-stars me-2"></i>Enhance
+                                                </a></li>
+                                            <li><a class="dropdown-item" href="#"
+                                                    onclick="executeIssueScript('add', '{{ status.get('file_path')|replace('\\', '/')|e }}'); return false;">
+                                                    <i class="bi bi-file-plus me-2"></i>Add Blank to End
+                                                </a></li>
+                                        </ul>
+                                    </div>
+                                </div>
+                                {% else %}
+                                <span class="text-muted">-</span>
+                                {% endif %}
                             </td>
                         </tr>
                         {% endfor %}
@@ -213,11 +300,11 @@
         <div class="card-footer bg-white d-flex justify-content-between align-items-center py-3 px-4">
             {% if mapped_path and issue_status %}
             {% set found_count = issue_status.values()|selectattr('found')|list|length %}
-            {% set missing_count = issues|length - found_count %}
+            {% set wanted_count = issues|length - found_count %}
             <small>
                 <span class="text-success"><i class="bi bi-check-circle-fill me-1"></i>{{ found_count }} found</span>
                 <span class="mx-2">|</span>
-                <span class="text-danger"><i class="bi bi-x-circle-fill me-1"></i>{{ missing_count }} missing</span>
+                <span class="text-warning"><i class="bi bi-star-fill me-1"></i>{{ wanted_count }} wanted</span>
             </small>
             {% else %}
             <small></small>
@@ -239,6 +326,263 @@
     </div>
     {% endif %}
 </div>
+
+<!-- Modals -->
+
+<!-- CBZ Info Modal -->
+<div class="modal fade" id="cbzInfoModal" tabindex="-1" aria-labelledby="cbzInfoModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="cbzInfoModalLabel">CBZ Information</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <!-- Navigation buttons row -->
+                <div id="cbzNavButtons" class="d-flex justify-content-between mb-3" style="display: none !important;">
+                    <button type="button" id="cbzPrevBtn" class="btn btn-outline-primary" style="visibility: hidden;">
+                        <i class="bi bi-arrow-left"></i> Prev
+                    </button>
+                    <button type="button" id="cbzNextBtn" class="btn btn-outline-primary" style="visibility: hidden;">
+                        Next <i class="bi bi-arrow-right"></i>
+                    </button>
+                </div>
+
+                <div id="cbzInfoContent">
+                    <div class="text-center">
+                        <div class="spinner-border" role="status">
+                            <span class="visually-hidden">Loading...</span>
+                        </div>
+                        <p class="mt-2">Loading CBZ information...</p>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+<!-- End of CBZ Info Modal -->
+
+<!-- GCD Series Selection Modal -->
+<div class="modal fade" id="gcdSeriesModal" tabindex="-1" aria-labelledby="gcdSeriesModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="gcdSeriesModalLabel">Select Correct Series</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="mb-3">
+                    <p><strong>Parsed from filename:</strong></p>
+                    <ul class="list-unstyled">
+                        <li><strong>Series:</strong> <span id="gcdParsedSeries"></span></li>
+                        <li><strong>Issue:</strong> <span id="gcdParsedIssue"></span></li>
+                        <li><strong>Year:</strong> <span id="gcdParsedYear"></span></li>
+                    </ul>
+                </div>
+                <div class="mb-3">
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <p class="mb-0"><strong>Please select the correct series from the GCD database:</strong></p>
+                        <div class="btn-group" role="group" aria-label="Sort options">
+                            <button type="button" class="btn btn-outline-secondary btn-sm" id="sortBySeries"
+                                onclick="sortGCDSeries('series')">
+                                <i class="bi bi-sort-alpha-down me-1"></i>Series
+                            </button>
+                            <button type="button" class="btn btn-outline-secondary btn-sm" id="sortByYear"
+                                onclick="sortGCDSeries('year')">
+                                <i class="bi bi-sort-numeric-down me-1"></i>Year
+                            </button>
+                        </div>
+                    </div>
+                    <div id="gcdSeriesList" class="list-group" style="max-height: 400px; overflow-y: auto;">
+                        <!-- Series options will be populated here -->
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+            </div>
+        </div>
+    </div>
+</div>
+<!-- End of GCD Series Selection Modal -->
+
+<!-- ComicVine Volume Selection Modal -->
+<div class="modal fade" id="comicVineVolumeModal" tabindex="-1" aria-labelledby="comicVineVolumeModalLabel"
+    aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="comicVineVolumeModalLabel">Select Correct Volume</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="mb-3">
+                    <p><strong>Parsed from filename:</strong></p>
+                    <ul class="list-unstyled">
+                        <li><strong>Series:</strong> <span id="cvParsedSeries"></span></li>
+                        <li><strong>Issue:</strong> <span id="cvParsedIssue"></span></li>
+                        <li><strong>Year:</strong> <span id="cvParsedYear"></span></li>
+                    </ul>
+                </div>
+                <div class="mb-3">
+                    <p class="mb-2"><strong>Please select the correct volume from ComicVine:</strong></p>
+                    <div id="cvVolumeList" class="list-group" style="max-height: 400px; overflow-y: auto;">
+                        <!-- Volume options will be populated here -->
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+            </div>
+        </div>
+    </div>
+</div>
+<!-- End of ComicVine Volume Selection Modal -->
+
+<!-- Toast Container -->
+<div class="toast-container position-fixed top-0 end-0 p-3" style="z-index: 1100">
+    <div id="moveErrorToast" class="toast bg-danger text-white" role="alert" aria-live="assertive" aria-atomic="true">
+        <div class="toast-header bg-danger text-white">
+            <strong class="me-auto">Rename Error</strong>
+            <button type="button" class="btn-close btn-close-white" data-bs-dismiss="toast" aria-label="Close"></button>
+        </div>
+        <div class="toast-body" id="moveErrorToastBody">
+            Rename failed.
+        </div>
+    </div>
+</div>
+
+<!-- Edit CBZ Modal -->
+<div class="modal fade" id="editCBZModal" tabindex="-1" aria-labelledby="editCBZModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-fullscreen">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="editCBZModalLabel">Editing CBZ File</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div id="editInlineContainer" class="row row-cols-1 row-cols-sm-2 row-cols-md-3 g-3">
+                    <!-- Inline editing content (cards) will be dynamically loaded here -->
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-primary" id="saveEditBtn" onclick="saveEditedCBZ()">
+                    <i class="bi bi-floppy2-fill"></i> Save
+                </button>
+                <form action="/save" method="post" id="editInlineSaveForm" style="display: none;">
+                    <input type="hidden" name="folder_name" id="editInlineFolderName">
+                    <input type="hidden" name="zip_file_path" id="editInlineZipFilePath">
+                    <input type="hidden" name="original_file_path" id="editInlineOriginalFilePath">
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+<!-- Free Form Crop Modal -->
+<div class="modal fade" id="freeFormCropModal" tabindex="-1" aria-labelledby="freeFormCropModalLabel" aria-hidden="true"
+    data-bs-backdrop="static">
+    <div class="modal-dialog modal-fullscreen">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="freeFormCropModalLabel">Free Form Crop - Click and drag to select area</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body d-flex justify-content-center align-items-center bg-dark"
+                style="overflow: hidden; position: relative;">
+                <div id="cropImageContainer"
+                    style="position: relative; display: inline-block; max-width: 100%; max-height: 100%; cursor: crosshair;">
+                    <img id="cropImage" src="" alt="Image to crop"
+                        style="max-width: 100%; max-height: 90vh; display: block; user-select: none;">
+                    <div id="cropSelection"
+                        style="position: absolute; border: 3px dashed #ff0000; background-color: rgba(255, 0, 0, 0.1); display: none; pointer-events: none;">
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" id="confirmCropBtn" onclick="confirmFreeFormCrop()"
+                    disabled>Confirm Crop</button>
+            </div>
+        </div>
+    </div>
+</div>
+<!-- End of Free Form Crop Modal -->
+
+<!-- ComicVine URL Modal -->
+<div class="modal fade" id="cvInfoModal" tabindex="-1" aria-labelledby="cvInfoModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="cvInfoModalLabel"><i class="bi bi-link-45deg"></i> Add CVINFO</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <p class="text-muted small mb-3">Enter the Comic Vine Volume ID for this series. This will be saved as a
+                    <code>cvinfo</code> file and used to auto-fetch metadata for comics in this folder.
+                </p>
+                <div class="mb-3">
+                    <label for="cvInfoIdInput" class="form-label">Comic Vine Volume ID <span
+                            class="text-danger">*</span></label>
+                    <input type="text" class="form-control" id="cvInfoIdInput" placeholder="167796" required>
+                    <div class="form-text">Example: https://comicvine.gamespot.com/volume/4050-<strong>167796</strong> -
+                        the CV_ID is <strong>167796</strong></div>
+                </div>
+                <div class="mb-3">
+                    <label for="metronIdInput" class="form-label">Metron Series ID <span
+                            class="text-muted">(optional)</span></label>
+                    <input type="text" class="form-control" id="metronIdInput" placeholder="12345">
+                    <div class="form-text">If you have a Metron series ID, enter it here to enable Metron metadata
+                        fetching.</div>
+                </div>
+                <input type="hidden" id="cvInfoDirectoryPath">
+                <input type="hidden" id="cvInfoPanel">
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" onclick="saveCVInfo()">
+                    <i class="bi bi-save"></i> Save
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+<!-- End of ComicVine URL Modal -->
+
+<!-- Update XML Modal -->
+<div class="modal fade" id="updateXmlModal" tabindex="-1" aria-labelledby="updateXmlModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="updateXmlModalLabel">Update ComicInfo.xml</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="mb-3">
+                    <label for="updateXmlField" class="form-label">Field to Update</label>
+                    <select class="form-select" id="updateXmlField">
+                        <option value="Volume">Volume (Year)</option>
+                    </select>
+                </div>
+                <div class="mb-3">
+                    <label for="updateXmlValue" class="form-label">Value</label>
+                    <input type="text" class="form-control" id="updateXmlValue" placeholder="Enter value" maxlength="4">
+                    <div class="form-text" id="updateXmlHint">Enter a 4-digit year (e.g., 2024)</div>
+                </div>
+                <div class="text-muted small" id="updateXmlFolderInfo">
+                    Folder: <span id="updateXmlFolderName"></span>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" id="updateXmlConfirmBtn">Update</button>
+            </div>
+        </div>
+    </div>
+</div>
+<!-- End of Update XML Modal -->
 
 <style>
     .fade-in-down {
@@ -312,5 +656,6 @@
     const seriesData = {{ series_dict| tojson | safe if series_dict else '{}' }};
     const currentMappedPath = {{ mapped_path| tojson | safe if mapped_path else 'null' }};
 </script>
+<script src="{{ url_for('static', filename='js/files.js') }}?v={{ range(1000, 9999) | random }}&t=202502"></script>
 <script src="{{ url_for('static', filename='js/series.js') }}?v={{ range(1, 10000) | random }}"></script>
 {% endblock %}

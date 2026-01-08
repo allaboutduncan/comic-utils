@@ -1,0 +1,259 @@
+{% extends "base.html" %}
+
+{% block title %}Wanted Issues{% endblock %}
+
+{% block content %}
+<div class="container py-5">
+    <!-- Header Section -->
+    <div class="d-flex justify-content-between align-items-center mb-4 fade-in-down">
+        <div>
+            <h2 class="display-4 fw-bold mb-1">Wanted Issues</h2>
+            <p class="text-muted lead mb-0">Issues missing from your tracked series</p>
+        </div>
+        <div class="d-flex gap-2">
+            <a href="{{ url_for('releases') }}" class="btn btn-outline-primary">
+                <i class="bi bi-calendar-week me-1"></i>Weekly Releases
+            </a>
+        </div>
+    </div>
+
+    <!-- Stats Cards -->
+    <div class="row g-3 mb-4">
+        <div class="col-md-4">
+            <div class="card border-0 shadow-sm bg-warning bg-opacity-10">
+                <div class="card-body text-center">
+                    <h3 class="display-5 fw-bold text-warning mb-0">{{ total_wanted }}</h3>
+                    <p class="text-muted mb-0">Total Wanted</p>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="card border-0 shadow-sm bg-info bg-opacity-10">
+                <div class="card-body text-center">
+                    <h3 class="display-5 fw-bold text-info mb-0">{{ total_upcoming }}</h3>
+                    <p class="text-muted mb-0">Upcoming</p>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="card border-0 shadow-sm bg-danger bg-opacity-10">
+                <div class="card-body text-center">
+                    <h3 class="display-5 fw-bold text-danger mb-0">{{ total_missing }}</h3>
+                    <p class="text-muted mb-0">Missing</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    {% if total_wanted == 0 %}
+    <!-- Empty State -->
+    <div class="text-center py-5 fade-in-up">
+        <div class="mb-4">
+            <i class="bi bi-check-circle display-1 text-success opacity-50"></i>
+        </div>
+        <h3 class="h2 text-muted mb-3">No Wanted Issues</h3>
+        <p class="text-muted mb-4 lead">Your collection is complete for all tracked series!</p>
+        <a href="{{ url_for('releases') }}" class="btn btn-outline-primary btn-lg">
+            <i class="bi bi-calendar-week me-1"></i>Browse Releases
+        </a>
+    </div>
+    {% else %}
+
+    <!-- Upcoming Releases Section -->
+    {% if upcoming %}
+    <div class="card border-0 shadow-sm mb-4">
+        <div class="card-header bg-info bg-opacity-10 d-flex justify-content-between align-items-center">
+            <h5 class="mb-0">
+                <i class="bi bi-calendar-plus me-2 text-info"></i>Upcoming Releases
+                <span class="badge bg-info ms-2">{{ upcoming|length }}</span>
+            </h5>
+            <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="collapse"
+                data-bs-target="#upcomingCollapse" aria-expanded="true">
+                <i class="bi bi-chevron-down"></i>
+            </button>
+        </div>
+        <div class="collapse show" id="upcomingCollapse">
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-hover align-middle mb-0">
+                        <thead class="table-light">
+                            <tr>
+                                <th scope="col" class="ps-4">Series</th>
+                                <th scope="col">Issue</th>
+                                <th scope="col">Store Date</th>
+                                <th scope="col" class="text-end pe-4">Action</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for item in upcoming %}
+                            <tr>
+                                <td class="ps-4">
+                                    <a href="{{ url_for('series_view', slug=generate_series_slug(item.series_name, item.series_id, item.series_volume)) }}"
+                                       class="text-decoration-none fw-bold">
+                                        {{ item.series_name }}
+                                        {% if item.series_volume %}
+                                        <span class="text-muted fw-normal">Vol. {{ item.series_volume }}</span>
+                                        {% endif %}
+                                    </a>
+                                </td>
+                                <td>
+                                    <span class="badge bg-info">#{{ item.issue.number }}</span>
+                                    {% if item.issue.name %}
+                                    <span class="text-muted ms-1">{{ item.issue.name }}</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    <i class="bi bi-calendar-event me-1 text-muted"></i>
+                                    {{ item.issue.store_date }}
+                                </td>
+                                <td class="text-end pe-4">
+                                    <a href="https://metron.cloud/issue/{{ item.issue.id }}/" target="_blank"
+                                       class="btn btn-sm btn-outline-secondary" title="View on Metron">
+                                        <i class="bi bi-box-arrow-up-right"></i>
+                                    </a>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- Missing Issues Section -->
+    {% if missing %}
+    <div class="card border-0 shadow-sm mb-4">
+        <div class="card-header bg-danger bg-opacity-10 d-flex justify-content-between align-items-center">
+            <h5 class="mb-0">
+                <i class="bi bi-x-circle me-2 text-danger"></i>Missing Issues
+                <span class="badge bg-danger ms-2">{{ missing|length }}</span>
+            </h5>
+            <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="collapse"
+                data-bs-target="#missingCollapse" aria-expanded="true">
+                <i class="bi bi-chevron-down"></i>
+            </button>
+        </div>
+        <div class="collapse show" id="missingCollapse">
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-hover align-middle mb-0">
+                        <thead class="table-light">
+                            <tr>
+                                <th scope="col" class="ps-4">Series</th>
+                                <th scope="col">Issue</th>
+                                <th scope="col">Cover Date</th>
+                                <th scope="col" class="text-end pe-4">Action</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for item in missing %}
+                            <tr>
+                                <td class="ps-4">
+                                    <a href="{{ url_for('series_view', slug=generate_series_slug(item.series_name, item.series_id, item.series_volume)) }}"
+                                       class="text-decoration-none fw-bold">
+                                        {{ item.series_name }}
+                                        {% if item.series_volume %}
+                                        <span class="text-muted fw-normal">Vol. {{ item.series_volume }}</span>
+                                        {% endif %}
+                                    </a>
+                                </td>
+                                <td>
+                                    <span class="badge bg-danger">#{{ item.issue.number }}</span>
+                                    {% if item.issue.name %}
+                                    <span class="text-muted ms-1">{{ item.issue.name }}</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% if item.issue.cover_date %}
+                                    <i class="bi bi-calendar me-1 text-muted"></i>
+                                    {{ item.issue.cover_date }}
+                                    {% else %}
+                                    <span class="text-muted">-</span>
+                                    {% endif %}
+                                </td>
+                                <td class="text-end pe-4">
+                                    <a href="https://metron.cloud/issue/{{ item.issue.id }}/" target="_blank"
+                                       class="btn btn-sm btn-outline-secondary" title="View on Metron">
+                                        <i class="bi bi-box-arrow-up-right"></i>
+                                    </a>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- Series Summary -->
+    {% if series_stats %}
+    <div class="card border-0 shadow-sm">
+        <div class="card-header bg-light d-flex justify-content-between align-items-center">
+            <h5 class="mb-0">
+                <i class="bi bi-collection me-2"></i>Series Summary
+                <span class="badge bg-secondary ms-2">{{ series_stats|length }} series</span>
+            </h5>
+            <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="collapse"
+                data-bs-target="#seriesCollapse" aria-expanded="false">
+                <i class="bi bi-chevron-down"></i>
+            </button>
+        </div>
+        <div class="collapse" id="seriesCollapse">
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-hover align-middle mb-0">
+                        <thead class="table-light">
+                            <tr>
+                                <th scope="col" class="ps-4">Series</th>
+                                <th scope="col" class="text-center">Found</th>
+                                <th scope="col" class="text-center">Missing</th>
+                                <th scope="col" class="text-center">Total</th>
+                                <th scope="col">Progress</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for stat in series_stats %}
+                            {% set progress = (stat.found / stat.total * 100) if stat.total > 0 else 0 %}
+                            <tr>
+                                <td class="ps-4">
+                                    <a href="{{ url_for('series_view', slug=generate_series_slug(stat.series.name, stat.series.id, stat.series.volume)) }}"
+                                       class="text-decoration-none fw-bold">
+                                        {{ stat.series.name }}
+                                        {% if stat.series.volume %}
+                                        <span class="text-muted fw-normal">Vol. {{ stat.series.volume }}</span>
+                                        {% endif %}
+                                    </a>
+                                </td>
+                                <td class="text-center">
+                                    <span class="text-success fw-bold">{{ stat.found }}</span>
+                                </td>
+                                <td class="text-center">
+                                    <span class="text-danger fw-bold">{{ stat.missing }}</span>
+                                </td>
+                                <td class="text-center text-muted">{{ stat.total }}</td>
+                                <td style="min-width: 150px;">
+                                    <div class="progress" style="height: 8px;">
+                                        <div class="progress-bar bg-success" role="progressbar"
+                                             style="width: {{ progress }}%"
+                                             aria-valuenow="{{ progress }}" aria-valuemin="0" aria-valuemax="100">
+                                        </div>
+                                    </div>
+                                    <small class="text-muted">{{ "%.0f"|format(progress) }}% complete</small>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
+    {% endif %}
+</div>
+{% endblock %}

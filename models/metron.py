@@ -45,11 +45,11 @@ def get_api(username: str, password: str):
 
 def parse_cvinfo_for_metron_id(cvinfo_path: str) -> Optional[int]:
     """
-    Parse a cvinfo file for metron_series_id.
+    Parse a cvinfo file for series_id.
 
     cvinfo format:
         https://comicvine.gamespot.com/series-name/4050-123456/
-        metron_series_id: 10354
+        series_id: 10354
 
     Args:
         cvinfo_path: Path to the cvinfo file
@@ -61,8 +61,8 @@ def parse_cvinfo_for_metron_id(cvinfo_path: str) -> Optional[int]:
         with open(cvinfo_path, 'r', encoding='utf-8') as f:
             content = f.read()
 
-        # Look for metron_series_id: <number>
-        match = re.search(r'metron_series_id:\s*(\d+)', content, re.IGNORECASE)
+        # Look for series_id: <number>
+        match = re.search(r'series_id:\s*(\d+)', content, re.IGNORECASE)
         if match:
             return int(match.group(1))
         return None
@@ -98,7 +98,7 @@ def parse_cvinfo_for_comicvine_id(cvinfo_path: str) -> Optional[int]:
         return None
 
 
-def get_metron_series_id_by_comicvine_id(api, cv_series_id: int) -> Optional[int]:
+def get_series_id_by_comicvine_id(api, cv_series_id: int) -> Optional[int]:
     """
     Look up Metron series ID using ComicVine series ID.
 
@@ -117,9 +117,9 @@ def get_metron_series_id_by_comicvine_id(api, cv_series_id: int) -> Optional[int
         results = api.series_list(params)
 
         if results:
-            metron_series_id = results[0].id
-            app_logger.info(f"Found Metron series {metron_series_id} for CV ID {cv_series_id}")
-            return metron_series_id
+            series_id = results[0].id
+            app_logger.info(f"Found Metron series {series_id} for CV ID {cv_series_id}")
+            return series_id
 
         app_logger.warning(f"No Metron series found for ComicVine ID {cv_series_id}")
         return None
@@ -128,13 +128,13 @@ def get_metron_series_id_by_comicvine_id(api, cv_series_id: int) -> Optional[int
         return None
 
 
-def update_cvinfo_with_metron_id(cvinfo_path: str, metron_series_id: int) -> bool:
+def update_cvinfo_with_metron_id(cvinfo_path: str, series_id: int) -> bool:
     """
-    Update cvinfo file to include metron_series_id.
+    Update cvinfo file to include series_id.
 
     Args:
         cvinfo_path: Path to the cvinfo file
-        metron_series_id: Metron series ID to add
+        series_id: Metron series ID to add
 
     Returns:
         True if successful, False otherwise
@@ -143,23 +143,23 @@ def update_cvinfo_with_metron_id(cvinfo_path: str, metron_series_id: int) -> boo
         with open(cvinfo_path, 'r', encoding='utf-8') as f:
             content = f.read()
 
-        # Check if metron_series_id already exists
-        if re.search(r'metron_series_id:', content, re.IGNORECASE):
+        # Check if series_id already exists
+        if re.search(r'series_id:', content, re.IGNORECASE):
             # Update existing
             content = re.sub(
-                r'metron_series_id:\s*\d+',
-                f'metron_series_id: {metron_series_id}',
+                r'series_id:\s*\d+',
+                f'series_id: {series_id}',
                 content,
                 flags=re.IGNORECASE
             )
         else:
             # Append new line
-            content = content.rstrip() + f'\nmetron_series_id: {metron_series_id}\n'
+            content = content.rstrip() + f'\nseries_id: {series_id}\n'
 
         with open(cvinfo_path, 'w', encoding='utf-8') as f:
             f.write(content)
 
-        app_logger.info(f"Updated cvinfo with metron_series_id: {metron_series_id}")
+        app_logger.info(f"Updated cvinfo with series_id: {series_id}")
         return True
     except Exception as e:
         app_logger.error(f"Error updating cvinfo with Metron ID: {e}")
@@ -393,12 +393,12 @@ def map_to_comicinfo(issue_data) -> Dict[str, Any]:
     return result
 
 
-def get_metron_series_id(cvinfo_path: str, api) -> Optional[int]:
+def get_series_id(cvinfo_path: str, api) -> Optional[int]:
     """
     Get Metron series ID from cvinfo, looking up by CV ID if needed.
 
     This is a convenience function that:
-    1. Checks cvinfo for existing metron_series_id
+    1. Checks cvinfo for existing series_id
     2. If not found, extracts CV ID and looks up Metron series
     3. Updates cvinfo with the found Metron series ID
 
@@ -409,10 +409,10 @@ def get_metron_series_id(cvinfo_path: str, api) -> Optional[int]:
     Returns:
         Metron series ID, or None if not found
     """
-    # First, check if metron_series_id already exists
+    # First, check if series_id already exists
     metron_id = parse_cvinfo_for_metron_id(cvinfo_path)
     if metron_id:
-        app_logger.debug(f"Found existing metron_series_id: {metron_id}")
+        app_logger.debug(f"Found existing series_id: {metron_id}")
         return metron_id
 
     # Not found, try to look up by ComicVine ID
@@ -422,7 +422,7 @@ def get_metron_series_id(cvinfo_path: str, api) -> Optional[int]:
         return None
 
     app_logger.info(f"Looking up Metron series by ComicVine ID: {cv_id}")
-    metron_id = get_metron_series_id_by_comicvine_id(api, cv_id)
+    metron_id = get_series_id_by_comicvine_id(api, cv_id)
 
     if metron_id:
         # Save to cvinfo for future use
@@ -436,7 +436,7 @@ def fetch_and_map_issue(api, cvinfo_path: str, issue_number: str) -> Optional[Di
     """
     Convenience function to fetch issue metadata and map to ComicInfo format.
 
-    This combines get_metron_series_id, get_issue_metadata, and map_to_comicinfo.
+    This combines get_series_id, get_issue_metadata, and map_to_comicinfo.
 
     Args:
         api: Mokkari API client
@@ -447,7 +447,7 @@ def fetch_and_map_issue(api, cvinfo_path: str, issue_number: str) -> Optional[Di
         ComicInfo-formatted dict, or None if not found
     """
     # Get the Metron series ID
-    series_id = get_metron_series_id(cvinfo_path, api)
+    series_id = get_series_id(cvinfo_path, api)
     if not series_id:
         app_logger.warning("Could not determine Metron series ID")
         return None

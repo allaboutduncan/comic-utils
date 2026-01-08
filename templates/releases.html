@@ -47,7 +47,8 @@
     <div class="releases-grid">
         {% for issue in releases %}
         {% set series_slug = generate_series_slug(issue.series.name, issue.id, issue.series.volume) %}
-        <a href="{% if series_slug %}{{ url_for('series_view', slug=series_slug) }}{% else %}{{ issue.resource_url }}{% endif %}" {% if not series_slug %}target="_blank"{% endif %} class="release-card stagger-load">
+        <a href="{% if series_slug %}{{ url_for('series_view', slug=series_slug) }}{% else %}{{ issue.resource_url }}{% endif %}"
+            {% if not series_slug %}target="_blank" {% endif %} class="release-card stagger-load">
             <!-- Cover Image -->
             <div class="release-cover">
                 {% if issue.image %}
@@ -67,27 +68,10 @@
                 <div class="release-meta">
                     <span class="issue-number">
                         {% if issue.number %}#{{ issue.number }}{% endif %}
-                        {% if issue.series.volume %} <span class="text-muted">Vol. {{ issue.series.volume }}</span>{% endif %}
+                        {% if issue.series.volume %} <span class="text-muted">Vol. {{ issue.series.volume }}</span>{%
+                        endif %} |
+                        <i class="bi bi-calendar-event me-1"></i>{{ issue.cover_date }}
                     </span>
-                </div>
-                <div class="release-date">
-                    <i class="bi bi-calendar-event me-1"></i>{{ issue.cover_date }}
-                </div>
-            </div>
-
-            <!-- Series Info -->
-            <div class="series-content">
-                <div class="series-info">
-                    {% if issue.series %}
-                    <span class="series-link">
-                        <i class="bi bi-collection me-1"></i>{{ issue.series.name }}
-                    </span>
-                    {% endif %}
-                    {% if issue.series and issue.series.volume %}
-                    <span class="series-year">
-                        Vol. {{ issue.series.volume }}
-                    </span>
-                    {% endif %}
                 </div>
             </div>
         </a>
@@ -338,23 +322,23 @@
 </style>
 
 <script>
-document.addEventListener('DOMContentLoaded', function() {
-    // Add loading overlay to each card
-    document.querySelectorAll('.release-card').forEach(function(card) {
-        // Create loading overlay
-        const overlay = document.createElement('div');
-        overlay.className = 'loading-overlay';
-        overlay.innerHTML = '<div class="spinner-border text-light" role="status"><span class="visually-hidden">Loading...</span></div>';
-        card.appendChild(overlay);
+    document.addEventListener('DOMContentLoaded', function () {
+        // Add loading overlay to each card
+        document.querySelectorAll('.release-card').forEach(function (card) {
+            // Create loading overlay
+            const overlay = document.createElement('div');
+            overlay.className = 'loading-overlay';
+            overlay.innerHTML = '<div class="spinner-border text-light" role="status"><span class="visually-hidden">Loading...</span></div>';
+            card.appendChild(overlay);
 
-        // Show loading on click
-        card.addEventListener('click', function(e) {
-            // Only show loading for internal links
-            if (!card.hasAttribute('target')) {
-                card.classList.add('loading');
-            }
+            // Show loading on click
+            card.addEventListener('click', function (e) {
+                // Only show loading for internal links
+                if (!card.hasAttribute('target')) {
+                    card.classList.add('loading');
+                }
+            });
         });
     });
-});
 </script>
 {% endblock %}
