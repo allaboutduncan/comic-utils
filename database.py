@@ -148,15 +148,9 @@ def init_db():
         # Create index for faster lookups
         c.execute('CREATE INDEX IF NOT EXISTS idx_browse_cache_path ON browse_cache(path)')
 
-        # Create favorite_publishers table (root-level folders off /data)
-        c.execute('''
-            CREATE TABLE IF NOT EXISTS favorite_publishers (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                publisher_path TEXT NOT NULL UNIQUE,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        ''')
-        c.execute('CREATE INDEX IF NOT EXISTS idx_favorite_publishers_path ON favorite_publishers(publisher_path)')
+        # Note: favorite_publishers table has been merged into publishers table
+        # with path and favorite columns. Drop if exists for clean migration.
+        c.execute('DROP TABLE IF EXISTS favorite_publishers')
 
         # Create favorite_series table (folders within publishers)
         c.execute('''
@@ -288,14 +282,35 @@ def init_db():
         if c.rowcount > 0:
             app_logger.info(f"Cleaned up {c.rowcount} orphaned reading list entries")
 
-        # Create publishers table (Metron publishers)
+        # Create publishers table (Metron publishers with optional local path mapping)
         c.execute('''
             CREATE TABLE IF NOT EXISTS publishers (
                 id INTEGER PRIMARY KEY,
                 name TEXT NOT NULL,
+                path TEXT,
+                favorite INTEGER DEFAULT 0,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         ''')
+
+        # Migration: Add path and favorite columns to existing publishers table
+        try:
+            c.execute("PRAGMA table_info(publishers)")
+            columns = [row[1] for row in c.fetchall()]
+            app_logger.info(f"Publishers table columns before migration: {columns}")
+            if 'path' not in columns:
+                c.execute('ALTER TABLE publishers ADD COLUMN path TEXT')
+                conn.commit()
+                app_logger.info("Added 'path' column to publishers table")
+            if 'favorite' not in columns:
+                c.execute('ALTER TABLE publishers ADD COLUMN favorite INTEGER DEFAULT 0')
+                conn.commit()
+                app_logger.info("Added 'favorite' column to publishers table")
+        except Exception as migration_error:
+            app_logger.error(f"Publisher migration error: {migration_error}")
+
+        c.execute('CREATE INDEX IF NOT EXISTS idx_publishers_path ON publishers(path)')
+        c.execute('CREATE INDEX IF NOT EXISTS idx_publishers_favorite ON publishers(favorite)')
 
         # Create series table (Metron series with local mapping)
         c.execute('''
@@ -1460,15 +1475,17 @@ def clear_browse_cache():
 
 
 # =============================================================================
-# Favorite Publishers CRUD Operations
+# Favorite Publishers CRUD Operations (using publishers table)
 # =============================================================================
 
-def add_favorite_publisher(publisher_path):
+def set_publisher_favorite(publisher_path, favorite=True):
     """
-    Add a publisher to favorites.
+    Set or unset a publisher as favorite by path.
+    If the publisher doesn't exist, creates it with just the path.
 
     Args:
         publisher_path: Full path to the publisher folder
+        favorite: True to favorite, False to unfavorite
 
     Returns:
         True if successful, False otherwise
@@ -1479,25 +1496,61 @@ def add_favorite_publisher(publisher_path):
             return False
 
         c = conn.cursor()
-        c.execute('''
-            INSERT OR IGNORE INTO favorite_publishers (publisher_path)
-            VALUES (?)
-        ''', (publisher_path,))
+        favorite_val = 1 if favorite else 0
+
+        # Check if publisher exists by path
+        c.execute('SELECT id FROM publishers WHERE path = ?', (publisher_path,))
+        existing = c.fetchone()
+
+        if existing:
+            # Update existing publisher
+            c.execute('UPDATE publishers SET favorite = ? WHERE path = ?', (favorite_val, publisher_path))
+        else:
+            # Create new publisher with just path (no Metron ID)
+            # Use negative autoincrement for local-only publishers
+            c.execute('SELECT MIN(id) FROM publishers')
+            min_id = c.fetchone()[0]
+            new_id = (min_id - 1) if min_id and min_id < 0 else -1
+
+            # Extract name from path (last folder name)
+            import os
+            name = os.path.basename(publisher_path.rstrip('/\\')) or publisher_path
+
+            c.execute('''
+                INSERT INTO publishers (id, name, path, favorite, created_at)
+                VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+            ''', (new_id, name, publisher_path, favorite_val))
 
         conn.commit()
         conn.close()
 
-        app_logger.info(f"Added favorite publisher: {publisher_path}")
+        action = "Added" if favorite else "Removed"
+        app_logger.info(f"{action} favorite publisher: {publisher_path}")
         return True
 
     except Exception as e:
-        app_logger.error(f"Failed to add favorite publisher '{publisher_path}': {e}")
+        app_logger.error(f"Failed to set favorite publisher '{publisher_path}': {e}")
         return False
+
+
+def add_favorite_publisher(publisher_path):
+    """
+    Add a publisher to favorites.
+    Wrapper for set_publisher_favorite for backwards compatibility.
+
+    Args:
+        publisher_path: Full path to the publisher folder
+
+    Returns:
+        True if successful, False otherwise
+    """
+    return set_publisher_favorite(publisher_path, favorite=True)
 
 
 def remove_favorite_publisher(publisher_path):
     """
     Remove a publisher from favorites.
+    Wrapper for set_publisher_favorite for backwards compatibility.
 
     Args:
         publisher_path: Full path to the publisher folder
@@ -1505,23 +1558,7 @@ def remove_favorite_publisher(publisher_path):
     Returns:
         True if successful, False otherwise
     """
-    try:
-        conn = get_db_connection()
-        if not conn:
-            return False
-
-        c = conn.cursor()
-        c.execute('DELETE FROM favorite_publishers WHERE publisher_path = ?', (publisher_path,))
-
-        conn.commit()
-        conn.close()
-
-        app_logger.info(f"Removed favorite publisher: {publisher_path}")
-        return True
-
-    except Exception as e:
-        app_logger.error(f"Failed to remove favorite publisher '{publisher_path}': {e}")
-        return False
+    return set_publisher_favorite(publisher_path, favorite=False)
 
 
 def get_favorite_publishers():
@@ -1529,7 +1566,7 @@ def get_favorite_publishers():
     Get all favorite publishers.
 
     Returns:
-        List of dicts with publisher_path and created_at, or empty list on error
+        List of dicts with publisher_path, name, and created_at, or empty list on error
     """
     try:
         conn = get_db_connection()
@@ -1537,7 +1574,12 @@ def get_favorite_publishers():
             return []
 
         c = conn.cursor()
-        c.execute('SELECT publisher_path, created_at FROM favorite_publishers ORDER BY publisher_path')
+        c.execute('''
+            SELECT id, name, path as publisher_path, created_at
+            FROM publishers
+            WHERE favorite = 1 AND path IS NOT NULL
+            ORDER BY path
+        ''')
         rows = c.fetchall()
         conn.close()
 
@@ -1564,14 +1606,107 @@ def is_favorite_publisher(publisher_path):
             return False
 
         c = conn.cursor()
-        c.execute('SELECT 1 FROM favorite_publishers WHERE publisher_path = ?', (publisher_path,))
+        c.execute('SELECT favorite FROM publishers WHERE path = ?', (publisher_path,))
         result = c.fetchone()
         conn.close()
 
-        return result is not None
+        return result is not None and result[0] == 1
 
     except Exception as e:
         app_logger.error(f"Failed to check favorite publisher '{publisher_path}': {e}")
+        return False
+
+
+def get_publisher_by_path(publisher_path):
+    """
+    Get a publisher by its local path.
+
+    Args:
+        publisher_path: Full path to the publisher folder
+
+    Returns:
+        Dict with publisher info, or None if not found
+    """
+    try:
+        conn = get_db_connection()
+        if not conn:
+            return None
+
+        c = conn.cursor()
+        c.execute('SELECT id, name, path, favorite, created_at FROM publishers WHERE path = ?', (publisher_path,))
+        row = c.fetchone()
+        conn.close()
+
+        return dict(row) if row else None
+
+    except Exception as e:
+        app_logger.error(f"Failed to get publisher by path '{publisher_path}': {e}")
+        return None
+
+
+def save_publisher_path(publisher_path, name=None, publisher_id=None):
+    """
+    Save or update a publisher by path. Can optionally link to Metron publisher ID.
+
+    Args:
+        publisher_path: Full path to the publisher folder
+        name: Optional publisher name (extracted from path if not provided)
+        publisher_id: Optional Metron publisher ID to link with
+
+    Returns:
+        True if successful, False otherwise
+    """
+    try:
+        import os
+        conn = get_db_connection()
+        if not conn:
+            return False
+
+        c = conn.cursor()
+
+        # Extract name from path if not provided
+        if not name:
+            name = os.path.basename(publisher_path.rstrip('/\\')) or publisher_path
+
+        if publisher_id:
+            # Update existing Metron publisher with path
+            c.execute('''
+                UPDATE publishers SET path = ?, name = COALESCE(?, name)
+                WHERE id = ?
+            ''', (publisher_path, name, publisher_id))
+
+            if c.rowcount == 0:
+                # Publisher doesn't exist, create it
+                c.execute('''
+                    INSERT INTO publishers (id, name, path, created_at)
+                    VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+                ''', (publisher_id, name, publisher_path))
+        else:
+            # Check if already exists by path
+            c.execute('SELECT id FROM publishers WHERE path = ?', (publisher_path,))
+            existing = c.fetchone()
+
+            if existing:
+                c.execute('UPDATE publishers SET name = ? WHERE path = ?', (name, publisher_path))
+            else:
+                # Create new local-only publisher with negative ID
+                c.execute('SELECT MIN(id) FROM publishers')
+                min_id = c.fetchone()[0]
+                new_id = (min_id - 1) if min_id and min_id < 0 else -1
+
+                c.execute('''
+                    INSERT INTO publishers (id, name, path, created_at)
+                    VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+                ''', (new_id, name, publisher_path))
+
+        conn.commit()
+        conn.close()
+
+        app_logger.info(f"Saved publisher path: {publisher_path}")
+        return True
+
+    except Exception as e:
+        app_logger.error(f"Failed to save publisher path '{publisher_path}': {e}")
         return False
 
 
@@ -2734,13 +2869,14 @@ def get_recent_read_issues(limit=200):
 # Metron Publishers CRUD Operations
 # =============================================================================
 
-def save_publisher(publisher_id, name):
+def save_publisher(publisher_id, name, path=None):
     """
     Save or update a publisher in the database.
 
     Args:
         publisher_id: Metron publisher ID
         name: Publisher name
+        path: Optional local filesystem path
 
     Returns:
         True if successful, False otherwise
@@ -2753,12 +2889,12 @@ def save_publisher(publisher_id, name):
 
         c = conn.cursor()
         c.execute('''
-            INSERT OR REPLACE INTO publishers (id, name, created_at)
-            VALUES (?, ?, COALESCE(
-                (SELECT created_at FROM publishers WHERE id = ?),
-                CURRENT_TIMESTAMP
-            ))
-        ''', (publisher_id, name, publisher_id))
+            INSERT INTO publishers (id, name, path, created_at)
+            VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+            ON CONFLICT(id) DO UPDATE SET
+                name = excluded.name,
+                path = COALESCE(excluded.path, publishers.path)
+        ''', (publisher_id, name, path))
 
         conn.commit()
         app_logger.info(f"Saved publisher: {name} (ID: {publisher_id})")
@@ -2789,7 +2925,7 @@ def get_publisher(publisher_id):
             return None
 
         c = conn.cursor()
-        c.execute('SELECT id, name, created_at FROM publishers WHERE id = ?', (publisher_id,))
+        c.execute('SELECT id, name, path, favorite, created_at FROM publishers WHERE id = ?', (publisher_id,))
         row = c.fetchone()
         conn.close()
 

@@ -1,19 +1,27 @@
 # Favorites Documentation
 
 ## Database
-### 3 Tables (in init_db()):
-- favorite_publishers - stores publisher paths with timestamp
+### Tables (in init_db()):
+- publishers - stores Metron publishers with optional path and favorite flag
 - favorite_series - stores series paths with timestamp
 - issues_read - stores issue paths with read date
 
-### 13 CRUD Functions:
+### Publisher Favorites
+Publisher favorites are now stored in the `publishers` table with:
+- `path` - local filesystem path (e.g., /data/Marvel Comics)
+- `favorite` - 1 if favorited, 0 otherwise
 
-| Function                        | Description                         |
-|---------------------------------|-------------------------------------|
-| add_favorite_publisher(path)    | Add publisher to favorites          |
-| remove_favorite_publisher(path) | Remove publisher from favorites     |
-| get_favorite_publishers()       | Get all favorite publishers         |
-| is_favorite_publisher(path)     | Check if publisher is favorited     |
+### CRUD Functions:
+
+| Function                                    | Description                              |
+|---------------------------------------------|------------------------------------------|
+| set_publisher_favorite(path, favorite=True) | Set or unset publisher as favorite       |
+| add_favorite_publisher(path)                | Add publisher to favorites (wrapper)     |
+| remove_favorite_publisher(path)             | Remove publisher from favorites (wrapper)|
+| get_favorite_publishers()                   | Get all favorite publishers              |
+| is_favorite_publisher(path)                 | Check if publisher is favorited          |
+| get_publisher_by_path(path)                 | Get publisher by local path              |
+| save_publisher_path(path, name, id)         | Save publisher by path with optional ID  |
 | add_favorite_series(path)       | Add series to favorites             |
 | remove_favorite_series(path)    | Remove series from favorites        |
 | get_favorite_series()           | Get all favorite series             |
