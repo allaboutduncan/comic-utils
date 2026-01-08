@@ -20,7 +20,8 @@ from models import metron
 from config import config
 from database import (
     init_db, get_series_needing_sync, get_all_mapped_series, get_series_by_id,
-    save_issues_bulk, update_series_sync_time, delete_issues_for_series
+    save_issues_bulk, update_series_sync_time, delete_issues_for_series,
+    invalidate_collection_status_for_series
 )
 
 
@@ -74,6 +75,9 @@ def sync_series_from_api(api, series_id: int) -> dict:
         delete_issues_for_series(series_id)
         save_issues_bulk(all_issues, series_id)
         update_series_sync_time(series_id, len(all_issues))
+
+        # Invalidate collection status cache to force re-scan with new issue data
+        invalidate_collection_status_for_series(series_id)
 
         series_name = series_mapping.get('name', f'Series {series_id}')
         app_logger.info(f"✓ Synced {series_name}: {len(all_issues)} issues")

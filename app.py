@@ -645,89 +645,264 @@ def wanted():
                          total_missing=len(missing))
 
 
-def match_issues_to_collection(mapped_path, issues, series_info):
+@app.route('/pull-list')
+def pull_list():
     """
-    Match Metron issues to local files in the mapped directory.
-    Uses ComicInfo.xml first, then falls back to filename pattern matching.
+    Pull List page - shows all tracked series in the database.
+    """
+    from database import get_all_mapped_series
+
+    series_list = get_all_mapped_series()
+
+    return render_template('pull_list.html',
+                         series_list=series_list,
+                         total_series=len(series_list))
+
+
+def generate_filename_pattern(custom_pattern, series_name, issue_number):
+    """
+    Convert CUSTOM_RENAME_PATTERN to a precise regex for matching a specific issue.
+
+    Pattern placeholders:
+    - {series_name} -> matches the series name (flexible whitespace/case)
+    - {issue_number} -> matches the issue number (with optional leading zeros)
+    - {year} -> matches any 4-digit year
+
+    Args:
+        custom_pattern: The rename pattern from config (e.g., "{series_name} {issue_number} ({year})")
+        series_name: The series name to match
+        issue_number: The issue number to match
+
+    Returns:
+        Compiled regex pattern or None if pattern is invalid
+    """
+    import re
+
+    if not custom_pattern or not series_name:
+        return None
+
+    try:
+        # Escape series name for regex but allow flexible whitespace
+        series_escaped = re.escape(series_name)
+        # Allow flexible whitespace matching (spaces, underscores, dashes)
+        series_pattern = series_escaped.replace(r'\ ', r'[\s\-_]+')
+
+        # Normalize issue number - handle leading zeros (1, 01, 001 all match)
+        issue_num_clean = str(issue_number).strip().lstrip('0') or '0'
+        # Match issue number with optional leading zeros
+        issue_pattern = r'0*' + re.escape(issue_num_clean)
+
+        # Start building the regex from the custom pattern
+        pattern = custom_pattern
+
+        # Replace {series_name} with series pattern (non-capturing for efficiency)
+        pattern = pattern.replace('{series_name}', f'(?:{series_pattern})')
+
+        # Replace {issue_number} with issue pattern - THIS is the key match
+        pattern = pattern.replace('{issue_number}', f'({issue_pattern})')
+
+        # Replace {year} with any 4-digit year pattern
+        pattern = pattern.replace('{year}', r'\d{4}')
+
+        # Escape literal parentheses that aren't part of our patterns
+        # First, temporarily mark our capture groups
+        pattern = pattern.replace('(?:', '<<<NONCAP>>>')
+        pattern = pattern.replace('(0*', '<<<CAP>>>')
+        # Escape remaining parentheses
+        pattern = pattern.replace('(', r'\(').replace(')', r'\)')
+        # Restore our groups
+        pattern = pattern.replace('<<<NONCAP>>>', '(?:')
+        pattern = pattern.replace('<<<CAP>>>', '(')
+
+        # Add file extension matching at the end
+        pattern += r'\.(?:cbz|cbr|zip|rar)$'
+
+        return re.compile(pattern, re.IGNORECASE)
+
+    except Exception as e:
+        app_logger.debug(f"Failed to generate filename pattern: {e}")
+        return None
+
+
+def extract_comicinfo(file_path):
+    """
+    Extract ComicInfo.xml from a CBZ file.
+
+    Args:
+        file_path: Path to the CBZ file
+
+    Returns:
+        Dict with series, number, volume, year or None
+    """
+    import zipfile
+    import xml.etree.ElementTree as ET
+
+    if not file_path.lower().endswith(('.cbz', '.zip')):
+        return None
+
+    try:
+        with zipfile.ZipFile(file_path, 'r') as zf:
+            if 'ComicInfo.xml' in zf.namelist():
+                with zf.open('ComicInfo.xml') as ci:
+                    tree = ET.parse(ci)
+                    root = tree.getroot()
+                    return {
+                        'series': root.findtext('Series', ''),
+                        'number': root.findtext('Number', ''),
+                        'volume': root.findtext('Volume', ''),
+                        'year': root.findtext('Year', '')
+                    }
+    except Exception:
+        pass
+
+    return None
+
+
+def match_issues_to_collection(mapped_path, issues, series_info, use_cache=True):
+    """
+    Match Metron issues to local files in the mapped directory with caching.
+
+    Strategy:
+    1. Check database cache first (if use_cache=True)
+    2. For uncached issues, use CUSTOM_RENAME_PATTERN to generate precise regex
+    3. Fall back to ComicInfo.xml matching
+    4. Cache results in database
+
+    Args:
+        mapped_path: Path to the series directory
+        issues: List of issue objects from Metron
+        series_info: Series info object
+        use_cache: Whether to use cached results (default True)
 
     Returns:
         Dict mapping issue_number -> {'found': bool, 'file_path': str or None}
     """
     import re
-    import zipfile
-    import xml.etree.ElementTree as ET
+    from database import (
+        get_collection_status_for_series,
+        save_collection_status_bulk,
+    )
 
     results = {}
     comic_extensions = ('.cbz', '.cbr', '.zip', '.rar')
 
-    # Scan directory for comic files
+    # Get series info
+    series_id = getattr(series_info, 'id', None) or (series_info.get('id') if isinstance(series_info, dict) else None)
+    series_name = getattr(series_info, 'name', '') or (series_info.get('name', '') if isinstance(series_info, dict) else '')
+
+    # Step 1: Check cache first
+    if use_cache and series_id:
+        cached = get_collection_status_for_series(series_id)
+        if cached:
+            # Validate cache by checking file existence and mtime
+            valid_cache = True
+            for entry in cached:
+                if entry['file_path']:
+                    if not os.path.exists(entry['file_path']):
+                        valid_cache = False
+                        app_logger.debug(f"Cache invalid: file no longer exists {entry['file_path']}")
+                        break
+                    try:
+                        current_mtime = os.path.getmtime(entry['file_path'])
+                        if entry['file_mtime'] and abs(current_mtime - entry['file_mtime']) > 1:
+                            valid_cache = False
+                            app_logger.debug(f"Cache invalid: mtime changed for {entry['file_path']}")
+                            break
+                    except OSError:
+                        valid_cache = False
+                        break
+
+            if valid_cache:
+                # Return cached results
+                for entry in cached:
+                    results[entry['issue_number']] = {
+                        'found': bool(entry['found']),
+                        'file_path': entry['file_path']
+                    }
+                app_logger.debug(f"Using cached collection status for series {series_id} ({len(results)} issues)")
+                return results
+            else:
+                app_logger.debug(f"Cache invalid for series {series_id}, re-scanning")
+
+    # Step 2: Scan directory and build file metadata
     local_files = []
+    file_metadata = {}
+
     try:
         for filename in os.listdir(mapped_path):
             if filename.lower().endswith(comic_extensions):
-                local_files.append(os.path.join(mapped_path, filename))
+                file_path = os.path.join(mapped_path, filename)
+                local_files.append(file_path)
+                try:
+                    mtime = os.path.getmtime(file_path)
+                except OSError:
+                    mtime = None
+                file_metadata[file_path] = {
+                    'filename': filename,
+                    'path': file_path,
+                    'mtime': mtime,
+                    'comicinfo': None  # Lazy-loaded
+                }
     except Exception as e:
         app_logger.error(f"Error scanning directory {mapped_path}: {e}")
         return results
 
-    # Build a cache of ComicInfo data for files
-    file_metadata = {}
-    for file_path in local_files:
-        filename = os.path.basename(file_path)
-        metadata = {'filename': filename, 'path': file_path}
+    # Step 3: Get custom rename pattern from config
+    custom_pattern = app.config.get('CUSTOM_RENAME_PATTERN', '')
 
-        # Try to read ComicInfo.xml from CBZ files
-        if file_path.lower().endswith(('.cbz', '.zip')):
-            try:
-                with zipfile.ZipFile(file_path, 'r') as zf:
-                    if 'ComicInfo.xml' in zf.namelist():
-                        with zf.open('ComicInfo.xml') as ci:
-                            tree = ET.parse(ci)
-                            root = tree.getroot()
-                            metadata['series'] = root.findtext('Series', '')
-                            metadata['number'] = root.findtext('Number', '')
-                            metadata['volume'] = root.findtext('Volume', '')
-                            metadata['year'] = root.findtext('Year', '')
-            except Exception as e:
-                app_logger.debug(f"Could not read ComicInfo from {filename}: {e}")
+    # Step 4: Match each issue
+    cache_entries = []
 
-        file_metadata[file_path] = metadata
-
-    # Get series name for matching
-    series_name = getattr(series_info, 'name', '') or ''
-    series_volume = getattr(series_info, 'volume', None)
-
-    # Match each issue
     for issue in issues:
-        issue_num = str(getattr(issue, 'number', ''))
+        issue_num = str(getattr(issue, 'number', '') or (issue.get('number', '') if isinstance(issue, dict) else ''))
+        issue_id = getattr(issue, 'id', None) or (issue.get('id') if isinstance(issue, dict) else None)
+
         if not issue_num:
             continue
 
         match_found = False
         matched_file = None
+        matched_via = None
 
-        # First try ComicInfo.xml matching
-        for file_path, metadata in file_metadata.items():
-            if metadata.get('number'):
-                # Normalize issue numbers for comparison
-                meta_num = str(metadata['number']).strip().lstrip('0') or '0'
-                check_num = issue_num.strip().lstrip('0') or '0'
-
-                if meta_num == check_num:
-                    # Check series name matches (loose match)
-                    meta_series = metadata.get('series', '').lower()
-                    if not meta_series or series_name.lower() in meta_series or meta_series in series_name.lower():
+        # 4a: Try CUSTOM_RENAME_PATTERN matching first (most reliable for user's files)
+        if custom_pattern and series_name:
+            pattern_regex = generate_filename_pattern(custom_pattern, series_name, issue_num)
+            if pattern_regex:
+                for file_path, metadata in file_metadata.items():
+                    if pattern_regex.search(metadata['filename']):
                         match_found = True
                         matched_file = file_path
+                        matched_via = 'pattern'
                         break
 
-        # Fallback to filename pattern matching
+        # 4b: Fallback to ComicInfo.xml matching
         if not match_found:
-            # Common patterns: "Series Name #1.cbz", "Series Name 001.cbz", "Series Name - 01.cbz"
+            for file_path, metadata in file_metadata.items():
+                # Lazy-load ComicInfo.xml only when needed
+                if metadata['comicinfo'] is None:
+                    metadata['comicinfo'] = extract_comicinfo(file_path) or {}
+
+                ci = metadata['comicinfo']
+                if ci.get('number'):
+                    # Normalize issue numbers for comparison
+                    meta_num = str(ci['number']).strip().lstrip('0') or '0'
+                    check_num = issue_num.strip().lstrip('0') or '0'
+
+                    if meta_num == check_num:
+                        # Check series name matches (loose match)
+                        meta_series = ci.get('series', '').lower()
+                        if not meta_series or series_name.lower() in meta_series or meta_series in series_name.lower():
+                            match_found = True
+                            matched_file = file_path
+                            matched_via = 'comicinfo'
+                            break
+
+        # 4c: Final fallback to generic filename patterns
+        if not match_found:
+            check_num = issue_num.strip().lstrip('0') or '0'
             patterns = [
-                rf'#0*{re.escape(issue_num)}(?:\D|$)',  # #1, #01, #001
-                rf'[\s\-_]0*{re.escape(issue_num)}(?:\D|$)',  # space/dash/underscore + number
-                rf'\b0*{re.escape(issue_num)}(?:\D|$)',  # word boundary + number
+                rf'[\s\-_]0*{re.escape(check_num)}(?:[\s\-_\.\(]|$)',  # space/dash/underscore + number + delimiter
+                rf'#0*{re.escape(check_num)}(?:\D|$)',  # #1, #01, #001
             ]
 
             for file_path, metadata in file_metadata.items():
@@ -736,6 +911,7 @@ def match_issues_to_collection(mapped_path, issues, series_info):
                     if re.search(pattern, filename, re.IGNORECASE):
                         match_found = True
                         matched_file = file_path
+                        matched_via = 'filename'
                         break
                 if match_found:
                     break
@@ -744,6 +920,23 @@ def match_issues_to_collection(mapped_path, issues, series_info):
             'found': match_found,
             'file_path': matched_file
         }
+
+        # Prepare cache entry
+        if series_id and issue_id:
+            cache_entries.append({
+                'series_id': series_id,
+                'issue_id': issue_id,
+                'issue_number': issue_num,
+                'found': 1 if match_found else 0,
+                'file_path': matched_file,
+                'file_mtime': file_metadata.get(matched_file, {}).get('mtime') if matched_file else None,
+                'matched_via': matched_via
+            })
+
+    # Step 5: Save to cache
+    if cache_entries:
+        save_collection_status_bulk(cache_entries)
+        app_logger.debug(f"Cached collection status for series {series_id} ({len(cache_entries)} issues)")
 
     return results
 
@@ -1034,8 +1227,19 @@ def delete_series_mapping_route(series_id):
 
 @app.route('/api/series/<int:series_id>/check-collection', methods=['GET'])
 def check_series_collection(series_id):
-    """Check which issues exist in the mapped directory."""
-    from database import get_series_mapping
+    """
+    Check which issues exist in the mapped directory.
+
+    Query params:
+        refresh: If 'true', bypass cache and re-scan the directory
+    """
+    from database import (
+        get_series_mapping, get_series_by_id, get_issues_for_series,
+        invalidate_collection_status_for_series
+    )
+
+    # Check if refresh is requested (bypass cache)
+    refresh = request.args.get('refresh', 'false').lower() == 'true'
 
     mapped_path = get_series_mapping(series_id)
     if not mapped_path:
@@ -1044,25 +1248,38 @@ def check_series_collection(series_id):
     if not os.path.isdir(mapped_path):
         return jsonify({'error': 'Mapped directory not found'}), 404
 
-    # Get API to fetch issues
-    api = None
-    if metron.is_mokkari_available():
-        metron_username = app.config.get("METRON_USERNAME", "").strip()
-        metron_password = app.config.get("METRON_PASSWORD", "").strip()
-        if metron_username and metron_password:
-            api = metron.get_api(metron_username, metron_password)
-
-    if not api:
-        return jsonify({'error': 'Metron API not configured'}), 500
+    # If refresh requested, invalidate the cache first
+    if refresh:
+        invalidate_collection_status_for_series(series_id)
+        app_logger.info(f"Refreshing collection status for series {series_id}")
 
     try:
-        # Fetch series info and issues
-        series_info = api.series(series_id)
-        all_issues_result = metron.get_all_issues_for_series(api, series_id)
-        all_issues = list(all_issues_result) if all_issues_result else []
+        # Try to get cached series info and issues first
+        cached_series = get_series_by_id(series_id)
+        cached_issues = get_issues_for_series(series_id)
 
-        # Check which issues are present
-        issue_status = match_issues_to_collection(mapped_path, all_issues, series_info)
+        if cached_series and cached_issues:
+            # Use cached data
+            series_info = cached_series
+            all_issues = cached_issues
+        else:
+            # Fallback to API if no cache
+            api = None
+            if metron.is_mokkari_available():
+                metron_username = app.config.get("METRON_USERNAME", "").strip()
+                metron_password = app.config.get("METRON_PASSWORD", "").strip()
+                if metron_username and metron_password:
+                    api = metron.get_api(metron_username, metron_password)
+
+            if not api:
+                return jsonify({'error': 'Metron API not configured and no cached data'}), 500
+
+            series_info = api.series(series_id)
+            all_issues_result = metron.get_all_issues_for_series(api, series_id)
+            all_issues = list(all_issues_result) if all_issues_result else []
+
+        # Check which issues are present (use_cache=False if refresh requested)
+        issue_status = match_issues_to_collection(mapped_path, all_issues, series_info, use_cache=not refresh)
 
         # Calculate counts
         found_count = sum(1 for s in issue_status.values() if s.get('found'))

@@ -353,6 +353,25 @@ def init_db():
         c.execute('CREATE INDEX IF NOT EXISTS idx_issues_series_id ON issues(series_id)')
         c.execute('CREATE INDEX IF NOT EXISTS idx_issues_store_date ON issues(store_date)')
 
+        # Create collection_status table (cache for issue-to-file mappings)
+        c.execute('''
+            CREATE TABLE IF NOT EXISTS collection_status (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                series_id INTEGER NOT NULL,
+                issue_id INTEGER NOT NULL,
+                issue_number TEXT NOT NULL,
+                found INTEGER DEFAULT 0,
+                file_path TEXT,
+                file_mtime REAL,
+                matched_via TEXT,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(series_id, issue_id),
+                FOREIGN KEY (series_id) REFERENCES series(id) ON DELETE CASCADE,
+                FOREIGN KEY (issue_id) REFERENCES issues(id) ON DELETE CASCADE
+            )
+        ''')
+        c.execute('CREATE INDEX IF NOT EXISTS idx_collection_status_series ON collection_status(series_id)')
+
         conn.commit()
         conn.close()
         app_logger.info("Database initialized successfully")
@@ -3311,3 +3330,147 @@ def delete_issues_for_series(series_id):
     except Exception as e:
         app_logger.error(f"Failed to delete issues for series {series_id}: {e}")
         return False
+
+
+# =============================================================================
+# Collection Status Cache Functions
+# =============================================================================
+
+def get_collection_status_for_series(series_id):
+    """
+    Get cached collection status for a series.
+
+    Args:
+        series_id: Metron series ID
+
+    Returns:
+        List of dicts with issue_id, issue_number, found, file_path, file_mtime, matched_via
+        or None if no cache exists
+    """
+    conn = None
+    try:
+        conn = get_db_connection()
+        if not conn:
+            return None
+
+        c = conn.cursor()
+        c.execute('''
+            SELECT issue_id, issue_number, found, file_path, file_mtime, matched_via
+            FROM collection_status
+            WHERE series_id = ?
+        ''', (series_id,))
+
+        rows = c.fetchall()
+        return [dict(row) for row in rows] if rows else None
+    except Exception as e:
+        app_logger.error(f"Failed to get collection status for series {series_id}: {e}")
+        return None
+    finally:
+        if conn:
+            conn.close()
+
+
+def save_collection_status_bulk(entries):
+    """
+    Save multiple collection status entries in a transaction.
+
+    Args:
+        entries: List of dicts with series_id, issue_id, issue_number, found, file_path, file_mtime, matched_via
+
+    Returns:
+        True if successful, False otherwise
+    """
+    if not entries:
+        return True
+
+    conn = None
+    try:
+        conn = get_db_connection()
+        if not conn:
+            return False
+
+        c = conn.cursor()
+        c.executemany('''
+            INSERT OR REPLACE INTO collection_status
+            (series_id, issue_id, issue_number, found, file_path, file_mtime, matched_via, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+        ''', [(e['series_id'], e['issue_id'], e['issue_number'],
+               e['found'], e['file_path'], e['file_mtime'], e['matched_via'])
+              for e in entries])
+        conn.commit()
+        app_logger.debug(f"Saved {len(entries)} collection status entries")
+        return True
+    except Exception as e:
+        app_logger.error(f"Failed to save collection status bulk: {e}")
+        return False
+    finally:
+        if conn:
+            conn.close()
+
+
+def invalidate_collection_status_for_series(series_id):
+    """
+    Remove cached collection status for a series (triggers re-scan on next view).
+
+    Args:
+        series_id: Metron series ID
+    """
+    conn = None
+    try:
+        conn = get_db_connection()
+        if not conn:
+            return
+
+        c = conn.cursor()
+        c.execute('DELETE FROM collection_status WHERE series_id = ?', (series_id,))
+        deleted = c.rowcount
+        conn.commit()
+        if deleted > 0:
+            app_logger.debug(f"Invalidated {deleted} collection status entries for series {series_id}")
+    except Exception as e:
+        app_logger.error(f"Failed to invalidate collection status for series {series_id}: {e}")
+    finally:
+        if conn:
+            conn.close()
+
+
+def invalidate_collection_status_for_path(file_path):
+    """
+    Invalidate cache entries that reference a specific file path or directory.
+    Called when files are added, removed, or modified.
+
+    Args:
+        file_path: Path to the file or directory that changed
+    """
+    import os
+    conn = None
+    try:
+        conn = get_db_connection()
+        if not conn:
+            return
+
+        c = conn.cursor()
+
+        # Get the directory (if file_path is a file, get its parent)
+        if os.path.isfile(file_path):
+            directory = os.path.dirname(file_path)
+        else:
+            directory = file_path
+
+        # Find series with this mapped_path
+        c.execute('SELECT id FROM series WHERE mapped_path = ?', (directory,))
+        rows = c.fetchall()
+
+        if rows:
+            series_ids = [row[0] for row in rows]
+            placeholders = ','.join('?' * len(series_ids))
+            c.execute(f'DELETE FROM collection_status WHERE series_id IN ({placeholders})', series_ids)
+            deleted = c.rowcount
+            conn.commit()
+            if deleted > 0:
+                app_logger.debug(f"Invalidated {deleted} collection status entries for path {directory}")
+    except Exception as e:
+        app_logger.error(f"Failed to invalidate collection status for path {file_path}: {e}")
+    finally:
+        if conn:
+            conn.close()

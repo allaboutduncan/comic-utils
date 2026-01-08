@@ -1,0 +1,237 @@
+{% extends "base.html" %}
+
+{% block title %}Pull List{% endblock %}
+
+{% block content %}
+<div class="container py-5">
+    <!-- Header Section -->
+    <div class="d-flex justify-content-between align-items-center mb-4 fade-in-down">
+        <div>
+            <h2 class="display-4 fw-bold mb-1">Pull List</h2>
+            <p class="text-muted lead mb-0">All tracked series in your collection</p>
+        </div>
+        <div class="d-flex gap-2">
+            <a href="{{ url_for('wanted') }}" class="btn btn-outline-warning">
+                <i class="bi bi-star me-1"></i>Wanted Issues
+            </a>
+            <a href="{{ url_for('releases') }}" class="btn btn-outline-primary">
+                <i class="bi bi-calendar-week me-1"></i>Weekly Releases
+            </a>
+        </div>
+    </div>
+
+    <!-- Stats Card -->
+    <div class="row g-3 mb-4">
+        <div class="col-md-4">
+            <div class="card border-0 shadow-sm bg-primary bg-opacity-10">
+                <div class="card-body text-center">
+                    <h3 class="display-5 fw-bold text-primary mb-0">{{ total_series }}</h3>
+                    <p class="text-muted mb-0">Tracked Series</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    {% if total_series == 0 %}
+    <!-- Empty State -->
+    <div class="text-center py-5 fade-in-up">
+        <div class="mb-4">
+            <i class="bi bi-collection display-1 text-muted opacity-25"></i>
+        </div>
+        <h3 class="h2 text-muted mb-3">No Tracked Series</h3>
+        <p class="text-muted mb-4 lead">Start tracking series by mapping them to your collection.</p>
+        <a href="{{ url_for('releases') }}" class="btn btn-outline-primary btn-lg">
+            <i class="bi bi-calendar-week me-1"></i>Browse Releases
+        </a>
+    </div>
+    {% else %}
+
+    <!-- Search/Filter -->
+    <div class="card border-0 shadow-sm mb-4">
+        <div class="card-body">
+            <div class="row align-items-center">
+                <div class="col-md-6">
+                    <div class="input-group">
+                        <span class="input-group-text bg-white"><i class="bi bi-search"></i></span>
+                        <input type="text" class="form-control" id="searchInput" placeholder="Search series...">
+                    </div>
+                </div>
+                <div class="col-md-6 text-md-end mt-3 mt-md-0">
+                    <span class="text-muted" id="resultCount">Showing {{ total_series }} series</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Series Table -->
+    <div class="card border-0 shadow-sm">
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0" id="seriesTable">
+                    <thead class="table-light">
+                        <tr>
+                            <th scope="col" class="ps-4 sortable" data-sort="name" style="cursor: pointer;">
+                                Series <i class="bi bi-chevron-expand text-muted ms-1"></i>
+                            </th>
+                            <th scope="col" class="sortable" data-sort="publisher" style="cursor: pointer;">
+                                Publisher <i class="bi bi-chevron-expand text-muted ms-1"></i>
+                            </th>
+                            <th scope="col" class="text-center sortable" data-sort="issues" style="cursor: pointer;">
+                                Issues <i class="bi bi-chevron-expand text-muted ms-1"></i>
+                            </th>
+                            <th scope="col" class="sortable" data-sort="synced" style="cursor: pointer;">
+                                Last Synced <i class="bi bi-chevron-expand text-muted ms-1"></i>
+                            </th>
+                            <th scope="col" class="text-end pe-4">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for series in series_list %}
+                        <tr data-name="{{ series.name|lower }}"
+                            data-publisher="{{ (series.publisher_name or '')|lower }}"
+                            data-issues="{{ series.issue_count or 0 }}" data-synced="{{ series.last_synced_at or '' }}">
+                            <td class="ps-4">
+                                <a href="{{ url_for('series_view', slug=generate_series_slug(series.name, series.id, series.volume)) }}"
+                                    class="text-decoration-none fw-bold">
+                                    {{ series.name }}
+                                    {% if series.volume %}
+                                    <span class="text-muted fw-normal">Vol. {{ series.volume }}</span>
+                                    {% endif %}
+                                </a>
+                                {% if series.status %}
+                                <br><small class="text-muted">{{ series.status }}</small>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if series.publisher_name %}
+                                <span class="badge bg-secondary">{{ series.publisher_name }}</span>
+                                {% else %}
+                                <span class="text-muted">-</span>
+                                {% endif %}
+                            </td>
+                            <td class="text-center">
+                                {% if series.issue_count %}
+                                <span class="badge bg-info">{{ series.issue_count }}</span>
+                                {% else %}
+                                <span class="text-muted">-</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if series.last_synced_at %}
+                                <small class="text-muted">
+                                    <i class="bi bi-clock me-1"></i>{{ series.last_synced_at[:16] }}
+                                </small>
+                                {% else %}
+                                <small class="text-muted">Never</small>
+                                {% endif %}
+                            </td>
+                            <td class="text-end pe-4">
+                                <div class="btn-group" role="group">
+                                    <a href="{{ url_for('series_view', slug=generate_series_slug(series.name, series.id, series.volume)) }}"
+                                        class="btn btn-sm btn-outline-primary" title="View Series">
+                                        <i class="bi bi-eye"></i>
+                                    </a>
+                                </div>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    {% endif %}
+</div>
+
+<script>
+    document.addEventListener('DOMContentLoaded', function () {
+        const searchInput = document.getElementById('searchInput');
+        const table = document.getElementById('seriesTable');
+        const resultCount = document.getElementById('resultCount');
+
+        if (!searchInput || !table) return;
+
+        const tbody = table.querySelector('tbody');
+        const rows = Array.from(tbody.querySelectorAll('tr'));
+        const totalCount = rows.length;
+
+        // Search/Filter functionality
+        searchInput.addEventListener('input', function () {
+            const searchTerm = this.value.toLowerCase().trim();
+            let visibleCount = 0;
+
+            rows.forEach(row => {
+                const name = row.dataset.name || '';
+                const publisher = row.dataset.publisher || '';
+                const matches = name.includes(searchTerm) || publisher.includes(searchTerm);
+
+                row.style.display = matches ? '' : 'none';
+                if (matches) visibleCount++;
+            });
+
+            if (resultCount) {
+                resultCount.textContent = `Showing ${visibleCount} of ${totalCount} series`;
+            }
+        });
+
+        // Sorting functionality
+        let currentSort = { column: null, ascending: true };
+
+        document.querySelectorAll('.sortable').forEach(header => {
+            header.addEventListener('click', function () {
+                const sortKey = this.dataset.sort;
+
+                // Toggle sort direction if clicking same column
+                if (currentSort.column === sortKey) {
+                    currentSort.ascending = !currentSort.ascending;
+                } else {
+                    currentSort.column = sortKey;
+                    currentSort.ascending = true;
+                }
+
+                // Update header icons
+                document.querySelectorAll('.sortable i').forEach(icon => {
+                    icon.className = 'bi bi-chevron-expand text-muted ms-1';
+                });
+                const icon = this.querySelector('i');
+                icon.className = currentSort.ascending
+                    ? 'bi bi-chevron-up text-primary ms-1'
+                    : 'bi bi-chevron-down text-primary ms-1';
+
+                // Sort rows
+                const sortedRows = rows.slice().sort((a, b) => {
+                    let aVal, bVal;
+
+                    switch (sortKey) {
+                        case 'name':
+                            aVal = a.dataset.name || '';
+                            bVal = b.dataset.name || '';
+                            break;
+                        case 'publisher':
+                            aVal = a.dataset.publisher || '';
+                            bVal = b.dataset.publisher || '';
+                            break;
+                        case 'issues':
+                            aVal = parseInt(a.dataset.issues) || 0;
+                            bVal = parseInt(b.dataset.issues) || 0;
+                            return currentSort.ascending ? aVal - bVal : bVal - aVal;
+                        case 'synced':
+                            aVal = a.dataset.synced || '';
+                            bVal = b.dataset.synced || '';
+                            break;
+                        default:
+                            return 0;
+                    }
+
+                    const comparison = aVal.localeCompare(bVal);
+                    return currentSort.ascending ? comparison : -comparison;
+                });
+
+                // Re-append sorted rows
+                sortedRows.forEach(row => tbody.appendChild(row));
+            });
+        });
+    });
+</script>
+{% endblock %}

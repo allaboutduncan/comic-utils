@@ -362,13 +362,17 @@ function refreshCollectionStatus() {
     }
 
     const refreshBtn = document.getElementById('refresh-btn');
-    const originalHtml = refreshBtn.innerHTML;
+    const originalHtml = refreshBtn ? refreshBtn.innerHTML : '';
 
     // Show loading state
-    refreshBtn.disabled = true;
-    refreshBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Checking...';
+    if (refreshBtn) {
+        refreshBtn.disabled = true;
+        refreshBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Checking...';
+    }
 
-    fetch(`/api/series/${seriesData.id}/check-collection`)
+    const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD format
+
+    fetch(`/api/series/${seriesData.id}/check-collection?refresh=true`)
         .then(response => response.json())
         .then(data => {
             if (data.success) {
@@ -377,26 +381,95 @@ function refreshCollectionStatus() {
                 if (tbody) {
                     tbody.querySelectorAll('tr').forEach(row => {
                         const issueNumCell = row.querySelector('td:first-child');
+                        const storeDateCell = row.querySelector('td:nth-child(2)');
+                        const actionCell = row.querySelector('td:last-child');
                         if (!issueNumCell) return;
 
-                        // Extract issue number from cell text (e.g., "#1" -> "1")
+                        // Extract issue number from cell text (e.g., "#001" -> "1")
                         const issueNumMatch = issueNumCell.textContent.match(/#(\S+)/);
                         if (!issueNumMatch) return;
 
-                        const issueNum = issueNumMatch[1];
-                        const status = data.issue_status[issueNum];
+                        // Normalize issue number (remove leading zeros for lookup)
+                        const rawIssueNum = issueNumMatch[1];
+                        const issueNum = rawIssueNum.replace(/^0+/, '') || '0';
+                        const status = data.issue_status[issueNum] || data.issue_status[rawIssueNum];
+
+                        // Get store date from the row
+                        const storeDate = storeDateCell ? storeDateCell.textContent.trim() : '';
+                        const isUpcoming = storeDate && storeDate !== '-' && storeDate > today;
 
                         if (status) {
-                            // Update row class
-                            row.className = status.found ? 'table-success' : 'table-danger';
+                            // Update row class based on status
+                            if (status.found) {
+                                row.className = 'table-success';
+                            } else if (isUpcoming) {
+                                row.className = 'table-info';
+                            } else {
+                                row.className = 'table-danger';
+                            }
 
-                            // Update cell content with icon
+                            // Update cell content with icon and wanted badge
                             const iconClass = status.found ? 'check-circle-fill' : 'x-circle-fill';
-                            const textClass = status.found ? 'text-success' : 'text-danger';
-                            issueNumCell.className = `ps-4 fw-bold ${textClass}`;
-                            // Pad issue number with leading zeros if numeric
-                            const paddedNum = /^\d+$/.test(issueNum) ? issueNum.padStart(3, '0') : issueNum;
-                            issueNumCell.innerHTML = `<i class="bi bi-${iconClass} me-1"></i>#${paddedNum}`;
+                            const paddedNum = /^\d+$/.test(rawIssueNum) ? rawIssueNum : rawIssueNum;
+                            let cellHtml = `<i class="bi bi-${iconClass} me-1"></i>#${paddedNum}`;
+
+                            // Add "Wanted" badge if not found
+                            if (!status.found) {
+                                cellHtml += '<span class="badge bg-warning text-dark ms-2">Wanted</span>';
+                            }
+
+                            issueNumCell.innerHTML = cellHtml;
+
+                            // Update action buttons
+                            if (actionCell) {
+                                if (status.found && status.file_path) {
+                                    const escapedPath = status.file_path.replace(/\\/g, '/').replace(/'/g, "\\'");
+                                    actionCell.innerHTML = `
+                                        <div class="btn-group" role="group">
+                                            <button type="button" class="btn btn-sm btn-outline-info text-info"
+                                                onclick="viewIssueFile('${escapedPath}', '${issueNum}')"
+                                                title="View CBZ Info">
+                                                <i class="bi bi-eye"></i>
+                                            </button>
+                                            <button type="button" class="btn btn-sm btn-outline-primary"
+                                                onclick="editIssueFile('${escapedPath}')"
+                                                title="Edit CBZ">
+                                                <i class="bi bi-pencil"></i>
+                                            </button>
+                                            <div class="dropdown d-inline-block">
+                                                <button class="btn btn-sm btn-outline-secondary" type="button"
+                                                    data-bs-toggle="dropdown" aria-expanded="false" title="More options">
+                                                    <i class="bi bi-three-dots-vertical"></i>
+                                                </button>
+                                                <ul class="dropdown-menu dropdown-menu-end shadow">
+                                                    <li><a class="dropdown-item" href="#"
+                                                            onclick="executeIssueScript('crop', '${escapedPath}'); return false;">
+                                                            <i class="bi bi-crop me-2"></i>Crop Cover
+                                                        </a></li>
+                                                    <li><a class="dropdown-item" href="#"
+                                                            onclick="executeIssueScript('remove', '${escapedPath}'); return false;">
+                                                            <i class="bi bi-file-minus me-2"></i>Remove 1st Image
+                                                        </a></li>
+                                                    <li><a class="dropdown-item" href="#"
+                                                            onclick="executeIssueScript('single_file', '${escapedPath}'); return false;">
+                                                            <i class="bi bi-hammer me-2"></i>Rebuild
+                                                        </a></li>
+                                                    <li><a class="dropdown-item" href="#"
+                                                            onclick="executeIssueScript('enhance_single', '${escapedPath}'); return false;">
+                                                            <i class="bi bi-stars me-2"></i>Enhance
+                                                        </a></li>
+                                                    <li><a class="dropdown-item" href="#"
+                                                            onclick="executeIssueScript('add', '${escapedPath}'); return false;">
+                                                            <i class="bi bi-file-plus me-2"></i>Add Blank to End
+                                                        </a></li>
+                                                </ul>
+                                            </div>
+                                        </div>
+                                    `;
+                                } else {
+                                    actionCell.innerHTML = '<span class="text-muted">-</span>';
+                                }
+                            }
                         }
                     });
                 }
@@ -404,10 +477,11 @@ function refreshCollectionStatus() {
                 // Update footer counts
                 const footer = document.querySelector('#issues .card-footer small:first-child');
                 if (footer) {
+                    const wantedCount = data.total_count - data.found_count;
                     footer.innerHTML = `
                         <span class="text-success"><i class="bi bi-check-circle-fill me-1"></i>${data.found_count} found</span>
                         <span class="mx-2">|</span>
-                        <span class="text-danger"><i class="bi bi-x-circle-fill me-1"></i>${data.missing_count} missing</span>
+                        <span class="text-warning"><i class="bi bi-star-fill me-1"></i>${wantedCount} wanted</span>
                     `;
                 }
 
@@ -420,8 +494,10 @@ function refreshCollectionStatus() {
             alert('Error refreshing: ' + error.message);
         })
         .finally(() => {
-            refreshBtn.disabled = false;
-            refreshBtn.innerHTML = originalHtml;
+            if (refreshBtn) {
+                refreshBtn.disabled = false;
+                refreshBtn.innerHTML = originalHtml;
+            }
         });
 }
 

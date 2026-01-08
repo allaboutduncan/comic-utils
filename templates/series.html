@@ -230,7 +230,7 @@
                     <tbody>
                         {% for issue in issues %}
                         {% set status = issue_status.get(issue.number|string, {}) if issue_status else {} %}
-                        {% set is_upcoming = issue.store_date and issue.store_date > today %}
+                        {% set is_upcoming = issue.store_date and (issue.store_date|string) > today %}
                         <tr
                             class="{% if mapped_path %}{% if status.get('found') %}table-success{% elif is_upcoming %}table-info{% else %}table-danger{% endif %}{% endif %}">
                             <td class="ps-4 fw-bold">

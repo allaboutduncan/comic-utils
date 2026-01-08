@@ -3,7 +3,7 @@ import time
 import threading
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
-from database import add_file_index_entry, delete_file_index_entry
+from database import add_file_index_entry, delete_file_index_entry, invalidate_collection_status_for_path
 from app_logging import app_logger
 
 
@@ -66,9 +66,12 @@ class DebouncedFileHandler(FileSystemEventHandler):
                         file_size = os.path.getsize(file_path) if os.path.exists(file_path) else None
                         modified_at = os.path.getmtime(file_path) if os.path.exists(file_path) else None
                         parent = os.path.dirname(file_path)
-                        
+
                         add_file_index_entry(file_name, file_path, 'file', size=file_size, parent=parent, modified_at=modified_at)
                         app_logger.info(f"✅ Indexed recent file from watcher: {file_name}")
+
+                        # Invalidate collection status cache for this directory
+                        invalidate_collection_status_for_path(file_path)
                     except Exception as e:
                         app_logger.error(f"Error processing file event for {file_path}: {e}")
                 else:
@@ -139,10 +142,13 @@ class DebouncedFileHandler(FileSystemEventHandler):
             return
 
         try:
-             delete_file_index_entry(file_path)
-             app_logger.info(f"❌ Removed deleted file from index: {os.path.basename(file_path)}")
+            delete_file_index_entry(file_path)
+            app_logger.info(f"❌ Removed deleted file from index: {os.path.basename(file_path)}")
+
+            # Invalidate collection status cache for this directory
+            invalidate_collection_status_for_path(file_path)
         except Exception as e:
-             app_logger.error(f"Error removing deleted file {file_path}: {e}")
+            app_logger.error(f"Error removing deleted file {file_path}: {e}")
 
 
 
