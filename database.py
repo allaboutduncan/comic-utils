@@ -268,6 +268,41 @@ def init_db():
         if c.rowcount > 0:
             app_logger.info(f"Cleaned up {c.rowcount} orphaned reading list entries")
 
+        # Create publishers table (Metron publishers)
+        c.execute('''
+            CREATE TABLE IF NOT EXISTS publishers (
+                id INTEGER PRIMARY KEY,
+                name TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+
+        # Create metron_series table (Metron series with local mapping)
+        c.execute('''
+            CREATE TABLE IF NOT EXISTS metron_series (
+                id INTEGER PRIMARY KEY,
+                name TEXT NOT NULL,
+                sort_name TEXT,
+                volume INTEGER,
+                status TEXT,
+                publisher_id INTEGER,
+                imprint TEXT,
+                volume_year INTEGER,
+                year_end INTEGER,
+                desc TEXT,
+                cv_id INTEGER,
+                gcd_id INTEGER,
+                resource_url TEXT,
+                mapped_path TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (publisher_id) REFERENCES publishers(id)
+            )
+        ''')
+        c.execute('CREATE INDEX IF NOT EXISTS idx_metron_series_cv_id ON metron_series(cv_id)')
+        c.execute('CREATE INDEX IF NOT EXISTS idx_metron_series_gcd_id ON metron_series(gcd_id)')
+        c.execute('CREATE INDEX IF NOT EXISTS idx_metron_series_mapped_path ON metron_series(mapped_path)')
+
         conn.commit()
         conn.close()
         app_logger.info("Database initialized successfully")
@@ -2477,10 +2512,10 @@ def get_all_reading_list_tags():
 def get_recent_read_issues(limit=200):
     """
     Get the most recently read issues for recommendation context.
-    
+
     Args:
         limit: Maximum number of issues to return (default 200)
-        
+
     Returns:
         List of dictionaries with 'issue_path', 'series_name' (inferred), 'read_at'
     """
@@ -2488,9 +2523,9 @@ def get_recent_read_issues(limit=200):
         conn = get_db_connection()
         if not conn:
             return []
-            
+
         c = conn.cursor()
-        
+
         # We need to extract series info. For now, we'll return the path and let the consumer process it,
         # or we can try to be smart about it.
         c.execute('''
@@ -2499,24 +2534,281 @@ def get_recent_read_issues(limit=200):
             ORDER BY read_at DESC
             LIMIT ?
         ''', (limit,))
-        
+
         rows = c.fetchall()
         conn.close()
-        
+
         results = []
         for row in rows:
             # Simple inference: get the parent folder name as series name
             path = row['issue_path']
             series_name = os.path.basename(os.path.dirname(path))
-            
+
             results.append({
                 'title': os.path.basename(path), # Filename as title
                 'series': series_name,
                 'path': path,
                 'read_at': row['read_at']
             })
-            
+
         return results
     except Exception as e:
         app_logger.error(f"Error fetching recent read issues: {e}")
         return []
+
+
+# =============================================================================
+# Metron Publishers CRUD Operations
+# =============================================================================
+
+def save_publisher(publisher_id, name):
+    """
+    Save or update a publisher in the database.
+
+    Args:
+        publisher_id: Metron publisher ID
+        name: Publisher name
+
+    Returns:
+        True if successful, False otherwise
+    """
+    try:
+        conn = get_db_connection()
+        if not conn:
+            return False
+
+        c = conn.cursor()
+        c.execute('''
+            INSERT OR REPLACE INTO publishers (id, name, created_at)
+            VALUES (?, ?, COALESCE(
+                (SELECT created_at FROM publishers WHERE id = ?),
+                CURRENT_TIMESTAMP
+            ))
+        ''', (publisher_id, name, publisher_id))
+
+        conn.commit()
+        conn.close()
+
+        app_logger.info(f"Saved publisher: {name} (ID: {publisher_id})")
+        return True
+
+    except Exception as e:
+        app_logger.error(f"Failed to save publisher {publisher_id}: {e}")
+        return False
+
+
+def get_publisher(publisher_id):
+    """
+    Get a publisher by ID.
+
+    Args:
+        publisher_id: Metron publisher ID
+
+    Returns:
+        Dict with publisher info, or None if not found
+    """
+    try:
+        conn = get_db_connection()
+        if not conn:
+            return None
+
+        c = conn.cursor()
+        c.execute('SELECT id, name, created_at FROM publishers WHERE id = ?', (publisher_id,))
+        row = c.fetchone()
+        conn.close()
+
+        return dict(row) if row else None
+
+    except Exception as e:
+        app_logger.error(f"Failed to get publisher {publisher_id}: {e}")
+        return None
+
+
+# =============================================================================
+# Metron Series CRUD Operations
+# =============================================================================
+
+def save_series_mapping(series_data, mapped_path):
+    """
+    Save a Metron series with its local directory mapping.
+
+    Args:
+        series_data: Dictionary with series data from Metron API
+        mapped_path: Local directory path to map to
+
+    Returns:
+        True if successful, False otherwise
+    """
+    try:
+        conn = get_db_connection()
+        if not conn:
+            return False
+
+        c = conn.cursor()
+
+        # Extract publisher_id
+        publisher = series_data.get('publisher', {})
+        publisher_id = publisher.get('id') if isinstance(publisher, dict) else None
+
+        # Handle status - can be string or object
+        status = series_data.get('status')
+        if isinstance(status, dict):
+            status = status.get('name', str(status))
+
+        c.execute('''
+            INSERT OR REPLACE INTO metron_series
+            (id, name, sort_name, volume, status, publisher_id, imprint,
+             volume_year, year_end, desc, cv_id, gcd_id, resource_url, mapped_path,
+             created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                    COALESCE((SELECT created_at FROM metron_series WHERE id = ?), CURRENT_TIMESTAMP),
+                    CURRENT_TIMESTAMP)
+        ''', (
+            series_data.get('id'),
+            series_data.get('name'),
+            series_data.get('sort_name'),
+            series_data.get('volume'),
+            status,
+            publisher_id,
+            series_data.get('imprint'),
+            series_data.get('year_began'),  # stored as volume_year
+            series_data.get('year_end'),
+            series_data.get('desc'),
+            series_data.get('cv_id'),
+            series_data.get('gcd_id'),
+            series_data.get('resource_url'),
+            mapped_path,
+            series_data.get('id')  # For the COALESCE subquery
+        ))
+
+        conn.commit()
+        conn.close()
+
+        app_logger.info(f"Saved series mapping: {series_data.get('name')} -> {mapped_path}")
+        return True
+
+    except Exception as e:
+        app_logger.error(f"Failed to save series mapping: {e}")
+        return False
+
+
+def get_series_mapping(series_id):
+    """
+    Get the mapped path for a series.
+
+    Args:
+        series_id: Metron series ID
+
+    Returns:
+        Mapped path string, or None if not mapped
+    """
+    try:
+        conn = get_db_connection()
+        if not conn:
+            return None
+
+        c = conn.cursor()
+        c.execute('SELECT mapped_path FROM metron_series WHERE id = ?', (series_id,))
+        row = c.fetchone()
+        conn.close()
+
+        return row['mapped_path'] if row else None
+
+    except Exception as e:
+        app_logger.error(f"Failed to get series mapping for {series_id}: {e}")
+        return None
+
+
+def get_series_by_id(series_id):
+    """
+    Get full series info by ID.
+
+    Args:
+        series_id: Metron series ID
+
+    Returns:
+        Dict with series info, or None if not found
+    """
+    try:
+        conn = get_db_connection()
+        if not conn:
+            return None
+
+        c = conn.cursor()
+        c.execute('''
+            SELECT ms.*, p.name as publisher_name
+            FROM metron_series ms
+            LEFT JOIN publishers p ON ms.publisher_id = p.id
+            WHERE ms.id = ?
+        ''', (series_id,))
+        row = c.fetchone()
+        conn.close()
+
+        return dict(row) if row else None
+
+    except Exception as e:
+        app_logger.error(f"Failed to get series {series_id}: {e}")
+        return None
+
+
+def get_all_mapped_series():
+    """
+    Get all series that have been mapped to local directories.
+
+    Returns:
+        List of dicts with series info
+    """
+    try:
+        conn = get_db_connection()
+        if not conn:
+            return []
+
+        c = conn.cursor()
+        c.execute('''
+            SELECT ms.*, p.name as publisher_name
+            FROM metron_series ms
+            LEFT JOIN publishers p ON ms.publisher_id = p.id
+            WHERE ms.mapped_path IS NOT NULL
+            ORDER BY ms.name
+        ''')
+        rows = c.fetchall()
+        conn.close()
+
+        return [dict(row) for row in rows]
+
+    except Exception as e:
+        app_logger.error(f"Failed to get mapped series: {e}")
+        return []
+
+
+def remove_series_mapping(series_id):
+    """
+    Remove the mapping for a series (keeps series data, clears mapped_path).
+
+    Args:
+        series_id: Metron series ID
+
+    Returns:
+        True if successful, False otherwise
+    """
+    try:
+        conn = get_db_connection()
+        if not conn:
+            return False
+
+        c = conn.cursor()
+        c.execute('''
+            UPDATE metron_series
+            SET mapped_path = NULL, updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+        ''', (series_id,))
+
+        conn.commit()
+        conn.close()
+
+        app_logger.info(f"Removed series mapping for ID: {series_id}")
+        return True
+
+    except Exception as e:
+        app_logger.error(f"Failed to remove series mapping for {series_id}: {e}")
+        return False

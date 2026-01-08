@@ -1,0 +1,316 @@
+{% extends "base.html" %}
+
+{% block title %}{{ series.name }} - Series{% endblock %}
+
+{% block content %}
+<div class="container py-5">
+    <div class="row mb-5" id="series">
+        <div class="col-12">
+            <div class="card bg-light border-0 shadow-sm">
+                <div class="card-body">
+                    <div class="row g-3">
+                        <!-- Cover Image -->
+                        <div class="col-md-2">
+                            {% if first_issue_image %}
+                            <img src="{{ first_issue_image }}" alt="{{ series.name }}"
+                                class="img-fluid rounded shadow-sm" style="max-height: 250px; object-fit: cover;">
+                            {% else %}
+                            <div class="bg-secondary rounded d-flex align-items-center justify-content-center"
+                                style="height: 200px;">
+                                <i class="bi bi-journal-text text-white" style="font-size: 3rem; opacity: 0.5;"></i>
+                            </div>
+                            {% endif %}
+                        </div>
+                        <!-- Series Info -->
+                        <div class="col-md-7">
+                            <h2 class="display-6 fw-bold mb-3">{{ series.name }}</h2>
+                            <p class="lead mb-4">{{ series.desc or 'No description available.' }}</p>
+
+                            <div class="row g-3 text-muted">
+                                <div class="col-6 col-md-4">
+                                    <small class="text-uppercase fw-bold d-block mb-1"
+                                        style="font-size: 0.75rem;">Metron ID</small>
+                                    <span class="font-monospace">{{ series.id }}</span>
+                                </div>
+                                <div class="col-6 col-md-4">
+                                    <small class="text-uppercase fw-bold d-block mb-1"
+                                        style="font-size: 0.75rem;">ComicVine ID</small>
+                                    {% if series.cv_id %}
+                                    <a href="https://comicvine.gamespot.com/volume/4050-{{ series.cv_id }}/"
+                                        target="_blank" class="font-monospace text-decoration-none">{{ series.cv_id
+                                        }}</a>
+                                    {% else %}
+                                    <span class="text-muted">-</span>
+                                    {% endif %}
+                                </div>
+                                <div class="col-6 col-md-4">
+                                    <small class="text-uppercase fw-bold d-block mb-1" style="font-size: 0.75rem;">GCD
+                                        ID</small>
+                                    {% if series.gcd_id %}
+                                    <a href="https://www.comics.org/series/{{ series.gcd_id }}/" target="_blank"
+                                        class="font-monospace text-decoration-none">{{ series.gcd_id }}</a>
+                                    {% else %}
+                                    <span class="text-muted">-</span>
+                                    {% endif %}
+                                </div>
+                                <div class="col-6 col-md-4">
+                                    <small class="text-uppercase fw-bold d-block mb-1"
+                                        style="font-size: 0.75rem;">Volume</small>
+                                    <span>{{ series.volume }}</span>
+                                </div>
+                                <div class="col-6 col-md-4">
+                                    <small class="text-uppercase fw-bold d-block mb-1"
+                                        style="font-size: 0.75rem;">Type</small>
+                                    <span>{{ series.series_type.name if series.series_type and series.series_type.name
+                                        is defined else series.series_type }}</span>
+                                </div>
+                                <div class="col-6 col-md-4">
+                                    <small class="text-uppercase fw-bold d-block mb-1"
+                                        style="font-size: 0.75rem;">Status</small>
+                                    <span>{{ series.status }}</span>
+                                </div>
+                                <div class="col-6 col-md-4">
+                                    <small class="text-uppercase fw-bold d-block mb-1" style="font-size: 0.75rem;">Issue
+                                        Count</small>
+                                    <span>{{ series.issue_count }}</span>
+                                </div>
+                                <div class="col-6 col-md-4">
+                                    <small class="text-uppercase fw-bold d-block mb-1" style="font-size: 0.75rem;">Year
+                                        Began</small>
+                                    <span>{{ series.year_began }}</span>
+                                </div>
+                                <div class="col-6 col-md-4">
+                                    <small class="text-uppercase fw-bold d-block mb-1" style="font-size: 0.75rem;">Year
+                                        Ended</small>
+                                    <span>{{ series.year_ended or series.year_end or 'Present' }}</span>
+                                </div>
+                            </div>
+                        </div>
+                        <!-- Actions -->
+                        <div class="col-md-3 d-flex flex-column align-items-md-end justify-content-start gap-2">
+                            <a href="{{ url_for('releases') }}" class="btn btn-outline-secondary w-100">
+                                <i class="bi bi-arrow-left me-1"></i>Back to Releases
+                            </a>
+                            <a href="https://metron.cloud/series/{{ series.id }}/" target="_blank"
+                                class="btn btn-outline-primary w-100">
+                                <i class="bi bi-box-arrow-up-right me-1"></i>View on Metron
+                            </a>
+                            {% if series.cv_id %}
+                            <a href="https://comicvine.gamespot.com/volume/4050-{{ series.cv_id }}/" target="_blank"
+                                class="btn btn-outline-info w-100">
+                                <i class="bi bi-box-arrow-up-right me-1"></i>ComicVine
+                            </a>
+                            {% endif %}
+                            {% if series.gcd_id %}
+                            <a href="https://www.comics.org/series/{{ series.gcd_id }}/" target="_blank"
+                                class="btn btn-outline-warning w-100">
+                                <i class="bi bi-box-arrow-up-right me-1"></i>GCD
+                            </a>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+    <div class="mb-4">
+        {% for category, message in messages %}
+        <div class="alert alert-{{ category if category != 'error' else 'danger' }} alert-dismissible fade show shadow-sm"
+            role="alert">
+            <div class="d-flex align-items-center">
+                <i
+                    class="bi bi-{{ 'check-circle-fill' if category == 'success' else 'exclamation-triangle-fill' }} me-2"></i>
+                {{ message }}
+            </div>
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+    {% endwith %}
+
+    <!-- Mapping Section -->
+    <div class="row mb-4" id="mapping">
+        <div class="col-12">
+            <div class="card border-0 shadow-sm">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div>
+                            <h5 class="mb-1"><i class="bi bi-folder2-open me-2"></i>Collection Mapping</h5>
+                            <p class="text-muted mb-0" id="mapped-path-display">
+                                {% if mapped_path %}
+                                <span class="text-success"><i class="bi bi-check-circle me-1"></i>{{ mapped_path
+                                    }}</span>
+                                {% else %}
+                                <span class="text-muted">Not mapped to local collection</span>
+                                {% endif %}
+                            </p>
+                        </div>
+                        <div class="d-flex gap-2">
+                            {% if mapped_path %}
+                            <button class="btn btn-outline-danger" onclick="removeMappingConfirm()">
+                                <i class="bi bi-x-circle me-1"></i>Remove
+                            </button>
+                            {% endif %}
+                            <button class="btn btn-outline-primary" onclick="openMappingModal()">
+                                <i class="bi bi-folder-symlink me-1"></i>
+                                {% if mapped_path %}Change{% else %}Map{% endif %} Location
+                            </button>
+                            {% if mapped_path %}
+                            <button class="btn btn-outline-success" onclick="refreshCollectionStatus()" id="refresh-btn">
+                                <i class="bi bi-arrow-clockwise me-1"></i>Refresh
+                            </button>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Issues -->
+    {% if issues %}
+    <div class="card shadow-sm border-0" id="issues">
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0">
+                    <thead class="bg-light">
+                        <tr>
+                            <th scope="col" class="ps-4" style="width: 100px;">Number</th>
+                            <th scope="col" style="width: 150px;">Store Date</th>
+                            <th scope="col" class="text-end pe-4" style="width: 100px;">Action</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for issue in issues %}
+                        {% set status = issue_status.get(issue.number|string, {}) if issue_status else {} %}
+                        <tr
+                            class="{% if mapped_path %}{% if status.get('found') %}table-success{% else %}table-danger{% endif %}{% endif %}">
+                            <td
+                                class="ps-4 fw-bold {% if mapped_path and status.get('found') %}text-success{% elif mapped_path %}text-danger{% else %}text-primary{% endif %}">
+                                {% if mapped_path %}
+                                <i
+                                    class="bi bi-{% if status.get('found') %}check-circle-fill{% else %}x-circle-fill{% endif %} me-1"></i>
+                                {% endif %}
+                                #{{ issue.number }}
+                            </td>
+                            <td>{{ issue.store_date or '-' }}</td>
+                            <td class="text-end pe-4">
+                                <a href="{{ issue.resource_url }}" target="_blank"
+                                    class="btn btn-sm btn-outline-primary" title="View on Metron">
+                                    <i class="bi bi-link-45deg"></i>
+                                </a>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        <div class="card-footer bg-white d-flex justify-content-between align-items-center py-3 px-4">
+            {% if mapped_path and issue_status %}
+            {% set found_count = issue_status.values()|selectattr('found')|list|length %}
+            {% set missing_count = issues|length - found_count %}
+            <small>
+                <span class="text-success"><i class="bi bi-check-circle-fill me-1"></i>{{ found_count }} found</span>
+                <span class="mx-2">|</span>
+                <span class="text-danger"><i class="bi bi-x-circle-fill me-1"></i>{{ missing_count }} missing</span>
+            </small>
+            {% else %}
+            <small></small>
+            {% endif %}
+            <small class="text-muted">{{ issues|length }} issues indexed</small>
+        </div>
+    </div>
+    {% else %}
+    <!-- Empty State -->
+    <div class="text-center py-5 fade-in-up">
+        <div class="mb-4">
+            <i class="bi bi-journal-x display-1 text-muted opacity-25"></i>
+        </div>
+        <h3 class="h2 text-muted mb-3">No issues found</h3>
+        <p class="text-muted mb-4 lead">Unable to retrieve issues for this series.</p>
+        <a href="{{ url_for('releases') }}" class="btn btn-outline-primary btn-lg">
+            <i class="bi bi-arrow-left me-1"></i>Back to Releases
+        </a>
+    </div>
+    {% endif %}
+</div>
+
+<style>
+    .fade-in-down {
+        animation: fadeInDown 0.3s ease-out;
+    }
+
+    @keyframes fadeInDown {
+        from {
+            opacity: 0;
+            transform: translateY(-10px);
+        }
+
+        to {
+            opacity: 1;
+            transform: translateY(0);
+        }
+    }
+
+    .fade-in-up {
+        animation: slideUpFade 0.5s ease-out;
+    }
+
+    @keyframes slideUpFade {
+        from {
+            opacity: 0;
+            transform: translateY(20px);
+        }
+
+        to {
+            opacity: 1;
+            transform: translateY(0);
+        }
+    }
+</style>
+
+<!-- Directory Modal -->
+<div class="modal fade" id="directoryModal" tabindex="-1" aria-labelledby="directoryModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="directoryModalLabel">Select Series Location</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <!-- Filter buttons -->
+                <div id="directory-filter" class="mb-2">
+                    <div class="btn-group d-flex flex-wrap gap-1" role="group" aria-label="Directory Filter">
+                        <!-- Dynamically inserted buttons go here -->
+                    </div>
+                </div>
+                <p id="current-path-display" class="fw-bold text-primary mb-2">/data</p>
+                <ul id="directory-list" class="list-group" style="max-height: 400px; overflow-y: auto;">
+                    <!-- Directories will be loaded here dynamically -->
+                </ul>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" onclick="selectCurrentDirectory()">
+                    <i class="bi bi-check-lg me-1"></i>Select This Folder
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+{{ super() }}
+<script>
+    // Series data from server
+    const seriesData = {{ series_dict| tojson | safe if series_dict else '{}' }};
+    const currentMappedPath = {{ mapped_path| tojson | safe if mapped_path else 'null' }};
+</script>
+<script src="{{ url_for('static', filename='js/series.js') }}?v={{ range(1, 10000) | random }}"></script>
+{% endblock %}

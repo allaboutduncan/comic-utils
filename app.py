@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, Response, send_from_directory, send_file, redirect, jsonify, url_for, stream_with_context, render_template_string
+from flask import Flask, render_template, request, Response, send_from_directory, send_file, redirect, jsonify, url_for, stream_with_context, render_template_string, flash
 from werkzeug.utils import secure_filename
 import subprocess
 import io
@@ -54,17 +54,60 @@ from database import (init_db, get_db_connection, get_recent_files, log_recent_f
                       add_file_index_entry, delete_file_index_entry, clear_file_index_from_db, search_file_index,
                       get_search_cache, save_search_cache, clear_search_cache,
                       get_rebuild_schedule, save_rebuild_schedule as db_save_rebuild_schedule, update_last_rebuild,
-                      get_browse_cache, invalidate_browse_cache, clear_browse_cache,
                       get_path_counts_batch, get_directory_children, clear_stats_cache,
                       clear_stats_cache_keys, mark_issue_read, get_issues_read, get_recent_read_issues)
 import recommendations
 from models.stats import (get_library_stats, get_file_type_distribution, get_top_publishers,
                           get_reading_history_stats, get_largest_comics, get_top_series_by_count,
                           get_reading_heatmap_data)
+# Add URL encoding support for template filters
+from urllib.parse import quote_plus
 from concurrent.futures import ThreadPoolExecutor
 from file_watcher import FileWatcher
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
+
+# Register custom Jinja2 template filters
+@app.template_filter('basename')
+def basename_filter(path):
+    """Extract the basename from a file path."""
+    if path:
+        return os.path.basename(path)
+    return ''
+
+
+def generate_series_slug(series_name, issue_id, volume=None):
+    """
+    Generate a URL-friendly slug for a series page.
+    Format: series-name-vVOLUME-ISSUEID (e.g., amazing-spider-man-v1-159721)
+    The issue_id is used to look up the series (since we don't have series_id in releases).
+    """
+    import re
+
+    # Ensure we have a valid issue_id
+    if not issue_id:
+        return None
+
+    if not series_name:
+        return str(issue_id)
+
+    # Convert to lowercase and replace spaces/special chars with hyphens
+    slug = str(series_name).lower()
+    slug = re.sub(r'[^a-z0-9]+', '-', slug)
+    slug = slug.strip('-')
+
+    # Add volume if provided
+    if volume:
+        slug = f"{slug}-v{volume}"
+
+    # Always append issue_id for reliable lookup
+    slug = f"{slug}-{issue_id}"
+
+    return slug
+
+
+# Make it available in templates
+app.jinja_env.globals['generate_series_slug'] = generate_series_slug
 
 load_config()
 
@@ -266,6 +309,440 @@ def start_background_scanner():
     thread.start()
 
 start_background_scanner()
+
+@app.route('/releases')
+def releases():
+    """
+    Weekly Releases page integrated with Metron.
+    Shows releases for a specific week or upcoming releases.
+    """
+    api = None
+    if metron.is_mokkari_available():
+        metron_username = app.config.get("METRON_USERNAME", "").strip()
+        metron_password = app.config.get("METRON_PASSWORD", "").strip()
+        if metron_username and metron_password:
+            api = metron.get_api(metron_username, metron_password)
+            
+    if not api:
+        # If API is not configured or available, show checks
+        return render_template('releases.html', 
+                             releases=[], 
+                             error="Metron API not configured or unavailable", 
+                             date_range="N/A",
+                             view_mode="error")
+
+    # Get query params
+    date_str = request.args.get('date')
+    mode = request.args.get('mode', 'weekly') # weekly, future
+
+    today = datetime.now()
+    current_date = today
+
+    if date_str:
+        try:
+            current_date = datetime.strptime(date_str, '%Y-%m-%d')
+        except ValueError:
+            pass
+
+    releases_list = []
+    
+    # Calculate week boundaries
+    start_date, end_date = metron.calculate_comic_week(current_date)
+    
+    # Helper for formatting
+    fmt = '%Y-%m-%d'
+
+    if mode == 'future':
+        # Future releases: start from NEXT week's start
+        # "Next Week" relative to current_date? Or relative to today?
+        # Usually "Future" means upcoming. Let's say anything after "this week".
+        
+        # If we are in "Future" mode, we want stuff coming out *after* this week.
+        # But if the user navigated to next week, they are in 'weekly' mode for that week.
+        # 'Future' is a special bucket for everything beyond a certain point? 
+        # The prompt says: "Future: Set the store_date_range_after to next week's end date"
+        
+        # Calculate "Next Week" relative to today to determine what "Future" means?
+        # Or relative to the current view?
+        # Logic: "Next Week: Calculate... by adding 7 days".
+        # "Future: Set store_date_range_after to next week's end date"
+        
+        # Let's pivot "today" as the anchor for "Future" logic usually,
+        # but let's stick to the requested logic.
+        # Next week's end date relative to the *current view date*? 
+        # Or relative to *now*?
+        # Usually 'Future' is a static link.
+        
+        # Re-reading prompt: "Future: Set the store_date_range_after to next week's end date... to get all upcoming"
+        # This implies it captures everything *after* next week.
+        
+        # Let's base it on Today for the "Future" button logic.
+        curr_start, curr_end = metron.calculate_comic_week(today)
+        next_week_start = curr_start + timedelta(days=7)
+        next_week_end = curr_end + timedelta(days=7)
+        
+        future_start = next_week_end # After next week ends? Or did they mean next week's start?
+        # "Set store_date_range_after to next week's end date" -> So releases *after* next week.
+        
+        releases_list = metron.get_releases(api, 
+                                          date_after=future_start.strftime(fmt), 
+                                          date_before=None)
+        
+        display_date_range = f"Future (After {future_start.strftime(fmt)})"
+        
+    else:
+        # Weekly mode (default)
+        start_str = start_date.strftime(fmt)
+        end_str = end_date.strftime(fmt)
+        
+        releases_list = metron.get_releases(api, 
+                                          date_after=start_str, 
+                                          date_before=end_str)
+                                          
+        display_date_range = f"Week of {start_str} to {end_str}"
+
+    # Navigation links
+    # Previous Week: -7 days
+    prev_week_date = (start_date - timedelta(days=7)).strftime(fmt)
+    # Next Week: +7 days
+    next_week_date = (start_date + timedelta(days=7)).strftime(fmt)
+
+    return render_template('releases.html',
+                         releases=releases_list,
+                         date_range=display_date_range,
+                         view_mode=mode,
+                         current_date=start_date.strftime(fmt),
+                         prev_date=prev_week_date,
+                         next_date=next_week_date)
+
+
+def match_issues_to_collection(mapped_path, issues, series_info):
+    """
+    Match Metron issues to local files in the mapped directory.
+    Uses ComicInfo.xml first, then falls back to filename pattern matching.
+
+    Returns:
+        Dict mapping issue_number -> {'found': bool, 'file_path': str or None}
+    """
+    import re
+    import zipfile
+    import xml.etree.ElementTree as ET
+
+    results = {}
+    comic_extensions = ('.cbz', '.cbr', '.zip', '.rar')
+
+    # Scan directory for comic files
+    local_files = []
+    try:
+        for filename in os.listdir(mapped_path):
+            if filename.lower().endswith(comic_extensions):
+                local_files.append(os.path.join(mapped_path, filename))
+    except Exception as e:
+        app_logger.error(f"Error scanning directory {mapped_path}: {e}")
+        return results
+
+    # Build a cache of ComicInfo data for files
+    file_metadata = {}
+    for file_path in local_files:
+        filename = os.path.basename(file_path)
+        metadata = {'filename': filename, 'path': file_path}
+
+        # Try to read ComicInfo.xml from CBZ files
+        if file_path.lower().endswith(('.cbz', '.zip')):
+            try:
+                with zipfile.ZipFile(file_path, 'r') as zf:
+                    if 'ComicInfo.xml' in zf.namelist():
+                        with zf.open('ComicInfo.xml') as ci:
+                            tree = ET.parse(ci)
+                            root = tree.getroot()
+                            metadata['series'] = root.findtext('Series', '')
+                            metadata['number'] = root.findtext('Number', '')
+                            metadata['volume'] = root.findtext('Volume', '')
+                            metadata['year'] = root.findtext('Year', '')
+            except Exception as e:
+                app_logger.debug(f"Could not read ComicInfo from {filename}: {e}")
+
+        file_metadata[file_path] = metadata
+
+    # Get series name for matching
+    series_name = getattr(series_info, 'name', '') or ''
+    series_volume = getattr(series_info, 'volume', None)
+
+    # Match each issue
+    for issue in issues:
+        issue_num = str(getattr(issue, 'number', ''))
+        if not issue_num:
+            continue
+
+        match_found = False
+        matched_file = None
+
+        # First try ComicInfo.xml matching
+        for file_path, metadata in file_metadata.items():
+            if metadata.get('number'):
+                # Normalize issue numbers for comparison
+                meta_num = str(metadata['number']).strip().lstrip('0') or '0'
+                check_num = issue_num.strip().lstrip('0') or '0'
+
+                if meta_num == check_num:
+                    # Check series name matches (loose match)
+                    meta_series = metadata.get('series', '').lower()
+                    if not meta_series or series_name.lower() in meta_series or meta_series in series_name.lower():
+                        match_found = True
+                        matched_file = file_path
+                        break
+
+        # Fallback to filename pattern matching
+        if not match_found:
+            # Common patterns: "Series Name #1.cbz", "Series Name 001.cbz", "Series Name - 01.cbz"
+            patterns = [
+                rf'#0*{re.escape(issue_num)}(?:\D|$)',  # #1, #01, #001
+                rf'[\s\-_]0*{re.escape(issue_num)}(?:\D|$)',  # space/dash/underscore + number
+                rf'\b0*{re.escape(issue_num)}(?:\D|$)',  # word boundary + number
+            ]
+
+            for file_path, metadata in file_metadata.items():
+                filename = metadata['filename']
+                for pattern in patterns:
+                    if re.search(pattern, filename, re.IGNORECASE):
+                        match_found = True
+                        matched_file = file_path
+                        break
+                if match_found:
+                    break
+
+        results[issue_num] = {
+            'found': match_found,
+            'file_path': matched_file
+        }
+
+    return results
+
+
+@app.route('/series/<slug>')
+def series_view(slug):
+    """
+    View all issues in a series.
+    URL format: /series/series-name-vVOLUME-ISSUEID (e.g., /series/amazing-spider-man-v1-159721)
+    The issue_id is extracted from the end of the slug, then used to get the series.
+    """
+    import re
+
+    # Extract issue_id from the end of the slug
+    match = re.search(r'-(\d+)$', slug)
+    if not match:
+        app_logger.error(f"Invalid series URL format - no issue_id found in slug: {slug}")
+        flash("Invalid series URL format", "error")
+        return redirect(url_for('releases'))
+
+    issue_id = int(match.group(1))
+
+    api = None
+    if metron.is_mokkari_available():
+        metron_username = app.config.get("METRON_USERNAME", "").strip()
+        metron_password = app.config.get("METRON_PASSWORD", "").strip()
+        if metron_username and metron_password:
+            api = metron.get_api(metron_username, metron_password)
+
+    if not api:
+        flash("Metron API not configured", "error")
+        return redirect(url_for('releases'))
+
+    try:
+        # Get full issue detail to access series.id
+        app_logger.info(f"Fetching issue details for issue_id: {issue_id}")
+        full_issue = api.issue(issue_id)
+        series_id = full_issue.series.id
+        app_logger.info(f"Got series_id: {series_id} from issue")
+
+        # Get full series details (has issue_count, cv_id, gcd_id, etc.)
+        app_logger.info(f"Fetching series details for series_id: {series_id}")
+        series_info = api.series(series_id)
+        app_logger.info(f"Got series_info: {series_info.name if series_info else 'None'}")
+
+        # Get all issues for this series
+        app_logger.info(f"Fetching all issues for series_id: {series_id}")
+        all_issues_result = metron.get_all_issues_for_series(api, series_id)
+        # Convert to list in case it's a generator
+        all_issues = list(all_issues_result) if all_issues_result else []
+        app_logger.info(f"Got {len(all_issues)} issues")
+
+        # Get cover image from first issue (if available)
+        first_issue_image = None
+        if all_issues:
+            # Sort by issue number to get the first issue
+            sorted_issues = sorted(all_issues, key=lambda x: float(x.number) if x.number and str(x.number).replace('.', '').isdigit() else 999)
+            if sorted_issues and hasattr(sorted_issues[0], 'image'):
+                first_issue_image = sorted_issues[0].image
+
+        # Check for existing mapping
+        from database import get_series_mapping
+        mapped_path = get_series_mapping(series_id)
+
+        # If mapped, check which issues are present in the collection
+        issue_status = {}  # issue_number -> {'found': bool, 'file_path': str or None}
+        if mapped_path and os.path.isdir(mapped_path):
+            issue_status = match_issues_to_collection(mapped_path, all_issues, series_info)
+
+        # Convert series_info to dict for JSON serialization
+        series_dict = None
+        if series_info:
+            try:
+                if hasattr(series_info, 'model_dump'):
+                    # Pydantic v2 - use mode='json' for JSON-safe output
+                    series_dict = series_info.model_dump(mode='json')
+                elif hasattr(series_info, 'dict'):
+                    # Pydantic v1
+                    series_dict = series_info.dict()
+                    # Convert any non-serializable types to strings
+                    import json
+                    series_dict = json.loads(json.dumps(series_dict, default=str))
+                elif hasattr(series_info, '__dict__'):
+                    import json
+                    series_dict = json.loads(json.dumps(vars(series_info), default=str))
+            except Exception as e:
+                app_logger.warning(f"Could not serialize series_info: {e}")
+                # Fallback: manually build dict with known fields
+                series_dict = {
+                    'id': getattr(series_info, 'id', None),
+                    'name': getattr(series_info, 'name', None),
+                    'sort_name': getattr(series_info, 'sort_name', None),
+                    'volume': getattr(series_info, 'volume', None),
+                    'status': str(getattr(series_info, 'status', '')),
+                    'year_began': getattr(series_info, 'year_began', None),
+                    'year_end': getattr(series_info, 'year_end', None),
+                    'desc': getattr(series_info, 'desc', None),
+                    'cv_id': getattr(series_info, 'cv_id', None),
+                    'gcd_id': getattr(series_info, 'gcd_id', None),
+                    'issue_count': getattr(series_info, 'issue_count', None),
+                    'resource_url': str(getattr(series_info, 'resource_url', '')),
+                }
+                # Add publisher if available
+                publisher = getattr(series_info, 'publisher', None)
+                if publisher:
+                    series_dict['publisher'] = {
+                        'id': getattr(publisher, 'id', None),
+                        'name': getattr(publisher, 'name', None),
+                    }
+
+        return render_template('series.html',
+                             series=series_info,
+                             series_dict=series_dict,
+                             issues=all_issues,
+                             first_issue_image=first_issue_image,
+                             mapped_path=mapped_path,
+                             issue_status=issue_status)
+    except Exception as e:
+        import traceback
+        app_logger.error(f"Error fetching series data for series {series_id}: {e}")
+        app_logger.error(traceback.format_exc())
+        flash(f"Error loading series: {str(e)}", "error")
+        return redirect(url_for('releases'))
+
+
+@app.route('/api/series/<int:series_id>/map', methods=['POST'])
+def map_series(series_id):
+    """Map a series to a local directory and save to database."""
+    from database import save_publisher, save_series_mapping
+
+    data = request.json
+    if not data:
+        return jsonify({'error': 'No data provided'}), 400
+
+    mapped_path = data.get('mapped_path')
+    series_data = data.get('series')
+
+    if not mapped_path or not series_data:
+        return jsonify({'error': 'Missing mapped_path or series data'}), 400
+
+    try:
+        # Save publisher first if present
+        publisher = series_data.get('publisher')
+        if publisher and isinstance(publisher, dict):
+            save_publisher(publisher.get('id'), publisher.get('name'))
+
+        # Save series with mapping
+        success = save_series_mapping(series_data, mapped_path)
+
+        if success:
+            return jsonify({'success': True, 'mapped_path': mapped_path})
+        else:
+            return jsonify({'error': 'Failed to save mapping'}), 500
+
+    except Exception as e:
+        app_logger.error(f"Error mapping series {series_id}: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/series/<int:series_id>/mapping', methods=['GET'])
+def get_series_mapping_route(series_id):
+    """Get the mapped path for a series."""
+    from database import get_series_mapping
+
+    mapped_path = get_series_mapping(series_id)
+    return jsonify({'mapped_path': mapped_path})
+
+
+@app.route('/api/series/<int:series_id>/mapping', methods=['DELETE'])
+def delete_series_mapping_route(series_id):
+    """Remove the mapping for a series."""
+    from database import remove_series_mapping
+
+    success = remove_series_mapping(series_id)
+    if success:
+        return jsonify({'success': True})
+    else:
+        return jsonify({'error': 'Failed to remove mapping'}), 500
+
+
+@app.route('/api/series/<int:series_id>/check-collection', methods=['GET'])
+def check_series_collection(series_id):
+    """Check which issues exist in the mapped directory."""
+    from database import get_series_mapping
+
+    mapped_path = get_series_mapping(series_id)
+    if not mapped_path:
+        return jsonify({'error': 'Series not mapped'}), 404
+
+    if not os.path.isdir(mapped_path):
+        return jsonify({'error': 'Mapped directory not found'}), 404
+
+    # Get API to fetch issues
+    api = None
+    if metron.is_mokkari_available():
+        metron_username = app.config.get("METRON_USERNAME", "").strip()
+        metron_password = app.config.get("METRON_PASSWORD", "").strip()
+        if metron_username and metron_password:
+            api = metron.get_api(metron_username, metron_password)
+
+    if not api:
+        return jsonify({'error': 'Metron API not configured'}), 500
+
+    try:
+        # Fetch series info and issues
+        series_info = api.series(series_id)
+        all_issues_result = metron.get_all_issues_for_series(api, series_id)
+        all_issues = list(all_issues_result) if all_issues_result else []
+
+        # Check which issues are present
+        issue_status = match_issues_to_collection(mapped_path, all_issues, series_info)
+
+        # Calculate counts
+        found_count = sum(1 for s in issue_status.values() if s.get('found'))
+        missing_count = len(all_issues) - found_count
+
+        return jsonify({
+            'success': True,
+            'issue_status': issue_status,
+            'found_count': found_count,
+            'missing_count': missing_count,
+            'total_count': len(all_issues)
+        })
+
+    except Exception as e:
+        app_logger.error(f"Error checking collection for series {series_id}: {e}")
+        return jsonify({'error': str(e)}), 500
+
 
 # app = Flask(__name__)
 

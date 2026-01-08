@@ -4,6 +4,7 @@ Metron API integration for comic metadata retrieval using Mokkari library.
 from app_logging import app_logger
 from typing import Optional, Dict, Any, List
 import re
+from datetime import datetime, timedelta
 
 # Check if mokkari is available
 try:
@@ -458,3 +459,92 @@ def fetch_and_map_issue(api, cvinfo_path: str, issue_number: str) -> Optional[Di
 
     # Map to ComicInfo format
     return map_to_comicinfo(issue_data)
+
+
+def calculate_comic_week(date_obj=None):
+    """
+    Calculate the comic week (Sunday to Saturday) for a given date.
+
+    Args:
+        date_obj: datetime object (defaults to now)
+
+    Returns:
+        tuple of (start_date_obj, end_date_obj)
+    """
+    if date_obj is None:
+        date_obj = datetime.now()
+
+    # If date_obj is a string, parse it
+    if isinstance(date_obj, str):
+        try:
+            date_obj = datetime.strptime(date_obj, '%Y-%m-%d')
+        except ValueError:
+            app_logger.error(f"Invalid date string format: {date_obj}")
+            date_obj = datetime.now()
+
+    # Calculate start of week (Sunday)
+    # Weekday: Mon=0, Tue=1, Wed=2, Thu=3, Fri=4, Sat=5, Sun=6
+    # To get Sunday: (weekday + 1) % 7 gives days since Sunday
+    days_since_sunday = (date_obj.weekday() + 1) % 7
+    start_of_week = date_obj - timedelta(days=days_since_sunday)
+
+    # End of week is Saturday (6 days later)
+    end_of_week = start_of_week + timedelta(days=6)
+
+    return start_of_week, end_of_week
+
+
+def get_releases(api, date_after: str, date_before: Optional[str] = None) -> List[Any]:
+    """
+    Fetch releases from Metron API within a date range.
+
+    Args:
+        api: Mokkari API client
+        date_after: Start date (YYYY-MM-DD)
+        date_before: End date (YYYY-MM-DD), optional. If None, fetches everything after start date.
+
+    Returns:
+        List of issue objects
+    """
+    try:
+        if not api:
+            return []
+
+        params = {
+            "store_date_range_after": date_after
+        }
+        if date_before:
+            params["store_date_range_before"] = date_before
+            
+        app_logger.info(f"Fetching releases with params: {params}")
+        
+        # Note: Using issues_list matching existing patterns in this file
+        results = api.issues_list(params)
+        return results
+        
+    except Exception as e:
+        app_logger.error(f"Error getting releases: {e}")
+        return []
+
+def get_all_issues_for_series(api, series_id):
+    """
+    Retrieves all issues associated with a specific series ID.
+    """
+    try:
+        # Pass the series ID as a filter in the params dictionary
+        params = {
+            "series_id": series_id
+        }
+
+        app_logger.info(f"Fetching issues for series_id: {series_id} with params: {params}")
+        series_issues = api.issues_list(params)
+
+        return series_issues
+
+    except Exception as e:
+        app_logger.error(f"Error retrieving issues for series {series_id}: {e}")
+        return []
+
+# Example usage:
+# series_id = 12345
+# issues = get_all_issues_for_series(api, series_id)

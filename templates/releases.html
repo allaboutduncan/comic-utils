@@ -1,0 +1,360 @@
+{% extends "base.html" %}
+
+{% block title %}Weekly Releases{% endblock %}
+
+{% block content %}
+<div class="container py-5">
+    <!-- Header Section -->
+    <div class="d-flex justify-content-between align-items-center mb-5 fade-in-down">
+        <div>
+            <h2 class="display-4 fw-bold mb-1">Weekly Releases</h2>
+            <p class="text-muted lead mb-0">{{ date_range }}</p>
+        </div>
+        <div class="d-flex gap-2">
+            <div class="btn-group" role="group">
+                {% if view_mode != 'error' %}
+                <a href="{{ url_for('releases', date=prev_date) }}" class="btn btn-outline-primary">
+                    <i class="bi bi-chevron-left"></i> Previous Week
+                </a>
+                <a href="{{ url_for('releases') }}" class="btn btn-outline-secondary">
+                    <i class="bi bi-calendar-check"></i> This Week
+                </a>
+                <a href="{{ url_for('releases', date=next_date) }}" class="btn btn-outline-primary">
+                    Next Week <i class="bi bi-chevron-right"></i>
+                </a>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    {% if error %}
+    <div class="alert alert-warning alert-dismissible fade show shadow-sm mb-4" role="alert">
+        <div class="d-flex align-items-center">
+            <i class="bi bi-exclamation-triangle-fill me-2 fs-5"></i>
+            <div>
+                <strong>{{ error }}</strong>
+                {% if "not configured" in error %}
+                <br><small>Please configure your Metron credentials in <a href="{{ url_for('config_page') }}"
+                        class="alert-link">Settings</a>.</small>
+                {% endif %}
+            </div>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+    </div>
+    {% endif %}
+
+    {% if releases %}
+    <div class="releases-grid">
+        {% for issue in releases %}
+        {% set series_slug = generate_series_slug(issue.series.name, issue.id, issue.series.volume) %}
+        <a href="{% if series_slug %}{{ url_for('series_view', slug=series_slug) }}{% else %}{{ issue.resource_url }}{% endif %}" {% if not series_slug %}target="_blank"{% endif %} class="release-card stagger-load">
+            <!-- Cover Image -->
+            <div class="release-cover">
+                {% if issue.image %}
+                <img src="{{ issue.image }}" alt="{{ issue.series.name }}">
+                {% else %}
+                <div class="no-cover-placeholder">
+                    <i class="bi bi-journal-text"></i>
+                </div>
+                {% endif %}
+            </div>
+
+            <!-- Content -->
+            <div class="release-content">
+                <h3 class="release-title text-truncate" title="{{ issue.series.name }}">
+                    {{ issue.series.name }}
+                </h3>
+                <div class="release-meta">
+                    <span class="issue-number">
+                        {% if issue.number %}#{{ issue.number }}{% endif %}
+                        {% if issue.series.volume %} <span class="text-muted">Vol. {{ issue.series.volume }}</span>{% endif %}
+                    </span>
+                </div>
+                <div class="release-date">
+                    <i class="bi bi-calendar-event me-1"></i>{{ issue.cover_date }}
+                </div>
+            </div>
+
+            <!-- Series Info -->
+            <div class="series-content">
+                <div class="series-info">
+                    {% if issue.series %}
+                    <span class="series-link">
+                        <i class="bi bi-collection me-1"></i>{{ issue.series.name }}
+                    </span>
+                    {% endif %}
+                    {% if issue.series and issue.series.volume %}
+                    <span class="series-year">
+                        Vol. {{ issue.series.volume }}
+                    </span>
+                    {% endif %}
+                </div>
+            </div>
+        </a>
+        {% endfor %}
+    </div>
+    {% elif not error %}
+    <!-- Empty State -->
+    <div class="text-center py-5 fade-in-up">
+        <div class="mb-4">
+            <i class="bi bi-calendar-x display-1 text-muted opacity-25"></i>
+        </div>
+        <h3 class="h2 text-muted mb-3">No releases this week</h3>
+        <p class="text-muted mb-4 lead">Check back later or browse other weeks.</p>
+        <div class="d-flex justify-content-center gap-2">
+            <a href="{{ url_for('releases', date=prev_date) }}" class="btn btn-outline-primary btn-lg">
+                <i class="bi bi-chevron-left me-1"></i>Previous Week
+            </a>
+            <a href="{{ url_for('releases', date=next_date) }}" class="btn btn-outline-primary btn-lg">
+                Next Week<i class="bi bi-chevron-right ms-1"></i>
+            </a>
+        </div>
+    </div>
+    {% endif %}
+</div>
+
+<style>
+    .releases-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+        gap: 1.5rem;
+        padding: 1rem 0;
+    }
+
+    .release-card {
+        position: relative;
+        border-radius: 12px;
+        background-color: var(--bs-card-bg);
+        box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+        transition: all 0.3s ease;
+        cursor: pointer;
+        text-decoration: none;
+        color: inherit;
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+    }
+
+    .release-card:hover {
+        transform: translateY(-8px);
+        box-shadow: 0 12px 30px rgba(0, 0, 0, 0.2);
+        color: inherit;
+    }
+
+    .release-cover {
+        position: relative;
+        width: 100%;
+        aspect-ratio: 2/3;
+        overflow: hidden;
+        background: linear-gradient(135deg, var(--bs-gray-200) 0%, var(--bs-gray-300) 100%);
+    }
+
+    .release-cover img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        transition: transform 0.3s ease;
+    }
+
+    .release-card:hover .release-cover img {
+        transform: scale(1.05);
+    }
+
+    .no-cover-placeholder {
+        width: 100%;
+        height: 100%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: linear-gradient(135deg, var(--bs-gray-700) 0%, var(--bs-gray-800) 100%);
+        color: var(--bs-gray-500);
+    }
+
+    .no-cover-placeholder i {
+        font-size: 4rem;
+        opacity: 0.5;
+    }
+
+    .release-content {
+        padding: 1rem;
+        display: flex;
+        flex-direction: column;
+        gap: 0.25rem;
+    }
+
+    .release-title {
+        font-size: 1rem;
+        font-weight: 600;
+        margin: 0;
+        line-height: 1.3;
+    }
+
+    .release-meta {
+        font-size: 0.9rem;
+    }
+
+    .issue-number {
+        font-weight: 500;
+        color: var(--bs-primary);
+    }
+
+    .release-date {
+        font-size: 0.8rem;
+        color: var(--bs-secondary);
+    }
+
+    .series-content {
+        padding: 0.5rem 1rem 1rem;
+        border-top: 1px solid rgba(128, 128, 128, 0.1);
+    }
+
+    .series-info {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+        font-size: 0.75rem;
+        color: var(--bs-secondary);
+    }
+
+    .series-link {
+        color: var(--bs-primary);
+        text-decoration: none;
+        opacity: 0.8;
+    }
+
+    .series-link:hover {
+        opacity: 1;
+        text-decoration: underline;
+    }
+
+    .series-year {
+        opacity: 0.7;
+        margin-top: 0.25rem;
+    }
+
+    /* Animations */
+    @keyframes slideUpFade {
+        from {
+            opacity: 0;
+            transform: translateY(20px);
+        }
+
+        to {
+            opacity: 1;
+            transform: translateY(0);
+        }
+    }
+
+    .stagger-load {
+        animation: slideUpFade 0.4s ease backwards;
+    }
+
+    .stagger-load:nth-child(1) {
+        animation-delay: 0.05s;
+    }
+
+    .stagger-load:nth-child(2) {
+        animation-delay: 0.1s;
+    }
+
+    .stagger-load:nth-child(3) {
+        animation-delay: 0.15s;
+    }
+
+    .stagger-load:nth-child(4) {
+        animation-delay: 0.2s;
+    }
+
+    .stagger-load:nth-child(5) {
+        animation-delay: 0.25s;
+    }
+
+    .stagger-load:nth-child(6) {
+        animation-delay: 0.3s;
+    }
+
+    .stagger-load:nth-child(7) {
+        animation-delay: 0.35s;
+    }
+
+    .stagger-load:nth-child(8) {
+        animation-delay: 0.4s;
+    }
+
+    .stagger-load:nth-child(9) {
+        animation-delay: 0.45s;
+    }
+
+    .stagger-load:nth-child(10) {
+        animation-delay: 0.5s;
+    }
+
+    .stagger-load:nth-child(n+11) {
+        animation-delay: 0.5s;
+    }
+
+    .fade-in-down {
+        animation: fadeInDown 0.3s ease-out;
+    }
+
+    @keyframes fadeInDown {
+        from {
+            opacity: 0;
+            transform: translateY(-10px);
+        }
+
+        to {
+            opacity: 1;
+            transform: translateY(0);
+        }
+    }
+
+    .fade-in-up {
+        animation: slideUpFade 0.5s ease-out;
+    }
+
+    /* Loading overlay */
+    .release-card .loading-overlay {
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: rgba(0, 0, 0, 0.6);
+        display: none;
+        align-items: center;
+        justify-content: center;
+        z-index: 10;
+        border-radius: 12px;
+    }
+
+    .release-card.loading .loading-overlay {
+        display: flex;
+    }
+
+    .release-card.loading {
+        pointer-events: none;
+    }
+</style>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Add loading overlay to each card
+    document.querySelectorAll('.release-card').forEach(function(card) {
+        // Create loading overlay
+        const overlay = document.createElement('div');
+        overlay.className = 'loading-overlay';
+        overlay.innerHTML = '<div class="spinner-border text-light" role="status"><span class="visually-hidden">Loading...</span></div>';
+        card.appendChild(overlay);
+
+        // Show loading on click
+        card.addEventListener('click', function(e) {
+            // Only show loading for internal links
+            if (!card.hasAttribute('target')) {
+                card.classList.add('loading');
+            }
+        });
+    });
+});
+</script>
+{% endblock %}
