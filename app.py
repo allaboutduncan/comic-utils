@@ -1,5 +1,6 @@
 from flask import Flask, render_template, request, Response, send_from_directory, send_file, redirect, jsonify, url_for, stream_with_context, render_template_string, flash
 from werkzeug.utils import secure_filename
+from werkzeug.routing import IntegerConverter
 import subprocess
 import io
 import os
@@ -36,6 +37,12 @@ import base64
 from io import BytesIO
 from api import app
 from favorites import favorites_bp
+
+# Custom URL converter for signed integers (supports negative IDs)
+class SignedIntConverter(IntegerConverter):
+    regex = r'-?\d+'
+
+app.url_map.converters['signed'] = SignedIntConverter
 from opds import opds_bp
 from models import gcd
 from models import metron
@@ -437,20 +444,27 @@ def releases():
     Weekly Releases page integrated with Metron.
     Shows releases for a specific week or upcoming releases.
     """
+    from database import get_tracked_series_lookup, normalize_series_name
+
+    # Get tracked series lookup for highlighting
+    tracked_lookup = get_tracked_series_lookup()
+
     api = None
     if metron.is_mokkari_available():
         metron_username = app.config.get("METRON_USERNAME", "").strip()
         metron_password = app.config.get("METRON_PASSWORD", "").strip()
         if metron_username and metron_password:
             api = metron.get_api(metron_username, metron_password)
-            
+
     if not api:
         # If API is not configured or available, show checks
-        return render_template('releases.html', 
-                             releases=[], 
-                             error="Metron API not configured or unavailable", 
+        return render_template('releases.html',
+                             releases=[],
+                             error="Metron API not configured or unavailable",
                              date_range="N/A",
-                             view_mode="error")
+                             view_mode="error",
+                             tracked_lookup=tracked_lookup,
+                             normalize_name=normalize_series_name)
 
     # Get query params
     date_str = request.args.get('date')
@@ -534,7 +548,9 @@ def releases():
                          view_mode=mode,
                          current_date=start_date.strftime(fmt),
                          prev_date=prev_week_date,
-                         next_date=next_week_date)
+                         next_date=next_week_date,
+                         tracked_lookup=tracked_lookup,
+                         normalize_name=normalize_series_name)
 
 
 @app.route('/wanted')
@@ -657,6 +673,237 @@ def pull_list():
     return render_template('pull_list.html',
                          series_list=series_list,
                          total_series=len(series_list))
+
+
+@app.route('/publishers')
+def publishers_page():
+    """
+    Publishers admin page - manage publishers from Metron or manually.
+    """
+    from database import get_all_publishers
+
+    publishers = get_all_publishers()
+
+    return render_template('publishers.html',
+                         publishers=publishers,
+                         total_publishers=len(publishers))
+
+
+@app.route('/api/publishers', methods=['GET'])
+def api_get_publishers():
+    """Get all publishers from the database."""
+    from database import get_all_publishers
+
+    try:
+        publishers = get_all_publishers()
+        return jsonify({
+            "success": True,
+            "publishers": publishers
+        })
+    except Exception as e:
+        app_logger.error(f"Error getting publishers: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route('/api/publishers', methods=['POST'])
+def api_add_publisher():
+    """Add a new publisher."""
+    from database import save_publisher
+
+    data = request.get_json() or {}
+    publisher_id = data.get('id')
+    name = data.get('name')
+    path = data.get('path')
+    logo = data.get('logo')
+
+    if not name:
+        return jsonify({"success": False, "error": "Name is required"}), 400
+
+    # If no ID provided, generate a negative ID for manual publishers
+    if publisher_id is None:
+        from database import get_db_connection
+        conn = get_db_connection()
+        if conn:
+            c = conn.cursor()
+            c.execute('SELECT MIN(id) FROM publishers')
+            min_id = c.fetchone()[0]
+            publisher_id = (min_id - 1) if min_id and min_id < 0 else -1
+            conn.close()
+
+    try:
+        success = save_publisher(publisher_id, name, path, logo)
+        if success:
+            return jsonify({"success": True, "id": publisher_id})
+        else:
+            return jsonify({"success": False, "error": "Failed to save publisher"}), 500
+    except Exception as e:
+        app_logger.error(f"Error adding publisher: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route('/api/publishers/<signed:publisher_id>', methods=['DELETE'])
+def api_delete_publisher(publisher_id):
+    """Delete a publisher."""
+    from database import delete_publisher
+
+    try:
+        success = delete_publisher(publisher_id)
+        if success:
+            return jsonify({"success": True})
+        else:
+            return jsonify({"success": False, "error": "Publisher not found"}), 404
+    except Exception as e:
+        app_logger.error(f"Error deleting publisher: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route('/api/publishers/<signed:publisher_id>', methods=['PUT', 'PATCH'])
+def api_update_publisher(publisher_id):
+    """Update a publisher."""
+    from database import get_db_connection
+
+    data = request.get_json() or {}
+    name = data.get('name')
+    path = data.get('path')
+    logo = data.get('logo')
+
+    try:
+        conn = get_db_connection()
+        if not conn:
+            return jsonify({"success": False, "error": "Database connection failed"}), 500
+
+        c = conn.cursor()
+
+        # Build update query dynamically based on provided fields
+        updates = []
+        params = []
+
+        if name is not None:
+            updates.append('name = ?')
+            params.append(name)
+        if path is not None:
+            updates.append('path = ?')
+            params.append(path if path else None)
+        if logo is not None:
+            updates.append('logo = ?')
+            params.append(logo if logo else None)
+
+        if not updates:
+            conn.close()
+            return jsonify({"success": False, "error": "No fields to update"}), 400
+
+        params.append(publisher_id)
+        query = f"UPDATE publishers SET {', '.join(updates)} WHERE id = ?"
+        c.execute(query, params)
+        conn.commit()
+
+        if c.rowcount > 0:
+            conn.close()
+            app_logger.info(f"Updated publisher ID: {publisher_id}")
+            return jsonify({"success": True})
+        else:
+            conn.close()
+            return jsonify({"success": False, "error": "Publisher not found"}), 404
+
+    except Exception as e:
+        app_logger.error(f"Error updating publisher: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route('/api/publishers/search', methods=['GET'])
+def api_search_publishers():
+    """Search Metron API for publishers."""
+    from database import get_all_publishers
+
+    query = request.args.get('q', '').strip()
+    if not query:
+        return jsonify({"success": False, "error": "Search query required"}), 400
+
+    metron_username = app.config.get("METRON_USERNAME", "").strip()
+    metron_password = app.config.get("METRON_PASSWORD", "").strip()
+
+    if not metron_username or not metron_password:
+        return jsonify({"success": False, "error": "Metron credentials not configured"}), 400
+
+    try:
+        api = metron.get_api(metron_username, metron_password)
+        if not api:
+            return jsonify({"success": False, "error": "Failed to connect to Metron API"}), 500
+
+        # Search for publishers
+        results = api.publishers_list({'name': query})
+
+        # Get existing publisher IDs to mark which ones already exist
+        existing_publishers = get_all_publishers()
+        existing_ids = {p['id'] for p in existing_publishers}
+
+        publishers = []
+        for pub in results:
+            pub_id = pub.id if hasattr(pub, 'id') else pub.get('id')
+            pub_name = pub.name if hasattr(pub, 'name') else pub.get('name')
+            pub_image = str(pub.image) if hasattr(pub, 'image') and pub.image else None
+
+            publishers.append({
+                "id": pub_id,
+                "name": pub_name,
+                "image": pub_image,
+                "exists": pub_id in existing_ids
+            })
+
+        return jsonify({
+            "success": True,
+            "publishers": publishers
+        })
+    except Exception as e:
+        app_logger.error(f"Error searching Metron publishers: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route('/api/publishers/<signed:publisher_id>/logo', methods=['POST'])
+def api_download_publisher_logo(publisher_id):
+    """Download and save a publisher logo from URL."""
+    from database import update_publisher_logo, get_publisher
+    import urllib.request
+    import urllib.error
+
+    data = request.get_json() or {}
+    logo_url = data.get('url')
+
+    if not logo_url:
+        return jsonify({"success": False, "error": "Logo URL required"}), 400
+
+    try:
+        # Create logos directory
+        cache_dir = app.config.get("CACHE_DIR", "/cache")
+        logos_dir = os.path.join(cache_dir, "publisher_logos")
+        os.makedirs(logos_dir, exist_ok=True)
+
+        # Determine file extension from URL
+        ext = os.path.splitext(logo_url.split('?')[0])[1] or '.png'
+        logo_filename = f"{publisher_id}{ext}"
+        logo_path = os.path.join(logos_dir, logo_filename)
+
+        # Download the logo
+        req = urllib.request.Request(logo_url, headers={'User-Agent': 'Mozilla/5.0'})
+        with urllib.request.urlopen(req, timeout=30) as response:
+            with open(logo_path, 'wb') as f:
+                f.write(response.read())
+
+        # Store relative path in database
+        relative_path = f"publisher_logos/{logo_filename}"
+        success = update_publisher_logo(publisher_id, relative_path)
+
+        if success:
+            return jsonify({"success": True, "logo_path": relative_path})
+        else:
+            return jsonify({"success": False, "error": "Failed to update database"}), 500
+
+    except urllib.error.URLError as e:
+        app_logger.error(f"Error downloading logo: {e}")
+        return jsonify({"success": False, "error": f"Download failed: {e}"}), 500
+    except Exception as e:
+        app_logger.error(f"Error saving publisher logo: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
 
 
 def generate_filename_pattern(custom_pattern, series_name, issue_number):

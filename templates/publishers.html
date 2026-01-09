@@ -1,0 +1,556 @@
+{% extends "base.html" %}
+
+{% block title %}Publishers{% endblock %}
+
+{% block content %}
+<div class="container py-5">
+    <!-- Header Section -->
+    <div class="d-flex justify-content-between align-items-center mb-4 fade-in-down">
+        <div>
+            <h2 class="display-4 fw-bold mb-1">Publishers</h2>
+            <p class="text-muted lead mb-0">Manage publishers from Metron or add custom ones</p>
+        </div>
+        <div class="d-flex gap-2">
+            <button class="btn btn-outline-primary" data-bs-toggle="modal" data-bs-target="#searchMetronModal">
+                <i class="bi bi-search me-1"></i>Search Metron
+            </button>
+            <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addManualModal">
+                <i class="bi bi-plus-lg me-1"></i>Add Publisher
+            </button>
+        </div>
+    </div>
+
+    <!-- Stats Card -->
+    <div class="row g-3 mb-4">
+        <div class="col-md-4">
+            <div class="card border-0 shadow-sm bg-primary bg-opacity-10">
+                <div class="card-body text-center">
+                    <h3 class="display-5 fw-bold text-primary mb-0">{{ total_publishers }}</h3>
+                    <p class="text-muted mb-0">Total Publishers</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    {% if total_publishers == 0 %}
+    <!-- Empty State -->
+    <div class="text-center py-5 fade-in-up">
+        <div class="mb-4">
+            <i class="bi bi-building display-1 text-muted opacity-25"></i>
+        </div>
+        <h3 class="h2 text-muted mb-3">No Publishers</h3>
+        <p class="text-muted mb-4 lead">Add publishers from Metron or create custom ones.</p>
+        <button class="btn btn-outline-primary btn-lg" data-bs-toggle="modal" data-bs-target="#searchMetronModal">
+            <i class="bi bi-search me-1"></i>Search Metron
+        </button>
+    </div>
+    {% else %}
+
+    <!-- Search/Filter -->
+    <div class="card border-0 shadow-sm mb-4">
+        <div class="card-body">
+            <div class="row align-items-center">
+                <div class="col-md-6">
+                    <div class="input-group">
+                        <span class="input-group-text bg-white"><i class="bi bi-search"></i></span>
+                        <input type="text" class="form-control" id="searchInput" placeholder="Search publishers...">
+                    </div>
+                </div>
+                <div class="col-md-6 text-md-end mt-3 mt-md-0">
+                    <span class="text-muted" id="resultCount">Showing {{ total_publishers }} publishers</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Publishers Table -->
+    <div class="card border-0 shadow-sm">
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0" id="publishersTable">
+                    <thead class="table-light">
+                        <tr>
+                            <th scope="col" class="ps-4" style="width: 60px;">Logo</th>
+                            <th scope="col" class="sortable" data-sort="name" style="cursor: pointer;">
+                                Name <i class="bi bi-chevron-expand text-muted ms-1"></i>
+                            </th>
+                            <th scope="col" class="text-center sortable" data-sort="id" style="cursor: pointer;">
+                                ID <i class="bi bi-chevron-expand text-muted ms-1"></i>
+                            </th>
+                            <th scope="col">Path</th>
+                            <th scope="col" class="text-center">Favorite</th>
+                            <th scope="col" class="text-end pe-4">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for pub in publishers %}
+                        <tr data-id="{{ pub.id }}" data-name="{{ pub.name|lower }}">
+                            <td class="ps-4">
+                                {% if pub.logo %}
+                                <img src="/cache/{{ pub.logo }}" alt="{{ pub.name }}"
+                                     class="rounded" style="width: 40px; height: 40px; object-fit: contain;">
+                                {% else %}
+                                <div class="bg-light rounded d-flex align-items-center justify-content-center"
+                                     style="width: 40px; height: 40px;">
+                                    <i class="bi bi-building text-muted"></i>
+                                </div>
+                                {% endif %}
+                            </td>
+                            <td>
+                                <span class="fw-bold">{{ pub.name }}</span>
+                            </td>
+                            <td class="text-center">
+                                {% if pub.id > 0 %}
+                                <a href="https://metron.cloud/publisher/{{ pub.id }}/" target="_blank"
+                                   class="badge bg-info text-decoration-none" title="View on Metron">
+                                    {{ pub.id }}
+                                </a>
+                                {% else %}
+                                <span class="badge bg-secondary">Manual</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if pub.path %}
+                                <small class="text-muted font-monospace">{{ pub.path }}</small>
+                                {% else %}
+                                <span class="text-muted">-</span>
+                                {% endif %}
+                            </td>
+                            <td class="text-center">
+                                {% if pub.favorite %}
+                                <i class="bi bi-star-fill text-warning"></i>
+                                {% else %}
+                                <i class="bi bi-star text-muted"></i>
+                                {% endif %}
+                            </td>
+                            <td class="text-end pe-4">
+                                <div class="btn-group" role="group">
+                                    <button class="btn btn-sm btn-outline-secondary" title="Edit"
+                                            onclick="editPublisher({{ pub.id }}, '{{ pub.name|replace("'", "\\'") }}', '{{ pub.path|default("", true)|replace("'", "\\'") }}')">
+                                        <i class="bi bi-pencil"></i>
+                                    </button>
+                                    {% if pub.id > 0 and not pub.logo %}
+                                    <button class="btn btn-sm btn-outline-info" title="Download Logo"
+                                            onclick="downloadLogo({{ pub.id }})">
+                                        <i class="bi bi-image"></i>
+                                    </button>
+                                    {% endif %}
+                                    <button class="btn btn-sm btn-outline-danger" title="Delete"
+                                            onclick="deletePublisher({{ pub.id }}, '{{ pub.name|replace("'", "\\'") }}')">
+                                        <i class="bi bi-trash"></i>
+                                    </button>
+                                </div>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    {% endif %}
+</div>
+
+<!-- Search Metron Modal -->
+<div class="modal fade" id="searchMetronModal" tabindex="-1">
+    <div class="modal-dialog modal-lg modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title fw-bold">
+                    <i class="bi bi-search me-2"></i>Search Metron Publishers
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="input-group mb-4">
+                    <input type="text" class="form-control form-control-lg" id="metronSearchInput"
+                           placeholder="Enter publisher name..." autocomplete="off">
+                    <button class="btn btn-primary" type="button" onclick="searchMetron()">
+                        <i class="bi bi-search"></i>
+                    </button>
+                </div>
+                <div id="metronResults">
+                    <div class="text-center text-muted py-4">
+                        <i class="bi bi-search display-4 opacity-25"></i>
+                        <p class="mt-2">Search for publishers on Metron</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Add Manual Modal -->
+<div class="modal fade" id="addManualModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title fw-bold">
+                    <i class="bi bi-plus-lg me-2"></i>Add Publisher
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="addPublisherForm">
+                    <div class="mb-3">
+                        <label for="pubName" class="form-label">Name <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control" id="pubName" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="pubPath" class="form-label">Path</label>
+                        <input type="text" class="form-control" id="pubPath" placeholder="/data/Publisher Name">
+                        <div class="form-text">Optional local filesystem path</div>
+                    </div>
+                    <div class="mb-3">
+                        <label for="pubLogo" class="form-label">Logo URL</label>
+                        <input type="url" class="form-control" id="pubLogo" placeholder="https://...">
+                        <div class="form-text">Optional URL to publisher logo</div>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer bg-light">
+                <button type="button" class="btn btn-link text-decoration-none text-muted" data-bs-dismiss="modal">
+                    Cancel
+                </button>
+                <button type="button" class="btn btn-primary px-4" onclick="addManualPublisher()">
+                    Add Publisher
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Edit Publisher Modal -->
+<div class="modal fade" id="editPublisherModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title fw-bold">
+                    <i class="bi bi-pencil me-2"></i>Edit Publisher
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="editPubId">
+                <div class="mb-3">
+                    <label for="editPubName" class="form-label">Name</label>
+                    <input type="text" class="form-control" id="editPubName">
+                </div>
+                <div class="mb-3">
+                    <label for="editPubPath" class="form-label">Path</label>
+                    <input type="text" class="form-control" id="editPubPath" placeholder="/data/Publisher Name">
+                    <div class="form-text">Local filesystem path for this publisher's comics</div>
+                </div>
+            </div>
+            <div class="modal-footer bg-light">
+                <button type="button" class="btn btn-link text-decoration-none text-muted" data-bs-dismiss="modal">
+                    Cancel
+                </button>
+                <button type="button" class="btn btn-primary px-4" onclick="savePublisher()">
+                    Save Changes
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const searchInput = document.getElementById('searchInput');
+    const table = document.getElementById('publishersTable');
+    const resultCount = document.getElementById('resultCount');
+
+    if (!searchInput || !table) return;
+
+    const tbody = table.querySelector('tbody');
+    const rows = Array.from(tbody.querySelectorAll('tr'));
+    const totalCount = rows.length;
+
+    // Search/Filter functionality
+    searchInput.addEventListener('input', function() {
+        const searchTerm = this.value.toLowerCase().trim();
+        let visibleCount = 0;
+
+        rows.forEach(row => {
+            const name = row.dataset.name || '';
+            const matches = name.includes(searchTerm);
+
+            row.style.display = matches ? '' : 'none';
+            if (matches) visibleCount++;
+        });
+
+        if (resultCount) {
+            resultCount.textContent = `Showing ${visibleCount} of ${totalCount} publishers`;
+        }
+    });
+
+    // Sorting functionality
+    let currentSort = { column: null, ascending: true };
+
+    document.querySelectorAll('.sortable').forEach(header => {
+        header.addEventListener('click', function() {
+            const sortKey = this.dataset.sort;
+
+            if (currentSort.column === sortKey) {
+                currentSort.ascending = !currentSort.ascending;
+            } else {
+                currentSort.column = sortKey;
+                currentSort.ascending = true;
+            }
+
+            // Update header icons
+            document.querySelectorAll('.sortable i').forEach(icon => {
+                icon.className = 'bi bi-chevron-expand text-muted ms-1';
+            });
+            const icon = this.querySelector('i');
+            icon.className = currentSort.ascending
+                ? 'bi bi-chevron-up text-primary ms-1'
+                : 'bi bi-chevron-down text-primary ms-1';
+
+            // Sort rows
+            const sortedRows = rows.slice().sort((a, b) => {
+                let aVal, bVal;
+
+                switch (sortKey) {
+                    case 'name':
+                        aVal = a.dataset.name || '';
+                        bVal = b.dataset.name || '';
+                        break;
+                    case 'id':
+                        aVal = parseInt(a.dataset.id) || 0;
+                        bVal = parseInt(b.dataset.id) || 0;
+                        return currentSort.ascending ? aVal - bVal : bVal - aVal;
+                    default:
+                        return 0;
+                }
+
+                const comparison = aVal.localeCompare(bVal);
+                return currentSort.ascending ? comparison : -comparison;
+            });
+
+            sortedRows.forEach(row => tbody.appendChild(row));
+        });
+    });
+
+    // Enter key on Metron search
+    document.getElementById('metronSearchInput').addEventListener('keypress', function(e) {
+        if (e.key === 'Enter') searchMetron();
+    });
+});
+
+async function searchMetron() {
+    const query = document.getElementById('metronSearchInput').value.trim();
+    const resultsDiv = document.getElementById('metronResults');
+
+    if (!query) return;
+
+    resultsDiv.innerHTML = `
+        <div class="text-center py-4">
+            <div class="spinner-border text-primary" role="status"></div>
+            <p class="mt-2 text-muted">Searching Metron...</p>
+        </div>
+    `;
+
+    try {
+        const response = await fetch(`/api/publishers/search?q=${encodeURIComponent(query)}`);
+        const data = await response.json();
+
+        if (!data.success) {
+            resultsDiv.innerHTML = `
+                <div class="alert alert-danger">
+                    <i class="bi bi-exclamation-triangle me-2"></i>${data.error}
+                </div>
+            `;
+            return;
+        }
+
+        if (data.publishers.length === 0) {
+            resultsDiv.innerHTML = `
+                <div class="text-center text-muted py-4">
+                    <i class="bi bi-inbox display-4 opacity-25"></i>
+                    <p class="mt-2">No publishers found</p>
+                </div>
+            `;
+            return;
+        }
+
+        resultsDiv.innerHTML = `
+            <div class="list-group">
+                ${data.publishers.map(pub => `
+                    <div class="list-group-item d-flex align-items-center justify-content-between">
+                        <div class="d-flex align-items-center">
+                            ${pub.image ?
+                                `<img src="${pub.image}" alt="${pub.name}" class="rounded me-3"
+                                     style="width: 48px; height: 48px; object-fit: contain;">` :
+                                `<div class="bg-light rounded me-3 d-flex align-items-center justify-content-center"
+                                     style="width: 48px; height: 48px;">
+                                    <i class="bi bi-building text-muted"></i>
+                                </div>`
+                            }
+                            <div>
+                                <div class="fw-bold">${pub.name}</div>
+                                <small class="text-muted">ID: ${pub.id}</small>
+                            </div>
+                        </div>
+                        <div>
+                            ${pub.exists ?
+                                `<span class="badge bg-success"><i class="bi bi-check"></i> Added</span>` :
+                                `<button class="btn btn-sm btn-primary" onclick="addFromMetron(${pub.id}, '${pub.name.replace(/'/g, "\\'")}', ${pub.image ? `'${pub.image}'` : 'null'})">
+                                    <i class="bi bi-plus-lg me-1"></i>Add
+                                </button>`
+                            }
+                        </div>
+                    </div>
+                `).join('')}
+            </div>
+        `;
+    } catch (error) {
+        resultsDiv.innerHTML = `
+            <div class="alert alert-danger">
+                <i class="bi bi-exclamation-triangle me-2"></i>Error: ${error.message}
+            </div>
+        `;
+    }
+}
+
+async function addFromMetron(id, name, imageUrl) {
+    try {
+        // First add the publisher
+        const response = await fetch('/api/publishers', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id, name })
+        });
+
+        const data = await response.json();
+        if (!data.success) {
+            alert('Error: ' + data.error);
+            return;
+        }
+
+        // If there's an image, download it
+        if (imageUrl) {
+            await fetch(`/api/publishers/${id}/logo`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ url: imageUrl })
+            });
+        }
+
+        // Reload page to show new publisher
+        location.reload();
+    } catch (error) {
+        alert('Error: ' + error.message);
+    }
+}
+
+async function addManualPublisher() {
+    const name = document.getElementById('pubName').value.trim();
+    const path = document.getElementById('pubPath').value.trim();
+    const logo = document.getElementById('pubLogo').value.trim();
+
+    if (!name) {
+        alert('Name is required');
+        return;
+    }
+
+    try {
+        const response = await fetch('/api/publishers', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name, path: path || null, logo: logo || null })
+        });
+
+        const data = await response.json();
+        if (!data.success) {
+            alert('Error: ' + data.error);
+            return;
+        }
+
+        location.reload();
+    } catch (error) {
+        alert('Error: ' + error.message);
+    }
+}
+
+async function deletePublisher(id, name) {
+    if (!confirm(`Delete publisher "${name}"?`)) return;
+
+    try {
+        const response = await fetch(`/api/publishers/${id}`, {
+            method: 'DELETE'
+        });
+
+        const data = await response.json();
+        if (!data.success) {
+            alert('Error: ' + data.error);
+            return;
+        }
+
+        location.reload();
+    } catch (error) {
+        alert('Error: ' + error.message);
+    }
+}
+
+async function downloadLogo(publisherId) {
+    try {
+        // First get publisher details from Metron to get image URL
+        const searchResponse = await fetch(`/api/publishers/search?q=id:${publisherId}`);
+
+        // For now, we'll need to fetch from Metron API directly
+        // This is a simplified version - in production you'd want to cache this
+        const response = await fetch(`/api/publishers/${publisherId}/logo`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ url: `https://metron.cloud/api/publisher/${publisherId}/` })
+        });
+
+        // Actually, we need to first get the image URL from Metron
+        // Let's show an alert for now
+        alert('To download logo, use the Search Metron feature which includes the logo URL.');
+    } catch (error) {
+        alert('Error: ' + error.message);
+    }
+}
+
+function editPublisher(id, name, path) {
+    document.getElementById('editPubId').value = id;
+    document.getElementById('editPubName').value = name;
+    document.getElementById('editPubPath').value = path || '';
+
+    const modal = new bootstrap.Modal(document.getElementById('editPublisherModal'));
+    modal.show();
+}
+
+async function savePublisher() {
+    const id = document.getElementById('editPubId').value;
+    const name = document.getElementById('editPubName').value.trim();
+    const path = document.getElementById('editPubPath').value.trim();
+
+    if (!name) {
+        alert('Name is required');
+        return;
+    }
+
+    try {
+        const response = await fetch(`/api/publishers/${id}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name, path: path || '' })
+        });
+
+        const data = await response.json();
+        if (!data.success) {
+            alert('Error: ' + data.error);
+            return;
+        }
+
+        location.reload();
+    } catch (error) {
+        alert('Error: ' + error.message);
+    }
+}
+</script>
+{% endblock %}

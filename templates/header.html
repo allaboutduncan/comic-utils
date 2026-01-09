@@ -61,6 +61,12 @@
             Pull List
           </a>
         </li>
+        <li class="nav-item">
+          <a href="{{ url_for('publishers_page') }}"
+            class="nav-link {% if current_page == url_for('publishers_page') %}active{% endif %}">
+            Publishers
+          </a>
+        </li>
         <!--
         <li class="nav-item">
           <a href="{{ url_for('scrape_page') }}" class="nav-link position-relative {% if current_page == url_for('scrape_page') %}active{% endif %}">

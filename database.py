@@ -289,11 +289,12 @@ def init_db():
                 name TEXT NOT NULL,
                 path TEXT,
                 favorite INTEGER DEFAULT 0,
+                logo TEXT,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         ''')
 
-        # Migration: Add path and favorite columns to existing publishers table
+        # Migration: Add path, favorite, and logo columns to existing publishers table
         try:
             c.execute("PRAGMA table_info(publishers)")
             columns = [row[1] for row in c.fetchall()]
@@ -306,6 +307,10 @@ def init_db():
                 c.execute('ALTER TABLE publishers ADD COLUMN favorite INTEGER DEFAULT 0')
                 conn.commit()
                 app_logger.info("Added 'favorite' column to publishers table")
+            if 'logo' not in columns:
+                c.execute('ALTER TABLE publishers ADD COLUMN logo TEXT')
+                conn.commit()
+                app_logger.info("Added 'logo' column to publishers table")
         except Exception as migration_error:
             app_logger.error(f"Publisher migration error: {migration_error}")
 
@@ -2869,7 +2874,7 @@ def get_recent_read_issues(limit=200):
 # Metron Publishers CRUD Operations
 # =============================================================================
 
-def save_publisher(publisher_id, name, path=None):
+def save_publisher(publisher_id, name, path=None, logo=None):
     """
     Save or update a publisher in the database.
 
@@ -2877,6 +2882,7 @@ def save_publisher(publisher_id, name, path=None):
         publisher_id: Metron publisher ID
         name: Publisher name
         path: Optional local filesystem path
+        logo: Optional path to logo image
 
     Returns:
         True if successful, False otherwise
@@ -2889,12 +2895,13 @@ def save_publisher(publisher_id, name, path=None):
 
         c = conn.cursor()
         c.execute('''
-            INSERT INTO publishers (id, name, path, created_at)
-            VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+            INSERT INTO publishers (id, name, path, logo, created_at)
+            VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
             ON CONFLICT(id) DO UPDATE SET
                 name = excluded.name,
-                path = COALESCE(excluded.path, publishers.path)
-        ''', (publisher_id, name, path))
+                path = COALESCE(excluded.path, publishers.path),
+                logo = COALESCE(excluded.logo, publishers.logo)
+        ''', (publisher_id, name, path, logo))
 
         conn.commit()
         app_logger.info(f"Saved publisher: {name} (ID: {publisher_id})")
@@ -2925,7 +2932,7 @@ def get_publisher(publisher_id):
             return None
 
         c = conn.cursor()
-        c.execute('SELECT id, name, path, favorite, created_at FROM publishers WHERE id = ?', (publisher_id,))
+        c.execute('SELECT id, name, path, favorite, logo, created_at FROM publishers WHERE id = ?', (publisher_id,))
         row = c.fetchone()
         conn.close()
 
@@ -2934,6 +2941,107 @@ def get_publisher(publisher_id):
     except Exception as e:
         app_logger.error(f"Failed to get publisher {publisher_id}: {e}")
         return None
+
+
+def get_all_publishers():
+    """
+    Get all publishers from the database.
+
+    Returns:
+        List of dicts with publisher info, or empty list on error
+    """
+    try:
+        conn = get_db_connection()
+        if not conn:
+            return []
+
+        c = conn.cursor()
+        c.execute('''
+            SELECT id, name, path, favorite, logo, created_at
+            FROM publishers
+            ORDER BY name
+        ''')
+        rows = c.fetchall()
+        conn.close()
+
+        return [dict(row) for row in rows]
+
+    except Exception as e:
+        app_logger.error(f"Failed to get all publishers: {e}")
+        return []
+
+
+def delete_publisher(publisher_id):
+    """
+    Delete a publisher from the database.
+
+    Args:
+        publisher_id: Publisher ID to delete
+
+    Returns:
+        True if successful, False otherwise
+    """
+    conn = None
+    try:
+        conn = get_db_connection()
+        if not conn:
+            return False
+
+        c = conn.cursor()
+        c.execute('DELETE FROM publishers WHERE id = ?', (publisher_id,))
+        conn.commit()
+
+        if c.rowcount > 0:
+            app_logger.info(f"Deleted publisher ID: {publisher_id}")
+            return True
+        else:
+            app_logger.warning(f"Publisher ID {publisher_id} not found")
+            return False
+
+    except Exception as e:
+        app_logger.error(f"Failed to delete publisher {publisher_id}: {e}")
+        return False
+
+    finally:
+        if conn:
+            conn.close()
+
+
+def update_publisher_logo(publisher_id, logo_path):
+    """
+    Update the logo path for a publisher.
+
+    Args:
+        publisher_id: Publisher ID to update
+        logo_path: Path to the logo image
+
+    Returns:
+        True if successful, False otherwise
+    """
+    conn = None
+    try:
+        conn = get_db_connection()
+        if not conn:
+            return False
+
+        c = conn.cursor()
+        c.execute('UPDATE publishers SET logo = ? WHERE id = ?', (logo_path, publisher_id))
+        conn.commit()
+
+        if c.rowcount > 0:
+            app_logger.info(f"Updated logo for publisher ID: {publisher_id}")
+            return True
+        else:
+            app_logger.warning(f"Publisher ID {publisher_id} not found")
+            return False
+
+    except Exception as e:
+        app_logger.error(f"Failed to update publisher logo {publisher_id}: {e}")
+        return False
+
+    finally:
+        if conn:
+            conn.close()
 
 
 # =============================================================================
@@ -2967,6 +3075,11 @@ def save_series_mapping(series_data, mapped_path):
         if isinstance(status, dict):
             status = status.get('name', str(status))
 
+        # Handle imprint - can be string or object
+        imprint = series_data.get('imprint')
+        if isinstance(imprint, dict):
+            imprint = imprint.get('name', str(imprint))
+
         c.execute('''
             INSERT OR REPLACE INTO series
             (id, name, sort_name, volume, status, publisher_id, imprint,
@@ -2982,7 +3095,7 @@ def save_series_mapping(series_data, mapped_path):
             series_data.get('volume'),
             status,
             publisher_id,
-            series_data.get('imprint'),
+            imprint,
             series_data.get('year_began'),  # stored as volume_year
             series_data.get('year_end'),
             series_data.get('desc'),
@@ -3091,6 +3204,60 @@ def get_all_mapped_series():
     except Exception as e:
         app_logger.error(f"Failed to get mapped series: {e}")
         return []
+
+
+def normalize_series_name(name):
+    """
+    Normalize a series name for matching purposes.
+    Handles variations like "Spider-Man" vs "Spiderman", "The Avengers" vs "Avengers".
+    """
+    import re
+    if not name:
+        return ""
+    # Lowercase
+    name = name.lower()
+    # Remove leading articles
+    name = re.sub(r'^(the|a|an)\s+', '', name)
+    # Remove punctuation and special characters (keep alphanumerics and spaces)
+    name = re.sub(r'[^a-z0-9\s]', '', name)
+    # Collapse whitespace
+    name = re.sub(r'\s+', ' ', name).strip()
+    return name
+
+
+def get_tracked_series_lookup():
+    """
+    Get a lookup set of tracked series by (normalized_name, volume).
+    Used for matching releases to tracked series without needing series ID.
+
+    Returns:
+        Set of (normalized_name, volume) tuples
+    """
+    try:
+        conn = get_db_connection()
+        if not conn:
+            return set()
+
+        c = conn.cursor()
+        c.execute('''
+            SELECT name, volume
+            FROM series
+            WHERE mapped_path IS NOT NULL
+        ''')
+        rows = c.fetchall()
+        conn.close()
+
+        lookup = set()
+        for row in rows:
+            normalized = normalize_series_name(row['name'])
+            volume = row['volume'] or 0
+            lookup.add((normalized, volume))
+
+        return lookup
+
+    except Exception as e:
+        app_logger.error(f"Failed to get tracked series lookup: {e}")
+        return set()
 
 
 def remove_series_mapping(series_id):

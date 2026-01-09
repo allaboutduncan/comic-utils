@@ -47,10 +47,16 @@
     <div class="releases-grid">
         {% for issue in releases %}
         {% set series_slug = generate_series_slug(issue.series.name, issue.id, issue.series.volume) %}
+        {% set is_tracked = (normalize_name(issue.series.name), issue.series.volume or 0) in tracked_lookup %}
         <a href="{% if series_slug %}{{ url_for('series_view', slug=series_slug) }}{% else %}{{ issue.resource_url }}{% endif %}"
-            {% if not series_slug %}target="_blank" {% endif %} class="release-card stagger-load">
+            {% if not series_slug %}target="_blank" {% endif %} class="release-card stagger-load{% if is_tracked %} tracked{% endif %}">
             <!-- Cover Image -->
             <div class="release-cover">
+                {% if is_tracked %}
+                <div class="tracked-badge" title="Tracked Series">
+                    <i class="bi bi-bookmark-check-fill"></i>
+                </div>
+                {% endif %}
                 {% if issue.image %}
                 <img src="{{ issue.image }}" alt="{{ issue.series.name }}">
                 {% else %}
@@ -123,6 +129,32 @@
         transform: translateY(-8px);
         box-shadow: 0 12px 30px rgba(0, 0, 0, 0.2);
         color: inherit;
+    }
+
+    .release-card.tracked {
+        border: 2px solid var(--bs-success);
+        box-shadow: 0 4px 15px rgba(25, 135, 84, 0.2);
+    }
+
+    .release-card.tracked:hover {
+        box-shadow: 0 12px 30px rgba(25, 135, 84, 0.3);
+    }
+
+    .tracked-badge {
+        position: absolute;
+        top: 0.5rem;
+        right: 0.5rem;
+        background: var(--bs-success);
+        color: white;
+        width: 28px;
+        height: 28px;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 5;
+        font-size: 0.9rem;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
     }
 
     .release-cover {
