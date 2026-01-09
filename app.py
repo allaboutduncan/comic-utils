@@ -314,6 +314,7 @@ def get_series_name_from_files(mapped_path, db_series_name):
     files are named "Ultimates 001.cbz".
     """
     if not mapped_path or not os.path.exists(mapped_path):
+        app_logger.debug(f"get_series_name_from_files: path doesn't exist: {mapped_path}")
         return db_series_name
 
     comic_extensions = ('.cbz', '.cbr', '.zip', '.rar')
@@ -324,6 +325,7 @@ def get_series_name_from_files(mapped_path, db_series_name):
         return db_series_name
 
     if not files:
+        app_logger.debug(f"get_series_name_from_files: no files in {mapped_path}, using DB name: {db_series_name}")
         return db_series_name
 
     # Try to extract series name from first file
@@ -337,7 +339,10 @@ def get_series_name_from_files(mapped_path, db_series_name):
     name = re.sub(r'\s+\d+\s*$', '', name)
 
     if name:
-        return name.strip()
+        extracted = name.strip()
+        if extracted != db_series_name:
+            app_logger.info(f"get_series_name_from_files: extracted '{extracted}' from '{first_file}' (DB: '{db_series_name}')")
+        return extracted
 
     return db_series_name
 
@@ -346,22 +351,80 @@ def process_incoming_wanted_issues():
     """
     Scan TARGET folder for wanted issues and move to series folders.
     Uses CUSTOM_RENAME_PATTERN for matching (excluding year) and renaming.
+    Only processes MISSING issues (not already in collection) with store_date <= today.
     """
-    from database import get_wanted_issues
+    from database import get_all_mapped_series, get_issues_for_series
     from rename import load_custom_rename_config
+    from datetime import date
 
     target_folder = app.config.get('TARGET', '/downloads/processed')
     if not os.path.exists(target_folder):
         app_logger.debug(f"TARGET folder does not exist: {target_folder}")
         return
 
-    # Get wanted issues with series info
-    wanted = get_wanted_issues()
+    today = date.today().isoformat()
+
+    # Build list of truly MISSING issues (not in collection, store_date <= today)
+    wanted = []
+    mapped_series = get_all_mapped_series()
+
+    for series in mapped_series:
+        series_id = series['id']
+        mapped_path = series.get('mapped_path')
+
+        if not mapped_path or not os.path.exists(mapped_path):
+            continue
+
+        # Get cached issues for this series
+        issues = get_issues_for_series(series_id)
+        if not issues:
+            continue
+
+        # Convert issues to objects for matching function
+        class IssueObj:
+            def __init__(self, data):
+                self.number = data.get('number')
+                self.id = data.get('id')
+                self.name = data.get('name')
+                self.store_date = data.get('store_date')
+                self.cover_date = data.get('cover_date')
+
+        class SeriesObj:
+            def __init__(self, data):
+                self.name = data.get('name')
+                self.volume = data.get('volume')
+                self.id = data.get('id')
+
+        issue_objs = [IssueObj(i) for i in issues]
+        series_obj = SeriesObj(series)
+
+        # Check which issues are in collection
+        issue_status = match_issues_to_collection(mapped_path, issue_objs, series_obj)
+
+        # Find missing issues with store_date <= today
+        for issue in issues:
+            issue_num = str(issue.get('number', ''))
+            status = issue_status.get(issue_num, {})
+            store_date = issue.get('store_date')
+
+            # Only include if: not found AND (store_date <= today OR no store_date)
+            if not status.get('found'):
+                if not store_date or store_date <= today:
+                    wanted.append({
+                        'number': issue.get('number'),
+                        'series_name': series.get('name'),
+                        'series_volume': series.get('volume'),
+                        'mapped_path': mapped_path,
+                        'store_date': store_date,
+                    })
+
     if not wanted:
-        app_logger.debug("No wanted issues found")
+        app_logger.info("No missing issues found")
         return
 
-    app_logger.debug(f"Found {len(wanted)} wanted issues to check")
+    app_logger.info(f"=== Checking {len(wanted)} MISSING issues against TARGET folder ===")
+    for w in wanted[:10]:  # Log first 10 missing issues
+        app_logger.info(f"  MISSING: '{w['series_name']}' #{w['number']} (store: {w['store_date']}, mapped: {w['mapped_path']})")
 
     # Load rename pattern
     enabled, pattern = load_custom_rename_config()
@@ -382,9 +445,9 @@ def process_incoming_wanted_issues():
     try:
         files = [f for f in os.listdir(target_folder)
                  if f.lower().endswith(comic_extensions)]
-        app_logger.debug(f"Found {len(files)} comic files in TARGET folder")
+        app_logger.info(f"Found {len(files)} comic files in TARGET folder:")
         for f in files:
-            app_logger.debug(f"  - {f}")
+            app_logger.info(f"  FILE: {f}")
     except Exception as e:
         app_logger.error(f"Failed to scan TARGET folder: {e}")
         return
@@ -411,13 +474,15 @@ def process_incoming_wanted_issues():
             issue_number
         )
         if not regex:
-            app_logger.debug(f"Failed to generate pattern for: {actual_series_name} #{issue_number}")
+            app_logger.info(f"Failed to generate pattern for: {actual_series_name} #{issue_number}")
             continue
 
-        app_logger.debug(f"Looking for: {actual_series_name} #{issue_number} | Pattern: {regex.pattern}")
+        app_logger.info(f"Checking: '{actual_series_name}' #{issue_number} | regex: {regex.pattern}")
 
         for filename in files[:]:  # Copy list to allow removal
-            if regex.match(filename):
+            match_result = regex.match(filename)
+            app_logger.debug(f"  Testing '{filename}' -> {'MATCH' if match_result else 'no match'}")
+            if match_result:
                 app_logger.info(f"✓ Match found: '{filename}' matches '{actual_series_name} #{issue_number}'")
 
                 # Found a match - move first, then rename
@@ -458,7 +523,7 @@ def process_incoming_wanted_issues():
     if moved_count > 0:
         app_logger.info(f"✅ Processed {moved_count} wanted issue(s) from TARGET folder")
     else:
-        app_logger.debug("No wanted issues matched files in TARGET folder")
+        app_logger.info("No wanted issues matched files in TARGET folder")
 
 
 # Function to configure scheduled sync based on database settings
@@ -1112,10 +1177,18 @@ def generate_filename_pattern(custom_pattern, series_name, issue_number):
         # Now escape any remaining literal parentheses
         pattern = pattern.replace('(', r'\(').replace(')', r'\)')
 
+        # Handle "The " prefix - make it optional for matching
+        # DB might have "The Ultimates" but files might be "Ultimates"
+        working_name = series_name
+        the_prefix = ''
+        if series_name.lower().startswith('the '):
+            the_prefix = r'(?:The[\s\-_]+)?'
+            working_name = series_name[4:]  # Remove "The " from name
+
         # Escape series name for regex but allow flexible whitespace
-        series_escaped = re.escape(series_name)
+        series_escaped = re.escape(working_name)
         # Allow flexible whitespace matching (spaces, underscores, dashes)
-        series_pattern = series_escaped.replace(r'\ ', r'[\s\-_]+')
+        series_pattern = the_prefix + series_escaped.replace(r'\ ', r'[\s\-_]+')
 
         # Normalize issue number - handle leading zeros (1, 01, 001 all match)
         issue_num_clean = str(issue_number).strip().lstrip('0') or '0'
@@ -1636,6 +1709,37 @@ def delete_series_mapping_route(series_id):
         return jsonify({'success': True})
     else:
         return jsonify({'error': 'Failed to remove mapping'}), 500
+
+
+@app.route('/api/series/<int:series_id>/subscribe', methods=['POST'])
+def subscribe_series(series_id):
+    """Create folder and map series."""
+    from database import get_series_by_id, save_series_mapping
+
+    data = request.get_json() or {}
+    path = data.get('path', '').strip()
+
+    if not path:
+        return jsonify({'success': False, 'error': 'Path required'}), 400
+
+    try:
+        # Get series info
+        series = get_series_by_id(series_id)
+        if not series:
+            return jsonify({'success': False, 'error': 'Series not found'}), 404
+
+        # Create folder if it doesn't exist
+        os.makedirs(path, exist_ok=True)
+        app_logger.info(f"Created folder for subscription: {path}")
+
+        # Save the mapping
+        save_series_mapping(series, path)
+        app_logger.info(f"Subscribed series {series_id} to {path}")
+
+        return jsonify({'success': True, 'path': path})
+    except Exception as e:
+        app_logger.error(f"Error subscribing series {series_id}: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 
 @app.route('/api/series/<int:series_id>/check-collection', methods=['GET'])

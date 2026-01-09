@@ -59,69 +59,6 @@
     </div>
     {% else %}
 
-    <!-- Upcoming Releases Section -->
-    {% if upcoming %}
-    <div class="card border-0 shadow-sm mb-4">
-        <div class="card-header bg-info bg-opacity-10 d-flex justify-content-between align-items-center">
-            <h5 class="mb-0">
-                <i class="bi bi-calendar-plus me-2 text-info"></i>Upcoming Releases
-                <span class="badge bg-info ms-2">{{ upcoming|length }}</span>
-            </h5>
-            <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="collapse"
-                data-bs-target="#upcomingCollapse" aria-expanded="true">
-                <i class="bi bi-chevron-down"></i>
-            </button>
-        </div>
-        <div class="collapse show" id="upcomingCollapse">
-            <div class="card-body p-0">
-                <div class="table-responsive">
-                    <table class="table table-hover align-middle mb-0">
-                        <thead class="table-light">
-                            <tr>
-                                <th scope="col" class="ps-4">Series</th>
-                                <th scope="col">Issue</th>
-                                <th scope="col">Store Date</th>
-                                <th scope="col" class="text-end pe-4">Action</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {% for item in upcoming %}
-                            <tr>
-                                <td class="ps-4">
-                                    <a href="{{ url_for('series_view', slug=generate_series_slug(item.series_name, item.series_id, item.series_volume)) }}"
-                                       class="text-decoration-none fw-bold">
-                                        {{ item.series_name }}
-                                        {% if item.series_volume %}
-                                        <span class="text-muted fw-normal">Vol. {{ item.series_volume }}</span>
-                                        {% endif %}
-                                    </a>
-                                </td>
-                                <td>
-                                    <span class="badge bg-info">#{{ item.issue.number }}</span>
-                                    {% if item.issue.name %}
-                                    <span class="text-muted ms-1">{{ item.issue.name }}</span>
-                                    {% endif %}
-                                </td>
-                                <td>
-                                    <i class="bi bi-calendar-event me-1 text-muted"></i>
-                                    {{ item.issue.store_date }}
-                                </td>
-                                <td class="text-end pe-4">
-                                    <a href="https://metron.cloud/issue/{{ item.issue.id }}/" target="_blank"
-                                       class="btn btn-sm btn-outline-secondary" title="View on Metron">
-                                        <i class="bi bi-box-arrow-up-right"></i>
-                                    </a>
-                                </td>
-                            </tr>
-                            {% endfor %}
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-        </div>
-    </div>
-    {% endif %}
-
     <!-- Missing Issues Section -->
     {% if missing %}
     <div class="card border-0 shadow-sm mb-4">
@@ -152,7 +89,7 @@
                             <tr>
                                 <td class="ps-4">
                                     <a href="{{ url_for('series_view', slug=generate_series_slug(item.series_name, item.series_id, item.series_volume)) }}"
-                                       class="text-decoration-none fw-bold">
+                                        class="text-decoration-none fw-bold">
                                         {{ item.series_name }}
                                         {% if item.series_volume %}
                                         <span class="text-muted fw-normal">Vol. {{ item.series_volume }}</span>
@@ -175,12 +112,75 @@
                                 </td>
                                 <td class="text-end pe-4">
                                     <button class="btn btn-sm btn-outline-primary me-1"
-                                            onclick="searchGetComics('{{ item.series_name|e }}', '{{ item.issue.number }}')"
-                                            title="Search GetComics">
+                                        onclick="searchGetComics('{{ item.series_name|e }}', '{{ item.issue.number }}')"
+                                        title="Search GetComics">
                                         <i class="bi bi-search"></i>
                                     </button>
                                     <a href="https://metron.cloud/issue/{{ item.issue.id }}/" target="_blank"
-                                       class="btn btn-sm btn-outline-secondary" title="View on Metron">
+                                        class="btn btn-sm btn-outline-secondary" title="View on Metron">
+                                        <i class="bi bi-box-arrow-up-right"></i>
+                                    </a>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- Upcoming Releases Section -->
+    {% if upcoming %}
+    <div class="card border-0 shadow-sm mb-4">
+        <div class="card-header bg-info bg-opacity-10 d-flex justify-content-between align-items-center">
+            <h5 class="mb-0">
+                <i class="bi bi-calendar-plus me-2 text-info"></i>Upcoming Releases
+                <span class="badge bg-info ms-2">{{ upcoming|length }}</span>
+            </h5>
+            <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="collapse"
+                data-bs-target="#upcomingCollapse" aria-expanded="true">
+                <i class="bi bi-chevron-down"></i>
+            </button>
+        </div>
+        <div class="collapse show" id="upcomingCollapse">
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-hover align-middle mb-0">
+                        <thead class="table-light">
+                            <tr>
+                                <th scope="col" class="ps-4">Series</th>
+                                <th scope="col">Issue</th>
+                                <th scope="col">Store Date</th>
+                                <th scope="col" class="text-end pe-4">Action</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for item in upcoming %}
+                            <tr>
+                                <td class="ps-4">
+                                    <a href="{{ url_for('series_view', slug=generate_series_slug(item.series_name, item.series_id, item.series_volume)) }}"
+                                        class="text-decoration-none fw-bold">
+                                        {{ item.series_name }}
+                                        {% if item.series_volume %}
+                                        <span class="text-muted fw-normal">Vol. {{ item.series_volume }}</span>
+                                        {% endif %}
+                                    </a>
+                                </td>
+                                <td>
+                                    <span class="badge bg-info">#{{ item.issue.number }}</span>
+                                    {% if item.issue.name %}
+                                    <span class="text-muted ms-1">{{ item.issue.name }}</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    <i class="bi bi-calendar-event me-1 text-muted"></i>
+                                    {{ item.issue.store_date }}
+                                </td>
+                                <td class="text-end pe-4">
+                                    <a href="https://metron.cloud/issue/{{ item.issue.id }}/" target="_blank"
+                                        class="btn btn-sm btn-outline-secondary" title="View on Metron">
                                         <i class="bi bi-box-arrow-up-right"></i>
                                     </a>
                                 </td>
@@ -210,8 +210,8 @@
             <div class="modal-body">
                 <div class="mb-3">
                     <div class="input-group">
-                        <input type="text" class="form-control" id="getcomicsQuery"
-                               placeholder="Search query..." onkeypress="if(event.key==='Enter')doGetComicsSearch()">
+                        <input type="text" class="form-control" id="getcomicsQuery" placeholder="Search query..."
+                            onkeypress="if(event.key==='Enter')doGetComicsSearch()">
                         <button class="btn btn-primary" onclick="doGetComicsSearch()">
                             <i class="bi bi-search"></i>
                         </button>
@@ -229,58 +229,58 @@
 </div>
 
 <script>
-let currentSearchSeries = '';
-let currentSearchIssue = '';
-let getcomicsModal = null;
+    let currentSearchSeries = '';
+    let currentSearchIssue = '';
+    let getcomicsModal = null;
 
-document.addEventListener('DOMContentLoaded', function() {
-    getcomicsModal = new bootstrap.Modal(document.getElementById('getcomicsModal'));
-});
+    document.addEventListener('DOMContentLoaded', function () {
+        getcomicsModal = new bootstrap.Modal(document.getElementById('getcomicsModal'));
+    });
 
-function searchGetComics(seriesName, issueNumber) {
-    currentSearchSeries = seriesName;
-    currentSearchIssue = issueNumber;
+    function searchGetComics(seriesName, issueNumber) {
+        currentSearchSeries = seriesName;
+        currentSearchIssue = issueNumber;
 
-    const query = `${seriesName} ${issueNumber}`;
-    document.getElementById('getcomicsQuery').value = query;
+        const query = `${seriesName} ${issueNumber}`;
+        document.getElementById('getcomicsQuery').value = query;
 
-    getcomicsModal.show();
-    doGetComicsSearch();
-}
+        getcomicsModal.show();
+        doGetComicsSearch();
+    }
 
-async function doGetComicsSearch() {
-    const query = document.getElementById('getcomicsQuery').value.trim();
-    if (!query) return;
+    async function doGetComicsSearch() {
+        const query = document.getElementById('getcomicsQuery').value.trim();
+        if (!query) return;
 
-    const resultsDiv = document.getElementById('getcomicsResults');
-    resultsDiv.innerHTML = `
+        const resultsDiv = document.getElementById('getcomicsResults');
+        resultsDiv.innerHTML = `
         <div class="text-center py-4">
             <div class="spinner-border text-primary"></div>
             <p class="mt-2">Searching GetComics...</p>
         </div>`;
 
-    try {
-        const resp = await fetch(`/api/getcomics/search?q=${encodeURIComponent(query)}`);
-        const data = await resp.json();
+        try {
+            const resp = await fetch(`/api/getcomics/search?q=${encodeURIComponent(query)}`);
+            const data = await resp.json();
 
-        if (!data.success) {
-            resultsDiv.innerHTML = `<div class="alert alert-danger">${escapeHtml(data.error)}</div>`;
-            return;
-        }
+            if (!data.success) {
+                resultsDiv.innerHTML = `<div class="alert alert-danger">${escapeHtml(data.error)}</div>`;
+                return;
+            }
 
-        if (data.results.length === 0) {
-            resultsDiv.innerHTML = `
+            if (data.results.length === 0) {
+                resultsDiv.innerHTML = `
                 <div class="text-center text-muted py-4">
                     <i class="bi bi-emoji-frown display-4 opacity-25"></i>
                     <p class="mt-2">No results found</p>
                 </div>`;
-            return;
-        }
+                return;
+            }
 
-        // Sort results - expected match at top
-        const sorted = sortResults(data.results, currentSearchSeries, currentSearchIssue);
+            // Sort results - expected match at top
+            const sorted = sortResults(data.results, currentSearchSeries, currentSearchIssue);
 
-        resultsDiv.innerHTML = sorted.map((r, idx) => `
+            resultsDiv.innerHTML = sorted.map((r, idx) => `
             <div class="card mb-2 ${idx === 0 && r.score > 5 ? 'border-success' : ''}">
                 <div class="card-body d-flex align-items-center gap-3 py-2">
                     ${r.image ? `<img src="${escapeHtml(r.image)}" style="width:50px;height:75px;object-fit:cover;" class="rounded" onerror="this.style.display='none'">` : '<div style="width:50px"></div>'}
@@ -288,103 +288,103 @@ async function doGetComicsSearch() {
                         <div class="fw-bold text-truncate" title="${escapeHtml(r.title)}">${escapeHtml(r.title)}</div>
                         <small class="text-muted text-truncate d-block">${escapeHtml(r.link)}</small>
                     </div>
-                    <button class="btn btn-sm btn-primary flex-shrink-0" onclick="downloadFromGetComics('${escapeHtml(r.link)}', '${escapeJs(r.title)}')" title="Download">
+                    <button class="btn btn-sm btn-primary flex-shrink-0" onclick="downloadFromGetComics(this, '${escapeHtml(r.link)}', '${escapeJs(r.title)}')" title="Download">
                         <i class="bi bi-download"></i>
                     </button>
                 </div>
             </div>
         `).join('');
 
-    } catch (e) {
-        resultsDiv.innerHTML = `<div class="alert alert-danger">Error: ${escapeHtml(e.message)}</div>`;
-    }
-}
-
-function sortResults(results, seriesName, issueNumber) {
-    // Score results based on match quality
-    return results.map(r => {
-        let score = 0;
-        const title = r.title.toLowerCase();
-        const series = seriesName.toLowerCase();
-
-        if (title.includes(series)) score += 10;
-        if (title.includes(`#${issueNumber}`) || title.includes(` ${issueNumber} `) || title.endsWith(` ${issueNumber}`)) score += 5;
-
-        return {...r, score};
-    }).sort((a, b) => b.score - a.score);
-}
-
-async function downloadFromGetComics(pageUrl, title) {
-    const filename = title.replace(/[^a-zA-Z0-9\s\-#]/g, '').trim() + '.cbz';
-
-    // Show loading state on the button
-    event.target.disabled = true;
-    event.target.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
-
-    try {
-        const resp = await fetch('/api/getcomics/download', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({url: pageUrl, filename: filename})
-        });
-        const data = await resp.json();
-
-        if (data.success) {
-            event.target.innerHTML = '<i class="bi bi-check"></i>';
-            event.target.classList.remove('btn-primary');
-            event.target.classList.add('btn-success');
-            showToast('Download queued successfully!', 'success');
-
-            // Close modal after short delay
-            setTimeout(() => {
-                getcomicsModal.hide();
-            }, 500);
-        } else {
-            event.target.disabled = false;
-            event.target.innerHTML = '<i class="bi bi-download"></i>';
-            showToast('Error: ' + data.error, 'danger');
+        } catch (e) {
+            resultsDiv.innerHTML = `<div class="alert alert-danger">Error: ${escapeHtml(e.message)}</div>`;
         }
-    } catch (e) {
-        event.target.disabled = false;
-        event.target.innerHTML = '<i class="bi bi-download"></i>';
-        showToast('Error: ' + e.message, 'danger');
-    }
-}
-
-function escapeHtml(text) {
-    const div = document.createElement('div');
-    div.textContent = text;
-    return div.innerHTML;
-}
-
-function escapeJs(str) {
-    return str.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/"/g, '\\"');
-}
-
-function showToast(message, type) {
-    // Create toast container if it doesn't exist
-    let container = document.querySelector('.toast-container');
-    if (!container) {
-        container = document.createElement('div');
-        container.className = 'toast-container position-fixed bottom-0 end-0 p-3';
-        document.body.appendChild(container);
     }
 
-    const toastId = 'toast-' + Date.now();
-    const toastHtml = `
+    function sortResults(results, seriesName, issueNumber) {
+        // Score results based on match quality
+        return results.map(r => {
+            let score = 0;
+            const title = r.title.toLowerCase();
+            const series = seriesName.toLowerCase();
+
+            if (title.includes(series)) score += 10;
+            if (title.includes(`#${issueNumber}`) || title.includes(` ${issueNumber} `) || title.endsWith(` ${issueNumber}`)) score += 5;
+
+            return { ...r, score };
+        }).sort((a, b) => b.score - a.score);
+    }
+
+    async function downloadFromGetComics(btn, pageUrl, title) {
+        const filename = title.replace(/[^a-zA-Z0-9\s\-#]/g, '').trim() + '.cbz';
+
+        // Show loading state on the button
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
+
+        try {
+            const resp = await fetch('/api/getcomics/download', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ url: pageUrl, filename: filename })
+            });
+            const data = await resp.json();
+
+            if (data.success) {
+                btn.innerHTML = '<i class="bi bi-check"></i>';
+                btn.classList.remove('btn-primary');
+                btn.classList.add('btn-success');
+                showToast('Download queued successfully!', 'success');
+
+                // Close modal after short delay
+                setTimeout(() => {
+                    getcomicsModal.hide();
+                }, 500);
+            } else {
+                btn.disabled = false;
+                btn.innerHTML = '<i class="bi bi-download"></i>';
+                showToast('Error: ' + data.error, 'danger');
+            }
+        } catch (e) {
+            btn.disabled = false;
+            btn.innerHTML = '<i class="bi bi-download"></i>';
+            showToast('Error: ' + e.message, 'danger');
+        }
+    }
+
+    function escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+
+    function escapeJs(str) {
+        return str.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/"/g, '\\"');
+    }
+
+    function showToast(message, type) {
+        // Create toast container if it doesn't exist
+        let container = document.querySelector('.toast-container');
+        if (!container) {
+            container = document.createElement('div');
+            container.className = 'toast-container position-fixed bottom-0 end-0 p-3';
+            document.body.appendChild(container);
+        }
+
+        const toastId = 'toast-' + Date.now();
+        const toastHtml = `
         <div id="${toastId}" class="toast align-items-center text-bg-${type} border-0" role="alert">
             <div class="d-flex">
                 <div class="toast-body">${escapeHtml(message)}</div>
                 <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button>
             </div>
         </div>`;
-    container.insertAdjacentHTML('beforeend', toastHtml);
+        container.insertAdjacentHTML('beforeend', toastHtml);
 
-    const toastEl = document.getElementById(toastId);
-    const toast = new bootstrap.Toast(toastEl, {autohide: true, delay: 3000});
-    toast.show();
+        const toastEl = document.getElementById(toastId);
+        const toast = new bootstrap.Toast(toastEl, { autohide: true, delay: 3000 });
+        toast.show();
 
-    toastEl.addEventListener('hidden.bs.toast', () => toastEl.remove());
-}
+        toastEl.addEventListener('hidden.bs.toast', () => toastEl.remove());
+    }
 </script>
 {% endblock %}

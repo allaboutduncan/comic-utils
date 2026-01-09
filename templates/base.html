@@ -219,13 +219,13 @@
     // ✅ Run only after the DOM is ready
     document.addEventListener('DOMContentLoaded', () => {
       updateFileWatchBadge();
-      setInterval(updateFileWatchBadge, 30000);
+      setInterval(updateFileWatchBadge, 15000);
 
       updateDownloadBadge();
       setInterval(updateDownloadBadge, 15000);
 
       updateScrapeBadge();
-      setInterval(updateScrapeBadge, 5000);  // Update every 5 seconds for more responsive progress
+      setInterval(updateScrapeBadge, 30000);  // Update every 5 seconds for more responsive progress
 
       checkForUpdates();
       setInterval(checkForUpdates, 3600000);  // Check every hour

@@ -141,6 +141,36 @@ def process_download(task):
 
         download_progress[download_id]['filename'] = file_path
         download_progress[download_id]['status']   = 'complete'
+
+        # Wait for WATCH folder to be empty, then check wanted issues
+        def check_wanted_after_watch_empty():
+            try:
+                watch_dir = config.get("SETTINGS", "WATCH", fallback="/temp")
+                ignored_exts = config.get("SETTINGS", "IGNORED_EXTENSIONS", fallback=".crdownload")
+                ignored = set(ext.strip().lower() for ext in ignored_exts.split(",") if ext.strip())
+
+                # Poll for up to 5 minutes (30 checks * 10 seconds)
+                for _ in range(30):
+                    time.sleep(10)
+                    total = 0
+                    for root, _, files in os.walk(watch_dir):
+                        for f in files:
+                            if f.startswith('.') or f.startswith('_'):
+                                continue
+                            if any(f.lower().endswith(ext) for ext in ignored):
+                                continue
+                            total += 1
+                    if total == 0:
+                        monitor_logger.info("WATCH folder empty, checking wanted issues")
+                        from app import process_incoming_wanted_issues
+                        process_incoming_wanted_issues()
+                        return
+                monitor_logger.warning("Timeout waiting for WATCH folder to empty")
+            except Exception as e:
+                monitor_logger.error(f"Error checking wanted issues: {e}")
+
+        # Run in background thread to not block
+        threading.Thread(target=check_wanted_after_watch_empty, daemon=True).start()
     except Exception as e:
         monitor_logger.error(f"Error during background download: {e}")
         download_progress[download_id]['status']   = 'error'
