@@ -412,6 +412,7 @@ def process_incoming_wanted_issues():
                 if not store_date or store_date <= today:
                     wanted.append({
                         'number': issue.get('number'),
+                        'series_id': series_id,
                         'series_name': series.get('name'),
                         'series_volume': series.get('volume'),
                         'mapped_path': mapped_path,
@@ -456,6 +457,7 @@ def process_incoming_wanted_issues():
         return
 
     moved_count = 0
+    affected_series = set()  # Track series that had files moved
     for issue in wanted:
         db_series_name = issue['series_name']
         issue_number = issue['number']
@@ -501,6 +503,7 @@ def process_incoming_wanted_issues():
                     app_logger.info(f"Moved: {filename} -> {dest_dir}")
                     files.remove(filename)
                     moved_count += 1
+                    affected_series.add(issue['series_id'])
 
                     # Now rename using get_renamed_filename
                     from rename import get_renamed_filename
@@ -522,6 +525,13 @@ def process_incoming_wanted_issues():
 
     if moved_count > 0:
         app_logger.info(f"✅ Processed {moved_count} wanted issue(s) from TARGET folder")
+
+        # Invalidate collection status cache for affected series
+        # This ensures the wanted list is updated to remove matched issues
+        from database import invalidate_collection_status_for_series
+        for series_id in affected_series:
+            invalidate_collection_status_for_series(series_id)
+            app_logger.info(f"Invalidated collection cache for series {series_id}")
     else:
         app_logger.info("No wanted issues matched files in TARGET folder")
 
@@ -1185,10 +1195,14 @@ def generate_filename_pattern(custom_pattern, series_name, issue_number):
             the_prefix = r'(?:The[\s\-_]+)?'
             working_name = series_name[4:]  # Remove "The " from name
 
-        # Escape series name for regex but allow flexible whitespace
-        series_escaped = re.escape(working_name)
-        # Allow flexible whitespace matching (spaces, underscores, dashes)
-        series_pattern = the_prefix + series_escaped.replace(r'\ ', r'[\s\-_]+')
+        # Normalize punctuation - replace :, -, etc. with space for consistent handling
+        # This allows "Nemesis: Forever", "Nemesis - Forever", "Nemesis Forever" to all match
+        normalized_name = re.sub(r'[\s\-_:;,\.]+', ' ', working_name).strip()
+
+        # Escape series name for regex
+        series_escaped = re.escape(normalized_name)
+        # Allow flexible punctuation/whitespace matching (spaces, underscores, dashes, colons, or nothing)
+        series_pattern = the_prefix + series_escaped.replace(r'\ ', r'[\s\-_:]*')
 
         # Normalize issue number - handle leading zeros (1, 01, 001 all match)
         issue_num_clean = str(issue_number).strip().lstrip('0') or '0'
@@ -1713,7 +1727,7 @@ def delete_series_mapping_route(series_id):
 
 @app.route('/api/series/<int:series_id>/subscribe', methods=['POST'])
 def subscribe_series(series_id):
-    """Create folder and map series."""
+    """Create folder, map series, and create cvinfo file."""
     from database import get_series_by_id, save_series_mapping
 
     data = request.get_json() or {}
@@ -1735,6 +1749,16 @@ def subscribe_series(series_id):
         # Save the mapping
         save_series_mapping(series, path)
         app_logger.info(f"Subscribed series {series_id} to {path}")
+
+        # Create cvinfo file with ComicVine URL and Metron ID
+        cv_id = series.get('cv_id')
+        metron_id = series.get('id') or series_id
+        if cv_id:
+            cvinfo_content = f"https://comicvine.gamespot.com/volume/4050-{cv_id}\n{metron_id}"
+            cvinfo_path = os.path.join(path, 'cvinfo')
+            with open(cvinfo_path, 'w', encoding='utf-8') as f:
+                f.write(cvinfo_content)
+            app_logger.info(f"Created cvinfo at {cvinfo_path}")
 
         return jsonify({'success': True, 'path': path})
     except Exception as e:

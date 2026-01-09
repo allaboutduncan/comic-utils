@@ -14,7 +14,7 @@
                 <div class="card-body">
                     <div class="row g-3">
                         <!-- Cover Image -->
-                        <div class="col-md-2">
+                        <div class="col-md-3">
                             {% if first_issue_image %}
                             <img src="{{ first_issue_image }}" alt="{{ series.name }}"
                                 class="img-fluid rounded shadow-sm" style="max-height: 250px; object-fit: cover;">
@@ -31,15 +31,41 @@
                             <p class="lead mb-4">{{ series.desc or 'No description available.' }}</p>
 
                             <div class="row g-3 text-muted">
-                                <div class="col-6 col-md-4">
+                                <div class="col-6 col-md-5">
                                     <small class="text-uppercase fw-bold d-block mb-1"
                                         style="font-size: 0.75rem;">Publisher</small>
                                     <span>{{ series.publisher.name if series.publisher else '-' }}</span>
                                 </div>
                                 <div class="col-6 col-md-4">
                                     <small class="text-uppercase fw-bold d-block mb-1"
+                                        style="font-size: 0.75rem;">Status</small>
+                                    <span>{{ series.status }}</span>
+                                </div>
+                                <div class="col-6 col-md-3">
+                                    <small class="text-uppercase fw-bold d-block mb-1" style="font-size: 0.75rem;">Issue
+                                        Count</small>
+                                    <span>{{ series.issue_count }}</span>
+                                </div>
+                                <div class="col-6 col-md-3">
+                                    <small class="text-uppercase fw-bold d-block mb-1"
+                                        style="font-size: 0.75rem;">Volume</small>
+                                    <span>{{ series.volume }}</span>
+                                </div>
+                                <div class="col-6 col-md-3">
+                                    <small class="text-uppercase fw-bold d-block mb-1" style="font-size: 0.75rem;">Year
+                                        Began</small>
+                                    <span>{{ series.year_began }}</span>
+                                </div>
+                                <div class="col-6 col-md-3">
+                                    <small class="text-uppercase fw-bold d-block mb-1" style="font-size: 0.75rem;">Year
+                                        Ended</small>
+                                    <span>{{ series.year_ended or series.year_end or 'Ongoing' }}</span>
+                                </div>
+                                <div class="col-6 col-md-4">
+                                    <small class="text-uppercase fw-bold d-block mb-1"
                                         style="font-size: 0.75rem;">Metron ID</small>
-                                    <span class="font-monospace">{{ series.id }}</span>
+                                    <a href="https://metron.cloud/series/{{ series.id }}/" target="_blank"
+                                        class="font-monospace text-decoration-none">{{ series.id }}</a>
                                 </div>
                                 <div class="col-6 col-md-4">
                                     <small class="text-uppercase fw-bold d-block mb-1"
@@ -62,41 +88,10 @@
                                     <span class="text-muted">-</span>
                                     {% endif %}
                                 </div>
-                                <div class="col-6 col-md-4">
-                                    <small class="text-uppercase fw-bold d-block mb-1"
-                                        style="font-size: 0.75rem;">Volume</small>
-                                    <span>{{ series.volume }}</span>
-                                </div>
-                                <div class="col-6 col-md-4">
-                                    <small class="text-uppercase fw-bold d-block mb-1"
-                                        style="font-size: 0.75rem;">Type</small>
-                                    <span>{{ series.series_type.name if series.series_type and series.series_type.name
-                                        is defined else series.series_type }}</span>
-                                </div>
-                                <div class="col-6 col-md-4">
-                                    <small class="text-uppercase fw-bold d-block mb-1"
-                                        style="font-size: 0.75rem;">Status</small>
-                                    <span>{{ series.status }}</span>
-                                </div>
-                                <div class="col-6 col-md-4">
-                                    <small class="text-uppercase fw-bold d-block mb-1" style="font-size: 0.75rem;">Issue
-                                        Count</small>
-                                    <span>{{ series.issue_count }}</span>
-                                </div>
-                                <div class="col-6 col-md-4">
-                                    <small class="text-uppercase fw-bold d-block mb-1" style="font-size: 0.75rem;">Year
-                                        Began</small>
-                                    <span>{{ series.year_began }}</span>
-                                </div>
-                                <div class="col-6 col-md-4">
-                                    <small class="text-uppercase fw-bold d-block mb-1" style="font-size: 0.75rem;">Year
-                                        Ended</small>
-                                    <span>{{ series.year_ended or series.year_end or 'Ongoing' }}</span>
-                                </div>
                             </div>
                         </div>
                         <!-- Actions -->
-                        <div class="col-md-3 d-flex flex-column align-items-md-end justify-content-start gap-2">
+                        <div class="col-md-2 d-flex flex-column align-items-md-end justify-content-start gap-2">
                             <a href="{{ url_for('releases') }}" class="btn btn-outline-secondary w-100">
                                 <i class="bi bi-arrow-left me-1"></i>Back to Releases
                             </a>
@@ -293,7 +288,11 @@
                                     </div>
                                 </div>
                                 {% else %}
-                                <span class="text-muted">-</span>
+                                <button class="btn btn-sm btn-outline-primary"
+                                    onclick="searchGetComics('{{ series.name|e }}', '{{ issue.number }}')"
+                                    title="Search GetComics">
+                                    <i class="bi bi-search"></i>
+                                </button>
                                 {% endif %}
                             </td>
                         </tr>
@@ -680,6 +679,37 @@
         </div>
     </div>
 </div>
+
+<!-- GetComics Search Modal -->
+<div class="modal fade" id="getcomicsModal" tabindex="-1">
+    <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title fw-bold">
+                    <i class="bi bi-search me-2"></i>Search GetComics
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="mb-3">
+                    <div class="input-group">
+                        <input type="text" class="form-control" id="getcomicsQuery" placeholder="Search query..."
+                            onkeypress="if(event.key==='Enter')doGetComicsSearch()">
+                        <button class="btn btn-primary" onclick="doGetComicsSearch()">
+                            <i class="bi bi-search"></i>
+                        </button>
+                    </div>
+                </div>
+                <div id="getcomicsResults">
+                    <div class="text-center text-muted py-4">
+                        <i class="bi bi-search display-4 opacity-25"></i>
+                        <p class="mt-2">Enter search query above</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
 {% endblock %}
 
 {% block scripts %}
@@ -722,8 +752,8 @@
         try {
             const resp = await fetch('/api/series/{{ series.id }}/subscribe', {
                 method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({path: path})
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ path: path })
             });
             const data = await resp.json();
 
@@ -739,6 +769,164 @@
             btn.disabled = false;
             btn.innerHTML = '<i class="bi bi-folder-plus me-1"></i>Create & Map';
         }
+    }
+
+    // GetComics search functionality
+    let currentSearchSeries = '';
+    let currentSearchIssue = '';
+    let getcomicsModal = null;
+
+    document.addEventListener('DOMContentLoaded', function () {
+        const modalEl = document.getElementById('getcomicsModal');
+        if (modalEl) {
+            getcomicsModal = new bootstrap.Modal(modalEl);
+        }
+    });
+
+    function searchGetComics(seriesName, issueNumber) {
+        currentSearchSeries = seriesName;
+        currentSearchIssue = issueNumber;
+
+        const query = `${seriesName} ${issueNumber}`;
+        document.getElementById('getcomicsQuery').value = query;
+
+        getcomicsModal.show();
+        doGetComicsSearch();
+    }
+
+    async function doGetComicsSearch() {
+        const query = document.getElementById('getcomicsQuery').value.trim();
+        if (!query) return;
+
+        const resultsDiv = document.getElementById('getcomicsResults');
+        resultsDiv.innerHTML = `
+        <div class="text-center py-4">
+            <div class="spinner-border text-primary"></div>
+            <p class="mt-2">Searching GetComics...</p>
+        </div>`;
+
+        try {
+            const resp = await fetch(`/api/getcomics/search?q=${encodeURIComponent(query)}`);
+            const data = await resp.json();
+
+            if (!data.success) {
+                resultsDiv.innerHTML = `<div class="alert alert-danger">${escapeHtmlGC(data.error)}</div>`;
+                return;
+            }
+
+            if (data.results.length === 0) {
+                resultsDiv.innerHTML = `
+                <div class="text-center text-muted py-4">
+                    <i class="bi bi-emoji-frown display-4 opacity-25"></i>
+                    <p class="mt-2">No results found</p>
+                </div>`;
+                return;
+            }
+
+            // Sort results - expected match at top
+            const sorted = sortResultsGC(data.results, currentSearchSeries, currentSearchIssue);
+
+            resultsDiv.innerHTML = sorted.map((r, idx) => `
+            <div class="card mb-2 ${idx === 0 && r.score > 5 ? 'border-success' : ''}">
+                <div class="card-body d-flex align-items-center gap-3 py-2">
+                    ${r.image ? `<img src="${escapeHtmlGC(r.image)}" style="width:50px;height:75px;object-fit:cover;" class="rounded" onerror="this.style.display='none'">` : '<div style="width:50px"></div>'}
+                    <div class="flex-grow-1 overflow-hidden">
+                        <div class="fw-bold text-truncate" title="${escapeHtmlGC(r.title)}">${escapeHtmlGC(r.title)}</div>
+                        <small class="text-muted text-truncate d-block">${escapeHtmlGC(r.link)}</small>
+                    </div>
+                    <button class="btn btn-sm btn-primary flex-shrink-0" onclick="downloadFromGetComics(this, '${escapeHtmlGC(r.link)}', '${escapeJsGC(r.title)}')" title="Download">
+                        <i class="bi bi-download"></i>
+                    </button>
+                </div>
+            </div>
+        `).join('');
+
+        } catch (e) {
+            resultsDiv.innerHTML = `<div class="alert alert-danger">Error: ${escapeHtmlGC(e.message)}</div>`;
+        }
+    }
+
+    function sortResultsGC(results, seriesName, issueNumber) {
+        return results.map(r => {
+            let score = 0;
+            const title = r.title.toLowerCase();
+            const series = seriesName.toLowerCase();
+
+            if (title.includes(series)) score += 10;
+            if (title.includes(`#${issueNumber}`) || title.includes(` ${issueNumber} `) || title.endsWith(` ${issueNumber}`)) score += 5;
+
+            return { ...r, score };
+        }).sort((a, b) => b.score - a.score);
+    }
+
+    async function downloadFromGetComics(btn, pageUrl, title) {
+        const filename = title.replace(/[^a-zA-Z0-9\s\-#]/g, '').trim() + '.cbz';
+
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
+
+        try {
+            const resp = await fetch('/api/getcomics/download', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ url: pageUrl, filename: filename })
+            });
+            const data = await resp.json();
+
+            if (data.success) {
+                btn.innerHTML = '<i class="bi bi-check"></i>';
+                btn.classList.remove('btn-primary');
+                btn.classList.add('btn-success');
+                showToastGC('Download queued successfully!', 'success');
+
+                setTimeout(() => {
+                    getcomicsModal.hide();
+                }, 500);
+            } else {
+                btn.disabled = false;
+                btn.innerHTML = '<i class="bi bi-download"></i>';
+                showToastGC('Error: ' + data.error, 'danger');
+            }
+        } catch (e) {
+            btn.disabled = false;
+            btn.innerHTML = '<i class="bi bi-download"></i>';
+            showToastGC('Error: ' + e.message, 'danger');
+        }
+    }
+
+    function escapeHtmlGC(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+
+    function escapeJsGC(str) {
+        return str.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/"/g, '\\"');
+    }
+
+    function showToastGC(message, type) {
+        let container = document.querySelector('.toast-container');
+        if (!container) {
+            container = document.createElement('div');
+            container.className = 'toast-container position-fixed bottom-0 end-0 p-3';
+            document.body.appendChild(container);
+        }
+
+        const toastId = 'toast-' + Date.now();
+        const toastHtml = `
+        <div id="${toastId}" class="toast align-items-center text-bg-${type} border-0" role="alert">
+            <div class="d-flex">
+                <div class="toast-body">${escapeHtmlGC(message)}</div>
+                <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button>
+            </div>
+        </div>`;
+        container.insertAdjacentHTML('beforeend', toastHtml);
+
+        const toastEl = document.getElementById(toastId);
+        const toast = new bootstrap.Toast(toastEl, { autohide: true, delay: 3000 });
+        toast.show();
+
+        toastEl.addEventListener('hidden.bs.toast', () => toastEl.remove());
     }
 </script>
 <script src="{{ url_for('static', filename='js/files.js') }}?v={{ range(1000, 9999) | random }}&t=202502"></script>
