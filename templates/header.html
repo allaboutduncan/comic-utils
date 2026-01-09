@@ -43,29 +43,37 @@
             Reading Lists
           </a>
         </li>
-        <li class="nav-item">
-          <a href="{{ url_for('releases') }}"
-            class="nav-link {% if current_page == url_for('releases') %}active{% endif %}">
-            Releases
+        <li class="nav-item dropdown">
+          <a class="nav-link dropdown-toggle {% if current_page in [url_for('pull_list'), url_for('releases'), url_for('wanted'), url_for('publishers_page')] %}active{% endif %}"
+            href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+            Subscriptions
           </a>
-        </li>
-        <li class="nav-item">
-          <a href="{{ url_for('wanted') }}"
-            class="nav-link {% if current_page == url_for('wanted') %}active{% endif %}">
-            Wanted
-          </a>
-        </li>
-        <li class="nav-item">
-          <a href="{{ url_for('pull_list') }}"
-            class="nav-link {% if current_page == url_for('pull_list') %}active{% endif %}">
-            Pull List
-          </a>
-        </li>
-        <li class="nav-item">
-          <a href="{{ url_for('publishers_page') }}"
-            class="nav-link {% if current_page == url_for('publishers_page') %}active{% endif %}">
-            Publishers
-          </a>
+          <ul class="dropdown-menu">
+            <li>
+              <a href="{{ url_for('pull_list') }}"
+                class="dropdown-item {% if current_page == url_for('pull_list') %}active{% endif %}">
+                <i class="bi bi-list-check me-2"></i>Pull List
+              </a>
+            </li>
+            <li>
+              <a href="{{ url_for('releases') }}"
+                class="dropdown-item {% if current_page == url_for('releases') %}active{% endif %}">
+                <i class="bi bi-calendar-week me-2"></i>Releases
+              </a>
+            </li>
+            <li>
+              <a href="{{ url_for('wanted') }}"
+                class="dropdown-item {% if current_page == url_for('wanted') %}active{% endif %}">
+                <i class="bi bi-star me-2"></i>Wanted
+              </a>
+            </li>
+            <li>
+              <a href="{{ url_for('publishers_page') }}"
+                class="dropdown-item {% if current_page == url_for('publishers_page') %}active{% endif %}">
+                <i class="bi bi-building me-2"></i>Publishers
+              </a>
+            </li>
+          </ul>
         </li>
         <!--
         <li class="nav-item">

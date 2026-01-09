@@ -17,10 +17,9 @@
                         <div class="col-md-3">
                             {% if first_issue_image %}
                             <img src="{{ first_issue_image }}" alt="{{ series.name }}"
-                                class="img-fluid rounded shadow-sm" style="max-height: 250px; object-fit: cover;">
+                                class="img-fluid rounded shadow-sm">
                             {% else %}
-                            <div class="bg-secondary rounded d-flex align-items-center justify-content-center"
-                                style="height: 200px;">
+                            <div class="bg-secondary rounded d-flex align-items-center justify-content-center">
                                 <i class="bi bi-journal-text text-white" style="font-size: 3rem; opacity: 0.5;"></i>
                             </div>
                             {% endif %}
@@ -51,17 +50,17 @@
                                         style="font-size: 0.75rem;">Volume</small>
                                     <span>{{ series.volume }}</span>
                                 </div>
-                                <div class="col-6 col-md-3">
+                                <div class="col-6 col-md-5">
                                     <small class="text-uppercase fw-bold d-block mb-1" style="font-size: 0.75rem;">Year
                                         Began</small>
                                     <span>{{ series.year_began }}</span>
                                 </div>
-                                <div class="col-6 col-md-3">
+                                <div class="col-6 col-md-4">
                                     <small class="text-uppercase fw-bold d-block mb-1" style="font-size: 0.75rem;">Year
                                         Ended</small>
                                     <span>{{ series.year_ended or series.year_end or 'Ongoing' }}</span>
                                 </div>
-                                <div class="col-6 col-md-4">
+                                <div class="col-6 col-md-3">
                                     <small class="text-uppercase fw-bold d-block mb-1"
                                         style="font-size: 0.75rem;">Metron ID</small>
                                     <a href="https://metron.cloud/series/{{ series.id }}/" target="_blank"
@@ -154,11 +153,6 @@
                             </p>
                         </div>
                         <div class="d-flex align-items-center gap-3">
-                            {% if last_synced_at %}
-                            <small class="text-muted" id="last-synced-display">
-                                <i class="bi bi-clock me-1"></i>Synced: {{ last_synced_at }}
-                            </small>
-                            {% endif %}
                             <div class="d-flex gap-2">
                                 {% if mapped_path %}
                                 <button class="btn btn-outline-danger" onclick="removeMappingConfirm()">
@@ -184,6 +178,11 @@
                                 </button>
                                 {% endif %}
                             </div>
+                            {% if last_synced_at %}
+                            <small class="text-muted" id="last-synced-display">
+                                <i class="bi bi-clock me-1"></i>Synced: {{ last_synced_at }}
+                            </small>
+                            {% endif %}
                         </div>
                     </div>
                 </div>
