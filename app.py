@@ -1782,6 +1782,70 @@ def get_wanted_issues_api():
         return jsonify({'error': str(e)}), 500
 
 
+@app.route('/api/getcomics/search')
+def api_getcomics_search():
+    """Search getcomics.org for comics."""
+    from models.getcomics import search_getcomics
+
+    query = request.args.get('q', '')
+    if not query:
+        return jsonify({"success": False, "error": "Query required"}), 400
+
+    try:
+        results = search_getcomics(query)
+        return jsonify({"success": True, "results": results})
+    except Exception as e:
+        app_logger.error(f"Error searching getcomics: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route('/api/getcomics/download', methods=['POST'])
+def api_getcomics_download():
+    """Get download link from getcomics page and queue download."""
+    from models.getcomics import get_download_links
+    from api import download_queue, download_progress
+    import uuid
+
+    data = request.get_json() or {}
+    page_url = data.get('url')
+    filename = data.get('filename', 'comic.cbz')
+
+    if not page_url:
+        return jsonify({"success": False, "error": "URL required"}), 400
+
+    try:
+        links = get_download_links(page_url)
+
+        # Priority: PIXELDRAIN > DOWNLOAD NOW
+        download_url = links.get("pixeldrain") or links.get("download_now")
+
+        if not download_url:
+            return jsonify({"success": False, "error": "No download link found"}), 404
+
+        # Queue download using existing system
+        download_id = str(uuid.uuid4())
+        download_progress[download_id] = {
+            'url': download_url,
+            'progress': 0,
+            'bytes_total': 0,
+            'bytes_downloaded': 0,
+            'status': 'queued',
+            'filename': filename,
+            'error': None,
+        }
+        task = {
+            'download_id': download_id,
+            'url': download_url,
+            'dest_filename': filename
+        }
+        download_queue.put(task)
+
+        return jsonify({"success": True, "download_id": download_id})
+    except Exception as e:
+        app_logger.error(f"Error downloading from getcomics: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
 @app.route('/api/sync/all', methods=['POST'])
 def sync_all_series():
     """Sync all mapped series that need updating"""
