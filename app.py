@@ -260,6 +260,10 @@ def scheduled_series_sync():
         for series in series_list:
             series_id = series['id']
             try:
+                # Rate limiting - Metron API allows 30 requests/minute
+                # Each series sync = 2 API calls, so 2s delay = ~30 req/min max
+                time.sleep(2)
+
                 # Fetch series info from API
                 series_info = api.series(series_id)
                 if not series_info:
@@ -270,9 +274,15 @@ def scheduled_series_sync():
                 all_issues_result = metron.get_all_issues_for_series(api, series_id)
                 all_issues = list(all_issues_result) if all_issues_result else []
 
-                # Delete existing cached issues and save new ones
-                delete_issues_for_series(series_id)
+                # Save issues (INSERT OR REPLACE handles updates)
                 save_issues_bulk(all_issues, series_id)
+
+                # Clean up issues that no longer exist in API response
+                if all_issues:
+                    from database import cleanup_stale_issues
+                    api_issue_ids = {i.id if hasattr(i, 'id') else i.get('id') for i in all_issues}
+                    cleanup_stale_issues(series_id, api_issue_ids)
+
                 update_series_sync_time(series_id, len(all_issues))
 
                 success_count += 1
@@ -288,8 +298,168 @@ def scheduled_series_sync():
         elapsed = time.time() - start_time
         app_logger.info(f"✅ Scheduled series sync completed in {elapsed:.2f}s ({success_count} synced, {fail_count} failed)")
 
+        # After syncing, check TARGET folder for wanted issues
+        process_incoming_wanted_issues()
+
     except Exception as e:
         app_logger.error(f"❌ Scheduled series sync failed: {e}")
+
+
+def get_series_name_from_files(mapped_path, db_series_name):
+    """
+    Extract actual series name used in existing files.
+    Falls back to database series name if no files exist.
+
+    This helps match files when the database has "The Ultimates" but
+    files are named "Ultimates 001.cbz".
+    """
+    if not mapped_path or not os.path.exists(mapped_path):
+        return db_series_name
+
+    comic_extensions = ('.cbz', '.cbr', '.zip', '.rar')
+    try:
+        files = [f for f in os.listdir(mapped_path)
+                 if f.lower().endswith(comic_extensions)]
+    except Exception:
+        return db_series_name
+
+    if not files:
+        return db_series_name
+
+    # Try to extract series name from first file
+    # Pattern: "Series Name 001 (2024).cbz" -> "Series Name"
+    first_file = files[0]
+    # Remove extension
+    name = os.path.splitext(first_file)[0]
+    # Remove year in parens: "(2024)"
+    name = re.sub(r'\s*\(\d{4}\)\s*$', '', name)
+    # Remove issue number at end: " 001" or " 1"
+    name = re.sub(r'\s+\d+\s*$', '', name)
+
+    if name:
+        return name.strip()
+
+    return db_series_name
+
+
+def process_incoming_wanted_issues():
+    """
+    Scan TARGET folder for wanted issues and move to series folders.
+    Uses CUSTOM_RENAME_PATTERN for matching (excluding year) and renaming.
+    """
+    from database import get_wanted_issues
+    from rename import load_custom_rename_config
+
+    target_folder = app.config.get('TARGET', '/downloads/processed')
+    if not os.path.exists(target_folder):
+        app_logger.debug(f"TARGET folder does not exist: {target_folder}")
+        return
+
+    # Get wanted issues with series info
+    wanted = get_wanted_issues()
+    if not wanted:
+        app_logger.debug("No wanted issues found")
+        return
+
+    app_logger.debug(f"Found {len(wanted)} wanted issues to check")
+
+    # Load rename pattern
+    enabled, pattern = load_custom_rename_config()
+    if not enabled or not pattern:
+        pattern = "{series_name} {issue_number} ({year})"
+
+    # Create a matching pattern WITHOUT year (year can differ between sources)
+    # Replace {year} and surrounding parens/spaces with flexible match
+    match_pattern = pattern
+    # Remove year placeholder and its common surrounding patterns
+    match_pattern = re.sub(r'\s*\(\s*\{year\}\s*\)', '', match_pattern)  # " ({year})" -> ""
+    match_pattern = re.sub(r'\s*\{year\}', '', match_pattern)  # remaining "{year}" -> ""
+    match_pattern = match_pattern.strip()
+    app_logger.debug(f"Using match pattern (no year): '{match_pattern}'")
+
+    # Scan TARGET for comic files
+    comic_extensions = ('.cbz', '.cbr', '.zip', '.rar')
+    try:
+        files = [f for f in os.listdir(target_folder)
+                 if f.lower().endswith(comic_extensions)]
+        app_logger.debug(f"Found {len(files)} comic files in TARGET folder")
+        for f in files:
+            app_logger.debug(f"  - {f}")
+    except Exception as e:
+        app_logger.error(f"Failed to scan TARGET folder: {e}")
+        return
+
+    if not files:
+        return
+
+    moved_count = 0
+    for issue in wanted:
+        db_series_name = issue['series_name']
+        issue_number = issue['number']
+        mapped_path = issue['mapped_path']
+
+        # Get actual series name from existing files in the series folder
+        # This handles cases like "The Ultimates" in DB but "Ultimates" in filenames
+        actual_series_name = get_series_name_from_files(mapped_path, db_series_name)
+        if actual_series_name != db_series_name:
+            app_logger.debug(f"Using file-based name: '{actual_series_name}' instead of '{db_series_name}'")
+
+        # Generate regex pattern for this issue (without year)
+        regex = generate_filename_pattern(
+            match_pattern,
+            actual_series_name,
+            issue_number
+        )
+        if not regex:
+            app_logger.debug(f"Failed to generate pattern for: {actual_series_name} #{issue_number}")
+            continue
+
+        app_logger.debug(f"Looking for: {actual_series_name} #{issue_number} | Pattern: {regex.pattern}")
+
+        for filename in files[:]:  # Copy list to allow removal
+            if regex.match(filename):
+                app_logger.info(f"✓ Match found: '{filename}' matches '{actual_series_name} #{issue_number}'")
+
+                # Found a match - move first, then rename
+                src = os.path.join(target_folder, filename)
+                dest_dir = mapped_path
+
+                if not os.path.exists(dest_dir):
+                    app_logger.warning(f"Series folder missing: {dest_dir}")
+                    continue
+
+                # Move file with original name first
+                temp_dest = os.path.join(dest_dir, filename)
+
+                try:
+                    shutil.move(src, temp_dest)
+                    app_logger.info(f"Moved: {filename} -> {dest_dir}")
+                    files.remove(filename)
+                    moved_count += 1
+
+                    # Now rename using get_renamed_filename
+                    from rename import get_renamed_filename
+                    new_filename = get_renamed_filename(filename)
+                    final_path = temp_dest
+                    if new_filename and new_filename != filename:
+                        final_path = os.path.join(dest_dir, new_filename)
+                        os.rename(temp_dest, final_path)
+                        app_logger.info(f"Renamed: {filename} -> {new_filename}")
+
+                    # Auto-fetch metadata (try Metron first, then ComicVine as fallback)
+                    app_logger.info(f"Auto-fetching metadata for: {final_path}")
+                    final_path = auto_fetch_metron_metadata(final_path)
+                    final_path = auto_fetch_comicvine_metadata(final_path)
+
+                except Exception as e:
+                    app_logger.error(f"Failed to move/rename {filename}: {e}")
+                break
+
+    if moved_count > 0:
+        app_logger.info(f"✅ Processed {moved_count} wanted issue(s) from TARGET folder")
+    else:
+        app_logger.debug("No wanted issues matched files in TARGET folder")
+
 
 # Function to configure scheduled sync based on database settings
 def configure_sync_schedule():
@@ -929,6 +1099,19 @@ def generate_filename_pattern(custom_pattern, series_name, issue_number):
         return None
 
     try:
+        # First, escape literal parentheses in the custom pattern BEFORE substituting
+        # This handles patterns like "{series_name} {issue_number} ({year})"
+        # The ( ) around {year} should become \( \) in the final regex
+
+        # Use placeholders to protect our variable markers
+        pattern = custom_pattern
+        pattern = pattern.replace('{series_name}', '<<<SERIES>>>')
+        pattern = pattern.replace('{issue_number}', '<<<ISSUE>>>')
+        pattern = pattern.replace('{year}', '<<<YEAR>>>')
+
+        # Now escape any remaining literal parentheses
+        pattern = pattern.replace('(', r'\(').replace(')', r'\)')
+
         # Escape series name for regex but allow flexible whitespace
         series_escaped = re.escape(series_name)
         # Allow flexible whitespace matching (spaces, underscores, dashes)
@@ -939,30 +1122,13 @@ def generate_filename_pattern(custom_pattern, series_name, issue_number):
         # Match issue number with optional leading zeros
         issue_pattern = r'0*' + re.escape(issue_num_clean)
 
-        # Start building the regex from the custom pattern
-        pattern = custom_pattern
-
-        # Replace {series_name} with series pattern (non-capturing for efficiency)
-        pattern = pattern.replace('{series_name}', f'(?:{series_pattern})')
-
-        # Replace {issue_number} with issue pattern - THIS is the key match
-        pattern = pattern.replace('{issue_number}', f'({issue_pattern})')
-
-        # Replace {year} with any 4-digit year pattern
-        pattern = pattern.replace('{year}', r'\d{4}')
-
-        # Escape literal parentheses that aren't part of our patterns
-        # First, temporarily mark our capture groups
-        pattern = pattern.replace('(?:', '<<<NONCAP>>>')
-        pattern = pattern.replace('(0*', '<<<CAP>>>')
-        # Escape remaining parentheses
-        pattern = pattern.replace('(', r'\(').replace(')', r'\)')
-        # Restore our groups
-        pattern = pattern.replace('<<<NONCAP>>>', '(?:')
-        pattern = pattern.replace('<<<CAP>>>', '(')
+        # Now substitute our patterns back in
+        pattern = pattern.replace('<<<SERIES>>>', f'(?:{series_pattern})')
+        pattern = pattern.replace('<<<ISSUE>>>', f'({issue_pattern})')
+        pattern = pattern.replace('<<<YEAR>>>', r'\d{4}')
 
         # Add file extension matching at the end
-        pattern += r'\.(?:cbz|cbr|zip|rar)$'
+        pattern += r'.*\.(?:cbz|cbr|zip|rar)$'
 
         return re.compile(pattern, re.IGNORECASE)
 
@@ -3695,9 +3861,6 @@ def move():
                         final_path = auto_fetch_metron_metadata(destination)
                         # If Metron didn't process, try ComicVine
                         final_path = auto_fetch_comicvine_metadata(final_path)
-
-                        # Log file to recent_files with the final path (renamed or original)
-                        log_file_if_in_data(final_path)
 
                         yield "data: 100\n\n"
                     except Exception as e:

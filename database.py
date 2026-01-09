@@ -3494,8 +3494,8 @@ def get_issue_by_id(issue_id):
 
 def get_wanted_issues():
     """
-    Get all wanted issues (future store_date OR missing from collection)
-    from mapped series.
+    Get all released issues from mapped series that may be missing.
+    Returns issues with store_date <= today (released) or NULL (unknown).
 
     Returns:
         List of issue dicts with series info, or empty list on error
@@ -3512,8 +3512,8 @@ def get_wanted_issues():
             FROM issues i
             JOIN series s ON i.series_id = s.id
             WHERE s.mapped_path IS NOT NULL
-              AND (i.store_date > date('now') OR i.store_date IS NULL)
-            ORDER BY i.store_date ASC, s.name, i.number
+              AND (i.store_date <= date('now') OR i.store_date IS NULL)
+            ORDER BY s.name, i.number
         ''')
 
         rows = c.fetchall()
@@ -3633,6 +3633,41 @@ def delete_issues_for_series(series_id):
     except Exception as e:
         app_logger.error(f"Failed to delete issues for series {series_id}: {e}")
         return False
+
+
+def cleanup_stale_issues(series_id, valid_issue_ids):
+    """
+    Remove issues that no longer exist in API response.
+    Used to clean up deleted issues without removing all and re-inserting.
+
+    Args:
+        series_id: Metron series ID
+        valid_issue_ids: Set of issue IDs that should be kept
+    """
+    if not valid_issue_ids:
+        return
+
+    try:
+        conn = get_db_connection()
+        if not conn:
+            return
+
+        c = conn.cursor()
+        placeholders = ','.join('?' * len(valid_issue_ids))
+        c.execute(f'''
+            DELETE FROM issues
+            WHERE series_id = ? AND id NOT IN ({placeholders})
+        ''', (series_id, *valid_issue_ids))
+
+        deleted = c.rowcount
+        conn.commit()
+        conn.close()
+
+        if deleted > 0:
+            app_logger.info(f"Cleaned up {deleted} stale issue(s) for series {series_id}")
+
+    except Exception as e:
+        app_logger.error(f"Failed to cleanup stale issues for series {series_id}: {e}")
 
 
 # =============================================================================
