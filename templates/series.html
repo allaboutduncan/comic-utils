@@ -45,22 +45,22 @@
                                         Count</small>
                                     <span>{{ series.issue_count }}</span>
                                 </div>
-                                <div class="col-6 col-md-3">
+                                <div class="col-6 col-md-5">
                                     <small class="text-uppercase fw-bold d-block mb-1"
                                         style="font-size: 0.75rem;">Volume</small>
                                     <span>{{ series.volume }}</span>
                                 </div>
-                                <div class="col-6 col-md-5">
+                                <div class="col-6 col-md-4">
                                     <small class="text-uppercase fw-bold d-block mb-1" style="font-size: 0.75rem;">Year
                                         Began</small>
                                     <span>{{ series.year_began }}</span>
                                 </div>
-                                <div class="col-6 col-md-4">
+                                <div class="col-6 col-md-3">
                                     <small class="text-uppercase fw-bold d-block mb-1" style="font-size: 0.75rem;">Year
                                         Ended</small>
                                     <span>{{ series.year_ended or series.year_end or 'Ongoing' }}</span>
                                 </div>
-                                <div class="col-6 col-md-3">
+                                <div class="col-6 col-md-5">
                                     <small class="text-uppercase fw-bold d-block mb-1"
                                         style="font-size: 0.75rem;">Metron ID</small>
                                     <a href="https://metron.cloud/series/{{ series.id }}/" target="_blank"
@@ -77,7 +77,7 @@
                                     <span class="text-muted">-</span>
                                     {% endif %}
                                 </div>
-                                <div class="col-6 col-md-4">
+                                <div class="col-6 col-md-3">
                                     <small class="text-uppercase fw-bold d-block mb-1" style="font-size: 0.75rem;">GCD
                                         ID</small>
                                     {% if series.gcd_id %}

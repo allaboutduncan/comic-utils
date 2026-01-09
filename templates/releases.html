@@ -49,12 +49,13 @@
         {% set series_slug = generate_series_slug(issue.series.name, issue.id, issue.series.volume) %}
         {% set is_tracked = (normalize_name(issue.series.name), issue.series.volume or 0) in tracked_lookup %}
         <a href="{% if series_slug %}{{ url_for('series_view', slug=series_slug) }}{% else %}{{ issue.resource_url }}{% endif %}"
-            {% if not series_slug %}target="_blank" {% endif %} class="release-card stagger-load{% if is_tracked %} tracked{% endif %}">
+            {% if not series_slug %}target="_blank" {% endif %}
+            class="release-card stagger-load{% if is_tracked %} tracked{% endif %}">
             <!-- Cover Image -->
             <div class="release-cover">
                 {% if is_tracked %}
-                <div class="tracked-badge" title="Tracked Series">
-                    <i class="bi bi-bookmark-check-fill"></i>
+                <div class="ribbon-wrapper">
+                    <div class="ribbon">Subscribed</div>
                 </div>
                 {% endif %}
                 {% if issue.image %}
@@ -140,21 +141,51 @@
         box-shadow: 0 12px 30px rgba(25, 135, 84, 0.3);
     }
 
-    .tracked-badge {
+    .ribbon-wrapper {
+        width: 110px;
+        height: 110px;
+        overflow: hidden;
         position: absolute;
-        top: 0.5rem;
-        right: 0.5rem;
-        background: var(--bs-success);
-        color: white;
-        width: 28px;
-        height: 28px;
-        border-radius: 50%;
-        display: flex;
-        align-items: center;
-        justify-content: center;
+        top: -3px;
+        right: -3px;
         z-index: 5;
-        font-size: 0.9rem;
-        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+    }
+
+    .ribbon {
+        font-family: var(--bs-body-font-family);
+        font-weight: bold;
+        color: #fff;
+        text-align: center;
+        transform: rotate(45deg);
+        position: relative;
+        padding: 10px 0;
+        left: -30px;
+        top: 25px;
+        width: 200px;
+        background-color: var(--bs-success);
+        box-shadow: 0px 0px 3px rgba(0, 0, 0, 0.3);
+        font-size: 0.75rem;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+    }
+
+    .ribbon::before,
+    .ribbon::after {
+        content: "";
+        border-top: 3px solid #0e5b26;
+        /* Darker shade of success green for depth */
+        border-left: 3px solid transparent;
+        border-right: 3px solid transparent;
+        position: absolute;
+        bottom: -3px;
+    }
+
+    .ribbon::before {
+        left: 0;
+    }
+
+    .ribbon::after {
+        right: 0;
     }
 
     .release-cover {
@@ -162,6 +193,8 @@
         width: 100%;
         aspect-ratio: 2/3;
         overflow: hidden;
+        /* Important for ribbon containment if we want it clipped to card, but card handles it */
+        /* To make ribbon sit on top of image but clipped by card corners */
         background: linear-gradient(135deg, var(--bs-gray-200) 0%, var(--bs-gray-300) 100%);
     }
 
