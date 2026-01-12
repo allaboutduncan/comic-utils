@@ -44,15 +44,15 @@
           </a>
         </li>
         <li class="nav-item dropdown">
-          <a class="nav-link dropdown-toggle {% if current_page in [url_for('pull_list'), url_for('releases'), url_for('wanted'), url_for('publishers_page')] %}active{% endif %}"
+          <a class="nav-link dropdown-toggle {% if current_page in [url_for('pull_list'), url_for('releases'), url_for('wanted'), url_for('publishers_page'), url_for('series_search')] %}active{% endif %}"
             href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">
-            Subscriptions
+            Pull List
           </a>
           <ul class="dropdown-menu">
             <li>
               <a href="{{ url_for('pull_list') }}"
                 class="dropdown-item {% if current_page == url_for('pull_list') %}active{% endif %}">
-                <i class="bi bi-list-check me-2"></i>Pull List
+                <i class="bi bi-list-check me-2"></i>My Pull List
               </a>
             </li>
             <li>
@@ -65,6 +65,12 @@
               <a href="{{ url_for('wanted') }}"
                 class="dropdown-item {% if current_page == url_for('wanted') %}active{% endif %}">
                 <i class="bi bi-star me-2"></i>Wanted
+              </a>
+            </li>
+            <li>
+              <a href="{{ url_for('series_search') }}"
+                class="dropdown-item {% if current_page == url_for('series_search') %}active{% endif %}">
+                <i class="bi bi-search me-2"></i>Series Search
               </a>
             </li>
             <li>

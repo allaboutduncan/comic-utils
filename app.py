@@ -920,6 +920,19 @@ def pull_list():
                          total_series=len(series_list))
 
 
+@app.route('/series-search')
+def series_search():
+    """
+    Series Search page - search Metron database for series.
+    """
+    metron_username = app.config.get("METRON_USERNAME", "").strip()
+    metron_password = app.config.get("METRON_PASSWORD", "").strip()
+    metron_configured = bool(metron_username and metron_password)
+
+    return render_template('series_search.html',
+                          metron_configured=metron_configured)
+
+
 @app.route('/publishers')
 def publishers_page():
     """
@@ -1465,7 +1478,7 @@ def series_view(slug):
 
     slug_id = int(match.group(1))
 
-    # First, try to look up as a series_id (preferred for wanted page links)
+    # First, try to look up as a series_id (preferred for wanted page links and series search)
     from database import get_issue_by_id
     cached_series = get_series_by_id(slug_id)
     series_id = slug_id if cached_series else None
@@ -1529,16 +1542,24 @@ def series_view(slug):
             # If we already have a series_id from cache lookup, use it directly
             if series_id:
                 app_logger.info(f"Fetching series details for series_id: {series_id}")
+                series_info = api.series(series_id)
             else:
-                # Try to get series from issue
-                app_logger.info(f"Fetching issue details for issue_id: {slug_id}")
-                full_issue = api.issue(slug_id)
-                series_id = full_issue.series.id
-                app_logger.info(f"Got series_id: {series_id} from issue")
+                # slug_id not found in database - try as series first (for series search),
+                # then fall back to issue lookup (for releases page)
+                app_logger.info(f"Trying to fetch slug_id {slug_id} as series first...")
+                try:
+                    series_info = api.series(slug_id)
+                    series_id = slug_id
+                    app_logger.info(f"Successfully fetched as series_id: {series_id}")
+                except Exception as e:
+                    app_logger.info(f"Not a valid series_id, trying as issue_id: {e}")
+                    # Try to get series from issue
+                    full_issue = api.issue(slug_id)
+                    series_id = full_issue.series.id
+                    app_logger.info(f"Got series_id: {series_id} from issue")
+                    series_info = api.series(series_id)
 
-            # Get full series details (has issue_count, cv_id, gcd_id, etc.)
-            app_logger.info(f"Fetching series details for series_id: {series_id}")
-            series_info = api.series(series_id)
+            # Got series_info - log it
             app_logger.info(f"Got series_info: {series_info.name if series_info else 'None'}")
 
             # Get all issues for this series
@@ -1668,6 +1689,68 @@ def series_view(slug):
         app_logger.error(traceback.format_exc())
         flash(f"Error loading series: {str(e)}", "error")
         return redirect(url_for('releases'))
+
+
+@app.route('/api/series/search', methods=['GET'])
+def api_search_series():
+    """Search Metron API for series by name."""
+    query = request.args.get('q', '').strip()
+    if not query:
+        return jsonify({"success": False, "error": "Search query required"}), 400
+
+    metron_username = app.config.get("METRON_USERNAME", "").strip()
+    metron_password = app.config.get("METRON_PASSWORD", "").strip()
+
+    if not metron_username or not metron_password:
+        return jsonify({"success": False, "error": "Metron credentials not configured"}), 400
+
+    try:
+        api = metron.get_api(metron_username, metron_password)
+        if not api:
+            return jsonify({"success": False, "error": "Failed to connect to Metron API"}), 500
+
+        # Search for series by name
+        results = api.series_list({'name': query})
+
+        series_list = []
+        for series in results:
+            # Extract attributes using getattr for Pydantic objects
+            series_id = getattr(series, 'id', None)
+            series_name = getattr(series, 'display_name', '') or getattr(series, 'name', '')
+            volume = getattr(series, 'volume', None)
+            year_began = getattr(series, 'year_began', None)
+            issue_count = getattr(series, 'issue_count', None)
+            status = getattr(series, 'status', None)
+
+            # Extract publisher name from nested object
+            publisher = getattr(series, 'publisher', None)
+            if publisher:
+                publisher_name = getattr(publisher, 'name', '')
+            else:
+                publisher_name = ''
+
+            # Generate slug for series link
+            slug = generate_series_slug(series_name, series_id, volume)
+
+            series_list.append({
+                "id": series_id,
+                "name": series_name,
+                "volume": volume,
+                "year_began": year_began,
+                "publisher": publisher_name,
+                "issue_count": issue_count,
+                "status": status,
+                "slug": slug
+            })
+
+        return jsonify({
+            "success": True,
+            "series": series_list,
+            "count": len(series_list)
+        })
+    except Exception as e:
+        app_logger.error(f"Error searching Metron series: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
 
 
 @app.route('/api/series/<int:series_id>/map', methods=['POST'])
