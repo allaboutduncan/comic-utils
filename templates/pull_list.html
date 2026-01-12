@@ -63,6 +63,15 @@
         </div>
     </div>
 
+    <!-- Alphabet Filter -->
+    <div class="card border-0 shadow-sm mb-4">
+        <div class="card-body py-2">
+            <div class="btn-group d-flex flex-wrap gap-1" id="alphabetFilter" role="group" aria-label="Alphabet Filter">
+                <!-- Dynamically populated by JavaScript -->
+            </div>
+        </div>
+    </div>
+
     <!-- Series Table -->
     <div class="card border-0 shadow-sm">
         <div class="card-body p-0">
@@ -149,6 +158,7 @@
         const searchInput = document.getElementById('searchInput');
         const table = document.getElementById('seriesTable');
         const resultCount = document.getElementById('resultCount');
+        const alphabetFilter = document.getElementById('alphabetFilter');
 
         if (!searchInput || !table) return;
 
@@ -156,24 +166,101 @@
         const rows = Array.from(tbody.querySelectorAll('tr'));
         const totalCount = rows.length;
 
-        // Search/Filter functionality
-        searchInput.addEventListener('input', function () {
-            const searchTerm = this.value.toLowerCase().trim();
+        // Current filter state
+        let currentLetterFilter = 'all';
+
+        // Build alphabet filter buttons
+        function buildAlphabetFilter() {
+            const availableLetters = new Set();
+            let hasNonAlpha = false;
+
+            rows.forEach(row => {
+                const name = row.dataset.name || '';
+                if (name.length > 0) {
+                    const firstChar = name.charAt(0).toUpperCase();
+                    if (firstChar >= 'A' && firstChar <= 'Z') {
+                        availableLetters.add(firstChar);
+                    } else {
+                        hasNonAlpha = true;
+                    }
+                }
+            });
+
+            let buttonsHtml = `<button type="button" class="btn btn-sm btn-outline-secondary active" data-letter="all">All</button>`;
+
+            if (hasNonAlpha) {
+                buttonsHtml += `<button type="button" class="btn btn-sm btn-outline-secondary" data-letter="#">#</button>`;
+            }
+
+            for (let i = 65; i <= 90; i++) {
+                const letter = String.fromCharCode(i);
+                if (availableLetters.has(letter)) {
+                    buttonsHtml += `<button type="button" class="btn btn-sm btn-outline-secondary" data-letter="${letter}">${letter}</button>`;
+                }
+            }
+
+            alphabetFilter.innerHTML = buttonsHtml;
+
+            // Add click handlers
+            alphabetFilter.querySelectorAll('button').forEach(btn => {
+                btn.addEventListener('click', function () {
+                    const clickedLetter = this.dataset.letter;
+
+                    // If clicking the same letter (not 'all'), reset to 'all'
+                    if (clickedLetter === currentLetterFilter && clickedLetter !== 'all') {
+                        currentLetterFilter = 'all';
+                        alphabetFilter.querySelectorAll('button').forEach(b => b.classList.remove('active'));
+                        alphabetFilter.querySelector('[data-letter="all"]').classList.add('active');
+                    } else {
+                        // Update active state
+                        alphabetFilter.querySelectorAll('button').forEach(b => b.classList.remove('active'));
+                        this.classList.add('active');
+                        currentLetterFilter = clickedLetter;
+                    }
+
+                    applyFilters();
+                });
+            });
+        }
+
+        // Combined filter function (search + alphabet)
+        function applyFilters() {
+            const searchTerm = searchInput.value.toLowerCase().trim();
             let visibleCount = 0;
 
             rows.forEach(row => {
                 const name = row.dataset.name || '';
                 const publisher = row.dataset.publisher || '';
-                const matches = name.includes(searchTerm) || publisher.includes(searchTerm);
 
-                row.style.display = matches ? '' : 'none';
-                if (matches) visibleCount++;
+                // Check search match
+                const matchesSearch = !searchTerm || name.includes(searchTerm) || publisher.includes(searchTerm);
+
+                // Check letter filter match
+                let matchesLetter = true;
+                if (currentLetterFilter !== 'all') {
+                    const firstChar = name.charAt(0).toUpperCase();
+                    if (currentLetterFilter === '#') {
+                        matchesLetter = !(firstChar >= 'A' && firstChar <= 'Z');
+                    } else {
+                        matchesLetter = firstChar === currentLetterFilter;
+                    }
+                }
+
+                const isVisible = matchesSearch && matchesLetter;
+                row.style.display = isVisible ? '' : 'none';
+                if (isVisible) visibleCount++;
             });
 
             if (resultCount) {
                 resultCount.textContent = `Showing ${visibleCount} of ${totalCount} series`;
             }
-        });
+        }
+
+        // Build the alphabet filter on load
+        buildAlphabetFilter();
+
+        // Search/Filter functionality
+        searchInput.addEventListener('input', applyFilters);
 
         // Sorting functionality
         let currentSort = { column: null, ascending: true };

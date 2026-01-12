@@ -34,9 +34,8 @@
                 <div class="col-md-8">
                     <div class="input-group">
                         <span class="input-group-text bg-white"><i class="bi bi-search"></i></span>
-                        <input type="text" class="form-control" id="searchInput"
-                               placeholder="Enter series name..."
-                               onkeypress="if(event.key==='Enter')doSeriesSearch()">
+                        <input type="text" class="form-control" id="searchInput" placeholder="Enter series name..."
+                            onkeypress="if(event.key==='Enter')doSeriesSearch()">
                         <button class="btn btn-primary" type="button" onclick="doSeriesSearch()">
                             <i class="bi bi-search me-1"></i>Search
                         </button>
@@ -73,14 +72,14 @@
                             <th scope="col" class="ps-4 sortable" data-sort="name" style="cursor: pointer;">
                                 Series <i class="bi bi-chevron-expand text-muted ms-1"></i>
                             </th>
-                            <th scope="col" class="sortable" data-sort="volume" style="cursor: pointer;">
-                                Volume <i class="bi bi-chevron-expand text-muted ms-1"></i>
+                            <th scope="col" class="text-center sortable" data-sort="issues" style="cursor: pointer;">
+                                Issues <i class="bi bi-chevron-expand text-muted ms-1"></i>
                             </th>
                             <th scope="col" class="sortable" data-sort="year" style="cursor: pointer;">
                                 Year Began <i class="bi bi-chevron-expand text-muted ms-1"></i>
                             </th>
-                            <th scope="col" class="text-center sortable" data-sort="issues" style="cursor: pointer;">
-                                Issues <i class="bi bi-chevron-expand text-muted ms-1"></i>
+                            <th scope="col" class="sortable" data-sort="volume" style="cursor: pointer;">
+                                Volume <i class="bi bi-chevron-expand text-muted ms-1"></i>
                             </th>
                         </tr>
                     </thead>
@@ -122,172 +121,172 @@
 </div>
 
 <script>
-document.addEventListener('DOMContentLoaded', function() {
-    // Store all results for filtering
-    let allResults = [];
-    let currentSort = { column: null, ascending: true };
+    document.addEventListener('DOMContentLoaded', function () {
+        // Store all results for filtering
+        let allResults = [];
+        let currentSort = { column: null, ascending: true };
 
-    // Search function
-    window.doSeriesSearch = async function() {
-        const query = document.getElementById('searchInput').value.trim();
-        if (!query) return;
+        // Search function
+        window.doSeriesSearch = async function () {
+            const query = document.getElementById('searchInput').value.trim();
+            if (!query) return;
 
-        // Show loading, hide other states
-        document.getElementById('loadingState').style.display = 'block';
-        document.getElementById('emptyState').style.display = 'none';
-        document.getElementById('noResultsState').style.display = 'none';
-        document.getElementById('resultsCard').style.display = 'none';
-        document.getElementById('filterCard').style.display = 'none';
-        document.getElementById('resultCount').textContent = '';
+            // Show loading, hide other states
+            document.getElementById('loadingState').style.display = 'block';
+            document.getElementById('emptyState').style.display = 'none';
+            document.getElementById('noResultsState').style.display = 'none';
+            document.getElementById('resultsCard').style.display = 'none';
+            document.getElementById('filterCard').style.display = 'none';
+            document.getElementById('resultCount').textContent = '';
 
-        try {
-            const response = await fetch(`/api/series/search?q=${encodeURIComponent(query)}`);
-            const data = await response.json();
+            try {
+                const response = await fetch(`/api/series/search?q=${encodeURIComponent(query)}`);
+                const data = await response.json();
 
-            document.getElementById('loadingState').style.display = 'none';
+                document.getElementById('loadingState').style.display = 'none';
 
-            if (!data.success) {
-                alert('Error: ' + data.error);
+                if (!data.success) {
+                    alert('Error: ' + data.error);
+                    document.getElementById('emptyState').style.display = 'block';
+                    return;
+                }
+
+                if (data.series.length === 0) {
+                    document.getElementById('noResultsState').style.display = 'block';
+                    return;
+                }
+
+                // Store results and populate table
+                allResults = data.series;
+                renderTable(allResults);
+
+                document.getElementById('resultsCard').style.display = 'block';
+                document.getElementById('filterCard').style.display = 'block';
+                document.getElementById('resultCount').textContent = `Found ${data.count} series`;
+
+            } catch (e) {
+                document.getElementById('loadingState').style.display = 'none';
                 document.getElementById('emptyState').style.display = 'block';
-                return;
+                alert('Error: ' + e.message);
             }
+        };
 
-            if (data.series.length === 0) {
-                document.getElementById('noResultsState').style.display = 'block';
-                return;
-            }
+        // Render table rows
+        function renderTable(results) {
+            const tbody = document.getElementById('seriesTableBody');
+            tbody.innerHTML = '';
 
-            // Store results and populate table
-            allResults = data.series;
-            renderTable(allResults);
+            results.forEach(series => {
+                const row = document.createElement('tr');
+                row.dataset.name = (series.name || '').toLowerCase();
+                row.dataset.volume = series.volume || '';
+                row.dataset.year = series.year_began || '';
+                row.dataset.issues = series.issue_count || 0;
 
-            document.getElementById('resultsCard').style.display = 'block';
-            document.getElementById('filterCard').style.display = 'block';
-            document.getElementById('resultCount').textContent = `Found ${data.count} series`;
-
-        } catch (e) {
-            document.getElementById('loadingState').style.display = 'none';
-            document.getElementById('emptyState').style.display = 'block';
-            alert('Error: ' + e.message);
-        }
-    };
-
-    // Render table rows
-    function renderTable(results) {
-        const tbody = document.getElementById('seriesTableBody');
-        tbody.innerHTML = '';
-
-        results.forEach(series => {
-            const row = document.createElement('tr');
-            row.dataset.name = (series.name || '').toLowerCase();
-            row.dataset.volume = series.volume || '';
-            row.dataset.year = series.year_began || '';
-            row.dataset.issues = series.issue_count || 0;
-
-            row.innerHTML = `
+                row.innerHTML = `
                 <td class="ps-4">
                     <a href="/series/${series.slug}" class="text-decoration-none fw-bold">
                         ${escapeHtml(series.name)}
                     </a>
                     ${series.volume ? `<span class="text-muted fw-normal ms-1">Vol. ${series.volume}</span>` : ''}
                 </td>
-                <td>${series.volume || '<span class="text-muted">-</span>'}</td>
-                <td>${series.year_began || '<span class="text-muted">-</span>'}</td>
                 <td class="text-center">
                     ${series.issue_count
                         ? `<span class="badge bg-info">${series.issue_count}</span>`
                         : '<span class="text-muted">-</span>'}
                 </td>
+                <td>${series.year_began || '<span class="text-muted">-</span>'}</td>
+                <td>${series.volume || '<span class="text-muted">-</span>'}</td>
             `;
-            tbody.appendChild(row);
-        });
-    }
-
-    function escapeHtml(text) {
-        const div = document.createElement('div');
-        div.textContent = text || '';
-        return div.innerHTML;
-    }
-
-    // Filter functionality
-    function applyFilters() {
-        const textFilter = document.getElementById('filterInput').value.toLowerCase().trim();
-
-        const rows = document.querySelectorAll('#seriesTableBody tr');
-        let visibleCount = 0;
-
-        rows.forEach(row => {
-            const name = row.dataset.name || '';
-
-            const matchesText = !textFilter || name.includes(textFilter);
-
-            if (matchesText) {
-                row.style.display = '';
-                visibleCount++;
-            } else {
-                row.style.display = 'none';
-            }
-        });
-
-        document.getElementById('resultCount').textContent = `Showing ${visibleCount} of ${allResults.length} series`;
-    }
-
-    document.getElementById('filterInput')?.addEventListener('input', applyFilters);
-
-    // Sorting functionality
-    document.querySelectorAll('.sortable').forEach(header => {
-        header.addEventListener('click', function() {
-            const sortKey = this.dataset.sort;
-
-            if (currentSort.column === sortKey) {
-                currentSort.ascending = !currentSort.ascending;
-            } else {
-                currentSort.column = sortKey;
-                currentSort.ascending = true;
-            }
-
-            // Update header icons
-            document.querySelectorAll('.sortable i').forEach(icon => {
-                icon.className = 'bi bi-chevron-expand text-muted ms-1';
+                tbody.appendChild(row);
             });
-            const icon = this.querySelector('i');
-            icon.className = currentSort.ascending
-                ? 'bi bi-chevron-up text-primary ms-1'
-                : 'bi bi-chevron-down text-primary ms-1';
+        }
 
-            // Sort the stored results
-            const sorted = [...allResults].sort((a, b) => {
-                let aVal, bVal;
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text || '';
+            return div.innerHTML;
+        }
 
-                switch (sortKey) {
-                    case 'name':
-                        aVal = (a.name || '').toLowerCase();
-                        bVal = (b.name || '').toLowerCase();
-                        break;
-                    case 'volume':
-                        aVal = parseInt(a.volume) || 0;
-                        bVal = parseInt(b.volume) || 0;
-                        return currentSort.ascending ? aVal - bVal : bVal - aVal;
-                    case 'year':
-                        aVal = parseInt(a.year_began) || 0;
-                        bVal = parseInt(b.year_began) || 0;
-                        return currentSort.ascending ? aVal - bVal : bVal - aVal;
-                    case 'issues':
-                        aVal = parseInt(a.issue_count) || 0;
-                        bVal = parseInt(b.issue_count) || 0;
-                        return currentSort.ascending ? aVal - bVal : bVal - aVal;
-                    default:
-                        return 0;
+        // Filter functionality
+        function applyFilters() {
+            const textFilter = document.getElementById('filterInput').value.toLowerCase().trim();
+
+            const rows = document.querySelectorAll('#seriesTableBody tr');
+            let visibleCount = 0;
+
+            rows.forEach(row => {
+                const name = row.dataset.name || '';
+
+                const matchesText = !textFilter || name.includes(textFilter);
+
+                if (matchesText) {
+                    row.style.display = '';
+                    visibleCount++;
+                } else {
+                    row.style.display = 'none';
+                }
+            });
+
+            document.getElementById('resultCount').textContent = `Showing ${visibleCount} of ${allResults.length} series`;
+        }
+
+        document.getElementById('filterInput')?.addEventListener('input', applyFilters);
+
+        // Sorting functionality
+        document.querySelectorAll('.sortable').forEach(header => {
+            header.addEventListener('click', function () {
+                const sortKey = this.dataset.sort;
+
+                if (currentSort.column === sortKey) {
+                    currentSort.ascending = !currentSort.ascending;
+                } else {
+                    currentSort.column = sortKey;
+                    currentSort.ascending = true;
                 }
 
-                const comparison = aVal.localeCompare(bVal);
-                return currentSort.ascending ? comparison : -comparison;
-            });
+                // Update header icons
+                document.querySelectorAll('.sortable i').forEach(icon => {
+                    icon.className = 'bi bi-chevron-expand text-muted ms-1';
+                });
+                const icon = this.querySelector('i');
+                icon.className = currentSort.ascending
+                    ? 'bi bi-chevron-up text-primary ms-1'
+                    : 'bi bi-chevron-down text-primary ms-1';
 
-            renderTable(sorted);
-            applyFilters(); // Re-apply any active filters
+                // Sort the stored results
+                const sorted = [...allResults].sort((a, b) => {
+                    let aVal, bVal;
+
+                    switch (sortKey) {
+                        case 'name':
+                            aVal = (a.name || '').toLowerCase();
+                            bVal = (b.name || '').toLowerCase();
+                            break;
+                        case 'volume':
+                            aVal = parseInt(a.volume) || 0;
+                            bVal = parseInt(b.volume) || 0;
+                            return currentSort.ascending ? aVal - bVal : bVal - aVal;
+                        case 'year':
+                            aVal = parseInt(a.year_began) || 0;
+                            bVal = parseInt(b.year_began) || 0;
+                            return currentSort.ascending ? aVal - bVal : bVal - aVal;
+                        case 'issues':
+                            aVal = parseInt(a.issue_count) || 0;
+                            bVal = parseInt(b.issue_count) || 0;
+                            return currentSort.ascending ? aVal - bVal : bVal - aVal;
+                        default:
+                            return 0;
+                    }
+
+                    const comparison = aVal.localeCompare(bVal);
+                    return currentSort.ascending ? comparison : -comparison;
+                });
+
+                renderTable(sorted);
+                applyFilters(); // Re-apply any active filters
+            });
         });
     });
-});
 </script>
 {% endblock %}

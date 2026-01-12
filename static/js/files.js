@@ -2130,17 +2130,22 @@ if (createFolderNameInput) createFolderNameInput.addEventListener('keypress', fu
 let movingModalEl = document.getElementById('movingModal');
 let movingStatusText = document.getElementById('movingStatusText');
 let movingProgressBar = document.getElementById('movingProgressBar');
-let movingModal = new bootstrap.Modal(movingModalEl, {
-  backdrop: 'static',
-  keyboard: false
-});
+let movingModal = null;
+if (movingModalEl) {
+  movingModal = new bootstrap.Modal(movingModalEl, {
+    backdrop: 'static',
+    keyboard: false
+  });
+}
 function showMovingModal() {
+  if (!movingModal) return;
   movingStatusText.textContent = "Preparing to move items...";
   movingProgressBar.style.width = "0%";
   movingProgressBar.setAttribute('aria-valuenow', 0);
   movingModal.show();
 }
 function hideMovingModal() {
+  if (!movingModal) return;
   try {
     movingModal.hide();
 
