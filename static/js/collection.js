@@ -45,14 +45,16 @@ let isRecentlyAddedMode = false;
 
 // Filter state
 let currentFilter = 'all';
-let gridSearchTerm = '';
+let gridSearchTerm = '';  // Normalized (trimmed, lowercase) for filtering
+let gridSearchRaw = '';   // Original input value for display
 
 /**
  * Handle search input changes
  * @param {string} value - The search term
  */
 function onGridSearch(value) {
-    gridSearchTerm = value.trim().toLowerCase();
+    gridSearchRaw = value;  // Keep original for display
+    gridSearchTerm = value.trim().toLowerCase();  // Normalize for filtering
     currentPage = 1; // Reset to first page when searching
     renderPage();
 }
@@ -227,6 +229,7 @@ async function loadDirectory(path, preservePage = false, forceRefresh = false) {
         if (!preservePage) {
             currentFilter = 'all';
             gridSearchTerm = '';
+            gridSearchRaw = '';
         }
 
         // Reset All Books mode when loading a new directory
@@ -473,6 +476,7 @@ async function loadAllBooks(preservePage = false) {
                 currentPage = 1;
                 currentFilter = 'all';
                 gridSearchTerm = '';
+                gridSearchRaw = '';
             }
 
             updateMainViewButtons();
@@ -492,6 +496,7 @@ async function loadAllBooks(preservePage = false) {
                 currentPage = 1;
                 currentFilter = 'all';
                 gridSearchTerm = '';
+                gridSearchRaw = '';
             }
 
             updateMainViewButtons();
@@ -720,6 +725,7 @@ async function loadRecentlyAdded(preservePage = false) {
             currentPage = 1;
             currentFilter = 'all';
             gridSearchTerm = '';
+            gridSearchRaw = '';
         }
 
         // Update breadcrumb
@@ -1352,9 +1358,9 @@ function updateFilterBar() {
                 searchRow.innerHTML = `<input type="text" id="gridSearch" class="form-control form-control-sm" placeholder="Type to filter..." oninput="onGridSearch(this.value)">`;
                 existingInput = document.getElementById('gridSearch');
             }
-            // Update value if it doesn't match current search term
-            if (existingInput && existingInput.value !== gridSearchTerm) {
-                existingInput.value = gridSearchTerm;
+            // Update value if it doesn't match current search term (use raw for display)
+            if (existingInput && existingInput.value !== gridSearchRaw) {
+                existingInput.value = gridSearchRaw;
             }
         } else {
             // Remove input if items <= 25
