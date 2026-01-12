@@ -1582,11 +1582,27 @@ def series_view(slug):
             else:
                 series_dict_for_save = {'id': series_id, 'name': getattr(series_info, 'name', '')}
 
+            # Compute cover_image from first issue before saving
+            cover_image = None
+            if all_issues:
+                def get_issue_attr(obj, key, default=None):
+                    if isinstance(obj, dict):
+                        return obj.get(key, default)
+                    return getattr(obj, key, default)
+                def issue_sort_key(x):
+                    num = get_issue_attr(x, 'number')
+                    if num and str(num).replace('.', '').isdigit():
+                        return float(num)
+                    return 999
+                sorted_for_cover = sorted(all_issues, key=issue_sort_key)
+                if sorted_for_cover:
+                    cover_image = get_issue_attr(sorted_for_cover[0], 'image')
+
             # Save series to database FIRST (required for foreign key constraint)
-            # Use empty mapped_path for now - it will be set when user maps the directory
+            # Preserve existing mapping if any, otherwise use None (not empty string)
             from database import get_series_mapping
             existing_mapping = get_series_mapping(series_id)
-            save_series_mapping(series_dict_for_save, existing_mapping or '')
+            save_series_mapping(series_dict_for_save, existing_mapping or None, cover_image)
 
             # Now save issues to cache (series must exist first)
             save_issues_bulk(all_issues, series_id)
@@ -1598,9 +1614,14 @@ def series_view(slug):
                 return obj.get(key, default)
             return getattr(obj, key, default)
 
-        # Get cover image from first issue (if available)
+        # Get cover image - prefer cached cover_image, fall back to computing from issues
         first_issue_image = None
-        if all_issues:
+        if use_cache and cached_series:
+            # Try to use cached cover_image first
+            first_issue_image = cached_series.get('cover_image')
+
+        # If no cached cover_image, compute from issues
+        if not first_issue_image and all_issues:
             # Sort by issue number to get the first issue
             def sort_key(x):
                 num = get_attr(x, 'number')

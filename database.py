@@ -352,6 +352,9 @@ def init_db():
         if 'last_synced_at' not in series_columns:
             c.execute('ALTER TABLE series ADD COLUMN last_synced_at TIMESTAMP')
             app_logger.info("Added last_synced_at column to series table")
+        if 'cover_image' not in series_columns:
+            c.execute('ALTER TABLE series ADD COLUMN cover_image TEXT')
+            app_logger.info("Added cover_image column to series table")
 
         # Create issues table (Metron issues cached for tracked series)
         c.execute('''
@@ -3048,13 +3051,14 @@ def update_publisher_logo(publisher_id, logo_path):
 # Metron Series CRUD Operations
 # =============================================================================
 
-def save_series_mapping(series_data, mapped_path):
+def save_series_mapping(series_data, mapped_path, cover_image=None):
     """
     Save a Metron series with its local directory mapping.
 
     Args:
         series_data: Dictionary with series data from Metron API
         mapped_path: Local directory path to map to
+        cover_image: Optional cover image URL from first issue
 
     Returns:
         True if successful, False otherwise
@@ -3084,8 +3088,8 @@ def save_series_mapping(series_data, mapped_path):
             INSERT OR REPLACE INTO series
             (id, name, sort_name, volume, status, publisher_id, imprint,
              volume_year, year_end, desc, cv_id, gcd_id, resource_url, mapped_path,
-             created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+             cover_image, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
                     COALESCE((SELECT created_at FROM series WHERE id = ?), CURRENT_TIMESTAMP),
                     CURRENT_TIMESTAMP)
         ''', (
@@ -3103,6 +3107,7 @@ def save_series_mapping(series_data, mapped_path):
             series_data.get('gcd_id'),
             series_data.get('resource_url'),
             mapped_path,
+            cover_image,
             series_data.get('id')  # For the COALESCE subquery
         ))
 
@@ -3193,7 +3198,7 @@ def get_all_mapped_series():
             SELECT ms.*, p.name as publisher_name
             FROM series ms
             LEFT JOIN publishers p ON ms.publisher_id = p.id
-            WHERE ms.mapped_path IS NOT NULL
+            WHERE ms.mapped_path IS NOT NULL AND ms.mapped_path != ''
             ORDER BY ms.name
         ''')
         rows = c.fetchall()
