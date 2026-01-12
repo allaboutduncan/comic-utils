@@ -87,11 +87,11 @@
                         <tr data-id="{{ pub.id }}" data-name="{{ pub.name|lower }}">
                             <td class="ps-4">
                                 {% if pub.logo %}
-                                <img src="/cache/{{ pub.logo }}" alt="{{ pub.name }}"
-                                     class="rounded" style="width: 40px; height: 40px; object-fit: contain;">
+                                <img src="/cache/{{ pub.logo }}" alt="{{ pub.name }}" class="rounded"
+                                    style="width: 40px; height: 40px; object-fit: contain;">
                                 {% else %}
                                 <div class="bg-light rounded d-flex align-items-center justify-content-center"
-                                     style="width: 40px; height: 40px;">
+                                    style="width: 40px; height: 40px;">
                                     <i class="bi bi-building text-muted"></i>
                                 </div>
                                 {% endif %}
@@ -102,7 +102,7 @@
                             <td class="text-center">
                                 {% if pub.id > 0 %}
                                 <a href="https://metron.cloud/publisher/{{ pub.id }}/" target="_blank"
-                                   class="badge bg-info text-decoration-none" title="View on Metron">
+                                    class="badge bg-info text-decoration-none" title="View on Metron">
                                     {{ pub.id }}
                                 </a>
                                 {% else %}
@@ -126,17 +126,11 @@
                             <td class="text-end pe-4">
                                 <div class="btn-group" role="group">
                                     <button class="btn btn-sm btn-outline-secondary" title="Edit"
-                                            onclick="editPublisher({{ pub.id }}, '{{ pub.name|replace("'", "\\'") }}', '{{ pub.path|default("", true)|replace("'", "\\'") }}')">
+                                        onclick="editPublisher({{ pub.id }}, '{{ pub.name|replace("'", "\\'") }}', '{{ pub.path|default("", true)|replace("'", "\\'") }}')">
                                         <i class="bi bi-pencil"></i>
                                     </button>
-                                    {% if pub.id > 0 and not pub.logo %}
-                                    <button class="btn btn-sm btn-outline-info" title="Download Logo"
-                                            onclick="downloadLogo({{ pub.id }})">
-                                        <i class="bi bi-image"></i>
-                                    </button>
-                                    {% endif %}
                                     <button class="btn btn-sm btn-outline-danger" title="Delete"
-                                            onclick="deletePublisher({{ pub.id }}, '{{ pub.name|replace("'", "\\'") }}')">
+                                        onclick="deletePublisher({{ pub.id }}, '{{ pub.name|replace("'", "\\'") }}')">
                                         <i class="bi bi-trash"></i>
                                     </button>
                                 </div>
@@ -165,7 +159,7 @@
             <div class="modal-body">
                 <div class="input-group mb-4">
                     <input type="text" class="form-control form-control-lg" id="metronSearchInput"
-                           placeholder="Enter publisher name..." autocomplete="off">
+                        placeholder="Enter publisher name..." autocomplete="off">
                     <button class="btn btn-primary" type="button" onclick="searchMetron()">
                         <i class="bi bi-search"></i>
                     </button>
@@ -256,138 +250,138 @@
 </div>
 
 <script>
-document.addEventListener('DOMContentLoaded', function() {
-    const searchInput = document.getElementById('searchInput');
-    const table = document.getElementById('publishersTable');
-    const resultCount = document.getElementById('resultCount');
+    document.addEventListener('DOMContentLoaded', function () {
+        const searchInput = document.getElementById('searchInput');
+        const table = document.getElementById('publishersTable');
+        const resultCount = document.getElementById('resultCount');
 
-    if (!searchInput || !table) return;
+        if (!searchInput || !table) return;
 
-    const tbody = table.querySelector('tbody');
-    const rows = Array.from(tbody.querySelectorAll('tr'));
-    const totalCount = rows.length;
+        const tbody = table.querySelector('tbody');
+        const rows = Array.from(tbody.querySelectorAll('tr'));
+        const totalCount = rows.length;
 
-    // Search/Filter functionality
-    searchInput.addEventListener('input', function() {
-        const searchTerm = this.value.toLowerCase().trim();
-        let visibleCount = 0;
+        // Search/Filter functionality
+        searchInput.addEventListener('input', function () {
+            const searchTerm = this.value.toLowerCase().trim();
+            let visibleCount = 0;
 
-        rows.forEach(row => {
-            const name = row.dataset.name || '';
-            const matches = name.includes(searchTerm);
+            rows.forEach(row => {
+                const name = row.dataset.name || '';
+                const matches = name.includes(searchTerm);
 
-            row.style.display = matches ? '' : 'none';
-            if (matches) visibleCount++;
+                row.style.display = matches ? '' : 'none';
+                if (matches) visibleCount++;
+            });
+
+            if (resultCount) {
+                resultCount.textContent = `Showing ${visibleCount} of ${totalCount} publishers`;
+            }
         });
 
-        if (resultCount) {
-            resultCount.textContent = `Showing ${visibleCount} of ${totalCount} publishers`;
-        }
-    });
+        // Sorting functionality
+        let currentSort = { column: null, ascending: true };
 
-    // Sorting functionality
-    let currentSort = { column: null, ascending: true };
+        document.querySelectorAll('.sortable').forEach(header => {
+            header.addEventListener('click', function () {
+                const sortKey = this.dataset.sort;
 
-    document.querySelectorAll('.sortable').forEach(header => {
-        header.addEventListener('click', function() {
-            const sortKey = this.dataset.sort;
-
-            if (currentSort.column === sortKey) {
-                currentSort.ascending = !currentSort.ascending;
-            } else {
-                currentSort.column = sortKey;
-                currentSort.ascending = true;
-            }
-
-            // Update header icons
-            document.querySelectorAll('.sortable i').forEach(icon => {
-                icon.className = 'bi bi-chevron-expand text-muted ms-1';
-            });
-            const icon = this.querySelector('i');
-            icon.className = currentSort.ascending
-                ? 'bi bi-chevron-up text-primary ms-1'
-                : 'bi bi-chevron-down text-primary ms-1';
-
-            // Sort rows
-            const sortedRows = rows.slice().sort((a, b) => {
-                let aVal, bVal;
-
-                switch (sortKey) {
-                    case 'name':
-                        aVal = a.dataset.name || '';
-                        bVal = b.dataset.name || '';
-                        break;
-                    case 'id':
-                        aVal = parseInt(a.dataset.id) || 0;
-                        bVal = parseInt(b.dataset.id) || 0;
-                        return currentSort.ascending ? aVal - bVal : bVal - aVal;
-                    default:
-                        return 0;
+                if (currentSort.column === sortKey) {
+                    currentSort.ascending = !currentSort.ascending;
+                } else {
+                    currentSort.column = sortKey;
+                    currentSort.ascending = true;
                 }
 
-                const comparison = aVal.localeCompare(bVal);
-                return currentSort.ascending ? comparison : -comparison;
-            });
+                // Update header icons
+                document.querySelectorAll('.sortable i').forEach(icon => {
+                    icon.className = 'bi bi-chevron-expand text-muted ms-1';
+                });
+                const icon = this.querySelector('i');
+                icon.className = currentSort.ascending
+                    ? 'bi bi-chevron-up text-primary ms-1'
+                    : 'bi bi-chevron-down text-primary ms-1';
 
-            sortedRows.forEach(row => tbody.appendChild(row));
+                // Sort rows
+                const sortedRows = rows.slice().sort((a, b) => {
+                    let aVal, bVal;
+
+                    switch (sortKey) {
+                        case 'name':
+                            aVal = a.dataset.name || '';
+                            bVal = b.dataset.name || '';
+                            break;
+                        case 'id':
+                            aVal = parseInt(a.dataset.id) || 0;
+                            bVal = parseInt(b.dataset.id) || 0;
+                            return currentSort.ascending ? aVal - bVal : bVal - aVal;
+                        default:
+                            return 0;
+                    }
+
+                    const comparison = aVal.localeCompare(bVal);
+                    return currentSort.ascending ? comparison : -comparison;
+                });
+
+                sortedRows.forEach(row => tbody.appendChild(row));
+            });
+        });
+
+        // Enter key on Metron search
+        document.getElementById('metronSearchInput').addEventListener('keypress', function (e) {
+            if (e.key === 'Enter') searchMetron();
         });
     });
 
-    // Enter key on Metron search
-    document.getElementById('metronSearchInput').addEventListener('keypress', function(e) {
-        if (e.key === 'Enter') searchMetron();
-    });
-});
+    async function searchMetron() {
+        const query = document.getElementById('metronSearchInput').value.trim();
+        const resultsDiv = document.getElementById('metronResults');
 
-async function searchMetron() {
-    const query = document.getElementById('metronSearchInput').value.trim();
-    const resultsDiv = document.getElementById('metronResults');
+        if (!query) return;
 
-    if (!query) return;
-
-    resultsDiv.innerHTML = `
+        resultsDiv.innerHTML = `
         <div class="text-center py-4">
             <div class="spinner-border text-primary" role="status"></div>
             <p class="mt-2 text-muted">Searching Metron...</p>
         </div>
     `;
 
-    try {
-        const response = await fetch(`/api/publishers/search?q=${encodeURIComponent(query)}`);
-        const data = await response.json();
+        try {
+            const response = await fetch(`/api/publishers/search?q=${encodeURIComponent(query)}`);
+            const data = await response.json();
 
-        if (!data.success) {
-            resultsDiv.innerHTML = `
+            if (!data.success) {
+                resultsDiv.innerHTML = `
                 <div class="alert alert-danger">
                     <i class="bi bi-exclamation-triangle me-2"></i>${data.error}
                 </div>
             `;
-            return;
-        }
+                return;
+            }
 
-        if (data.publishers.length === 0) {
-            resultsDiv.innerHTML = `
+            if (data.publishers.length === 0) {
+                resultsDiv.innerHTML = `
                 <div class="text-center text-muted py-4">
                     <i class="bi bi-inbox display-4 opacity-25"></i>
                     <p class="mt-2">No publishers found</p>
                 </div>
             `;
-            return;
-        }
+                return;
+            }
 
-        resultsDiv.innerHTML = `
+            resultsDiv.innerHTML = `
             <div class="list-group">
                 ${data.publishers.map(pub => `
                     <div class="list-group-item d-flex align-items-center justify-content-between">
                         <div class="d-flex align-items-center">
                             ${pub.image ?
-                                `<img src="${pub.image}" alt="${pub.name}" class="rounded me-3"
+                    `<img src="${pub.image}" alt="${pub.name}" class="rounded me-3"
                                      style="width: 48px; height: 48px; object-fit: contain;">` :
-                                `<div class="bg-light rounded me-3 d-flex align-items-center justify-content-center"
+                    `<div class="bg-light rounded me-3 d-flex align-items-center justify-content-center"
                                      style="width: 48px; height: 48px;">
                                     <i class="bi bi-building text-muted"></i>
                                 </div>`
-                            }
+                }
                             <div>
                                 <div class="fw-bold">${pub.name}</div>
                                 <small class="text-muted">ID: ${pub.id}</small>
@@ -395,162 +389,141 @@ async function searchMetron() {
                         </div>
                         <div>
                             ${pub.exists ?
-                                `<span class="badge bg-success"><i class="bi bi-check"></i> Added</span>` :
-                                `<button class="btn btn-sm btn-primary" onclick="addFromMetron(${pub.id}, '${pub.name.replace(/'/g, "\\'")}', ${pub.image ? `'${pub.image}'` : 'null'})">
+                    `<span class="badge bg-success"><i class="bi bi-check"></i> Added</span>` :
+                    `<button class="btn btn-sm btn-primary" onclick="addFromMetron(${pub.id}, '${pub.name.replace(/'/g, "\\'")}', ${pub.image ? `'${pub.image}'` : 'null'})">
                                     <i class="bi bi-plus-lg me-1"></i>Add
                                 </button>`
-                            }
+                }
                         </div>
                     </div>
                 `).join('')}
             </div>
         `;
-    } catch (error) {
-        resultsDiv.innerHTML = `
+        } catch (error) {
+            resultsDiv.innerHTML = `
             <div class="alert alert-danger">
                 <i class="bi bi-exclamation-triangle me-2"></i>Error: ${error.message}
             </div>
         `;
-    }
-}
-
-async function addFromMetron(id, name, imageUrl) {
-    try {
-        // First add the publisher
-        const response = await fetch('/api/publishers', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ id, name })
-        });
-
-        const data = await response.json();
-        if (!data.success) {
-            alert('Error: ' + data.error);
-            return;
         }
+    }
 
-        // If there's an image, download it
-        if (imageUrl) {
-            await fetch(`/api/publishers/${id}/logo`, {
+    async function addFromMetron(id, name, imageUrl) {
+        try {
+            // First add the publisher
+            const response = await fetch('/api/publishers', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ url: imageUrl })
+                body: JSON.stringify({ id, name })
             });
+
+            const data = await response.json();
+            if (!data.success) {
+                alert('Error: ' + data.error);
+                return;
+            }
+
+            // If there's an image, download it
+            if (imageUrl) {
+                await fetch(`/api/publishers/${id}/logo`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ url: imageUrl })
+                });
+            }
+
+            // Reload page to show new publisher
+            location.reload();
+        } catch (error) {
+            alert('Error: ' + error.message);
         }
-
-        // Reload page to show new publisher
-        location.reload();
-    } catch (error) {
-        alert('Error: ' + error.message);
-    }
-}
-
-async function addManualPublisher() {
-    const name = document.getElementById('pubName').value.trim();
-    const path = document.getElementById('pubPath').value.trim();
-    const logo = document.getElementById('pubLogo').value.trim();
-
-    if (!name) {
-        alert('Name is required');
-        return;
     }
 
-    try {
-        const response = await fetch('/api/publishers', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ name, path: path || null, logo: logo || null })
-        });
+    async function addManualPublisher() {
+        const name = document.getElementById('pubName').value.trim();
+        const path = document.getElementById('pubPath').value.trim();
+        const logo = document.getElementById('pubLogo').value.trim();
 
-        const data = await response.json();
-        if (!data.success) {
-            alert('Error: ' + data.error);
+        if (!name) {
+            alert('Name is required');
             return;
         }
 
-        location.reload();
-    } catch (error) {
-        alert('Error: ' + error.message);
+        try {
+            const response = await fetch('/api/publishers', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name, path: path || null, logo: logo || null })
+            });
+
+            const data = await response.json();
+            if (!data.success) {
+                alert('Error: ' + data.error);
+                return;
+            }
+
+            location.reload();
+        } catch (error) {
+            alert('Error: ' + error.message);
+        }
     }
-}
 
-async function deletePublisher(id, name) {
-    if (!confirm(`Delete publisher "${name}"?`)) return;
+    async function deletePublisher(id, name) {
+        if (!confirm(`Delete publisher "${name}"?`)) return;
 
-    try {
-        const response = await fetch(`/api/publishers/${id}`, {
-            method: 'DELETE'
-        });
+        try {
+            const response = await fetch(`/api/publishers/${id}`, {
+                method: 'DELETE'
+            });
 
-        const data = await response.json();
-        if (!data.success) {
-            alert('Error: ' + data.error);
+            const data = await response.json();
+            if (!data.success) {
+                alert('Error: ' + data.error);
+                return;
+            }
+
+            location.reload();
+        } catch (error) {
+            alert('Error: ' + error.message);
+        }
+    }
+
+    function editPublisher(id, name, path) {
+        document.getElementById('editPubId').value = id;
+        document.getElementById('editPubName').value = name;
+        document.getElementById('editPubPath').value = path || '';
+
+        const modal = new bootstrap.Modal(document.getElementById('editPublisherModal'));
+        modal.show();
+    }
+
+    async function savePublisher() {
+        const id = document.getElementById('editPubId').value;
+        const name = document.getElementById('editPubName').value.trim();
+        const path = document.getElementById('editPubPath').value.trim();
+
+        if (!name) {
+            alert('Name is required');
             return;
         }
 
-        location.reload();
-    } catch (error) {
-        alert('Error: ' + error.message);
-    }
-}
+        try {
+            const response = await fetch(`/api/publishers/${id}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name, path: path || '' })
+            });
 
-async function downloadLogo(publisherId) {
-    try {
-        // First get publisher details from Metron to get image URL
-        const searchResponse = await fetch(`/api/publishers/search?q=id:${publisherId}`);
+            const data = await response.json();
+            if (!data.success) {
+                alert('Error: ' + data.error);
+                return;
+            }
 
-        // For now, we'll need to fetch from Metron API directly
-        // This is a simplified version - in production you'd want to cache this
-        const response = await fetch(`/api/publishers/${publisherId}/logo`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ url: `https://metron.cloud/api/publisher/${publisherId}/` })
-        });
-
-        // Actually, we need to first get the image URL from Metron
-        // Let's show an alert for now
-        alert('To download logo, use the Search Metron feature which includes the logo URL.');
-    } catch (error) {
-        alert('Error: ' + error.message);
-    }
-}
-
-function editPublisher(id, name, path) {
-    document.getElementById('editPubId').value = id;
-    document.getElementById('editPubName').value = name;
-    document.getElementById('editPubPath').value = path || '';
-
-    const modal = new bootstrap.Modal(document.getElementById('editPublisherModal'));
-    modal.show();
-}
-
-async function savePublisher() {
-    const id = document.getElementById('editPubId').value;
-    const name = document.getElementById('editPubName').value.trim();
-    const path = document.getElementById('editPubPath').value.trim();
-
-    if (!name) {
-        alert('Name is required');
-        return;
-    }
-
-    try {
-        const response = await fetch(`/api/publishers/${id}`, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ name, path: path || '' })
-        });
-
-        const data = await response.json();
-        if (!data.success) {
-            alert('Error: ' + data.error);
-            return;
+            location.reload();
+        } catch (error) {
+            alert('Error: ' + error.message);
         }
-
-        location.reload();
-    } catch (error) {
-        alert('Error: ' + error.message);
     }
-}
 </script>
 {% endblock %}

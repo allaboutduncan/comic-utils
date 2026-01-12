@@ -169,11 +169,12 @@
                                 </button>
                                 {% endif %}
                                 {% if mapped_path %}
-                                <button class="btn btn-outline-secondary" onclick="syncSeries()" id="sync-btn">
-                                    <i class="bi bi-arrow-repeat me-1"></i>Sync
+                                <button class="btn btn-outline-secondary" onclick="syncSeries()" id="sync-btn"
+                                    title="Check API for New Issues">
+                                    <i class="bi bi-arrow-repeat me-1"></i>API Sync
                                 </button>
                                 <button class="btn btn-outline-success" onclick="refreshCollectionStatus()"
-                                    id="refresh-btn">
+                                    id="refresh-btn" title="Check Collection for New Issues">
                                     <i class="bi bi-arrow-clockwise me-1"></i>Refresh
                                 </button>
                                 {% endif %}
@@ -227,7 +228,7 @@
                         </tr>
                     </thead>
                     <tbody>
-                        {% for issue in issues %}
+                        {% for issue in issues|reverse %}
                         {% set status = issue_status.get(issue.number|string, {}) if issue_status else {} %}
                         {% set is_upcoming = issue.store_date and (issue.store_date|string) > today %}
                         <tr

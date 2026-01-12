@@ -50,13 +50,21 @@
     <div class="card border-0 shadow-sm mb-4">
         <div class="card-body">
             <div class="row align-items-center">
-                <div class="col-md-6">
+                <div class="col-md-4">
                     <div class="input-group">
                         <span class="input-group-text bg-white"><i class="bi bi-search"></i></span>
                         <input type="text" class="form-control" id="searchInput" placeholder="Search series...">
                     </div>
                 </div>
-                <div class="col-md-6 text-md-end mt-3 mt-md-0">
+                <div class="col-md-4 mt-3 mt-md-0">
+                    <select class="form-select" id="publisherFilter">
+                        <option value="">All Publishers</option>
+                        {% for pub in publishers %}
+                        <option value="{{ pub.name|lower }}">{{ pub.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-4 text-md-end mt-3 mt-md-0">
                     <span class="text-muted" id="resultCount">Showing {{ total_series }} series</span>
                 </div>
             </div>
@@ -159,6 +167,7 @@
         const table = document.getElementById('seriesTable');
         const resultCount = document.getElementById('resultCount');
         const alphabetFilter = document.getElementById('alphabetFilter');
+        const publisherFilter = document.getElementById('publisherFilter');
 
         if (!searchInput || !table) return;
 
@@ -168,6 +177,7 @@
 
         // Current filter state
         let currentLetterFilter = 'all';
+        let currentPublisherFilter = '';
 
         // Build alphabet filter buttons
         function buildAlphabetFilter() {
@@ -223,7 +233,7 @@
             });
         }
 
-        // Combined filter function (search + alphabet)
+        // Combined filter function (search + alphabet + publisher)
         function applyFilters() {
             const searchTerm = searchInput.value.toLowerCase().trim();
             let visibleCount = 0;
@@ -232,8 +242,11 @@
                 const name = row.dataset.name || '';
                 const publisher = row.dataset.publisher || '';
 
-                // Check search match
-                const matchesSearch = !searchTerm || name.includes(searchTerm) || publisher.includes(searchTerm);
+                // Check search match (series name only)
+                const matchesSearch = !searchTerm || name.includes(searchTerm);
+
+                // Check publisher filter match
+                const matchesPublisher = !currentPublisherFilter || publisher === currentPublisherFilter;
 
                 // Check letter filter match
                 let matchesLetter = true;
@@ -246,7 +259,7 @@
                     }
                 }
 
-                const isVisible = matchesSearch && matchesLetter;
+                const isVisible = matchesSearch && matchesPublisher && matchesLetter;
                 row.style.display = isVisible ? '' : 'none';
                 if (isVisible) visibleCount++;
             });
@@ -261,6 +274,14 @@
 
         // Search/Filter functionality
         searchInput.addEventListener('input', applyFilters);
+
+        // Publisher filter functionality
+        if (publisherFilter) {
+            publisherFilter.addEventListener('change', function() {
+                currentPublisherFilter = this.value;
+                applyFilters();
+            });
+        }
 
         // Sorting functionality
         let currentSort = { column: null, ascending: true };

@@ -911,13 +911,15 @@ def pull_list():
     """
     Pull List page - shows all tracked series in the database.
     """
-    from database import get_all_mapped_series
+    from database import get_all_mapped_series, get_all_publishers
 
     series_list = get_all_mapped_series()
+    publishers = get_all_publishers()
 
     return render_template('pull_list.html',
                          series_list=series_list,
-                         total_series=len(series_list))
+                         total_series=len(series_list),
+                         publishers=publishers)
 
 
 @app.route('/series-search')
