@@ -135,6 +135,26 @@ def init_db():
                 VALUES (1, 'disabled', '03:00', 0)
             ''')
 
+        # Create GetComics auto-download schedule table
+        c.execute('''
+            CREATE TABLE IF NOT EXISTS getcomics_schedule (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                frequency TEXT NOT NULL DEFAULT 'disabled',
+                time TEXT NOT NULL DEFAULT '03:00',
+                weekday INTEGER DEFAULT 0,
+                last_run TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+
+        # Insert default getcomics schedule if not exists
+        c.execute('SELECT COUNT(*) FROM getcomics_schedule WHERE id = 1')
+        if c.fetchone()[0] == 0:
+            c.execute('''
+                INSERT INTO getcomics_schedule (id, frequency, time, weekday)
+                VALUES (1, 'disabled', '03:00', 0)
+            ''')
+
         # Create browse_cache table (cache pre-computed browse results)
         c.execute('''
             CREATE TABLE IF NOT EXISTS browse_cache (
@@ -1325,6 +1345,107 @@ def update_last_sync():
 
     except Exception as e:
         app_logger.error(f"Failed to update last sync timestamp: {e}")
+        return False
+
+
+#########################
+#   GetComics Schedule  #
+#########################
+
+def get_getcomics_schedule():
+    """
+    Get the GetComics auto-download schedule.
+
+    Returns:
+        Dictionary with frequency, time, weekday, and last_run, or None on error
+    """
+    try:
+        conn = get_db_connection()
+        if not conn:
+            return None
+
+        c = conn.cursor()
+        c.execute('SELECT frequency, time, weekday, last_run FROM getcomics_schedule WHERE id = 1')
+        row = c.fetchone()
+        conn.close()
+
+        if row:
+            return {
+                'frequency': row[0],
+                'time': row[1],
+                'weekday': row[2],
+                'last_run': row[3]
+            }
+
+        return None
+
+    except Exception as e:
+        app_logger.error(f"Failed to get getcomics schedule: {e}")
+        return None
+
+
+def save_getcomics_schedule(frequency, time, weekday=0):
+    """
+    Save the GetComics auto-download schedule.
+
+    Args:
+        frequency: 'disabled', 'daily', or 'weekly'
+        time: Time in HH:MM format
+        weekday: Day of week (0=Monday, 6=Sunday)
+
+    Returns:
+        True if successful, False otherwise
+    """
+    try:
+        conn = get_db_connection()
+        if not conn:
+            return False
+
+        c = conn.cursor()
+        c.execute('''
+            UPDATE getcomics_schedule
+            SET frequency = ?, time = ?, weekday = ?, updated_at = CURRENT_TIMESTAMP
+            WHERE id = 1
+        ''', (frequency, time, weekday))
+
+        conn.commit()
+        conn.close()
+
+        app_logger.info(f"Saved getcomics schedule: {frequency} at {time}")
+        return True
+
+    except Exception as e:
+        app_logger.error(f"Failed to save getcomics schedule: {e}")
+        return False
+
+
+def update_last_getcomics_run():
+    """
+    Update the last_run timestamp for GetComics auto-download.
+
+    Returns:
+        True if successful, False otherwise
+    """
+    try:
+        conn = get_db_connection()
+        if not conn:
+            return False
+
+        c = conn.cursor()
+        c.execute('''
+            UPDATE getcomics_schedule
+            SET last_run = CURRENT_TIMESTAMP
+            WHERE id = 1
+        ''')
+
+        conn.commit()
+        conn.close()
+
+        app_logger.info("Updated last getcomics run timestamp")
+        return True
+
+    except Exception as e:
+        app_logger.error(f"Failed to update last getcomics run timestamp: {e}")
         return False
 
 
@@ -3084,6 +3205,13 @@ def save_series_mapping(series_data, mapped_path, cover_image=None):
         if isinstance(imprint, dict):
             imprint = imprint.get('name', str(imprint))
 
+        # Convert URL fields to strings (mokkari returns Pydantic HttpUrl types)
+        resource_url = series_data.get('resource_url')
+        if resource_url:
+            resource_url = str(resource_url)
+        if cover_image:
+            cover_image = str(cover_image)
+
         c.execute('''
             INSERT OR REPLACE INTO series
             (id, name, sort_name, volume, status, publisher_id, imprint,
@@ -3105,7 +3233,7 @@ def save_series_mapping(series_data, mapped_path, cover_image=None):
             series_data.get('desc'),
             series_data.get('cv_id'),
             series_data.get('gcd_id'),
-            series_data.get('resource_url'),
+            resource_url,
             mapped_path,
             cover_image,
             series_data.get('id')  # For the COALESCE subquery
@@ -3119,6 +3247,40 @@ def save_series_mapping(series_data, mapped_path, cover_image=None):
 
     except Exception as e:
         app_logger.error(f"Failed to save series mapping: {e}")
+        return False
+
+
+def update_series_desc(series_id, desc):
+    """
+    Update the description for a series.
+
+    Args:
+        series_id: Metron series ID
+        desc: Description text to set
+
+    Returns:
+        True if successful, False otherwise
+    """
+    try:
+        conn = get_db_connection()
+        if not conn:
+            return False
+
+        c = conn.cursor()
+        c.execute('''
+            UPDATE series
+            SET desc = ?, updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+        ''', (desc, series_id))
+
+        conn.commit()
+        conn.close()
+
+        app_logger.info(f"Updated description for series {series_id}")
+        return True
+
+    except Exception as e:
+        app_logger.error(f"Failed to update series description: {e}")
         return False
 
 

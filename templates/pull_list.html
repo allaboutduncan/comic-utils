@@ -90,6 +90,9 @@
                             <th scope="col" class="ps-4 sortable" data-sort="name" style="cursor: pointer;">
                                 Series <i class="bi bi-chevron-expand text-muted ms-1"></i>
                             </th>
+                            <th scope="col" class="sortable" data-sort="status" style="cursor: pointer;">
+                                Status <i class="bi bi-chevron-expand text-muted ms-1"></i>
+                            </th>
                             <th scope="col" class="sortable" data-sort="publisher" style="cursor: pointer;">
                                 Publisher <i class="bi bi-chevron-expand text-muted ms-1"></i>
                             </th>
@@ -115,10 +118,12 @@
                                     <span class="text-muted fw-normal">Vol. {{ series.volume }}</span>
                                     {% endif %}
                                 </a>
-                                {% if series.status %}
-                                <br><small class="text-muted">{{ series.status }}</small>
-                                {% endif %}
                             </td>
+                            {% if series.status %}
+                            <td>
+                                <small class="text-muted">{{ series.status }}</small>
+                            </td>
+                            {% endif %}
                             <td>
                                 {% if series.publisher_name %}
                                 <span class="badge bg-secondary">{{ series.publisher_name }}</span>
@@ -277,7 +282,7 @@
 
         // Publisher filter functionality
         if (publisherFilter) {
-            publisherFilter.addEventListener('change', function() {
+            publisherFilter.addEventListener('change', function () {
                 currentPublisherFilter = this.value;
                 applyFilters();
             });

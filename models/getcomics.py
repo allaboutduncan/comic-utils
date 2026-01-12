@@ -141,3 +141,59 @@ def get_download_links(page_url: str) -> dict:
     except Exception as e:
         logger.error(f"Error parsing page: {e}")
         return {"pixeldrain": None, "download_now": None}
+
+
+def score_getcomics_result(result_title: str, series_name: str, issue_number: str, year: int) -> int:
+    """
+    Score a GetComics result against wanted issue criteria.
+
+    Scoring:
+    - Series name found (fuzzy - all words present): +40
+    - Issue number matches: +40
+    - Year matches: +20
+
+    Args:
+        result_title: Title from GetComics search result
+        series_name: Expected series name
+        issue_number: Expected issue number (as string)
+        year: Expected year (series year_began or store_date year)
+
+    Returns:
+        Score from 0-100
+    """
+    import re
+
+    score = 0
+    title_lower = result_title.lower()
+    series_lower = series_name.lower()
+
+    # Series name check (fuzzy - all words present)
+    series_words = series_lower.split()
+    if all(word in title_lower for word in series_words):
+        score += 40
+        logger.debug(f"Series name match: +40")
+
+    # Issue number check (exact)
+    # Normalize issue number (remove leading zeros for comparison)
+    issue_num = str(issue_number).lstrip('0') or '0'
+
+    # Look for patterns: #15, #015, Issue 15, etc.
+    issue_patterns = [
+        rf'#0*{re.escape(issue_num)}\b',           # #15, #015
+        rf'issue\s*0*{re.escape(issue_num)}\b',    # Issue 15, Issue15
+        rf'\b0*{re.escape(issue_num)}\b'           # Standalone number
+    ]
+
+    for pattern in issue_patterns:
+        if re.search(pattern, title_lower, re.IGNORECASE):
+            score += 40
+            logger.debug(f"Issue number match ({pattern}): +40")
+            break
+
+    # Year check
+    if year and str(year) in result_title:
+        score += 20
+        logger.debug(f"Year match ({year}): +20")
+
+    logger.debug(f"Score for '{result_title}' vs '{series_name} #{issue_number} ({year})': {score}")
+    return score

@@ -710,6 +710,69 @@
                             <small class="text-muted" id="lastSyncDisplay"></small>
                         </div>
                     </div>
+
+                    <!-- GetComics Auto-Download Configuration -->
+                    <hr>
+                    <h5 class="mt-3 mb-3">GetComics Auto-Download Schedule</h5>
+                    <p class="text-muted">Automatically search GetComics for wanted issues (with today's release date or later) and queue downloads.</p>
+
+                    <div class="row">
+                        <div class="col-md-4">
+                            <label for="getcomicsFrequency" class="form-label">Download Frequency:</label>
+                            <select class="form-select" id="getcomicsFrequency" name="getcomicsFrequency">
+                                <option value="disabled">Disabled</option>
+                                <option value="daily">Daily</option>
+                                <option value="weekly">Weekly</option>
+                            </select>
+                            <small class="form-text text-muted">
+                                How often to search GetComics for wanted issues.
+                            </small>
+                        </div>
+
+                        <div class="col-md-4">
+                            <label for="getcomicsTime" class="form-label">Download Time:</label>
+                            <input type="time" class="form-control" id="getcomicsTime" name="getcomicsTime" value="03:00">
+                            <small class="form-text text-muted">
+                                Time of day to search and download (24-hour format).
+                            </small>
+                        </div>
+
+                        <div class="col-md-4" id="getcomicsWeekdaySelectContainer" style="display: none;">
+                            <label for="getcomicsWeekday" class="form-label">Day of Week:</label>
+                            <select class="form-select" id="getcomicsWeekday" name="getcomicsWeekday">
+                                <option value="0">Monday</option>
+                                <option value="1">Tuesday</option>
+                                <option value="2">Wednesday</option>
+                                <option value="3">Thursday</option>
+                                <option value="4">Friday</option>
+                                <option value="5">Saturday</option>
+                                <option value="6">Sunday</option>
+                            </select>
+                            <small class="form-text text-muted">
+                                Which day of the week to run the download.
+                            </small>
+                        </div>
+                    </div>
+
+                    <div class="row mt-3">
+                        <div class="col-md-6">
+                            <button type="button" class="btn btn-success w-100" onclick="saveGetcomicsSchedule()"
+                                title="Save the GetComics schedule">
+                                <i class="bi bi-floppy"></i> Save GetComics Schedule
+                            </button>
+                        </div>
+                        <div class="col-md-6">
+                            <button type="button" class="btn btn-outline-primary w-100" onclick="runGetcomicsNow()"
+                                title="Run GetComics download immediately">
+                                <i class="bi bi-cloud-download"></i> Download Now
+                            </button>
+                        </div>
+                    </div>
+                    <div class="row mt-2">
+                        <div class="col-md-12">
+                            <small class="text-muted" id="lastGetcomicsDisplay"></small>
+                        </div>
+                    </div>
                 </div>
 
                 <!-- Missing Issue Configuration -->
@@ -1144,8 +1207,21 @@
             }
         });
 
+        // Show/hide getcomics weekday selector based on frequency
+        document.getElementById('getcomicsFrequency').addEventListener('change', function () {
+            const weekdayContainer = document.getElementById('getcomicsWeekdaySelectContainer');
+            if (this.value === 'weekly') {
+                weekdayContainer.style.display = 'block';
+            } else {
+                weekdayContainer.style.display = 'none';
+            }
+        });
+
         // Load sync schedule on page load
         loadSyncSchedule();
+
+        // Load getcomics schedule on page load
+        loadGetcomicsSchedule();
     });
 
     // File Index Management Functions
@@ -1385,6 +1461,112 @@
             })
             .catch(error => {
                 console.error('Error running sync:', error);
+                showToast('Network error occurred', 'error');
+            })
+            .finally(() => {
+                button.innerHTML = originalText;
+                button.disabled = false;
+            });
+    }
+
+    // GetComics Schedule Functions
+    function loadGetcomicsSchedule() {
+        fetch('/api/get-getcomics-schedule', {
+            headers: { 'Cache-Control': 'no-cache' }
+        })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    const schedule = data.schedule;
+                    document.getElementById('getcomicsFrequency').value = schedule.frequency || 'disabled';
+                    document.getElementById('getcomicsTime').value = schedule.time || '03:00';
+                    document.getElementById('getcomicsWeekday').value = schedule.weekday || '0';
+
+                    // Show weekday selector if weekly
+                    const weekdayContainer = document.getElementById('getcomicsWeekdaySelectContainer');
+                    if (schedule.frequency === 'weekly') {
+                        weekdayContainer.style.display = 'block';
+                    } else {
+                        weekdayContainer.style.display = 'none';
+                    }
+
+                    // Update last run display
+                    const lastRunEl = document.getElementById('lastGetcomicsDisplay');
+                    if (lastRunEl) {
+                        if (data.last_run) {
+                            lastRunEl.innerHTML = `<i class="bi bi-clock me-1"></i>Last run: ${data.last_run}`;
+                        } else {
+                            lastRunEl.innerHTML = '<i class="bi bi-clock me-1"></i>Last run: Never';
+                        }
+                        if (data.next_run && data.next_run !== 'Not scheduled') {
+                            lastRunEl.innerHTML += ` | <i class="bi bi-calendar-event me-1"></i>Next: ${data.next_run}`;
+                        }
+                    }
+                }
+            })
+            .catch(error => {
+                console.error('Error loading getcomics schedule:', error);
+            });
+    }
+
+    function saveGetcomicsSchedule() {
+        const button = event.target.closest('button');
+        const originalText = button.innerHTML;
+
+        button.innerHTML = '<i class="bi bi-floppy spin"></i> Saving...';
+        button.disabled = true;
+
+        const schedule = {
+            frequency: document.getElementById('getcomicsFrequency').value,
+            time: document.getElementById('getcomicsTime').value,
+            weekday: document.getElementById('getcomicsWeekday').value
+        };
+
+        fetch('/api/save-getcomics-schedule', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(schedule)
+        })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    showToast(data.message, 'success');
+                    loadGetcomicsSchedule(); // Reload to show next run time
+                } else {
+                    showToast(data.error || 'Unknown error', 'error');
+                }
+            })
+            .catch(error => {
+                console.error('Error saving getcomics schedule:', error);
+                showToast('Network error occurred', 'error');
+            })
+            .finally(() => {
+                button.innerHTML = originalText;
+                button.disabled = false;
+            });
+    }
+
+    function runGetcomicsNow() {
+        const button = event.target.closest('button');
+        const originalText = button.innerHTML;
+
+        button.innerHTML = '<i class="bi bi-cloud-download spin"></i> Downloading...';
+        button.disabled = true;
+
+        fetch('/api/run-getcomics-now', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' }
+        })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    showToast(data.message, 'success');
+                } else {
+                    showToast(data.error || 'Unknown error', 'error');
+                }
+            })
+            .catch(error => {
+                console.error('Error running getcomics download:', error);
                 showToast('Network error occurred', 'error');
             })
             .finally(() => {

@@ -91,9 +91,9 @@
                         </div>
                         <!-- Actions -->
                         <div class="col-md-2 d-flex flex-column align-items-md-end justify-content-start gap-2">
-                            <a href="{{ url_for('releases') }}" class="btn btn-outline-secondary w-100">
-                                <i class="bi bi-arrow-left me-1"></i>Back to Releases
-                            </a>
+                            <button onclick="history.back()" class="btn btn-outline-secondary w-100">
+                                <i class="bi bi-arrow-left me-1"></i>Back
+                            </button>
                             <a href="https://metron.cloud/series/{{ series.id }}/" target="_blank"
                                 class="btn btn-outline-primary w-100">
                                 <i class="bi bi-box-arrow-up-right me-1"></i>View on Metron
@@ -324,9 +324,9 @@
         </div>
         <h3 class="h2 text-muted mb-3">No issues found</h3>
         <p class="text-muted mb-4 lead">Unable to retrieve issues for this series.</p>
-        <a href="{{ url_for('releases') }}" class="btn btn-outline-primary btn-lg">
-            <i class="bi bi-arrow-left me-1"></i>Back to Releases
-        </a>
+        <button onclick="history.back()" class="btn btn-outline-primary btn-lg">
+            <i class="bi bi-arrow-left me-1"></i>Back
+        </button>
     </div>
     {% endif %}
 </div>

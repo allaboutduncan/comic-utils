@@ -228,6 +228,11 @@ sync_scheduler = BackgroundScheduler(daemon=True)
 sync_scheduler.start()
 app_logger.info("📅 Sync scheduler initialized")
 
+# Initialize APScheduler for GetComics auto-download
+getcomics_scheduler = BackgroundScheduler(daemon=True)
+getcomics_scheduler.start()
+app_logger.info("📅 GetComics scheduler initialized")
+
 # Function to perform scheduled series sync
 def scheduled_series_sync():
     """Sync all mapped series from Metron API on schedule."""
@@ -585,6 +590,212 @@ def configure_sync_schedule():
 
     except Exception as e:
         app_logger.error(f"Failed to configure sync schedule: {e}")
+
+
+# Function to perform scheduled GetComics auto-download
+def scheduled_getcomics_download():
+    """Auto-download wanted issues from GetComics on schedule."""
+    try:
+        from database import get_all_mapped_series, get_issues_for_series, update_last_getcomics_run
+        from models.getcomics import search_getcomics, get_download_links, score_getcomics_result
+        from api import download_queue, download_progress
+        from datetime import date
+        import uuid
+
+        app_logger.info("📥 Starting scheduled GetComics auto-download...")
+        start_time = time.time()
+
+        today = date.today().isoformat()
+        download_count = 0
+        search_count = 0
+
+        # Get all mapped series
+        mapped_series = get_all_mapped_series()
+
+        for series in mapped_series:
+            series_id = series['id']
+            series_name = series.get('name', '')
+            series_year = series.get('volume_year') or series.get('year_began')
+            mapped_path = series.get('mapped_path')
+
+            if not mapped_path or not os.path.exists(mapped_path):
+                continue
+
+            # Get cached issues for this series
+            issues = get_issues_for_series(series_id)
+            if not issues:
+                continue
+
+            # Convert issues to objects for matching function
+            class IssueObj:
+                def __init__(self, data):
+                    self.number = data.get('number')
+                    self.id = data.get('id')
+                    self.name = data.get('name')
+                    self.store_date = data.get('store_date')
+                    self.cover_date = data.get('cover_date')
+                    self.image = data.get('image')
+
+            issue_objs = [IssueObj(i) for i in issues]
+
+            # Create a minimal series_info object for matching
+            class SeriesObj:
+                def __init__(self, data):
+                    self.name = data.get('name')
+                    self.volume = data.get('volume')
+                    self.id = data.get('id')
+
+            series_obj = SeriesObj(series)
+
+            # Check which issues are in collection
+            issue_status = match_issues_to_collection(mapped_path, issue_objs, series_obj)
+
+            # Find wanted issues with store_date <= today (already released)
+            for issue in issues:
+                issue_num = str(issue.get('number', ''))
+                status = issue_status.get(issue_num, {})
+                store_date = issue.get('store_date')
+
+                # Skip if already found in collection
+                if status.get('found'):
+                    continue
+
+                # Only process issues with store_date <= today (already released)
+                if not store_date or store_date > today:
+                    continue
+
+                # Search GetComics for this issue
+                search_count += 1
+                query = f"{series_name} {issue_num}"
+                app_logger.info(f"🔍 Searching GetComics for: {query}")
+
+                # Rate limit - avoid hammering GetComics
+                time.sleep(2)
+
+                results = search_getcomics(query, max_pages=1)
+                if not results:
+                    app_logger.debug(f"No results found for: {query}")
+                    continue
+
+                # Score results and find best match
+                best_result = None
+                best_score = 0
+
+                # Get year from store_date or series
+                issue_year = int(store_date[:4]) if store_date else series_year
+
+                for result in results:
+                    score = score_getcomics_result(
+                        result['title'],
+                        series_name,
+                        issue_num,
+                        issue_year
+                    )
+                    if score > best_score:
+                        best_score = score
+                        best_result = result
+
+                # Only queue download if score >= 60 (series + issue match minimum)
+                if best_score >= 60 and best_result:
+                    app_logger.info(f"✅ Found match (score={best_score}): {best_result['title']}")
+
+                    # Get download links
+                    links = get_download_links(best_result['link'])
+                    download_url = links.get('pixeldrain') or links.get('download_now')
+
+                    if download_url:
+                        # Queue the download (matching manual download structure)
+                        filename = f"{series_name} {issue_num}.cbz".replace('/', '-').replace('\\', '-')
+                        download_id = str(uuid.uuid4())
+
+                        # Set up progress tracking (same structure as manual download)
+                        download_progress[download_id] = {
+                            'url': download_url,
+                            'progress': 0,
+                            'bytes_total': 0,
+                            'bytes_downloaded': 0,
+                            'status': 'queued',
+                            'filename': filename,
+                            'error': None,
+                        }
+
+                        # Queue task (same structure as manual download)
+                        task = {
+                            'download_id': download_id,
+                            'url': download_url,
+                            'dest_filename': filename
+                        }
+                        download_queue.put(task)
+
+                        download_count += 1
+                        app_logger.info(f"📥 Queued download: {filename}")
+                    else:
+                        app_logger.warning(f"No download link found for: {best_result['title']}")
+                else:
+                    app_logger.debug(f"No good match found for {series_name} #{issue_num} (best score: {best_score})")
+
+        # Update last run timestamp
+        update_last_getcomics_run()
+
+        elapsed = time.time() - start_time
+        app_logger.info(f"✅ GetComics auto-download completed in {elapsed:.2f}s ({search_count} searched, {download_count} queued)")
+
+    except Exception as e:
+        app_logger.error(f"❌ GetComics auto-download failed: {e}")
+
+
+# Function to configure GetComics schedule based on database settings
+def configure_getcomics_schedule():
+    """Configure the GetComics auto-download schedule based on database settings."""
+    try:
+        from database import get_getcomics_schedule
+
+        schedule = get_getcomics_schedule()
+        if not schedule:
+            app_logger.warning("No GetComics schedule found in database")
+            return
+
+        # Remove existing jobs
+        getcomics_scheduler.remove_all_jobs()
+
+        if schedule['frequency'] == 'disabled':
+            app_logger.info("📅 Scheduled GetComics auto-download is disabled")
+            return
+
+        # Parse time
+        time_parts = schedule['time'].split(':')
+        hour = int(time_parts[0])
+        minute = int(time_parts[1])
+
+        if schedule['frequency'] == 'daily':
+            # Daily at specified time
+            trigger = CronTrigger(hour=hour, minute=minute)
+            getcomics_scheduler.add_job(
+                scheduled_getcomics_download,
+                trigger=trigger,
+                id='getcomics_download',
+                name='Daily GetComics Auto-Download',
+                replace_existing=True
+            )
+            app_logger.info(f"📅 Scheduled daily GetComics auto-download at {schedule['time']}")
+
+        elif schedule['frequency'] == 'weekly':
+            # Weekly on specified day at specified time
+            weekday = int(schedule['weekday'])
+            trigger = CronTrigger(day_of_week=weekday, hour=hour, minute=minute)
+            getcomics_scheduler.add_job(
+                scheduled_getcomics_download,
+                trigger=trigger,
+                id='getcomics_download',
+                name='Weekly GetComics Auto-Download',
+                replace_existing=True
+            )
+            days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+            app_logger.info(f"📅 Scheduled weekly GetComics auto-download on {days[weekday]} at {schedule['time']}")
+
+    except Exception as e:
+        app_logger.error(f"Failed to configure GetComics schedule: {e}")
+
 
 # Thread pool for thumbnail generation
 thumbnail_executor = ThreadPoolExecutor(max_workers=2)
@@ -1598,7 +1809,9 @@ def series_view(slug):
                     return 999
                 sorted_for_cover = sorted(all_issues, key=issue_sort_key)
                 if sorted_for_cover:
-                    cover_image = get_issue_attr(sorted_for_cover[0], 'image')
+                    img = get_issue_attr(sorted_for_cover[0], 'image')
+                    # Convert HttpUrl to string if needed (mokkari returns Pydantic HttpUrl)
+                    cover_image = str(img) if img else None
 
             # Save series to database FIRST (required for foreign key constraint)
             # Preserve existing mapping if any, otherwise use None (not empty string)
@@ -1966,6 +2179,14 @@ def sync_series(series_id):
         series_info = api.series(series_id)
         if not series_info:
             return jsonify({'error': 'Series not found'}), 404
+
+        # Check if API has desc and database desc is blank - update if so
+        api_desc = getattr(series_info, 'desc', None) or (series_info.get('desc') if isinstance(series_info, dict) else None)
+        db_desc = series_mapping.get('desc') if series_mapping else None
+        if api_desc and not db_desc:
+            from database import update_series_desc
+            update_series_desc(series_id, api_desc)
+            app_logger.info(f"Updated description for series {series_id}")
 
         # Fetch all issues
         all_issues_result = metron.get_all_issues_for_series(api, series_id)
@@ -3190,6 +3411,109 @@ def api_run_sync_now():
     except Exception as e:
         app_logger.error(f"Failed to start sync: {e}")
         return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route('/api/get-getcomics-schedule', methods=['GET'])
+def api_get_getcomics_schedule():
+    """Get the current GetComics auto-download schedule configuration."""
+    try:
+        from database import get_getcomics_schedule
+
+        schedule = get_getcomics_schedule()
+        if not schedule:
+            return jsonify({
+                "success": True,
+                "schedule": {
+                    "frequency": "disabled",
+                    "time": "03:00",
+                    "weekday": 0
+                },
+                "next_run": "Not scheduled",
+                "last_run": None
+            })
+
+        # Calculate next run time
+        next_run = "Not scheduled"
+        if schedule['frequency'] != 'disabled':
+            try:
+                jobs = getcomics_scheduler.get_jobs()
+                if jobs:
+                    next_run_time = jobs[0].next_run_time
+                    if next_run_time:
+                        next_run = next_run_time.strftime('%Y-%m-%d %H:%M:%S')
+            except Exception:
+                pass
+
+        return jsonify({
+            "success": True,
+            "schedule": {
+                "frequency": schedule['frequency'],
+                "time": schedule['time'],
+                "weekday": schedule['weekday']
+            },
+            "next_run": next_run,
+            "last_run": schedule.get('last_run')
+        })
+    except Exception as e:
+        app_logger.error(f"Failed to get getcomics schedule: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route('/api/save-getcomics-schedule', methods=['POST'])
+def api_save_getcomics_schedule():
+    """Save the GetComics auto-download schedule configuration."""
+    try:
+        from database import save_getcomics_schedule
+
+        data = request.get_json()
+        frequency = data.get('frequency', 'disabled')
+        time_str = data.get('time', '03:00')
+        weekday = int(data.get('weekday', 0))
+
+        # Validate frequency
+        if frequency not in ['disabled', 'daily', 'weekly']:
+            return jsonify({"success": False, "error": "Invalid frequency"}), 400
+
+        # Validate time format
+        try:
+            parts = time_str.split(':')
+            if len(parts) != 2 or not (0 <= int(parts[0]) <= 23) or not (0 <= int(parts[1]) <= 59):
+                raise ValueError("Invalid time format")
+        except Exception:
+            return jsonify({"success": False, "error": "Invalid time format. Use HH:MM"}), 400
+
+        # Save to database
+        if not save_getcomics_schedule(frequency, time_str, weekday):
+            return jsonify({"success": False, "error": "Failed to save schedule to database"}), 500
+
+        # Reconfigure the scheduler
+        configure_getcomics_schedule()
+
+        app_logger.info(f"✅ GetComics schedule saved: {frequency} at {time_str}")
+
+        return jsonify({
+            "success": True,
+            "message": f"Schedule saved: {frequency} at {time_str}"
+        })
+    except Exception as e:
+        app_logger.error(f"Failed to save getcomics schedule: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route('/api/run-getcomics-now', methods=['POST'])
+def api_run_getcomics_now():
+    """Manually trigger GetComics auto-download immediately."""
+    try:
+        # Run in a background thread to not block the request
+        threading.Thread(target=scheduled_getcomics_download, daemon=True).start()
+        return jsonify({
+            "success": True,
+            "message": "GetComics auto-download started in background"
+        })
+    except Exception as e:
+        app_logger.error(f"Failed to start getcomics download: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
 
 # Cache for directory statistics to avoid repeated filesystem walks
 _data_dir_stats_cache = {}
@@ -10224,6 +10548,9 @@ def start_background_services():
 
     # Configure sync schedule from database
     configure_sync_schedule()
+
+    # Configure GetComics schedule from database
+    configure_getcomics_schedule()
 
     # Start monitor if enabled
     if os.environ.get("MONITOR", "").strip().lower() == "yes":
