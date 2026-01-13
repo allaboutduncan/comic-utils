@@ -10380,6 +10380,51 @@ def api_insights():
         "root_folders": library_stats.get('root_folders', 0)
     })
 
+
+@app.route('/api/reading-stats')
+def api_reading_stats():
+    """Get reading statistics, optionally filtered by year."""
+    from database import get_reading_stats_by_year
+    from wrapped import get_years_with_reading_data
+
+    year = request.args.get('year')
+
+    # If year is 'all' or empty, get all-time stats
+    if year and year != 'all':
+        try:
+            year = int(year)
+        except ValueError:
+            return jsonify({"success": False, "error": "Invalid year"}), 400
+    else:
+        year = None
+
+    stats = get_reading_stats_by_year(year)
+
+    # Get available years for the dropdown
+    years = get_years_with_reading_data()
+    current_year = datetime.now().year
+    if current_year not in years:
+        years.insert(0, current_year)
+
+    # Calculate hours and minutes for display
+    total_seconds = stats.get('total_time', 0)
+    hours = total_seconds // 3600
+    minutes = (total_seconds % 3600) // 60
+
+    return jsonify({
+        "success": True,
+        "stats": {
+            "total_read": stats.get('total_read', 0),
+            "total_pages": stats.get('total_pages', 0),
+            "total_time": total_seconds,
+            "hours": hours,
+            "minutes": minutes
+        },
+        "years": years,
+        "selected_year": year if year else "all"
+    })
+
+
 #########################
 #   Yearly Wrapped      #
 #########################

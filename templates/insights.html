@@ -22,7 +22,7 @@
 
     <!-- Top Stats Row -->
     <div class="row g-3 mb-4">
-        <div class="col-6 col-md-3">
+        <div class="col-4">
             <div class="stat-card">
                 <div class="stat-icon primary">
                     <i class="bi bi-file-earmark-text"></i>
@@ -31,7 +31,7 @@
                 <div class="stat-label">Total Files</div>
             </div>
         </div>
-        <div class="col-6 col-md-3">
+        <div class="col-4">
             <div class="stat-card">
                 <div class="stat-icon success">
                     <i class="bi bi-hdd"></i>
@@ -43,7 +43,7 @@
                 <div class="stat-label">Total Size</div>
             </div>
         </div>
-        <div class="col-6 col-md-3">
+        <div class="col-4">
             <div class="stat-card">
                 <div class="stat-icon info">
                     <i class="bi bi-folder"></i>
@@ -52,36 +52,42 @@
                 <div class="stat-label">Folders</div>
             </div>
         </div>
-        <div class="col-6 col-md-3">
+    </div>
+
+    <!-- Reading Stats Row -->
+    <div class="d-flex justify-content-between align-items-center mb-2">
+        <h5 class="mb-0"><i class="bi bi-book-half me-2"></i>Reading Stats</h5>
+        <select class="form-select form-select-sm" id="readingStatsYear" style="width: auto;">
+            <option value="all">All Time</option>
+        </select>
+    </div>
+    <div class="row g-3 mb-4">
+        <div class="col-4">
             <div class="stat-card">
                 <div class="stat-icon warning">
                     <i class="bi bi-book"></i>
                 </div>
-                <div class="stat-value">{{ "{:,}".format(library_stats.total_read) }}</div>
+                <div class="stat-value" id="statIssuesRead">{{ "{:,}".format(library_stats.total_read) }}</div>
                 <div class="stat-label">Issues Read</div>
             </div>
         </div>
-    </div>
-
-    <!-- Reading Stats Row -->
-    <div class="row g-3 mb-4">
-        <div class="col-6">
+        <div class="col-4">
             <div class="stat-card">
                 <div class="stat-icon primary">
                     <i class="bi bi-files"></i>
                 </div>
-                <div class="stat-value">{{ "{:,}".format(reading_totals.total_pages) }}</div>
+                <div class="stat-value" id="statPagesRead">{{ "{:,}".format(reading_totals.total_pages) }}</div>
                 <div class="stat-label">Total Pages Read</div>
             </div>
         </div>
-        <div class="col-6">
+        <div class="col-4">
             <div class="stat-card">
                 <div class="stat-icon danger">
                     <i class="bi bi-stopwatch"></i>
                 </div>
                 {% set hours = reading_totals.total_time // 3600 %}
                 {% set minutes = (reading_totals.total_time % 3600) // 60 %}
-                <div class="stat-value">{{ hours }}h {{ minutes }}m</div>
+                <div class="stat-value" id="statTimeReading">{{ hours }}h {{ minutes }}m</div>
                 <div class="stat-label">Total Time Reading</div>
             </div>
         </div>
@@ -774,5 +780,65 @@
 
     // Back button handler
     wrappedBackBtn.addEventListener('click', resetWrappedModal);
+
+    // ===== READING STATS YEAR FILTER =====
+    const readingStatsYearSelect = document.getElementById('readingStatsYear');
+    const statIssuesRead = document.getElementById('statIssuesRead');
+    const statPagesRead = document.getElementById('statPagesRead');
+    const statTimeReading = document.getElementById('statTimeReading');
+
+    // Load available years and set current year as default
+    async function initReadingStatsFilter() {
+        try {
+            const response = await fetch('/api/reading-stats');
+            const data = await response.json();
+
+            if (data.success && data.years) {
+                // Clear and populate dropdown
+                readingStatsYearSelect.innerHTML = '<option value="all">All Time</option>';
+
+                const currentYear = new Date().getFullYear();
+                data.years.forEach(year => {
+                    const option = document.createElement('option');
+                    option.value = year;
+                    option.textContent = year;
+                    if (year === currentYear) {
+                        option.selected = true;
+                    }
+                    readingStatsYearSelect.appendChild(option);
+                });
+
+                // Load stats for current year
+                loadReadingStats(currentYear);
+            }
+        } catch (error) {
+            console.error('Error loading reading stats years:', error);
+        }
+    }
+
+    async function loadReadingStats(year) {
+        try {
+            const url = year === 'all' ? '/api/reading-stats?year=all' : `/api/reading-stats?year=${year}`;
+            const response = await fetch(url);
+            const data = await response.json();
+
+            if (data.success && data.stats) {
+                // Update the stat cards with animation
+                statIssuesRead.textContent = data.stats.total_read.toLocaleString();
+                statPagesRead.textContent = data.stats.total_pages.toLocaleString();
+                statTimeReading.textContent = `${data.stats.hours}h ${data.stats.minutes}m`;
+            }
+        } catch (error) {
+            console.error('Error loading reading stats:', error);
+        }
+    }
+
+    // Handle year selection change
+    readingStatsYearSelect.addEventListener('change', function() {
+        loadReadingStats(this.value);
+    });
+
+    // Initialize on page load
+    initReadingStatsFilter();
 </script>
 {% endblock %}

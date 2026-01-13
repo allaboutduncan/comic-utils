@@ -2082,6 +2082,48 @@ def get_reading_totals():
         return {'total_pages': 0, 'total_time': 0}
 
 
+def get_reading_stats_by_year(year=None):
+    """
+    Get reading statistics, optionally filtered by year.
+
+    Args:
+        year: Year to filter by (e.g., 2024), or None for all time
+
+    Returns:
+        Dict with 'total_read', 'total_pages', 'total_time' (in seconds)
+    """
+    try:
+        conn = get_db_connection()
+        if not conn:
+            return {'total_read': 0, 'total_pages': 0, 'total_time': 0}
+
+        c = conn.cursor()
+
+        if year:
+            # Filter by year
+            c.execute('''
+                SELECT COUNT(*), COALESCE(SUM(page_count), 0), COALESCE(SUM(time_spent), 0)
+                FROM issues_read
+                WHERE strftime('%Y', read_at) = ?
+            ''', (str(year),))
+        else:
+            # All time
+            c.execute('SELECT COUNT(*), COALESCE(SUM(page_count), 0), COALESCE(SUM(time_spent), 0) FROM issues_read')
+
+        row = c.fetchone()
+        conn.close()
+
+        return {
+            'total_read': row[0] if row else 0,
+            'total_pages': row[1] if row else 0,
+            'total_time': row[2] if row else 0
+        }
+
+    except Exception as e:
+        app_logger.error(f"Failed to get reading stats by year: {e}")
+        return {'total_read': 0, 'total_pages': 0, 'total_time': 0}
+
+
 def is_issue_read(issue_path):
     """
     Check if an issue has been read.
