@@ -2,7 +2,8 @@ import sqlite3
 import os
 from database import get_db_connection
 from app_logging import app_logger
-from datetime import datetime
+from datetime import datetime, timedelta
+from config import config
 
 def get_reading_timeline(limit=100, offset=0):
     """
@@ -130,14 +131,25 @@ def get_reading_timeline(limit=100, offset=0):
         conn.close()
 
         # 3. Process and Group Data
+        # Get timezone offset from config
+        tz_offset = config['SETTINGS'].get('TIMEZONE', 'UTC') if 'SETTINGS' in config else 'UTC'
+        tz_hours = 0
+        if tz_offset != 'UTC':
+            try:
+                tz_hours = float(tz_offset)
+            except (ValueError, TypeError):
+                tz_hours = 0
+
         timeline = []
         current_date_group = None
         current_entries = []
-        
+
         for row in rows:
-            # Parse timestamp
+            # Parse timestamp and apply timezone offset
             try:
                 dt = datetime.fromisoformat(row['read_at']) if row['read_at'] else datetime.now()
+                if tz_hours != 0:
+                    dt = dt + timedelta(hours=tz_hours)
             except ValueError:
                  # Handle potential non-iso formats if any legacy data exists
                  dt = datetime.now()
