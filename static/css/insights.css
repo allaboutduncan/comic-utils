@@ -351,3 +351,66 @@
     opacity: 1;
     width: 30px;
 }
+
+/* Reading Trends Section */
+.trends-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.trend-item {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+}
+
+.trend-item .d-flex {
+    font-size: 0.875rem;
+}
+
+.trend-item .text-truncate {
+    max-width: 200px;
+    color: var(--bs-emphasis-color, var(--bs-body-color));
+    font-weight: 500;
+}
+
+.trend-item .text-muted {
+    font-size: 0.8125rem;
+    color: var(--bs-secondary-color) !important;
+}
+
+.trend-item .progress {
+    height: 6px;
+    background: var(--bs-tertiary-bg, var(--bs-secondary-bg));
+    border-radius: 3px;
+}
+
+.trend-item .progress-bar {
+    border-radius: 3px;
+}
+
+/* Trends card specific styling */
+.section-card .trends-list {
+    max-height: 250px;
+    overflow-y: auto;
+}
+
+/* Custom scrollbar for trends lists */
+.trends-list::-webkit-scrollbar {
+    width: 4px;
+}
+
+.trends-list::-webkit-scrollbar-track {
+    background: var(--bs-tertiary-bg, transparent);
+    border-radius: 2px;
+}
+
+.trends-list::-webkit-scrollbar-thumb {
+    background: var(--bs-border-color);
+    border-radius: 2px;
+}
+
+.trends-list::-webkit-scrollbar-thumb:hover {
+    background: var(--bs-secondary-color);
+}

@@ -155,6 +155,25 @@ def init_db():
                 VALUES (1, 'disabled', '03:00', 0)
             ''')
 
+        # Create wanted_issues table (cache pre-computed wanted issues)
+        c.execute('''
+            CREATE TABLE IF NOT EXISTS wanted_issues (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                series_id INTEGER NOT NULL,
+                issue_id INTEGER NOT NULL,
+                issue_number TEXT,
+                issue_name TEXT,
+                store_date TEXT,
+                cover_date TEXT,
+                image TEXT,
+                series_name TEXT,
+                series_volume INTEGER,
+                cached_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(series_id, issue_id)
+            )
+        ''')
+        c.execute('CREATE INDEX IF NOT EXISTS idx_wanted_issues_series ON wanted_issues(series_id)')
+
         # Create browse_cache table (cache pre-computed browse results)
         c.execute('''
             CREATE TABLE IF NOT EXISTS browse_cache (
@@ -239,6 +258,19 @@ def init_db():
         if 'time_spent' not in columns:
             app_logger.info("Migrating issues_read table: adding time_spent column")
             c.execute("ALTER TABLE issues_read ADD COLUMN time_spent INTEGER DEFAULT 0")
+        # Add metadata columns for reading trends
+        if 'writer' not in columns:
+            app_logger.info("Migrating issues_read table: adding writer column")
+            c.execute("ALTER TABLE issues_read ADD COLUMN writer TEXT DEFAULT ''")
+        if 'penciller' not in columns:
+            app_logger.info("Migrating issues_read table: adding penciller column")
+            c.execute("ALTER TABLE issues_read ADD COLUMN penciller TEXT DEFAULT ''")
+        if 'characters' not in columns:
+            app_logger.info("Migrating issues_read table: adding characters column")
+            c.execute("ALTER TABLE issues_read ADD COLUMN characters TEXT DEFAULT ''")
+        if 'publisher' not in columns:
+            app_logger.info("Migrating issues_read table: adding publisher column")
+            c.execute("ALTER TABLE issues_read ADD COLUMN publisher TEXT DEFAULT ''")
         c.execute('CREATE INDEX IF NOT EXISTS idx_issues_read_path ON issues_read(issue_path)')
 
         # Create to_read table (files and folders marked as "want to read")
@@ -1959,7 +1991,8 @@ def is_favorite_series(series_path):
 # Issues Read CRUD Operations
 # =============================================================================
 
-def mark_issue_read(issue_path, read_at=None, page_count=0, time_spent=0):
+def mark_issue_read(issue_path, read_at=None, page_count=0, time_spent=0,
+                    writer='', penciller='', characters='', publisher=''):
     """
     Mark an issue as read.
 
@@ -1969,6 +2002,10 @@ def mark_issue_read(issue_path, read_at=None, page_count=0, time_spent=0):
                  If None, uses CURRENT_TIMESTAMP.
         page_count: Number of pages in the issue (optional)
         time_spent: Time spent reading in seconds (optional)
+        writer: Writer(s) from ComicInfo.xml (comma-separated if multiple)
+        penciller: Penciller(s) from ComicInfo.xml (comma-separated if multiple)
+        characters: Characters from ComicInfo.xml (comma-separated)
+        publisher: Publisher from ComicInfo.xml
 
     Returns:
         True if successful, False otherwise
@@ -1982,14 +2019,16 @@ def mark_issue_read(issue_path, read_at=None, page_count=0, time_spent=0):
 
         if read_at:
             c.execute('''
-                INSERT OR REPLACE INTO issues_read (issue_path, read_at, page_count, time_spent)
-                VALUES (?, ?, ?, ?)
-            ''', (issue_path, read_at, page_count, time_spent))
+                INSERT OR REPLACE INTO issues_read
+                (issue_path, read_at, page_count, time_spent, writer, penciller, characters, publisher)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (issue_path, read_at, page_count, time_spent, writer, penciller, characters, publisher))
         else:
             c.execute('''
-                INSERT OR REPLACE INTO issues_read (issue_path, read_at, page_count, time_spent)
-                VALUES (?, CURRENT_TIMESTAMP, ?, ?)
-            ''', (issue_path, page_count, time_spent))
+                INSERT OR REPLACE INTO issues_read
+                (issue_path, read_at, page_count, time_spent, writer, penciller, characters, publisher)
+                VALUES (?, CURRENT_TIMESTAMP, ?, ?, ?, ?, ?, ?)
+            ''', (issue_path, page_count, time_spent, writer, penciller, characters, publisher))
 
         conn.commit()
         conn.close()
@@ -2122,6 +2161,68 @@ def get_reading_stats_by_year(year=None):
     except Exception as e:
         app_logger.error(f"Failed to get reading stats by year: {e}")
         return {'total_read': 0, 'total_pages': 0, 'total_time': 0}
+
+
+def get_reading_trends(field_name, year=None, limit=10):
+    """
+    Get top values for a metadata field (writer, penciller, characters, publisher).
+    Splits comma-separated values and counts each occurrence.
+
+    Args:
+        field_name: Column name ('writer', 'penciller', 'characters', 'publisher')
+        year: Optional year to filter by (e.g., 2024)
+        limit: Maximum number of results to return (default 10)
+
+    Returns:
+        List of dicts: [{'name': 'Batman', 'count': 42}, ...]
+    """
+    # Validate field name to prevent SQL injection
+    valid_fields = ['writer', 'penciller', 'characters', 'publisher']
+    if field_name not in valid_fields:
+        app_logger.warning(f"Invalid field name for reading trends: {field_name}")
+        return []
+
+    try:
+        conn = get_db_connection()
+        if not conn:
+            return []
+
+        c = conn.cursor()
+
+        # Query all non-empty values for the field
+        if year:
+            c.execute(f'''
+                SELECT {field_name} FROM issues_read
+                WHERE {field_name} != '' AND {field_name} IS NOT NULL
+                AND strftime('%Y', read_at) = ?
+            ''', (str(year),))
+        else:
+            c.execute(f'''
+                SELECT {field_name} FROM issues_read
+                WHERE {field_name} != '' AND {field_name} IS NOT NULL
+            ''')
+
+        rows = c.fetchall()
+        conn.close()
+
+        # Count occurrences of each value (splitting comma-separated)
+        counts = {}
+        for row in rows:
+            value = row[0]
+            if value:
+                # Split by comma and count each individual value
+                for item in value.split(','):
+                    item = item.strip()
+                    if item:
+                        counts[item] = counts.get(item, 0) + 1
+
+        # Sort by count descending and return top N
+        sorted_items = sorted(counts.items(), key=lambda x: x[1], reverse=True)[:limit]
+        return [{'name': name, 'count': count} for name, count in sorted_items]
+
+    except Exception as e:
+        app_logger.error(f"Failed to get reading trends for {field_name}: {e}")
+        return []
 
 
 def is_issue_read(issue_path):
@@ -4018,6 +4119,189 @@ def invalidate_collection_status_for_path(file_path):
                 app_logger.debug(f"Invalidated {deleted} collection status entries for path {directory}")
     except Exception as e:
         app_logger.error(f"Failed to invalidate collection status for path {file_path}: {e}")
+    finally:
+        if conn:
+            conn.close()
+
+
+# =====================================================
+# WANTED ISSUES CACHE FUNCTIONS
+# =====================================================
+
+def get_cached_wanted_issues():
+    """
+    Get all cached wanted issues from the database.
+
+    Returns:
+        List of dicts with issue and series info, sorted by store_date
+    """
+    conn = None
+    try:
+        conn = get_db_connection()
+        if not conn:
+            return []
+
+        c = conn.cursor()
+        c.execute('''
+            SELECT id, series_id, issue_id, issue_number, issue_name,
+                   store_date, cover_date, image, series_name, series_volume, cached_at
+            FROM wanted_issues
+            ORDER BY store_date ASC, series_name ASC, issue_number ASC
+        ''')
+        rows = c.fetchall()
+
+        return [{
+            'id': row[0],
+            'series_id': row[1],
+            'issue_id': row[2],
+            'issue_number': row[3],
+            'issue_name': row[4],
+            'store_date': row[5],
+            'cover_date': row[6],
+            'image': row[7],
+            'series_name': row[8],
+            'series_volume': row[9],
+            'cached_at': row[10]
+        } for row in rows]
+    except Exception as e:
+        app_logger.error(f"Failed to get cached wanted issues: {e}")
+        return []
+    finally:
+        if conn:
+            conn.close()
+
+
+def save_wanted_issues_for_series(series_id, series_name, series_volume, wanted_list):
+    """
+    Save wanted issues for a series to the cache.
+    Replaces any existing entries for this series.
+
+    Args:
+        series_id: Metron series ID
+        series_name: Series name
+        series_volume: Series volume number
+        wanted_list: List of issue dicts with id, number, name, store_date, cover_date, image
+    """
+    conn = None
+    try:
+        conn = get_db_connection()
+        if not conn:
+            return False
+
+        c = conn.cursor()
+        # Clear existing entries for this series
+        c.execute('DELETE FROM wanted_issues WHERE series_id = ?', (series_id,))
+
+        # Insert new entries
+        if wanted_list:
+            c.executemany('''
+                INSERT INTO wanted_issues
+                (series_id, issue_id, issue_number, issue_name, store_date, cover_date, image, series_name, series_volume, cached_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            ''', [(series_id, i.get('id'), i.get('number'), i.get('name'),
+                   i.get('store_date'), i.get('cover_date'), i.get('image'),
+                   series_name, series_volume)
+                  for i in wanted_list])
+
+        conn.commit()
+        app_logger.debug(f"Saved {len(wanted_list)} wanted issues for series {series_id}")
+        return True
+    except Exception as e:
+        app_logger.error(f"Failed to save wanted issues for series {series_id}: {e}")
+        return False
+    finally:
+        if conn:
+            conn.close()
+
+
+def clear_wanted_cache_for_series(series_id):
+    """
+    Clear wanted cache for a specific series.
+    Called when downloads complete or series is synced.
+
+    Args:
+        series_id: Metron series ID
+    """
+    conn = None
+    try:
+        conn = get_db_connection()
+        if not conn:
+            return
+
+        c = conn.cursor()
+        c.execute('DELETE FROM wanted_issues WHERE series_id = ?', (series_id,))
+        deleted = c.rowcount
+        conn.commit()
+        if deleted > 0:
+            app_logger.debug(f"Cleared {deleted} wanted issues cache entries for series {series_id}")
+    except Exception as e:
+        app_logger.error(f"Failed to clear wanted cache for series {series_id}: {e}")
+    finally:
+        if conn:
+            conn.close()
+
+
+def clear_wanted_cache_all():
+    """Clear all wanted issues cache."""
+    conn = None
+    try:
+        conn = get_db_connection()
+        if not conn:
+            return
+
+        c = conn.cursor()
+        c.execute('DELETE FROM wanted_issues')
+        deleted = c.rowcount
+        conn.commit()
+        if deleted > 0:
+            app_logger.debug(f"Cleared all {deleted} wanted issues cache entries")
+    except Exception as e:
+        app_logger.error(f"Failed to clear wanted cache: {e}")
+    finally:
+        if conn:
+            conn.close()
+
+
+def get_wanted_cache_age():
+    """
+    Get the age of the oldest cache entry.
+
+    Returns:
+        String like "5 minutes ago" or None if cache is empty
+    """
+    conn = None
+    try:
+        conn = get_db_connection()
+        if not conn:
+            return None
+
+        c = conn.cursor()
+        c.execute('SELECT MIN(cached_at) FROM wanted_issues')
+        row = c.fetchone()
+
+        if not row or not row[0]:
+            return None
+
+        from datetime import datetime
+        cached_at = datetime.fromisoformat(row[0].replace('Z', '+00:00')) if 'T' in row[0] else datetime.strptime(row[0], '%Y-%m-%d %H:%M:%S')
+        now = datetime.now()
+        diff = now - cached_at
+
+        seconds = diff.total_seconds()
+        if seconds < 60:
+            return "just now"
+        elif seconds < 3600:
+            minutes = int(seconds / 60)
+            return f"{minutes} minute{'s' if minutes != 1 else ''} ago"
+        elif seconds < 86400:
+            hours = int(seconds / 3600)
+            return f"{hours} hour{'s' if hours != 1 else ''} ago"
+        else:
+            days = int(seconds / 86400)
+            return f"{days} day{'s' if days != 1 else ''} ago"
+    except Exception as e:
+        app_logger.error(f"Failed to get wanted cache age: {e}")
+        return None
     finally:
         if conn:
             conn.close()

@@ -20,17 +20,6 @@
                 <li class="breadcrumb-item active">Loading...</li>
             </ol>
         </nav>
-        <!-- Main View Toggle Buttons -->
-        <div class="mx-3">
-            <div class="btn-group btn-group-sm" role="group" aria-label="View selection">
-                <button class="btn btn-primary" id="directoryViewBtn" onclick="loadDirectoryView()">
-                    <i class="bi bi-folder"></i> Directory View
-                </button>
-                <button class="btn btn-outline-primary" id="recentlyAddedBtn" onclick="loadRecentlyAdded()">
-                    <i class="bi bi-clock-history"></i> Recently Added
-                </button>
-            </div>
-        </div>
         <!-- View Toggle Buttons -->
         <div class="mx-3" id="viewToggleButtons">
             <button class="btn btn-outline-primary btn-sm" id="allBooksBtn" onclick="loadAllBooks()"
@@ -39,7 +28,7 @@
             </button>
             <button class="btn btn-primary btn-sm" id="folderViewBtn" onclick="returnToFolderView()"
                 style="display: none;">
-                <i class="bi bi-folder"></i> Folder View
+                <i class="bi bi-folder"></i> Collection View
             </button>
         </div>
         <div class="d-flex align-items-center">
@@ -148,47 +137,18 @@
         </section>
         {% endif %}
         <!-- Recently Added -->
-        <!--
         <section class="mb-4 dashboard-section">
             <div class="d-flex justify-content-between align-items-center mb-3 px-2">
                 <h4 class="m-0"><i class="bi bi-clock-history text-primary me-2"></i>Recently Added</h4>
-                <button class="btn btn-sm btn-link text-decoration-none">View All</button>
+                <button class="btn btn-sm btn-link text-decoration-none" onclick="loadRecentlyAdded()">View All</button>
             </div>
             <div class="swiper dashboard-swiper" id="recentAddedSwiper">
                 <div class="swiper-wrapper">
-
+                    <!-- Loaded dynamically by loadRecentlyAddedSwiper() -->
                     <div class="swiper-slide">
-                        <div class="dashboard-card">
-                            <div class="dashboard-card-img-container">
-                                <img src="https://placehold.co/300x450/444/fff?text=X-Men+97" alt="X-Men">
-                                <div class="dashboard-card-badge bg-success">New</div>
-                            </div>
-                            <div class="dashboard-card-body">
-                                <h6 class="text-truncate">X-Men '97 #1</h6>
-                                <small class="text-muted">Added Today</small>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="swiper-slide">
-                        <div class="dashboard-card">
-                            <div class="dashboard-card-img-container">
-                                <img src="https://placehold.co/300x450/444/fff?text=Batman+145" alt="Batman">
-                                <div class="dashboard-card-badge bg-success">New</div>
-                            </div>
-                            <div class="dashboard-card-body">
-                                <h6 class="text-truncate">Batman #145</h6>
-                                <small class="text-muted">Added Yesterday</small>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="swiper-slide">
-                        <div class="dashboard-card">
-                            <div class="dashboard-card-img-container">
-                                <img src="https://placehold.co/300x450/444/fff?text=ASM+45" alt="ASM">
-                            </div>
-                            <div class="dashboard-card-body">
-                                <h6 class="text-truncate">Amazing Spider-Man #45</h6>
-                                <small class="text-muted">Added 2 days ago</small>
+                        <div class="dashboard-card text-center p-4">
+                            <div class="spinner-border text-primary" role="status">
+                                <span class="visually-hidden">Loading...</span>
                             </div>
                         </div>
                     </div>
@@ -197,7 +157,6 @@
                 <div class="swiper-button-prev"></div>
             </div>
         </section>
-        -->
         <!-- Recently Read -->
         <!--
         <section class="mb-4 dashboard-section">
@@ -251,6 +210,10 @@
         <div class="spinner-border text-primary" role="status">
             <span class="visually-hidden">Loading...</span>
         </div>
+    </div>
+    <!-- Library Section Header -->
+    <div id="library-header" class="mb-3 px-2" style="display: none;">
+        <h4 class="m-0"><i class="bi bi-collection-fill text-primary me-2"></i>Library</h4>
     </div>
     <div id="file-grid" class="file-grid" style="display: none;">
         <!-- Grid items will be populated by JS -->

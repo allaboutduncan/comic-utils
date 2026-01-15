@@ -15,6 +15,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!initialPath || initialPath === '/' || initialPath === '/data') {
         loadFavoritePublishers();
         loadWantToRead();
+        loadRecentlyAddedSwiper();
     }
 
     // Fetch read issues for status icons (cached client-side for performance)
@@ -411,8 +412,10 @@ function updateViewButtons(path) {
     if (!allBooksBtn || !folderViewBtn || !viewToggleButtons) return;
 
     if (isRecentlyAddedMode) {
-        // Hide all view toggle buttons in recently added mode
-        viewToggleButtons.style.display = 'none';
+        // In Recently Added mode: show Folder View button to return to dashboard
+        viewToggleButtons.style.display = 'block';
+        allBooksBtn.style.display = 'none';
+        folderViewBtn.style.display = 'inline-block';
     } else if (isAllBooksMode) {
         // In All Books mode: hide All Books, show Folder View
         viewToggleButtons.style.display = 'block';
@@ -660,12 +663,6 @@ function returnToFolderView() {
  * Load directory view mode (default view)
  */
 function loadDirectoryView() {
-    // Update button states
-    document.getElementById('directoryViewBtn').classList.remove('btn-outline-primary');
-    document.getElementById('directoryViewBtn').classList.add('btn-primary');
-    document.getElementById('recentlyAddedBtn').classList.remove('btn-primary');
-    document.getElementById('recentlyAddedBtn').classList.add('btn-outline-primary');
-
     // If we're already in directory mode and not in recent mode, do nothing
     if (!isRecentlyAddedMode) {
         return;
@@ -688,12 +685,6 @@ function loadDirectoryView() {
  */
 async function loadRecentlyAdded(preservePage = false) {
     if (isLoading) return;
-
-    // Update button states
-    document.getElementById('recentlyAddedBtn').classList.remove('btn-outline-primary');
-    document.getElementById('recentlyAddedBtn').classList.add('btn-primary');
-    document.getElementById('directoryViewBtn').classList.remove('btn-primary');
-    document.getElementById('directoryViewBtn').classList.add('btn-outline-primary');
 
     setLoading(true);
     folderViewPath = currentPath; // Save current path to return to
@@ -741,8 +732,21 @@ async function loadRecentlyAdded(preservePage = false) {
             searchInput.placeholder = 'Search recently added files...';
         }
 
-        // Hide view toggle buttons in recently added mode
-        document.getElementById('viewToggleButtons').style.display = 'none';
+        // Hide dashboard sections
+        const dashboardSections = document.getElementById('dashboard-sections');
+        if (dashboardSections) {
+            dashboardSections.style.display = 'none';
+        }
+
+        // Show Folder View button to allow returning to dashboard
+        const viewToggleButtons = document.getElementById('viewToggleButtons');
+        const folderViewBtn = document.getElementById('folderViewBtn');
+        const allBooksBtn = document.getElementById('allBooksBtn');
+        if (viewToggleButtons && folderViewBtn) {
+            viewToggleButtons.style.display = 'block';
+            folderViewBtn.style.display = 'inline-block';
+            if (allBooksBtn) allBooksBtn.style.display = 'none';
+        }
 
         renderPage();
         setLoading(false);
@@ -752,12 +756,6 @@ async function loadRecentlyAdded(preservePage = false) {
         showError('Failed to load recently added files: ' + error.message);
         isRecentlyAddedMode = false;
         setLoading(false);
-
-        // Revert button states
-        document.getElementById('directoryViewBtn').classList.remove('btn-outline-primary');
-        document.getElementById('directoryViewBtn').classList.add('btn-primary');
-        document.getElementById('recentlyAddedBtn').classList.remove('btn-primary');
-        document.getElementById('recentlyAddedBtn').classList.add('btn-outline-primary');
     }
 }
 
@@ -785,17 +783,20 @@ function renderGrid(items) {
     const grid = document.getElementById('file-grid');
     const emptyState = document.getElementById('empty-state');
     const template = document.getElementById('grid-item-template');
+    const libraryHeader = document.getElementById('library-header');
 
     grid.innerHTML = '';
 
     if (items.length === 0 && allItems.length === 0) {
         grid.style.display = 'none';
         emptyState.style.display = 'block';
+        if (libraryHeader) libraryHeader.style.display = 'none';
         return;
     }
 
     grid.style.display = 'grid';
     emptyState.style.display = 'none';
+    if (libraryHeader) libraryHeader.style.display = 'block';
 
     // Create document fragment for better performance
     const fragment = document.createDocumentFragment();
@@ -1857,6 +1858,8 @@ function executeScript(scriptType, filePath) {
 function initEditMode(filePath) {
     // Hide the file grid and other collection UI elements
     document.getElementById('file-grid').style.display = 'none';
+    const libraryHeader = document.getElementById('library-header');
+    if (libraryHeader) libraryHeader.style.display = 'none';
     const paginationControls = document.getElementById('pagination-controls');
     if (paginationControls) paginationControls.style.display = 'none';
 
@@ -1937,6 +1940,8 @@ function setupSaveFormHandler() {
                     // Hide edit section and show collection grid
                     document.getElementById('edit').classList.add('collapse');
                     document.getElementById('file-grid').style.display = 'grid';
+                    const libraryHeader = document.getElementById('library-header');
+                    if (libraryHeader) libraryHeader.style.display = 'block';
                     const paginationControls = document.getElementById('pagination-controls');
                     if (paginationControls && allItems.length > itemsPerPage) {
                         paginationControls.style.display = 'block';
@@ -4343,6 +4348,95 @@ async function loadWantToRead() {
     } catch (error) {
         console.error('Error loading want to read items:', error);
     }
+}
+
+/**
+ * Load recently added files into the dashboard swiper
+ */
+async function loadRecentlyAddedSwiper() {
+    const swiper = document.querySelector('#recentAddedSwiper .swiper-wrapper');
+    if (!swiper) return;
+
+    try {
+        const response = await fetch('/list-recent-files?limit=10');
+        const data = await response.json();
+
+        if (!data.success || !data.files || !data.files.length) {
+            // Show empty state
+            swiper.innerHTML = `
+                <div class="swiper-slide">
+                    <div class="dashboard-card text-center p-4">
+                        <i class="bi bi-clock-history text-muted" style="font-size: 3rem;"></i>
+                        <p class="text-muted mt-2">No recently added files</p>
+                    </div>
+                </div>
+            `;
+            return;
+        }
+
+        // Helper to format relative time
+        const formatTimeAgo = (dateStr) => {
+            const date = new Date(dateStr);
+            const now = new Date();
+            const diffMs = now - date;
+            const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+
+            if (diffDays === 0) return 'Added Today';
+            if (diffDays === 1) return 'Added Yesterday';
+            if (diffDays < 7) return `Added ${diffDays} days ago`;
+            if (diffDays < 30) return `Added ${Math.floor(diffDays / 7)} week${Math.floor(diffDays / 7) > 1 ? 's' : ''} ago`;
+            return `Added ${Math.floor(diffDays / 30)} month${Math.floor(diffDays / 30) > 1 ? 's' : ''} ago`;
+        };
+
+        // Render slides
+        swiper.innerHTML = data.files.map(file => {
+            const name = file.file_name;
+            const path = file.file_path;
+            const thumbnailUrl = `/api/thumbnail?path=${encodeURIComponent(path)}`;
+            const timeAgo = formatTimeAgo(file.added_at);
+
+            return `
+            <div class="swiper-slide">
+                <div class="dashboard-card has-thumbnail" data-path="${path}" onclick="openReaderForFile('${path.replace(/'/g, "\\'")}')">
+                    <div class="dashboard-card-img-container">
+                        <img src="${thumbnailUrl}" alt="${name}" class="thumbnail">
+                    </div>
+                    <div class="dashboard-card-body">
+                        <div class="text-truncate text-dark item-name" title="${name}">${name}</div>
+                        <small class="text-muted">${timeAgo}</small>
+                    </div>
+                </div>
+            </div>
+        `}).join('');
+
+    } catch (error) {
+        console.error('Error loading recently added files:', error);
+    }
+}
+
+/**
+ * Open the comic reader for a specific file path
+ * @param {string} path - Full path to the comic file
+ */
+function openReaderForFile(path) {
+    // Navigate to the parent folder first, then open the reader
+    const parentPath = path.substring(0, path.lastIndexOf('/'));
+    const fileName = path.substring(path.lastIndexOf('/') + 1);
+
+    // Set up so clicking opens the reader directly
+    loadDirectory(parentPath).then(() => {
+        // Find and click the file's grid item to open reader
+        setTimeout(() => {
+            const gridItems = document.querySelectorAll('.grid-item');
+            for (const item of gridItems) {
+                const itemName = item.querySelector('.item-name')?.textContent;
+                if (itemName === fileName) {
+                    item.click();
+                    break;
+                }
+            }
+        }, 500);
+    });
 }
 
 /**

@@ -233,6 +233,10 @@ getcomics_scheduler = BackgroundScheduler(daemon=True)
 getcomics_scheduler.start()
 app_logger.info("📅 GetComics scheduler initialized")
 
+# Global state for wanted issues refresh
+wanted_refresh_in_progress = False
+wanted_refresh_lock = threading.Lock()
+
 # Function to perform scheduled series sync
 def scheduled_series_sync():
     """Sync all mapped series from Metron API on schedule."""
@@ -299,6 +303,11 @@ def scheduled_series_sync():
 
         # Update last sync timestamp
         update_last_sync()
+
+        # Clear entire wanted cache since issues may have changed for multiple series
+        from database import clear_wanted_cache_all
+        clear_wanted_cache_all()
+        app_logger.info("Cleared wanted cache after scheduled sync")
 
         elapsed = time.time() - start_time
         app_logger.info(f"✅ Scheduled series sync completed in {elapsed:.2f}s ({success_count} synced, {fail_count} failed)")
@@ -496,6 +505,14 @@ def process_incoming_wanted_issues():
                 src = os.path.join(target_folder, filename)
                 dest_dir = mapped_path
 
+                # Debug: Log paths and existence checks
+                app_logger.debug(f"  Source path: {src} (exists: {os.path.exists(src)})")
+                app_logger.debug(f"  Dest dir: {dest_dir} (exists: {os.path.exists(dest_dir)}, isdir: {os.path.isdir(dest_dir) if os.path.exists(dest_dir) else 'N/A'})")
+
+                if not os.path.exists(src):
+                    app_logger.warning(f"Source file missing: {src}")
+                    continue
+
                 if not os.path.exists(dest_dir):
                     app_logger.warning(f"Series folder missing: {dest_dir}")
                     continue
@@ -533,10 +550,11 @@ def process_incoming_wanted_issues():
 
         # Invalidate collection status cache for affected series
         # This ensures the wanted list is updated to remove matched issues
-        from database import invalidate_collection_status_for_series
+        from database import invalidate_collection_status_for_series, clear_wanted_cache_for_series
         for series_id in affected_series:
             invalidate_collection_status_for_series(series_id)
-            app_logger.info(f"Invalidated collection cache for series {series_id}")
+            clear_wanted_cache_for_series(series_id)
+            app_logger.info(f"Invalidated collection and wanted cache for series {series_id}")
     else:
         app_logger.info("No wanted issues matched files in TARGET folder")
 
@@ -1009,93 +1027,167 @@ def releases():
                          normalize_name=normalize_series_name)
 
 
+def refresh_wanted_cache_background():
+    """
+    Rebuild wanted issues cache for all mapped series.
+    This runs in a background thread and does the heavy file I/O work.
+    """
+    global wanted_refresh_in_progress
+
+    with wanted_refresh_lock:
+        if wanted_refresh_in_progress:
+            app_logger.info("Wanted refresh already in progress, skipping")
+            return
+        wanted_refresh_in_progress = True
+
+    try:
+        from database import (get_all_mapped_series, get_issues_for_series,
+                             save_wanted_issues_for_series, clear_wanted_cache_all)
+
+        app_logger.info("Starting wanted issues cache refresh...")
+        start_time = time.time()
+
+        # Clear existing cache
+        clear_wanted_cache_all()
+
+        # Get all mapped series
+        mapped_series = get_all_mapped_series()
+        total_wanted = 0
+
+        for series in mapped_series:
+            series_id = series['id']
+            series_name = series.get('name', '')
+            series_volume = series.get('volume')
+            mapped_path = series.get('mapped_path')
+
+            if not mapped_path or not os.path.exists(mapped_path):
+                continue
+
+            # Get cached issues for this series
+            issues = get_issues_for_series(series_id)
+            if not issues:
+                continue
+
+            # Convert issues to objects for matching function
+            class IssueObj:
+                def __init__(self, data):
+                    self.number = data.get('number')
+                    self.id = data.get('id')
+                    self.name = data.get('name')
+                    self.store_date = data.get('store_date')
+                    self.cover_date = data.get('cover_date')
+                    self.image = data.get('image')
+
+            issue_objs = [IssueObj(i) for i in issues]
+
+            # Create a minimal series_info object for matching
+            class SeriesObj:
+                def __init__(self, data):
+                    self.name = data.get('name')
+                    self.volume = data.get('volume')
+                    self.id = data.get('id')
+
+            series_obj = SeriesObj(series)
+
+            # Check which issues are in collection
+            issue_status = match_issues_to_collection(mapped_path, issue_objs, series_obj)
+
+            # Find missing/wanted issues
+            wanted_list = []
+            for issue in issues:
+                issue_num = str(issue.get('number', ''))
+                status = issue_status.get(issue_num, {})
+
+                if not status.get('found'):
+                    wanted_list.append(issue)
+
+            # Save to cache
+            if wanted_list:
+                save_wanted_issues_for_series(series_id, series_name, series_volume, wanted_list)
+                total_wanted += len(wanted_list)
+
+        elapsed = time.time() - start_time
+        app_logger.info(f"Wanted issues cache refresh complete: {total_wanted} issues in {elapsed:.2f}s")
+
+    except Exception as e:
+        app_logger.error(f"Error during wanted issues cache refresh: {e}")
+    finally:
+        with wanted_refresh_lock:
+            wanted_refresh_in_progress = False
+
+
 @app.route('/wanted')
 def wanted():
     """
-    Wanted Issues page - shows all missing issues from mapped series.
+    Wanted Issues page - shows cached missing issues from mapped series.
+    Fast load from database cache, refresh via API endpoint.
     """
-    from database import get_all_mapped_series, get_issues_for_series
+    from database import get_cached_wanted_issues, get_wanted_cache_age
 
-    wanted_issues = []
-    series_stats = []
+    # Load from cache (fast - no file I/O)
+    cached = get_cached_wanted_issues()
+    cache_age = get_wanted_cache_age()
 
-    # Get all mapped series
-    mapped_series = get_all_mapped_series()
+    # If cache is empty and not currently refreshing, trigger background refresh
+    if not cached and not wanted_refresh_in_progress:
+        threading.Thread(target=refresh_wanted_cache_background, daemon=True).start()
+        return render_template('wanted.html',
+                             upcoming=[],
+                             missing=[],
+                             series_stats=[],
+                             total_wanted=0,
+                             total_upcoming=0,
+                             total_missing=0,
+                             loading=True,
+                             refreshing=True,
+                             cache_age=None)
 
-    for series in mapped_series:
-        series_id = series['id']
-        mapped_path = series.get('mapped_path')
-
-        if not mapped_path or not os.path.exists(mapped_path):
-            continue
-
-        # Get cached issues for this series
-        issues = get_issues_for_series(series_id)
-        if not issues:
-            continue
-
-        # Convert issues to objects for matching function
-        class IssueObj:
-            def __init__(self, data):
-                self.number = data.get('number')
-                self.id = data.get('id')
-                self.name = data.get('name')
-                self.store_date = data.get('store_date')
-                self.cover_date = data.get('cover_date')
-                self.image = data.get('image')
-
-        issue_objs = [IssueObj(i) for i in issues]
-
-        # Create a minimal series_info object for matching
-        class SeriesObj:
-            def __init__(self, data):
-                self.name = data.get('name')
-                self.volume = data.get('volume')
-                self.id = data.get('id')
-
-        series_obj = SeriesObj(series)
-
-        # Check which issues are in collection
-        issue_status = match_issues_to_collection(mapped_path, issue_objs, series_obj)
-
-        # Find missing/wanted issues
-        found_count = 0
-        missing_count = 0
-        for issue in issues:
-            issue_num = str(issue.get('number', ''))
-            status = issue_status.get(issue_num, {})
-
-            if status.get('found'):
-                found_count += 1
-            else:
-                missing_count += 1
-                # Add to wanted list
-                wanted_issues.append({
-                    'issue': issue,
-                    'series': series,
-                    'series_id': series_id,
-                    'series_name': series.get('name'),
-                    'series_volume': series.get('volume'),
-                })
-
-        # Track series stats
-        if missing_count > 0:
-            series_stats.append({
-                'series': series,
-                'found': found_count,
-                'missing': missing_count,
-                'total': len(issues)
-            })
-
-    # Sort wanted issues by store_date (future first, then by series/number)
+    # Convert cached data to format expected by template
     from datetime import date
     today = date.today().isoformat()
 
+    wanted_issues = []
+    series_stats_dict = {}
+
+    for item in cached:
+        issue_data = {
+            'id': item['issue_id'],
+            'number': item['issue_number'],
+            'name': item['issue_name'],
+            'store_date': item['store_date'],
+            'cover_date': item['cover_date'],
+            'image': item['image']
+        }
+
+        series_data = {
+            'id': item['series_id'],
+            'name': item['series_name'],
+            'volume': item['series_volume']
+        }
+
+        wanted_issues.append({
+            'issue': issue_data,
+            'series': series_data,
+            'series_id': item['series_id'],
+            'series_name': item['series_name'],
+            'series_volume': item['series_volume']
+        })
+
+        # Track series stats
+        if item['series_id'] not in series_stats_dict:
+            series_stats_dict[item['series_id']] = {
+                'series': series_data,
+                'missing': 0
+            }
+        series_stats_dict[item['series_id']]['missing'] += 1
+
+    series_stats = list(series_stats_dict.values())
+
+    # Sort by store_date
     def sort_key(item):
         store_date = item['issue'].get('store_date') or '9999-99-99'
         series_name = item['series_name'] or ''
         issue_num = item['issue'].get('number') or ''
-        # Try to convert issue number to int for proper sorting
         try:
             issue_num_int = int(issue_num)
         except (ValueError, TypeError):
@@ -1114,7 +1206,10 @@ def wanted():
                          series_stats=series_stats,
                          total_wanted=len(wanted_issues),
                          total_upcoming=len(upcoming),
-                         total_missing=len(missing))
+                         total_missing=len(missing),
+                         loading=False,
+                         refreshing=wanted_refresh_in_progress,
+                         cache_age=cache_age)
 
 
 @app.route('/pull-list')
@@ -1421,14 +1516,18 @@ def generate_filename_pattern(custom_pattern, series_name, issue_number):
             the_prefix = r'(?:The[\s\-_]+)?'
             working_name = series_name[4:]  # Remove "The " from name
 
-        # Normalize punctuation - replace :, -, etc. with space for consistent handling
+        # Remove apostrophes and ampersands entirely first
+        # Handles possessives: "Night's" -> "Nights"
+        # Handles ampersands: "Black & White" -> "Black White" (files often omit &)
+        temp_name = working_name.replace("'", "").replace("&", "")
+        # Then normalize other punctuation - replace :, -, etc. with space for consistent handling
         # This allows "Nemesis: Forever", "Nemesis - Forever", "Nemesis Forever" to all match
-        normalized_name = re.sub(r'[\s\-_:;,\.]+', ' ', working_name).strip()
+        normalized_name = re.sub(r'[\s\-_:;,\.]+', ' ', temp_name).strip()
 
         # Escape series name for regex
         series_escaped = re.escape(normalized_name)
-        # Allow flexible punctuation/whitespace matching (spaces, underscores, dashes, colons, or nothing)
-        series_pattern = the_prefix + series_escaped.replace(r'\ ', r'[\s\-_:]*')
+        # Allow flexible punctuation/whitespace matching (spaces, underscores, dashes, colons, apostrophes, periods, ampersands, or nothing)
+        series_pattern = the_prefix + series_escaped.replace(r'\ ', r"[\s\-_:'\.&]*")
 
         # Normalize issue number - handle leading zeros (1, 01, 001 all match)
         issue_num_clean = str(issue_number).strip().lstrip('0') or '0'
@@ -1439,6 +1538,10 @@ def generate_filename_pattern(custom_pattern, series_name, issue_number):
         pattern = pattern.replace('<<<SERIES>>>', f'(?:{series_pattern})')
         pattern = pattern.replace('<<<ISSUE>>>', f'({issue_pattern})')
         pattern = pattern.replace('<<<YEAR>>>', r'\d{4}')
+
+        # Make spaces between components flexible (allow punctuation like trailing periods)
+        # This handles cases like "K.O. 003" where there's punctuation before the space
+        pattern = pattern.replace(') (', r")[\s\-_:'\.&]+(" )
 
         # Add file extension matching at the end
         pattern += r'.*\.(?:cbz|cbr|zip|rar)$'
@@ -2196,6 +2299,10 @@ def sync_series(series_id):
         delete_issues_for_series(series_id)
         save_issues_bulk(all_issues, series_id)
         update_series_sync_time(series_id, len(all_issues))
+
+        # Clear wanted cache for this series (issues may have changed)
+        from database import clear_wanted_cache_for_series
+        clear_wanted_cache_for_series(series_id)
 
         # Check collection status if mapped
         issue_status = {}
@@ -3513,6 +3620,47 @@ def api_run_getcomics_now():
     except Exception as e:
         app_logger.error(f"Failed to start getcomics download: {e}")
         return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route('/api/refresh-wanted', methods=['POST'])
+def api_refresh_wanted():
+    """Trigger wanted issues cache refresh in background."""
+    try:
+        if wanted_refresh_in_progress:
+            return jsonify({
+                "success": True,
+                "message": "Refresh already in progress"
+            })
+
+        threading.Thread(target=refresh_wanted_cache_background, daemon=True).start()
+        return jsonify({
+            "success": True,
+            "message": "Wanted issues refresh started"
+        })
+    except Exception as e:
+        app_logger.error(f"Failed to start wanted refresh: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route('/api/wanted-status', methods=['GET'])
+def api_wanted_status():
+    """Get wanted issues cache refresh status."""
+    from database import get_wanted_cache_age, get_cached_wanted_issues
+
+    try:
+        cache_age = get_wanted_cache_age()
+        # Get count without loading all data
+        cached = get_cached_wanted_issues()
+        count = len(cached) if cached else 0
+
+        return jsonify({
+            "refreshing": wanted_refresh_in_progress,
+            "cache_age": cache_age,
+            "count": count
+        })
+    except Exception as e:
+        app_logger.error(f"Failed to get wanted status: {e}")
+        return jsonify({"error": str(e)}), 500
 
 
 # Cache for directory statistics to avoid repeated filesystem walks
@@ -5923,13 +6071,111 @@ def api_mark_comic_read():
     if not comic_path:
         return jsonify({"error": "Missing path parameter"}), 400
 
+    # Extract metadata from ComicInfo.xml if available
+    writer = ''
+    penciller = ''
+    characters = ''
+    publisher = ''
     try:
-        mark_issue_read(comic_path, read_at, page_count, time_spent)
+        from comicinfo import read_comicinfo_from_zip
+        if os.path.exists(comic_path) and comic_path.lower().endswith(('.cbz', '.zip')):
+            comic_info = read_comicinfo_from_zip(comic_path)
+            if comic_info:
+                writer = comic_info.get('Writer', '')
+                penciller = comic_info.get('Penciller', '')
+                characters = comic_info.get('Characters', '')
+                publisher = comic_info.get('Publisher', '')
+    except Exception as e:
+        app_logger.warning(f"Could not extract ComicInfo.xml metadata: {e}")
+
+    try:
+        mark_issue_read(comic_path, read_at, page_count, time_spent,
+                        writer=writer, penciller=penciller, characters=characters, publisher=publisher)
         clear_stats_cache_keys(['library_stats', 'reading_history', 'reading_heatmap'])
         app_logger.info(f"Marked comic as read: {comic_path}" + (f" at {read_at}" if read_at else ""))
         return jsonify({"success": True})
     except Exception as e:
         app_logger.error(f"Error marking comic as read: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/reading-trends/<field>')
+def api_reading_trends(field):
+    """Get top values for a metadata field (writer, penciller, characters, publisher)."""
+    from database import get_reading_trends
+
+    valid_fields = ['writer', 'penciller', 'characters', 'publisher']
+    if field not in valid_fields:
+        return jsonify({"error": f"Invalid field. Must be one of: {', '.join(valid_fields)}"}), 400
+
+    year = request.args.get('year', type=int)
+    limit = request.args.get('limit', 10, type=int)
+
+    trends = get_reading_trends(field, year=year, limit=limit)
+    return jsonify(trends)
+
+
+@app.route('/api/backfill-reading-metadata', methods=['POST'])
+def api_backfill_reading_metadata():
+    """Re-read ComicInfo.xml for all issues_read entries and update metadata fields."""
+    from comicinfo import read_comicinfo_from_zip
+
+    try:
+        conn = get_db_connection()
+        if not conn:
+            return jsonify({"error": "Database connection failed"}), 500
+
+        c = conn.cursor()
+        c.execute('SELECT id, issue_path FROM issues_read')
+        rows = c.fetchall()
+
+        updated_count = 0
+        skipped_count = 0
+
+        for row in rows:
+            issue_id = row[0]
+            issue_path = row[1]
+
+            # Skip if file doesn't exist or isn't a CBZ
+            if not os.path.exists(issue_path) or not issue_path.lower().endswith(('.cbz', '.zip')):
+                skipped_count += 1
+                continue
+
+            try:
+                comic_info = read_comicinfo_from_zip(issue_path)
+                if comic_info:
+                    writer = comic_info.get('Writer', '')
+                    penciller = comic_info.get('Penciller', '')
+                    characters = comic_info.get('Characters', '')
+                    publisher = comic_info.get('Publisher', '')
+
+                    c.execute('''
+                        UPDATE issues_read
+                        SET writer = ?, penciller = ?, characters = ?, publisher = ?
+                        WHERE id = ?
+                    ''', (writer, penciller, characters, publisher, issue_id))
+                    updated_count += 1
+                else:
+                    skipped_count += 1
+            except Exception as e:
+                app_logger.warning(f"Could not read ComicInfo.xml for {issue_path}: {e}")
+                skipped_count += 1
+
+        conn.commit()
+        conn.close()
+
+        # Clear stats cache
+        clear_stats_cache_keys(['library_stats', 'reading_history'])
+
+        app_logger.info(f"Backfill complete: {updated_count} updated, {skipped_count} skipped")
+        return jsonify({
+            "success": True,
+            "updated": updated_count,
+            "skipped": skipped_count
+        })
+
+    except Exception as e:
+        app_logger.error(f"Error during backfill: {e}")
         return jsonify({"error": str(e)}), 500
 
 

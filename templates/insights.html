@@ -167,6 +167,69 @@
         </div>
     </div>
 
+    <!-- Reading Trends Section -->
+    <div class="d-flex justify-content-between align-items-center mb-2">
+        <h5 class="mb-0"><i class="bi bi-graph-up me-2"></i>Reading Trends</h5>
+        <div class="d-flex align-items-center gap-2">
+            <select class="form-select form-select-sm" id="trendsYearFilter" style="width: auto;">
+                <option value="all">All Time</option>
+            </select>
+            <button class="btn btn-sm btn-outline-secondary" id="backfillMetadataBtn" title="Re-scan all read comics for metadata">
+                <i class="bi bi-arrow-repeat me-1"></i>Backfill Metadata
+            </button>
+        </div>
+    </div>
+    <div class="row g-4 mb-4">
+        <div class="col-md-6 col-lg-3">
+            <div class="section-card h-100">
+                <div class="section-card-header">
+                    <h3><i class="bi bi-pencil"></i> Top Writers</h3>
+                </div>
+                <div class="section-card-body">
+                    <div id="topWritersList" class="trends-list">
+                        <div class="text-center text-muted py-3">Loading...</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-6 col-lg-3">
+            <div class="section-card h-100">
+                <div class="section-card-header">
+                    <h3><i class="bi bi-brush"></i> Top Artists</h3>
+                </div>
+                <div class="section-card-body">
+                    <div id="topPencillersList" class="trends-list">
+                        <div class="text-center text-muted py-3">Loading...</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-6 col-lg-3">
+            <div class="section-card h-100">
+                <div class="section-card-header">
+                    <h3><i class="bi bi-people"></i> Top Characters</h3>
+                </div>
+                <div class="section-card-body">
+                    <div id="topCharactersList" class="trends-list">
+                        <div class="text-center text-muted py-3">Loading...</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-6 col-lg-3">
+            <div class="section-card h-100">
+                <div class="section-card-header">
+                    <h3><i class="bi bi-building"></i> Top Publishers</h3>
+                </div>
+                <div class="section-card-body">
+                    <div id="topPublishersList" class="trends-list">
+                        <div class="text-center text-muted py-3">Loading...</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- Top 20 Series by Issue Count -->
     <div class="row g-4 mb-4">
         <div class="col-6">
@@ -840,5 +903,109 @@
 
     // Initialize on page load
     initReadingStatsFilter();
+
+    // ===== READING TRENDS =====
+    const trendsYearFilter = document.getElementById('trendsYearFilter');
+    const backfillMetadataBtn = document.getElementById('backfillMetadataBtn');
+
+    // Initialize trends year filter with available years
+    async function initTrendsYearFilter() {
+        try {
+            const response = await fetch('/api/reading-stats');
+            const data = await response.json();
+
+            if (data.success && data.years) {
+                trendsYearFilter.innerHTML = '<option value="all">All Time</option>';
+                data.years.forEach(year => {
+                    const option = document.createElement('option');
+                    option.value = year;
+                    option.textContent = year;
+                    trendsYearFilter.appendChild(option);
+                });
+            }
+        } catch (error) {
+            console.error('Error loading trends years:', error);
+        }
+    }
+
+    async function loadReadingTrends(year = 'all') {
+        const fields = [
+            { field: 'writer', elementId: 'topWritersList' },
+            { field: 'penciller', elementId: 'topPencillersList' },
+            { field: 'characters', elementId: 'topCharactersList' },
+            { field: 'publisher', elementId: 'topPublishersList' }
+        ];
+
+        for (const { field, elementId } of fields) {
+            const container = document.getElementById(elementId);
+            try {
+                const url = year === 'all'
+                    ? `/api/reading-trends/${field}?limit=10`
+                    : `/api/reading-trends/${field}?year=${year}&limit=10`;
+                const response = await fetch(url);
+                const data = await response.json();
+
+                if (data.length === 0) {
+                    container.innerHTML = '<div class="text-center text-muted py-3"><i class="bi bi-inbox d-block mb-2" style="font-size: 1.5rem;"></i>No data yet</div>';
+                } else {
+                    const maxCount = data[0].count;
+                    container.innerHTML = data.map((item, index) => `
+                        <div class="trend-item">
+                            <div class="d-flex justify-content-between align-items-center mb-1">
+                                <span class="trend-name text-truncate" title="${escapeHtml(item.name)}">${escapeHtml(item.name)}</span>
+                                <span class="trend-count badge bg-primary">${item.count}</span>
+                            </div>
+                            <div class="progress" style="height: 4px;">
+                                <div class="progress-bar" role="progressbar" style="width: ${(item.count / maxCount) * 100}%"></div>
+                            </div>
+                        </div>
+                    `).join('');
+                }
+            } catch (error) {
+                console.error(`Error loading ${field} trends:`, error);
+                container.innerHTML = '<div class="text-center text-danger py-3">Error loading data</div>';
+            }
+        }
+    }
+
+    // Handle trends year filter change
+    trendsYearFilter.addEventListener('change', function() {
+        loadReadingTrends(this.value);
+    });
+
+    // Backfill metadata button handler
+    backfillMetadataBtn.addEventListener('click', async function() {
+        if (!confirm('This will re-scan all read comics for metadata (writer, artist, characters, publisher). This may take a while. Continue?')) {
+            return;
+        }
+
+        const btn = this;
+        const originalHtml = btn.innerHTML;
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Processing...';
+
+        try {
+            const response = await fetch('/api/backfill-reading-metadata', { method: 'POST' });
+            const data = await response.json();
+
+            if (data.success) {
+                alert(`Backfill complete!\n\nUpdated: ${data.updated} comics\nSkipped: ${data.skipped} comics`);
+                // Reload trends to show updated data
+                loadReadingTrends(trendsYearFilter.value);
+            } else {
+                alert('Error: ' + (data.error || 'Unknown error'));
+            }
+        } catch (error) {
+            console.error('Backfill error:', error);
+            alert('Error during backfill: ' + error.message);
+        } finally {
+            btn.disabled = false;
+            btn.innerHTML = originalHtml;
+        }
+    });
+
+    // Initialize trends on page load
+    initTrendsYearFilter();
+    loadReadingTrends();
 </script>
 {% endblock %}
