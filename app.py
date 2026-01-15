@@ -6116,6 +6116,97 @@ def api_reading_trends(field):
     return jsonify(trends)
 
 
+@app.route('/browse/<category>/<path:name>')
+def browse_by_metadata(category, name):
+    """
+    Browse comics by metadata category (writer, penciller, character, publisher).
+    Results are grouped by series (for characters) or publisher (for others).
+    """
+    from database import get_files_by_metadata_grouped
+    from urllib.parse import unquote
+
+    # Map URL categories to internal field names
+    category_mapping = {
+        'writer': 'writer',
+        'penciller': 'penciller',
+        'artist': 'penciller',  # Alias
+        'character': 'characters',
+        'characters': 'characters',
+        'publisher': 'publisher'
+    }
+
+    # Normalize category
+    normalized_category = category_mapping.get(category.lower())
+    if not normalized_category:
+        flash(f"Invalid browse category: {category}", "error")
+        return redirect(url_for('insights_page'))
+
+    # Decode URL-encoded name
+    decoded_name = unquote(name)
+
+    # Get grouped results
+    result = get_files_by_metadata_grouped(normalized_category, decoded_name)
+
+    # Category display labels
+    category_labels = {
+        'writer': 'Writer',
+        'penciller': 'Artist',
+        'characters': 'Character',
+        'publisher': 'Publisher'
+    }
+
+    # Group label (what we're grouping by)
+    group_labels = {
+        'characters': 'Series',
+        'writer': 'Publisher',
+        'penciller': 'Publisher',
+        'publisher': 'Series'  # For publisher category, group by series
+    }
+
+    return render_template('browse_metadata.html',
+                          category=normalized_category,
+                          category_label=category_labels.get(normalized_category, 'Unknown'),
+                          group_label=group_labels.get(normalized_category, 'Group'),
+                          name=decoded_name,
+                          groups=result['groups'],
+                          total=result['total'],
+                          nested=result.get('nested', False))
+
+
+@app.route('/api/browse/<category>/<path:name>')
+def api_browse_by_metadata(category, name):
+    """
+    API endpoint for paginated browse results.
+    """
+    from database import get_files_by_metadata
+    from urllib.parse import unquote
+
+    category_mapping = {
+        'writer': 'writer',
+        'penciller': 'penciller',
+        'artist': 'penciller',
+        'character': 'characters',
+        'characters': 'characters',
+        'publisher': 'publisher'
+    }
+
+    normalized_category = category_mapping.get(category.lower())
+    if not normalized_category:
+        return jsonify({"error": "Invalid category"}), 400
+
+    decoded_name = unquote(name)
+    limit = request.args.get('limit', 50, type=int)
+    offset = request.args.get('offset', 0, type=int)
+
+    result = get_files_by_metadata(normalized_category, decoded_name, limit=limit, offset=offset)
+
+    # Add thumbnail URLs
+    for file_info in result['files']:
+        file_info['thumbnail_url'] = url_for('get_thumbnail', path=file_info['path'])
+
+    return jsonify(result)
+
+
 @app.route('/api/backfill-reading-metadata', methods=['POST'])
 def api_backfill_reading_metadata():
     """Re-read ComicInfo.xml for all issues_read entries and update metadata fields."""
@@ -10827,6 +10918,26 @@ def start_file_watcher_background():
         app_logger.error(f"❌ Failed to initialize file watcher: {e}")
         app_logger.error(f"Traceback: {traceback.format_exc()}")
 
+def start_metadata_scanner_background():
+    """Start metadata scanner after file index is built."""
+    global index_built
+    try:
+        # Wait for file index to be built first
+        wait_count = 0
+        while not index_built:
+            time.sleep(1)
+            wait_count += 1
+            if wait_count > 300:  # 5 minute timeout
+                app_logger.warning("Metadata scanner timed out waiting for file index")
+                return
+
+        # Start the scanner
+        from metadata_scanner import start_metadata_scanner
+        start_metadata_scanner()
+    except Exception as e:
+        app_logger.error(f"Failed to start metadata scanner: {e}")
+
+
 def start_background_services():
     """Start all background services. Called once on app startup."""
     app_logger.info("Flask app is starting up...")
@@ -10846,6 +10957,10 @@ def start_background_services():
     # Start file watcher
     threading.Thread(target=start_file_watcher_background, daemon=True).start()
     app_logger.info("🔄 File watcher initialization started in background...")
+
+    # Start metadata scanner (waits for index to be built)
+    threading.Thread(target=start_metadata_scanner_background, daemon=True).start()
+    app_logger.info("🔄 Metadata scanner initialization queued (waiting for index)...")
 
     # Configure rebuild schedule from database
     configure_rebuild_schedule()
@@ -10869,6 +10984,42 @@ def start_background_services():
 
 # Start background services when module is imported (works with Gunicorn)
 start_background_services()
+
+
+@app.route('/api/metadata-scan-status', methods=['GET'])
+def api_metadata_scan_status():
+    """Get current metadata scanning progress and status."""
+    try:
+        from metadata_scanner import get_scanner_status
+        return jsonify(get_scanner_status())
+    except ImportError:
+        return jsonify({
+            'enabled': False,
+            'error': 'Metadata scanner not available'
+        })
+    except Exception as e:
+        app_logger.error(f"Error getting metadata scan status: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/metadata-scan-trigger', methods=['POST'])
+def api_metadata_scan_trigger():
+    """Manually trigger a metadata scan of pending files."""
+    try:
+        from metadata_scanner import queue_pending_files, get_scanner_status
+
+        queued = queue_pending_files()
+        status = get_scanner_status()
+
+        return jsonify({
+            'success': True,
+            'message': f"Queued {queued} files for scanning",
+            'status': status
+        })
+    except Exception as e:
+        app_logger.error(f"Error triggering metadata scan: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
 
 @app.route('/api/recommendations', methods=['GET', 'POST'])
 def api_recommendations():

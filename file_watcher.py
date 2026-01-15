@@ -5,6 +5,7 @@ from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 from database import add_file_index_entry, delete_file_index_entry, invalidate_collection_status_for_path
 from app_logging import app_logger
+from metadata_scanner import queue_file_for_scan, PRIORITY_NEW_FILE
 
 
 class DebouncedFileHandler(FileSystemEventHandler):
@@ -69,6 +70,10 @@ class DebouncedFileHandler(FileSystemEventHandler):
 
                         add_file_index_entry(file_name, file_path, 'file', size=file_size, parent=parent, modified_at=modified_at)
                         app_logger.info(f"✅ Indexed recent file from watcher: {file_name}")
+
+                        # Queue CBZ files for metadata scanning (high priority for new files)
+                        if file_path.lower().endswith('.cbz'):
+                            queue_file_for_scan(file_path, PRIORITY_NEW_FILE)
 
                         # Invalidate collection status cache for this directory
                         invalidate_collection_status_for_path(file_path)

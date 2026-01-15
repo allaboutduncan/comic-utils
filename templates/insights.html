@@ -11,13 +11,18 @@
     <!-- Page Header -->
     <div class="insights-header d-flex justify-content-between align-items-start flex-wrap gap-3">
         <div>
-            <h1><i class="bi bi-graph-up-arrow me-2 text-primary"></i>Library Insights</h1>
+            <h1><i class="bi bi-graph-up-arrow me-2 text-primary"></i>Insights</h1>
             <p class="lead mb-0">Explore your collection statistics and reading habits</p>
         </div>
         <button class="btn btn-primary btn-lg" id="generateWrappedBtn" data-bs-toggle="modal"
             data-bs-target="#wrappedModal">
             <i class="bi bi-gift me-2"></i>Year Wrapped
         </button>
+    </div>
+
+    <!-- Collection Stats -->
+    <div class="d-flex justify-content-between align-items-center mb-2">
+        <h5 class="mb-0"><i class="bi bi-book-half me-2"></i>Collection Stats</h5>
     </div>
 
     <!-- Top Stats Row -->
@@ -50,6 +55,34 @@
                 </div>
                 <div class="stat-value">{{ "{:,}".format(library_stats.total_directories) }}</div>
                 <div class="stat-label">Folders</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Charts Row -->
+    <div class="row g-4 mb-4">
+        <div class="col-lg-6">
+            <div class="section-card">
+                <div class="section-card-header">
+                    <h3><i class="bi bi-pie-chart"></i>File Types</h3>
+                </div>
+                <div class="section-card-body">
+                    <div class="chart-container">
+                        <canvas id="fileTypeChart"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-lg-6">
+            <div class="section-card h-100">
+                <div class="section-card-header">
+                    <h3><i class="bi bi-building"></i> Top Publishers</h3>
+                </div>
+                <div class="section-card-body">
+                    <div class="chart-container tall">
+                        <canvas id="publishersChart"></canvas>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
@@ -93,17 +126,15 @@
         </div>
     </div>
 
-    <!-- Charts Row -->
+    <!-- Reading Heatmap & Publishers ChartGraph -->
     <div class="row g-4 mb-4">
         <div class="col-lg-5">
-            <div class="section-card">
+            <div class="section-card h-100">
                 <div class="section-card-header">
-                    <h3><i class="bi bi-pie-chart"></i>File Types</h3>
+                    <h3><i class="bi bi-calendar3"></i> Comics Read per Month</h3>
                 </div>
                 <div class="section-card-body">
-                    <div class="chart-container">
-                        <canvas id="fileTypeChart"></canvas>
-                    </div>
+                    <div id="reading-heatmap" class="reading-heatmap"></div>
                 </div>
             </div>
         </div>
@@ -121,37 +152,16 @@
         </div>
     </div>
 
-    <!-- Reading Heatmap & Publishers Chart -->
-    <div class="row g-4 mb-4">
-        <div class="col-lg-6">
-            <div class="section-card h-100">
-                <div class="section-card-header">
-                    <h3><i class="bi bi-calendar3"></i> Comics Read per Month</h3>
-                </div>
-                <div class="section-card-body">
-                    <div id="reading-heatmap" class="reading-heatmap"></div>
-                </div>
-            </div>
-        </div>
-        <div class="col-lg-6">
-            <div class="section-card h-100">
-                <div class="section-card-header">
-                    <h3><i class="bi bi-building"></i> Top Publishers</h3>
-                </div>
-                <div class="section-card-body">
-                    <div class="chart-container tall">
-                        <canvas id="publishersChart"></canvas>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-
     <!-- Recently Read Section -->
     <div class="row g-4 mb-4">
         <div class="col-12">
             <div class="section-card">
                 <div class="section-card-header">
+                    <div class="float-end">
+                        <a href="{{ url_for('timeline') }}" class="btn btn-outline-secondary">
+                            <i class="bi bi-graph-up-arrow me-1"></i>Timeline
+                        </a>
+                    </div>
                     <h3><i class="bi bi-clock-history"></i>Recently Read</h3>
                 </div>
                 <div class="section-card-body">
@@ -174,7 +184,8 @@
             <select class="form-select form-select-sm" id="trendsYearFilter" style="width: auto;">
                 <option value="all">All Time</option>
             </select>
-            <button class="btn btn-sm btn-outline-secondary" id="backfillMetadataBtn" title="Re-scan all read comics for metadata">
+            <button class="btn btn-sm btn-outline-secondary" id="backfillMetadataBtn"
+                title="Re-scan all read comics for metadata">
                 <i class="bi bi-arrow-repeat me-1"></i>Backfill Metadata
             </button>
         </div>
@@ -232,7 +243,7 @@
 
     <!-- Top 20 Series by Issue Count -->
     <div class="row g-4 mb-4">
-        <div class="col-6">
+        <div class="col-12 col-sm-6">
             <div class="section-card">
                 <div class="section-card-header">
                     <h3><i class="bi bi-collection"></i> Top 20 Series by Issue Count</h3>
@@ -247,7 +258,7 @@
 
         <!-- Top 20 Largest Comics -->
 
-        <div class="col-6">
+        <div class="col-12 col-sm-6">
             <div class="section-card">
                 <div class="section-card-header">
                     <h3><i class="bi bi-file-earmark-zip"></i> Top 20 Largest Comics</h3>
@@ -327,22 +338,27 @@
 
     <!-- Toast Container -->
     <div class="toast-container position-fixed top-0 end-0 p-3" style="z-index: 9999;">
-        <div id="successToast" class="toast align-items-center text-bg-success border-0" role="alert" aria-live="assertive" aria-atomic="true">
+        <div id="successToast" class="toast align-items-center text-bg-success border-0" role="alert"
+            aria-live="assertive" aria-atomic="true">
             <div class="d-flex">
                 <div class="toast-body" id="successToastBody"></div>
-                <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast" aria-label="Close"></button>
+                <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"
+                    aria-label="Close"></button>
             </div>
         </div>
-        <div id="errorToast" class="toast align-items-center text-bg-danger border-0" role="alert" aria-live="assertive" aria-atomic="true">
+        <div id="errorToast" class="toast align-items-center text-bg-danger border-0" role="alert" aria-live="assertive"
+            aria-atomic="true">
             <div class="d-flex">
                 <div class="toast-body" id="errorToastBody"></div>
-                <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast" aria-label="Close"></button>
+                <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"
+                    aria-label="Close"></button>
             </div>
         </div>
     </div>
 
     <!-- Backfill Confirmation Modal -->
-    <div class="modal fade" id="backfillConfirmModal" tabindex="-1" aria-labelledby="backfillConfirmModalLabel" aria-hidden="true">
+    <div class="modal fade" id="backfillConfirmModal" tabindex="-1" aria-labelledby="backfillConfirmModalLabel"
+        aria-hidden="true">
         <div class="modal-dialog">
             <div class="modal-content">
                 <div class="modal-header">
@@ -366,7 +382,8 @@
     </div>
 
     <!-- Skipped Issues Modal -->
-    <div class="modal fade" id="skippedIssuesModal" tabindex="-1" aria-labelledby="skippedIssuesModalLabel" aria-hidden="true">
+    <div class="modal fade" id="skippedIssuesModal" tabindex="-1" aria-labelledby="skippedIssuesModalLabel"
+        aria-hidden="true">
         <div class="modal-dialog modal-lg modal-dialog-scrollable">
             <div class="modal-content">
                 <div class="modal-header">
@@ -958,7 +975,7 @@
     }
 
     // Handle year selection change
-    readingStatsYearSelect.addEventListener('change', function() {
+    readingStatsYearSelect.addEventListener('change', function () {
         loadReadingStats(this.value);
     });
 
@@ -1032,7 +1049,7 @@
                 } else {
                     const maxCount = data[0].count;
                     container.innerHTML = data.map((item, index) => `
-                        <div class="trend-item">
+                        <a href="/browse/${field}/${encodeURIComponent(item.name)}" class="trend-item text-decoration-none">
                             <div class="d-flex justify-content-between align-items-center mb-1">
                                 <span class="trend-name text-truncate" title="${escapeHtml(item.name)}">${escapeHtml(item.name)}</span>
                                 <span class="trend-count badge bg-primary">${item.count}</span>
@@ -1040,7 +1057,7 @@
                             <div class="progress" style="height: 4px;">
                                 <div class="progress-bar" role="progressbar" style="width: ${(item.count / maxCount) * 100}%"></div>
                             </div>
-                        </div>
+                        </a>
                     `).join('');
                 }
             } catch (error) {
@@ -1051,7 +1068,7 @@
     }
 
     // Handle trends year filter change
-    trendsYearFilter.addEventListener('change', function() {
+    trendsYearFilter.addEventListener('change', function () {
         loadReadingTrends(this.value);
     });
 
@@ -1059,12 +1076,12 @@
     const backfillConfirmModal = new bootstrap.Modal(document.getElementById('backfillConfirmModal'));
     const confirmBackfillBtn = document.getElementById('confirmBackfillBtn');
 
-    backfillMetadataBtn.addEventListener('click', function() {
+    backfillMetadataBtn.addEventListener('click', function () {
         backfillConfirmModal.show();
     });
 
     // Handle confirmed backfill
-    confirmBackfillBtn.addEventListener('click', async function() {
+    confirmBackfillBtn.addEventListener('click', async function () {
         backfillConfirmModal.hide();
 
         const btn = backfillMetadataBtn;

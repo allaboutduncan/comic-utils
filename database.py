@@ -80,11 +80,39 @@ def init_db():
         if 'modified_at' not in columns:
             c.execute('ALTER TABLE file_index ADD COLUMN modified_at REAL')
 
+        # Migration: Add ComicInfo.xml metadata columns for file_index
+        metadata_columns = [
+            'ci_title',        # Title field from ComicInfo
+            'ci_series',       # Series name
+            'ci_number',       # Issue number
+            'ci_count',        # Total issues in series
+            'ci_volume',       # Volume number
+            'ci_year',         # Publication year
+            'ci_writer',       # Writer(s) - comma-separated
+            'ci_penciller',    # Penciller(s) - comma-separated
+            'ci_inker',        # Inker(s) - comma-separated
+            'ci_colorist',     # Colorist(s) - comma-separated
+            'ci_letterer',     # Letterer(s) - comma-separated
+            'ci_coverartist',  # Cover artist(s) - comma-separated
+            'ci_publisher',    # Publisher name
+            'ci_genre',        # Genre(s) - comma-separated
+            'ci_characters',   # Characters - comma-separated
+            'metadata_scanned_at'  # Timestamp of last scan (REAL)
+        ]
+        for col in metadata_columns:
+            if col not in columns:
+                col_type = 'REAL' if col == 'metadata_scanned_at' else 'TEXT'
+                c.execute(f'ALTER TABLE file_index ADD COLUMN {col} {col_type}')
+                app_logger.info(f"Migrating file_index: adding {col} column")
+
         # Create indexes for file_index table
         c.execute('CREATE INDEX IF NOT EXISTS idx_file_index_name ON file_index(name)')
         c.execute('CREATE INDEX IF NOT EXISTS idx_file_index_parent ON file_index(parent)')
         c.execute('CREATE INDEX IF NOT EXISTS idx_file_index_type ON file_index(type)')
         c.execute('CREATE INDEX IF NOT EXISTS idx_file_index_path ON file_index(path)')
+        c.execute('CREATE INDEX IF NOT EXISTS idx_file_index_metadata_scan ON file_index(metadata_scanned_at, modified_at)')
+        c.execute('CREATE INDEX IF NOT EXISTS idx_file_index_characters ON file_index(ci_characters)')
+        c.execute('CREATE INDEX IF NOT EXISTS idx_file_index_writer ON file_index(ci_writer)')
 
         # Create search_cache table (cache recent search queries)
         c.execute('''
@@ -1065,6 +1093,210 @@ def search_file_index(query, limit=100):
     except Exception as e:
         app_logger.error(f"Failed to search file index: {e}")
         return []
+
+
+# ============================================
+# File Index Metadata Scanning Functions
+# ============================================
+
+def update_file_metadata(file_id, metadata_dict, scanned_at):
+    """
+    Update ComicInfo.xml metadata columns for a file_index entry.
+
+    Args:
+        file_id: ID of the file_index entry
+        metadata_dict: Dict with keys like 'ci_title', 'ci_writer', etc.
+        scanned_at: Unix timestamp of when scan completed
+
+    Returns:
+        True if successful, False otherwise
+    """
+    try:
+        conn = get_db_connection()
+        if not conn:
+            return False
+
+        c = conn.cursor()
+        c.execute('''
+            UPDATE file_index
+            SET ci_title = ?, ci_series = ?, ci_number = ?, ci_count = ?,
+                ci_volume = ?, ci_year = ?, ci_writer = ?, ci_penciller = ?,
+                ci_inker = ?, ci_colorist = ?, ci_letterer = ?, ci_coverartist = ?,
+                ci_publisher = ?, ci_genre = ?, ci_characters = ?,
+                metadata_scanned_at = ?
+            WHERE id = ?
+        ''', (
+            metadata_dict.get('ci_title', ''),
+            metadata_dict.get('ci_series', ''),
+            metadata_dict.get('ci_number', ''),
+            metadata_dict.get('ci_count', ''),
+            metadata_dict.get('ci_volume', ''),
+            metadata_dict.get('ci_year', ''),
+            metadata_dict.get('ci_writer', ''),
+            metadata_dict.get('ci_penciller', ''),
+            metadata_dict.get('ci_inker', ''),
+            metadata_dict.get('ci_colorist', ''),
+            metadata_dict.get('ci_letterer', ''),
+            metadata_dict.get('ci_coverartist', ''),
+            metadata_dict.get('ci_publisher', ''),
+            metadata_dict.get('ci_genre', ''),
+            metadata_dict.get('ci_characters', ''),
+            scanned_at,
+            file_id
+        ))
+
+        conn.commit()
+        conn.close()
+        return True
+
+    except Exception as e:
+        app_logger.error(f"Failed to update file metadata for id {file_id}: {e}")
+        return False
+
+
+def update_metadata_scanned_at(file_id, scanned_at):
+    """
+    Mark a file as scanned without updating metadata fields.
+    Used when file has no ComicInfo.xml or on error.
+
+    Args:
+        file_id: ID of the file_index entry
+        scanned_at: Unix timestamp (or None)
+
+    Returns:
+        True if successful, False otherwise
+    """
+    try:
+        conn = get_db_connection()
+        if not conn:
+            return False
+
+        c = conn.cursor()
+        c.execute('UPDATE file_index SET metadata_scanned_at = ? WHERE id = ?',
+                  (scanned_at, file_id))
+
+        conn.commit()
+        conn.close()
+        return True
+
+    except Exception as e:
+        app_logger.error(f"Failed to update metadata_scanned_at for id {file_id}: {e}")
+        return False
+
+
+def get_files_needing_metadata_scan(limit=1000):
+    """
+    Get files that need metadata scanning.
+
+    Criteria:
+    - type = 'file'
+    - path ends with .cbz or .zip
+    - metadata_scanned_at IS NULL OR metadata_scanned_at < modified_at
+
+    Args:
+        limit: Maximum number of files to return
+
+    Returns:
+        List of dicts with id, path, modified_at
+    """
+    try:
+        conn = get_db_connection()
+        if not conn:
+            return []
+
+        c = conn.cursor()
+        c.execute('''
+            SELECT id, path, modified_at
+            FROM file_index
+            WHERE type = 'file'
+            AND (LOWER(path) LIKE '%.cbz' OR LOWER(path) LIKE '%.zip')
+            AND (metadata_scanned_at IS NULL OR metadata_scanned_at < modified_at)
+            ORDER BY modified_at DESC
+            LIMIT ?
+        ''', (limit,))
+
+        rows = c.fetchall()
+        conn.close()
+
+        return [{'id': r['id'], 'path': r['path'], 'modified_at': r['modified_at']} for r in rows]
+
+    except Exception as e:
+        app_logger.error(f"Failed to get files needing metadata scan: {e}")
+        return []
+
+
+def get_metadata_scan_stats():
+    """
+    Get statistics for metadata scanning progress.
+
+    Returns:
+        Dict with total, scanned, pending counts
+    """
+    try:
+        conn = get_db_connection()
+        if not conn:
+            return {'total': 0, 'scanned': 0, 'pending': 0}
+
+        c = conn.cursor()
+
+        # Total CBZ/ZIP files
+        c.execute('''
+            SELECT COUNT(*) as count FROM file_index
+            WHERE type = 'file'
+            AND (LOWER(path) LIKE '%.cbz' OR LOWER(path) LIKE '%.zip')
+        ''')
+        total = c.fetchone()['count']
+
+        # Files needing scan
+        c.execute('''
+            SELECT COUNT(*) as count FROM file_index
+            WHERE type = 'file'
+            AND (LOWER(path) LIKE '%.cbz' OR LOWER(path) LIKE '%.zip')
+            AND (metadata_scanned_at IS NULL OR metadata_scanned_at < modified_at)
+        ''')
+        pending = c.fetchone()['count']
+
+        conn.close()
+
+        return {
+            'total': total,
+            'scanned': total - pending,
+            'pending': pending
+        }
+
+    except Exception as e:
+        app_logger.error(f"Failed to get metadata scan stats: {e}")
+        return {'total': 0, 'scanned': 0, 'pending': 0}
+
+
+def get_file_index_entry_by_path(path):
+    """
+    Get a file_index entry by its path.
+
+    Args:
+        path: The file path to look up
+
+    Returns:
+        Dict with file_index entry data, or None if not found
+    """
+    try:
+        conn = get_db_connection()
+        if not conn:
+            return None
+
+        c = conn.cursor()
+        c.execute('SELECT id, path, modified_at FROM file_index WHERE path = ?', (path,))
+        row = c.fetchone()
+        conn.close()
+
+        if row:
+            return {'id': row['id'], 'path': row['path'], 'modified_at': row['modified_at']}
+        return None
+
+    except Exception as e:
+        app_logger.error(f"Failed to get file_index entry for {path}: {e}")
+        return None
+
 
 def get_search_cache(query):
     """
@@ -2223,6 +2455,212 @@ def get_reading_trends(field_name, year=None, limit=10):
     except Exception as e:
         app_logger.error(f"Failed to get reading trends for {field_name}: {e}")
         return []
+
+
+def get_files_by_metadata(field_name, value, limit=50, offset=0):
+    """
+    Get comic files matching a specific metadata value from file_index.
+
+    Args:
+        field_name: 'writer', 'penciller', 'characters', 'publisher'
+        value: The metadata value to search for (e.g., 'Stan Lee')
+        limit: Results per page
+        offset: Pagination offset
+
+    Returns:
+        Dict with 'files' list and 'total' count
+    """
+    field_mapping = {
+        'writer': 'ci_writer',
+        'penciller': 'ci_penciller',
+        'characters': 'ci_characters',
+        'publisher': 'ci_publisher'
+    }
+
+    if field_name not in field_mapping:
+        app_logger.warning(f"Invalid field name for metadata browse: {field_name}")
+        return {'files': [], 'total': 0}
+
+    db_column = field_mapping[field_name]
+
+    try:
+        conn = get_db_connection()
+        if not conn:
+            return {'files': [], 'total': 0}
+
+        c = conn.cursor()
+
+        # Use LIKE with wildcards to handle comma-separated values
+        like_pattern = f'%{value}%'
+
+        # Get total count first
+        c.execute(f'''
+            SELECT COUNT(*) FROM file_index
+            WHERE type = 'file'
+            AND (LOWER(name) LIKE '%.cbz' OR LOWER(name) LIKE '%.cbr')
+            AND {db_column} LIKE ?
+        ''', (like_pattern,))
+        total = c.fetchone()[0]
+
+        # Get paginated results
+        # Use CAST for numeric sorting of issue numbers (handles "8" before "18")
+        c.execute(f'''
+            SELECT name, path, size, ci_series, ci_number, ci_year, ci_publisher
+            FROM file_index
+            WHERE type = 'file'
+            AND (LOWER(name) LIKE '%.cbz' OR LOWER(name) LIKE '%.cbr')
+            AND {db_column} LIKE ?
+            ORDER BY ci_series COLLATE NOCASE, CAST(ci_number AS INTEGER) ASC, ci_number ASC
+            LIMIT ? OFFSET ?
+        ''', (like_pattern, limit, offset))
+
+        rows = c.fetchall()
+        conn.close()
+
+        files = []
+        for row in rows:
+            files.append({
+                'name': row['name'],
+                'path': row['path'],
+                'size': row['size'],
+                'series': row['ci_series'] or '',
+                'number': row['ci_number'] or '',
+                'year': row['ci_year'] or '',
+                'publisher': row['ci_publisher'] or ''
+            })
+
+        return {'files': files, 'total': total}
+
+    except Exception as e:
+        app_logger.error(f"Failed to get files by metadata: {e}")
+        return {'files': [], 'total': 0}
+
+
+def get_files_by_metadata_grouped(field_name, value):
+    """
+    Get comic files matching a metadata value, grouped appropriately.
+
+    For characters/publisher: Single-level grouping by series
+    For writer/penciller: Nested grouping - Publisher -> Series -> Files
+
+    Args:
+        field_name: 'writer', 'penciller', 'characters', 'publisher'
+        value: The metadata value to search for
+
+    Returns:
+        Dict with 'groups' list, 'total' count, and 'nested' flag
+    """
+    field_mapping = {
+        'writer': 'ci_writer',
+        'penciller': 'ci_penciller',
+        'characters': 'ci_characters',
+        'publisher': 'ci_publisher'
+    }
+
+    if field_name not in field_mapping:
+        app_logger.warning(f"Invalid field name for metadata browse: {field_name}")
+        return {'groups': [], 'total': 0, 'nested': False}
+
+    search_column = field_mapping[field_name]
+    # Writer/penciller use nested grouping (publisher -> series)
+    use_nested = field_name in ('writer', 'penciller')
+
+    try:
+        conn = get_db_connection()
+        if not conn:
+            return {'groups': [], 'total': 0, 'nested': use_nested}
+
+        c = conn.cursor()
+        like_pattern = f'%{value}%'
+
+        # Query all matching files, ordered for grouping
+        # Use CAST for numeric sorting of issue numbers (handles "8" before "18")
+        c.execute(f'''
+            SELECT name, path, size, ci_series, ci_number, ci_year, ci_publisher
+            FROM file_index
+            WHERE type = 'file'
+            AND (LOWER(name) LIKE '%.cbz' OR LOWER(name) LIKE '%.cbr')
+            AND {search_column} LIKE ?
+            ORDER BY ci_publisher COLLATE NOCASE, ci_series COLLATE NOCASE,
+                     CAST(ci_number AS INTEGER) ASC, ci_number ASC
+        ''', (like_pattern,))
+
+        rows = c.fetchall()
+        conn.close()
+
+        total = len(rows)
+
+        if use_nested:
+            # Nested grouping: Publisher -> Series -> Files
+            publishers_dict = {}
+            for row in rows:
+                publisher = row['ci_publisher'] or ''
+                series = row['ci_series'] or ''
+
+                if publisher not in publishers_dict:
+                    publishers_dict[publisher] = {}
+
+                if series not in publishers_dict[publisher]:
+                    publishers_dict[publisher][series] = []
+
+                publishers_dict[publisher][series].append({
+                    'name': row['name'],
+                    'path': row['path'],
+                    'size': row['size'],
+                    'series': series,
+                    'number': row['ci_number'] or '',
+                    'year': row['ci_year'] or '',
+                    'publisher': publisher
+                })
+
+            # Convert to nested structure and sort
+            groups = []
+            for pub_name, series_dict in publishers_dict.items():
+                series_list = [
+                    {'name': s_name, 'count': len(files), 'files': files}
+                    for s_name, files in series_dict.items()
+                ]
+                series_list.sort(key=lambda s: s['count'], reverse=True)
+
+                pub_count = sum(s['count'] for s in series_list)
+                groups.append({
+                    'name': pub_name,
+                    'count': pub_count,
+                    'series': series_list
+                })
+
+            groups.sort(key=lambda g: g['count'], reverse=True)
+            return {'groups': groups, 'total': total, 'nested': True}
+
+        else:
+            # Single-level grouping by series (for characters/publisher)
+            groups_dict = {}
+            for row in rows:
+                series_name = row['ci_series'] or ''
+                if series_name not in groups_dict:
+                    groups_dict[series_name] = []
+
+                groups_dict[series_name].append({
+                    'name': row['name'],
+                    'path': row['path'],
+                    'size': row['size'],
+                    'series': series_name,
+                    'number': row['ci_number'] or '',
+                    'year': row['ci_year'] or '',
+                    'publisher': row['ci_publisher'] or ''
+                })
+
+            groups = [
+                {'name': name, 'count': len(files), 'files': files}
+                for name, files in groups_dict.items()
+            ]
+            groups.sort(key=lambda g: g['count'], reverse=True)
+
+            return {'groups': groups, 'total': total, 'nested': False}
+
+    except Exception as e:
+        app_logger.error(f"Failed to get files by metadata grouped: {e}")
+        return {'groups': [], 'total': 0}
 
 
 def is_issue_read(issue_path):

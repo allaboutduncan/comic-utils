@@ -58,7 +58,9 @@ def load_config():
         "ENABLE_DEBUG_LOGGING": "False",
         "CACHE_DIR": "/cache",
         "BOOTSTRAP_THEME": "default",
-        "TIMEZONE": "UTC"
+        "TIMEZONE": "UTC",
+        "ENABLE_METADATA_SCAN": "True",
+        "METADATA_SCAN_THREADS": "2"
     }
 
     if not os.path.exists(CONFIG_FILE):

@@ -1,0 +1,269 @@
+{% extends "base.html" %}
+
+{% block title %}Browse by {{ category_label }}: {{ name }} - Comic Library{% endblock %}
+
+{% block extra_css %}
+<style>
+    .browse-page {
+        padding: 2rem 0;
+    }
+
+    .browse-header {
+        margin-bottom: 2rem;
+    }
+
+    .stat-badge {
+        background: var(--bs-primary);
+        color: white;
+        padding: 0.5rem 1rem;
+        border-radius: 20px;
+        font-weight: 600;
+    }
+
+    /* Publisher group (h2 level) */
+    .publisher-group {
+        margin-bottom: 2.5rem;
+    }
+
+    .publisher-header {
+        margin-bottom: 1.25rem;
+        padding-bottom: 0.5rem;
+        border-bottom: 2px solid var(--bs-primary);
+    }
+
+    .publisher-header h2 {
+        font-size: 1.4rem;
+        margin: 0;
+        color: var(--bs-heading-color);
+    }
+
+    .publisher-count {
+        font-size: 0.9rem;
+    }
+
+    /* Series section styles */
+    .browse-section {
+        margin-bottom: 1.5rem;
+        padding-bottom: 1rem;
+        margin-left: 1rem;
+        border-bottom: 1px solid var(--bs-border-color-translucent);
+    }
+
+    .browse-section:last-child {
+        border-bottom: none;
+    }
+
+    .section-header {
+        margin-bottom: 0.75rem;
+    }
+
+    .section-header h3 {
+        color: var(--bs-heading-color);
+        font-size: 1rem;
+        margin: 0;
+    }
+
+    .section-count {
+        font-size: 0.8rem;
+    }
+
+    /* Grid styles */
+    .file-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+        gap: 0.875rem;
+    }
+
+    .grid-item {
+        cursor: pointer;
+        transition: transform 0.2s;
+        position: relative;
+    }
+
+    .grid-item:hover {
+        transform: translateY(-4px);
+    }
+
+    .thumbnail-container {
+        position: relative;
+        width: 100%;
+        aspect-ratio: 2/3;
+        border-radius: 6px;
+        overflow: hidden;
+        box-shadow: 0 2px 6px rgba(0, 0, 0, 0.12);
+        background: var(--bs-tertiary-bg, #e9ecef);
+    }
+
+    .thumbnail-container img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+    }
+
+    .item-info {
+        margin-top: 0.35rem;
+    }
+
+    .item-name {
+        font-size: 0.75rem;
+        font-weight: 500;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .item-meta {
+        font-size: 0.65rem;
+        color: var(--bs-secondary-color);
+    }
+
+    /* Empty state */
+    .empty-state {
+        text-align: center;
+        padding: 4rem 2rem;
+    }
+
+    .empty-state i {
+        font-size: 4rem;
+        color: var(--bs-secondary-color);
+        margin-bottom: 1rem;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-lg browse-page">
+    <!-- Page Header -->
+    <div class="browse-header d-flex justify-content-between align-items-start flex-wrap gap-3">
+        <div>
+            <nav aria-label="breadcrumb">
+                <ol class="breadcrumb">
+                    <li class="breadcrumb-item"><a href="{{ url_for('insights_page') }}">Insights</a></li>
+                    <li class="breadcrumb-item active">{{ category_label }}</li>
+                </ol>
+            </nav>
+            <h1>
+                {% if category == 'writer' %}<i class="bi bi-pencil me-2"></i>
+                {% elif category == 'penciller' %}<i class="bi bi-brush me-2"></i>
+                {% elif category == 'characters' %}<i class="bi bi-people me-2"></i>
+                {% elif category == 'publisher' %}<i class="bi bi-building me-2"></i>
+                {% endif %}
+                {{ name }}
+            </h1>
+            <p class="lead text-muted mb-0">Comics by {{ category_label|lower }}</p>
+        </div>
+        <div class="stat-badge">
+            <i class="bi bi-collection me-1"></i>{{ "{:,}".format(total) }} comic{{ 's' if total != 1 else '' }}
+        </div>
+    </div>
+
+    {% if groups %}
+        {% if nested %}
+        <!-- Nested Layout: Publisher (h2) -> Series (sections) -->
+        {% for publisher in groups %}
+        <div class="publisher-group">
+            <!-- Publisher Header -->
+            <div class="publisher-header d-flex justify-content-between align-items-center">
+                <h2>
+                    <i class="bi bi-building me-2"></i>{{ publisher.name or 'Unknown Publisher' }}
+                </h2>
+                <span class="badge bg-primary publisher-count">{{ publisher.count }} comic{{ 's' if publisher.count != 1 else '' }}</span>
+            </div>
+
+            <!-- Series within this Publisher -->
+            {% for series in publisher.series %}
+            <section class="browse-section">
+                <div class="section-header d-flex justify-content-between align-items-center">
+                    <h3>
+                        <i class="bi bi-journal-text me-2"></i>{{ series.name or 'Unknown Series' }}
+                    </h3>
+                    <span class="badge bg-secondary section-count">{{ series.count }}</span>
+                </div>
+
+                <div class="file-grid">
+                    {% for file in series.files %}
+                    <div class="grid-item" data-path="{{ file.path }}">
+                        <div class="thumbnail-container">
+                            <img src="{{ url_for('get_thumbnail', path=file.path) }}"
+                                 alt="{{ file.name }}"
+                                 loading="lazy"
+                                 onerror="this.src='/static/images/no-cover.svg'">
+                        </div>
+                        <div class="item-info">
+                            <div class="item-name" title="{{ file.name }}">
+                                {% if file.number %}#{{ file.number }}{% else %}{{ file.name }}{% endif %}
+                            </div>
+                            <div class="item-meta">
+                                {% if file.year %}{{ file.year }}{% endif %}
+                            </div>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+            </section>
+            {% endfor %}
+        </div>
+        {% endfor %}
+
+        {% else %}
+        <!-- Flat Layout: Single-level grouping by series -->
+        {% for group in groups %}
+        <section class="browse-section" style="margin-left: 0;">
+            <div class="section-header d-flex justify-content-between align-items-center">
+                <h3>
+                    <i class="bi bi-journal-text me-2"></i>{{ group.name or 'Unknown Series' }}
+                </h3>
+                <span class="badge bg-secondary section-count">{{ group.count }} comic{{ 's' if group.count != 1 else '' }}</span>
+            </div>
+
+            <div class="file-grid">
+                {% for file in group.files %}
+                <div class="grid-item" data-path="{{ file.path }}">
+                    <div class="thumbnail-container">
+                        <img src="{{ url_for('get_thumbnail', path=file.path) }}"
+                             alt="{{ file.name }}"
+                             loading="lazy"
+                             onerror="this.src='/static/images/no-cover.svg'">
+                    </div>
+                    <div class="item-info">
+                        <div class="item-name" title="{{ file.name }}">
+                            {% if file.number %}#{{ file.number }}{% else %}{{ file.name }}{% endif %}
+                        </div>
+                        <div class="item-meta">
+                            {% if file.year %}{{ file.year }}{% endif %}
+                        </div>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+        </section>
+        {% endfor %}
+        {% endif %}
+
+    {% else %}
+    <!-- Empty State -->
+    <div class="empty-state">
+        <i class="bi bi-search d-block"></i>
+        <h4 class="text-muted">No comics found</h4>
+        <p class="text-muted">No comics matching "{{ name }}" were found in your library.</p>
+        <a href="{{ url_for('insights_page') }}" class="btn btn-primary mt-3">
+            <i class="bi bi-arrow-left me-1"></i>Back to Insights
+        </a>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Handle click on grid items - open in reader
+    document.querySelectorAll('.grid-item').forEach(item => {
+        item.addEventListener('click', function() {
+            const path = this.dataset.path;
+            window.location.href = '/reader?path=' + encodeURIComponent(path);
+        });
+    });
+});
+</script>
+{% endblock %}
