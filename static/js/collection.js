@@ -4308,6 +4308,7 @@ async function loadWantToRead() {
         swiper.innerHTML = data.items.map(item => {
             const name = item.name || item.path.split('/').pop();
             const escapedName = name.replace(/'/g, "\\'").replace(/"/g, '&quot;');
+            const escapedPath = item.path.replace(/'/g, "\\'").replace(/"/g, '&quot;');
             const isFile = item.type === 'file';
 
             let thumbnailUrl = '';
@@ -4327,13 +4328,13 @@ async function loadWantToRead() {
 
             return `
             <div class="swiper-slide">
-                <div class="dashboard-card${hasThumbnail ? ' has-thumbnail' : ''}" data-path="${item.path}" onclick="navigateToItem('${item.path}', '${item.type}')">
+                <div class="dashboard-card${hasThumbnail ? ' has-thumbnail' : ''}" data-path="${item.path}" onclick="navigateToItem('${escapedPath}', '${item.type}')">
                     <div class="dashboard-card-img-container">
                         <img src="${thumbnailUrl}" alt="${name}" class="thumbnail" style="${hasThumbnail ? '' : 'display: none;'}">
                         <div class="icon-overlay" style="${hasThumbnail ? 'display: none;' : ''}">
                             <i class="bi bi-folder-fill"></i>
                         </div>
-                        <button class="to-read-button marked" onclick="event.stopPropagation(); removeFromWantToRead('${item.path}', '${escapedName}', this)" title="Remove from To Read">
+                        <button class="to-read-button marked" onclick="event.stopPropagation(); removeFromWantToRead('${escapedPath}', '${escapedName}', this)" title="Remove from To Read">
                             <i class="bi bi-bookmark"></i>
                         </button>
                     </div>

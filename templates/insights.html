@@ -325,6 +325,67 @@
         </div>
     </div>
 
+    <!-- Toast Container -->
+    <div class="toast-container position-fixed top-0 end-0 p-3" style="z-index: 9999;">
+        <div id="successToast" class="toast align-items-center text-bg-success border-0" role="alert" aria-live="assertive" aria-atomic="true">
+            <div class="d-flex">
+                <div class="toast-body" id="successToastBody"></div>
+                <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast" aria-label="Close"></button>
+            </div>
+        </div>
+        <div id="errorToast" class="toast align-items-center text-bg-danger border-0" role="alert" aria-live="assertive" aria-atomic="true">
+            <div class="d-flex">
+                <div class="toast-body" id="errorToastBody"></div>
+                <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast" aria-label="Close"></button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Backfill Confirmation Modal -->
+    <div class="modal fade" id="backfillConfirmModal" tabindex="-1" aria-labelledby="backfillConfirmModalLabel" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="backfillConfirmModalLabel">
+                        <i class="bi bi-arrow-repeat me-2"></i>Backfill Metadata
+                    </h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <p>This will re-scan all read comics for metadata (writer, artist, characters, publisher).</p>
+                    <p class="text-muted mb-0">This may take a while depending on how many comics you've read.</p>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-primary" id="confirmBackfillBtn">
+                        <i class="bi bi-check-lg me-1"></i>Continue
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Skipped Issues Modal -->
+    <div class="modal fade" id="skippedIssuesModal" tabindex="-1" aria-labelledby="skippedIssuesModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-lg modal-dialog-scrollable">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="skippedIssuesModalLabel">
+                        <i class="bi bi-exclamation-triangle me-2"></i>Skipped Issues
+                    </h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <p class="text-muted mb-3">The following issues were skipped during metadata backfill:</p>
+                    <div id="skippedIssuesList" class="list-group"></div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
 </div>
 {% endblock %}
 
@@ -904,6 +965,27 @@
     // Initialize on page load
     initReadingStatsFilter();
 
+    // ===== TOAST HELPERS =====
+    function showSuccess(message) {
+        const toastEl = document.getElementById('successToast');
+        const toastBody = document.getElementById('successToastBody');
+        if (toastEl && toastBody) {
+            toastBody.textContent = message;
+            const toast = new bootstrap.Toast(toastEl, { delay: 5000 });
+            toast.show();
+        }
+    }
+
+    function showError(message) {
+        const toastEl = document.getElementById('errorToast');
+        const toastBody = document.getElementById('errorToastBody');
+        if (toastEl && toastBody) {
+            toastBody.textContent = message;
+            const toast = new bootstrap.Toast(toastEl, { delay: 5000 });
+            toast.show();
+        }
+    }
+
     // ===== READING TRENDS =====
     const trendsYearFilter = document.getElementById('trendsYearFilter');
     const backfillMetadataBtn = document.getElementById('backfillMetadataBtn');
@@ -973,13 +1055,19 @@
         loadReadingTrends(this.value);
     });
 
-    // Backfill metadata button handler
-    backfillMetadataBtn.addEventListener('click', async function() {
-        if (!confirm('This will re-scan all read comics for metadata (writer, artist, characters, publisher). This may take a while. Continue?')) {
-            return;
-        }
+    // Backfill metadata - show confirmation modal
+    const backfillConfirmModal = new bootstrap.Modal(document.getElementById('backfillConfirmModal'));
+    const confirmBackfillBtn = document.getElementById('confirmBackfillBtn');
 
-        const btn = this;
+    backfillMetadataBtn.addEventListener('click', function() {
+        backfillConfirmModal.show();
+    });
+
+    // Handle confirmed backfill
+    confirmBackfillBtn.addEventListener('click', async function() {
+        backfillConfirmModal.hide();
+
+        const btn = backfillMetadataBtn;
         const originalHtml = btn.innerHTML;
         btn.disabled = true;
         btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Processing...';
@@ -989,15 +1077,29 @@
             const data = await response.json();
 
             if (data.success) {
-                alert(`Backfill complete!\n\nUpdated: ${data.updated} comics\nSkipped: ${data.skipped} comics`);
+                showSuccess(`Backfill complete! Updated: ${data.updated} comics, Skipped: ${data.skipped} comics`);
                 // Reload trends to show updated data
                 loadReadingTrends(trendsYearFilter.value);
+
+                // Show skipped issues modal if there are any
+                if (data.skipped_issues && data.skipped_issues.length > 0) {
+                    const skippedList = document.getElementById('skippedIssuesList');
+                    skippedList.innerHTML = data.skipped_issues.map(item => `
+                        <div class="list-group-item d-flex justify-content-between align-items-start">
+                            <div class="me-auto">
+                                <div class="fw-medium text-truncate" style="max-width: 500px;" title="${escapeHtml(item.file)}">${escapeHtml(item.file)}</div>
+                            </div>
+                            <span class="badge bg-secondary">${escapeHtml(item.reason)}</span>
+                        </div>
+                    `).join('');
+                    new bootstrap.Modal(document.getElementById('skippedIssuesModal')).show();
+                }
             } else {
-                alert('Error: ' + (data.error || 'Unknown error'));
+                showError('Error: ' + (data.error || 'Unknown error'));
             }
         } catch (error) {
             console.error('Backfill error:', error);
-            alert('Error during backfill: ' + error.message);
+            showError('Error during backfill: ' + error.message);
         } finally {
             btn.disabled = false;
             btn.innerHTML = originalHtml;

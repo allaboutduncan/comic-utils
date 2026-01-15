@@ -70,6 +70,7 @@ import recommendations
 from models.stats import (get_library_stats, get_file_type_distribution, get_top_publishers,
                           get_reading_history_stats, get_largest_comics, get_top_series_by_count,
                           get_reading_heatmap_data)
+from models.timeline import get_reading_timeline
 # Add URL encoding support for template filters
 from urllib.parse import quote_plus
 from concurrent.futures import ThreadPoolExecutor
@@ -6131,14 +6132,23 @@ def api_backfill_reading_metadata():
 
         updated_count = 0
         skipped_count = 0
+        skipped_issues = []
 
         for row in rows:
             issue_id = row[0]
             issue_path = row[1]
+            filename = os.path.basename(issue_path)
 
-            # Skip if file doesn't exist or isn't a CBZ
-            if not os.path.exists(issue_path) or not issue_path.lower().endswith(('.cbz', '.zip')):
+            # Skip if file doesn't exist
+            if not os.path.exists(issue_path):
                 skipped_count += 1
+                skipped_issues.append({"file": filename, "reason": "File not found"})
+                continue
+
+            # Skip if not a CBZ/ZIP
+            if not issue_path.lower().endswith(('.cbz', '.zip')):
+                skipped_count += 1
+                skipped_issues.append({"file": filename, "reason": "Not a CBZ/ZIP file"})
                 continue
 
             try:
@@ -6157,9 +6167,11 @@ def api_backfill_reading_metadata():
                     updated_count += 1
                 else:
                     skipped_count += 1
+                    skipped_issues.append({"file": filename, "reason": "No ComicInfo.xml"})
             except Exception as e:
                 app_logger.warning(f"Could not read ComicInfo.xml for {issue_path}: {e}")
                 skipped_count += 1
+                skipped_issues.append({"file": filename, "reason": f"Error: {str(e)}"})
 
         conn.commit()
         conn.close()
@@ -6171,7 +6183,8 @@ def api_backfill_reading_metadata():
         return jsonify({
             "success": True,
             "updated": updated_count,
-            "skipped": skipped_count
+            "skipped": skipped_count,
+            "skipped_issues": skipped_issues
         })
 
     except Exception as e:
@@ -10907,6 +10920,46 @@ def api_recommendations():
     except Exception as e:
         app_logger.error(f"Error generating recommendations: {e}")
         return jsonify({"error": str(e)}), 500
+
+@app.route('/timeline')
+def timeline():
+    limit = 50
+
+    data = get_reading_timeline(limit=limit, offset=0)
+
+    if not data:
+        flash("Error loading timeline data", "error")
+        return redirect(url_for('index'))
+
+    return render_template('timeline.html',
+                          stats=data['stats'],
+                          timeline=data['timeline'])
+
+
+@app.route('/api/timeline')
+def api_timeline():
+    """API endpoint for lazy loading timeline data."""
+    offset = request.args.get('offset', 0, type=int)
+    limit = request.args.get('limit', 50, type=int)
+
+    data = get_reading_timeline(limit=limit, offset=offset)
+
+    if not data:
+        return jsonify({"error": "Failed to load timeline data"}), 500
+
+    # Add thumbnail URLs to each item
+    for group in data['timeline']:
+        for item in group['entries']:
+            if item.get('issue_path'):
+                item['thumbnail_url'] = url_for('get_thumbnail', path=item['issue_path'])
+            else:
+                item['thumbnail_url'] = None
+
+    return jsonify({
+        "timeline": data['timeline'],
+        "has_more": len(data['timeline']) > 0
+    })
+
 
 if __name__ == '__main__':
     # Only used for local development (python app.py)

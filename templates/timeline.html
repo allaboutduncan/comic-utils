@@ -1,0 +1,558 @@
+{% extends "base.html" %}
+
+{% block title %}Reading Timeline - Comic Library{% endblock %}
+
+{% block extra_css %}
+<style>
+    /* Timeline-specific styling that complements site theme */
+    .timeline-page {
+        padding: 2rem 0;
+    }
+
+    .timeline-header {
+        margin-bottom: 2rem;
+    }
+
+    /* Stats Row */
+    .stat-card {
+        background: var(--bs-secondary-bg, #f8f9fa);
+        border-radius: 12px;
+        padding: 1.5rem;
+        text-align: center;
+        border: 1px solid var(--bs-border-color);
+        height: 100%;
+    }
+
+    .stat-card .stat-icon {
+        width: 48px;
+        height: 48px;
+        border-radius: 12px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        margin: 0 auto 0.75rem;
+        font-size: 1.5rem;
+    }
+
+    .stat-card .stat-icon.primary {
+        background: rgba(var(--bs-primary-rgb), 0.15);
+        color: var(--bs-primary);
+    }
+
+    .stat-card .stat-icon.success {
+        background: rgba(var(--bs-success-rgb), 0.15);
+        color: var(--bs-success);
+    }
+
+    .stat-card .stat-icon.warning {
+        background: rgba(var(--bs-warning-rgb), 0.15);
+        color: var(--bs-warning);
+    }
+
+    .stat-card .stat-icon.info {
+        background: rgba(var(--bs-info-rgb), 0.15);
+        color: var(--bs-info);
+    }
+
+    .stat-card .stat-value {
+        font-size: 2rem;
+        font-weight: 700;
+        line-height: 1.2;
+    }
+
+    .stat-card .stat-label {
+        font-size: 0.85rem;
+        color: var(--bs-secondary-color);
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+    }
+
+    /* Timeline Structure */
+    .timeline-container {
+        position: relative;
+        padding-left: 2rem;
+    }
+
+    .timeline-container::before {
+        content: '';
+        position: absolute;
+        left: 8px;
+        top: 0;
+        bottom: 0;
+        width: 3px;
+        background: var(--bs-primary);
+        border-radius: 3px;
+        opacity: 0.3;
+    }
+
+    .timeline-date-group {
+        margin-bottom: 2.5rem;
+        position: relative;
+    }
+
+    .timeline-date-group::before {
+        content: '';
+        position: absolute;
+        left: -22px;
+        top: 8px;
+        width: 12px;
+        height: 12px;
+        background: var(--bs-primary);
+        border-radius: 50%;
+        border: 3px solid var(--bs-body-bg);
+        box-shadow: 0 0 0 2px var(--bs-primary);
+    }
+
+    .date-header {
+        display: inline-block;
+        background: var(--bs-primary);
+        color: white;
+        padding: 0.4rem 1rem;
+        border-radius: 20px;
+        font-weight: 600;
+        font-size: 0.85rem;
+        margin-bottom: 1rem;
+    }
+
+    /* Issue Cards Grid */
+    .cards-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+        gap: 1rem;
+    }
+
+    .issue-card {
+        background: var(--bs-secondary-bg, #f8f9fa);
+        border: 1px solid var(--bs-border-color);
+        border-radius: 12px;
+        overflow: hidden;
+        display: flex;
+        transition: transform 0.2s, box-shadow 0.2s;
+    }
+
+    .issue-card:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+        border-color: var(--bs-primary);
+    }
+
+    .issue-cover {
+        width: 100px;
+        min-height: 140px;
+        flex-shrink: 0;
+        background: var(--bs-tertiary-bg, #e9ecef);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    .issue-cover img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+    }
+
+    .issue-details {
+        padding: 1rem;
+        flex-grow: 1;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        min-width: 0;
+        /* Allows text truncation */
+    }
+
+    .publisher-badge {
+        font-size: 0.7rem;
+        font-weight: 700;
+        color: var(--bs-warning);
+        text-transform: uppercase;
+        margin-bottom: 0.25rem;
+        display: flex;
+        align-items: center;
+    }
+
+    .publisher-badge::before {
+        content: '●';
+        margin-right: 5px;
+        font-size: 0.5rem;
+    }
+
+    .series-title {
+        font-size: 1rem;
+        font-weight: 700;
+        margin-bottom: 0.15rem;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .issue-subtitle {
+        font-size: 0.85rem;
+        color: var(--bs-secondary-color);
+        margin-bottom: 0.5rem;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .read-time {
+        font-size: 0.75rem;
+        color: var(--bs-tertiary-color);
+        display: flex;
+        align-items: center;
+    }
+
+    .read-time i {
+        margin-right: 5px;
+    }
+
+    /* Empty State */
+    .empty-state {
+        text-align: center;
+        padding: 4rem 2rem;
+    }
+
+    .empty-state i {
+        font-size: 4rem;
+        color: var(--bs-secondary-color);
+        margin-bottom: 1rem;
+    }
+
+    /* Section Card (matching insights.html pattern) */
+    .section-card {
+        background: var(--bs-body-bg);
+        border: 1px solid var(--bs-border-color);
+        border-radius: 12px;
+        overflow: hidden;
+    }
+
+    .section-card-header {
+        padding: 1rem 1.25rem;
+        border-bottom: 1px solid var(--bs-border-color);
+        background: var(--bs-secondary-bg);
+    }
+
+    .section-card-header h3 {
+        margin: 0;
+        font-size: 1rem;
+        font-weight: 600;
+    }
+
+    .section-card-header h3 i {
+        margin-right: 0.5rem;
+        opacity: 0.7;
+    }
+
+    .section-card-body {
+        padding: 1.25rem;
+    }
+
+    /* Filter Buttons */
+    .filter-btn {
+        border-radius: 20px;
+        font-size: 0.8rem;
+        font-weight: 600;
+    }
+
+    /* Responsive */
+    @media (max-width: 768px) {
+        .timeline-container {
+            padding-left: 1.5rem;
+        }
+
+        .cards-grid {
+            grid-template-columns: 1fr;
+        }
+
+        .issue-cover {
+            width: 80px;
+            min-height: 110px;
+        }
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-lg timeline-page">
+    <!-- Page Header -->
+    <div class="timeline-header d-flex justify-content-between align-items-start flex-wrap gap-3">
+        <div>
+            <h1><i class="bi bi-clock-history me-2 text-primary"></i>Reading Timeline</h1>
+            <p class="lead mb-0">Chronological history of your comic journey</p>
+        </div>
+        <div class="d-flex gap-2">
+            <a href="{{ url_for('insights_page') }}" class="btn btn-outline-secondary">
+                <i class="bi bi-graph-up-arrow me-1"></i>Insights
+            </a>
+        </div>
+    </div>
+
+    <!-- Stats Row -->
+    <div class="row g-3 mb-4">
+        <div class="col-md-4">
+            <div class="stat-card">
+                <div class="stat-icon primary">
+                    <i class="bi bi-book"></i>
+                </div>
+                <div class="stat-value">{{ "{:,}".format(stats.total_read) }}</div>
+                <div class="stat-label">Issues Read</div>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="stat-card">
+                <div class="stat-icon success">
+                    <i class="bi bi-fire"></i>
+                </div>
+                <div class="stat-value">{{ stats.streak }} <small class="fs-6 fw-normal">Days</small></div>
+                <div class="stat-label">Current Streak</div>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="stat-card">
+                <div class="stat-icon warning">
+                    <i class="bi bi-building"></i>
+                </div>
+                <div class="stat-value" style="font-size: 1.5rem;">{{ stats.top_publisher }}</div>
+                <div class="stat-label">Top Publisher</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Timeline Section -->
+    <div class="section-card">
+        <div class="section-card-header d-flex justify-content-between align-items-center">
+            <h3><i class="bi bi-calendar3"></i>Reading History</h3>
+            <div class="d-flex gap-2">
+                <input type="text" class="form-control form-control-sm" placeholder="Search..."
+                    style="max-width: 200px;" id="timelineSearch">
+            </div>
+        </div>
+        <div class="section-card-body">
+            {% if timeline %}
+            <div class="timeline-container">
+                {% for group in timeline %}
+                <div class="timeline-date-group" data-date="{{ group.date }}">
+                    <div class="date-header">{{ group.date }}</div>
+
+                    <div class="cards-grid">
+                        {% for item in group.entries %}
+                        <div class="issue-card">
+                            <div class="issue-cover">
+                                {% if item.issue_path %}
+                                <img src="{{ url_for('get_thumbnail', path=item.issue_path) }}" alt="Cover" loading="lazy">
+                                {% else %}
+                                <i class="bi bi-image text-muted" style="font-size: 2rem;"></i>
+                                {% endif %}
+                            </div>
+                            <div class="issue-details">
+                                <div class="publisher-badge">{{ item.publisher }}</div>
+                                <div class="series-title" title="{{ item.full_title }}">{{ item.title }} {{ item.year }}
+                                </div>
+                                <div class="issue-subtitle" title="{{ item.full_title }} #{{ item.issue_number }}">
+                                    {% if item.issue_number %}
+                                    {{ item.title }} #{{ item.issue_number }}
+                                    {% else %}
+                                    {{ item.full_title }}
+                                    {% endif %}
+                                </div>
+                                <div class="read-time">
+                                    <i class="bi bi-clock"></i> {{ item.read_time }}
+                                </div>
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+
+            <!-- Loading Spinner -->
+            <div id="timelineLoader" class="mt-4 text-center" style="display: none;">
+                <div class="spinner-border text-primary" role="status">
+                    <span class="visually-hidden">Loading...</span>
+                </div>
+                <p class="text-muted mt-2">Loading more...</p>
+            </div>
+
+            <!-- End of Timeline -->
+            <div id="timelineEnd" class="mt-4 text-center" style="display: none;">
+                <p class="text-muted"><i class="bi bi-check-circle me-1"></i>You've reached the end of your reading history</p>
+            </div>
+
+            <!-- Scroll Sentinel (invisible element to trigger loading) -->
+            <div id="scrollSentinel" style="height: 1px;"></div>
+            {% else %}
+            <div class="empty-state">
+                <i class="bi bi-journal-x d-block"></i>
+                <h4 class="text-muted">No reading history found yet.</h4>
+                <p class="text-muted">Start reading comics to see your timeline here!</p>
+                <a href="/" class="btn btn-primary mt-3">
+                    <i class="bi bi-collection me-1"></i>Go to Library
+                </a>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const timelineContainer = document.querySelector('.timeline-container');
+    const loader = document.getElementById('timelineLoader');
+    const endMessage = document.getElementById('timelineEnd');
+    const sentinel = document.getElementById('scrollSentinel');
+
+    if (!timelineContainer || !sentinel) return;
+
+    let currentOffset = {{ timeline|length * 50 if timeline else 0 }};
+    let isLoading = false;
+    let hasMore = true;
+    const LIMIT = 50;
+
+    // Count initial items to set correct offset
+    let initialCount = 0;
+    document.querySelectorAll('.issue-card').forEach(() => initialCount++);
+    currentOffset = initialCount;
+
+    function escapeHtml(text) {
+        if (!text) return '';
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+
+    function createIssueCard(item) {
+        const coverHtml = item.thumbnail_url
+            ? `<img src="${item.thumbnail_url}" alt="Cover" loading="lazy">`
+            : `<i class="bi bi-image text-muted" style="font-size: 2rem;"></i>`;
+
+        const issueSubtitle = item.issue_number
+            ? `${escapeHtml(item.title)} #${escapeHtml(item.issue_number)}`
+            : escapeHtml(item.full_title);
+
+        return `
+            <div class="issue-card">
+                <div class="issue-cover">${coverHtml}</div>
+                <div class="issue-details">
+                    <div class="publisher-badge">${escapeHtml(item.publisher)}</div>
+                    <div class="series-title" title="${escapeHtml(item.full_title)}">${escapeHtml(item.title)} ${escapeHtml(item.year)}</div>
+                    <div class="issue-subtitle" title="${escapeHtml(item.full_title)} #${escapeHtml(item.issue_number)}">${issueSubtitle}</div>
+                    <div class="read-time"><i class="bi bi-clock"></i> ${escapeHtml(item.read_time)}</div>
+                </div>
+            </div>
+        `;
+    }
+
+    function appendTimelineData(data) {
+        if (!data.timeline || data.timeline.length === 0) {
+            hasMore = false;
+            endMessage.style.display = 'block';
+            sentinel.style.display = 'none';
+            return;
+        }
+
+        data.timeline.forEach(group => {
+            // Check if date group already exists
+            let existingGroup = document.querySelector(`.timeline-date-group[data-date="${group.date}"]`);
+
+            if (existingGroup) {
+                // Append to existing group's grid
+                const grid = existingGroup.querySelector('.cards-grid');
+                group.entries.forEach(item => {
+                    grid.insertAdjacentHTML('beforeend', createIssueCard(item));
+                    currentOffset++;
+                });
+            } else {
+                // Create new date group
+                const groupHtml = `
+                    <div class="timeline-date-group" data-date="${group.date}">
+                        <div class="date-header">${escapeHtml(group.date)}</div>
+                        <div class="cards-grid">
+                            ${group.entries.map(item => {
+                                currentOffset++;
+                                return createIssueCard(item);
+                            }).join('')}
+                        </div>
+                    </div>
+                `;
+                timelineContainer.insertAdjacentHTML('beforeend', groupHtml);
+            }
+        });
+
+        hasMore = data.has_more;
+        if (!hasMore) {
+            endMessage.style.display = 'block';
+            sentinel.style.display = 'none';
+        }
+    }
+
+    async function loadMore() {
+        if (isLoading || !hasMore) return;
+
+        isLoading = true;
+        loader.style.display = 'block';
+
+        try {
+            const response = await fetch(`/api/timeline?offset=${currentOffset}&limit=${LIMIT}`);
+            const data = await response.json();
+
+            if (data.error) {
+                console.error('Error loading timeline:', data.error);
+                hasMore = false;
+            } else {
+                appendTimelineData(data);
+            }
+        } catch (error) {
+            console.error('Error loading timeline:', error);
+            hasMore = false;
+        } finally {
+            isLoading = false;
+            loader.style.display = 'none';
+        }
+    }
+
+    // Use IntersectionObserver for efficient scroll detection
+    const observer = new IntersectionObserver((entries) => {
+        entries.forEach(entry => {
+            if (entry.isIntersecting && hasMore && !isLoading) {
+                loadMore();
+            }
+        });
+    }, {
+        root: null,
+        rootMargin: '200px', // Start loading 200px before reaching the sentinel
+        threshold: 0
+    });
+
+    observer.observe(sentinel);
+
+    // Search functionality
+    const searchInput = document.getElementById('timelineSearch');
+    if (searchInput) {
+        searchInput.addEventListener('input', function() {
+            const query = this.value.toLowerCase().trim();
+            document.querySelectorAll('.issue-card').forEach(card => {
+                const title = card.querySelector('.series-title')?.textContent.toLowerCase() || '';
+                const publisher = card.querySelector('.publisher-badge')?.textContent.toLowerCase() || '';
+                const subtitle = card.querySelector('.issue-subtitle')?.textContent.toLowerCase() || '';
+
+                if (query === '' || title.includes(query) || publisher.includes(query) || subtitle.includes(query)) {
+                    card.style.display = '';
+                } else {
+                    card.style.display = 'none';
+                }
+            });
+
+            // Hide empty date groups
+            document.querySelectorAll('.timeline-date-group').forEach(group => {
+                const visibleCards = group.querySelectorAll('.issue-card:not([style*="display: none"])');
+                group.style.display = visibleCards.length === 0 ? 'none' : '';
+            });
+        });
+    }
+});
+</script>
+{% endblock %}
