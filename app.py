@@ -4386,6 +4386,16 @@ def auto_fetch_comicvine_metadata(destination_path):
         if result['processed'] > 0:
             app_logger.info(f"Auto-fetched ComicVine metadata: {result['processed']} processed, {result['skipped']} skipped, {result['errors']} errors")
 
+            # Queue processed files for metadata scanning to update file_index
+            from metadata_scanner import queue_file_for_scan, PRIORITY_NEW_FILE
+            for detail in result.get('details', []):
+                if detail.get('status') == 'success':
+                    # Use renamed path if available, otherwise original
+                    file_path = detail.get('renamed_to') or detail.get('file')
+                    if file_path and file_path.lower().endswith('.cbz'):
+                        queue_file_for_scan(file_path, PRIORITY_NEW_FILE)
+                        app_logger.debug(f"Queued for metadata scan: {os.path.basename(file_path)}")
+
             # Check if the target file was renamed and return the new path
             if target_file:
                 for detail in result.get('details', []):
@@ -4545,6 +4555,13 @@ def auto_fetch_metron_metadata(destination_path):
 
         if processed > 0:
             app_logger.info(f"Auto-fetched Metron metadata: {processed} files processed")
+
+            # Queue file for metadata scanning to update file_index
+            final_path = renamed_path if renamed_path else destination_path
+            if final_path.lower().endswith('.cbz'):
+                from metadata_scanner import queue_file_for_scan, PRIORITY_NEW_FILE
+                queue_file_for_scan(final_path, PRIORITY_NEW_FILE)
+                app_logger.debug(f"Queued for metadata scan: {os.path.basename(final_path)}")
 
         return renamed_path if renamed_path else destination_path
 
