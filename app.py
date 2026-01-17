@@ -10736,15 +10736,27 @@ def insights_page():
 @app.route('/api/insights')
 def api_insights():
     """Return library stats as JSON for Homepage custom API widget."""
+    from database import get_reading_stats_by_year
+
     library_stats = get_library_stats()
     if not library_stats:
         return jsonify({"error": "Failed to get stats"}), 500
+
+    # Get reading stats (all-time)
+    reading_stats = get_reading_stats_by_year(None)
+    total_seconds = reading_stats.get('total_time', 0)
+    hours = total_seconds // 3600
+    minutes = (total_seconds % 3600) // 60
 
     return jsonify({
         "total_files": library_stats.get('total_files', 0),
         "total_size": library_stats.get('total_size', 0),
         "issues_read": library_stats.get('total_read', 0),
-        "root_folders": library_stats.get('root_folders', 0)
+        "root_folders": library_stats.get('root_folders', 0),
+        "pages_read": reading_stats.get('total_pages', 0),
+        "time_reading": total_seconds,
+        "time_reading_hours": hours,
+        "time_reading_minutes": minutes
     })
 
 
