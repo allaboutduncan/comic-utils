@@ -4689,11 +4689,21 @@ function fetchAllMetadata(directoryPath, directoryName) {
     body: JSON.stringify({ directory: directoryPath })
   })
     .then(response => {
-      // Check if response is SSE stream or JSON error
+      // Check if response is SSE stream or JSON
       const contentType = response.headers.get('content-type');
       if (contentType && contentType.includes('application/json')) {
-        // Error response as JSON
         return response.json().then(data => {
+          // Check if multiple volumes found - need user selection
+          if (data.requires_selection) {
+            // Remove loading toast
+            if (loadingToast.parentNode) {
+              document.body.removeChild(loadingToast);
+            }
+            // Show volume selection modal
+            showBatchVolumeSelectionModal(data, directoryPath, directoryName);
+            return; // Exit the promise chain
+          }
+          // Error response
           if (data.error) {
             throw new Error(data.error);
           }
@@ -5950,6 +5960,178 @@ function showComicVineVolumeSelectionModal(data, filePath, fileName) {
   // Show the modal
   const modal = new bootstrap.Modal(document.getElementById('comicVineVolumeModal'));
   modal.show();
+}
+
+// Show volume selection modal for batch metadata (directory processing)
+function showBatchVolumeSelectionModal(data, directoryPath, directoryName) {
+  console.log('Showing batch volume selection modal', data);
+
+  // Populate parsed info
+  document.getElementById('cvParsedSeries').textContent = data.parsed_filename.series_name;
+  document.getElementById('cvParsedIssue').textContent = `${data.parsed_filename.issue_number} files in folder`;
+  document.getElementById('cvParsedYear').textContent = data.parsed_filename.year || 'Unknown';
+
+  // Update modal title
+  const modalTitle = document.getElementById('comicVineVolumeModalLabel');
+  if (modalTitle) {
+    modalTitle.textContent = `Found ${data.possible_matches.length} Volume(s) - Select Correct One`;
+  }
+
+  // Populate volume list
+  const volumeList = document.getElementById('cvVolumeList');
+  volumeList.innerHTML = '';
+
+  data.possible_matches.forEach(volume => {
+    const volumeItem = document.createElement('div');
+    volumeItem.className = 'list-group-item list-group-item-action d-flex align-items-start';
+    volumeItem.style.cursor = 'pointer';
+
+    const yearDisplay = volume.start_year || 'Unknown';
+    const issueCount = volume.count_of_issues || 'Unknown';
+    const descriptionPreview = volume.description ?
+      `<small class="text-muted d-block mt-1">${volume.description}</small>` : '';
+
+    // Display thumbnail if available
+    const thumbnailHtml = volume.image_url ?
+      `<img src="${volume.image_url}" class="img-thumbnail me-3" style="width: 80px; height: 120px; object-fit: cover;" alt="${volume.name} cover">` :
+      `<div class="me-3 d-flex align-items-center justify-content-center bg-secondary text-white" style="width: 80px; height: 120px; font-size: 10px;">No Cover</div>`;
+
+    volumeItem.innerHTML = `
+      ${thumbnailHtml}
+      <div class="flex-grow-1 d-flex justify-content-between align-items-start">
+        <div class="me-2">
+          <div class="fw-bold">${volume.name}</div>
+          <small class="text-muted">Publisher: ${volume.publisher_name || 'Unknown'}<br>Issues: ${issueCount}</small>
+          ${descriptionPreview}
+        </div>
+        <span class="badge bg-success rounded-pill">${yearDisplay}</span>
+      </div>
+    `;
+
+    volumeItem.addEventListener('click', () => {
+      // Highlight selected item
+      volumeList.querySelectorAll('.list-group-item').forEach(item => {
+        item.classList.remove('active');
+      });
+      volumeItem.classList.add('active');
+
+      // Close modal and re-call batch metadata with selected volume
+      const modal = bootstrap.Modal.getInstance(document.getElementById('comicVineVolumeModal'));
+      modal.hide();
+
+      // Re-call fetchAllMetadata with the selected volume_id
+      fetchAllMetadataWithVolume(directoryPath, directoryName, volume.id);
+    });
+
+    volumeList.appendChild(volumeItem);
+  });
+
+  // Show the modal
+  const modal = new bootstrap.Modal(document.getElementById('comicVineVolumeModal'));
+  modal.show();
+}
+
+// Fetch metadata with a pre-selected volume ID
+function fetchAllMetadataWithVolume(directoryPath, directoryName, volumeId) {
+  // Show loading toast
+  const loadingToast = document.createElement('div');
+  loadingToast.className = 'toast show position-fixed';
+  loadingToast.style.cssText = 'z-index: 1200; top: 60px; right: 1rem;';
+  loadingToast.innerHTML = `
+    <div class="toast-header bg-primary text-white">
+      <strong class="me-auto">Fetching Metadata</strong>
+      <small id="batch-progress-count-v">0/0</small>
+    </div>
+    <div class="toast-body">
+      <div class="d-flex align-items-center">
+        <div class="spinner-border spinner-border-sm me-2" role="status">
+          <span class="visually-hidden">Loading...</span>
+        </div>
+        <span id="batch-progress-file-v" class="text-truncate" style="max-width: 250px;">Starting with selected volume...</span>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(loadingToast);
+
+  const progressCount = loadingToast.querySelector('#batch-progress-count-v');
+  const progressFile = loadingToast.querySelector('#batch-progress-file-v');
+
+  // Call batch-metadata with volume_id
+  fetch('/api/batch-metadata', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ directory: directoryPath, volume_id: volumeId })
+  })
+    .then(response => {
+      const contentType = response.headers.get('content-type');
+      if (contentType && contentType.includes('application/json')) {
+        return response.json().then(data => {
+          if (data.error) {
+            throw new Error(data.error);
+          }
+        });
+      }
+
+      // SSE stream response
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      function processStream() {
+        return reader.read().then(({ done, value }) => {
+          if (done) return;
+
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop();
+
+          for (const line of lines) {
+            if (line.startsWith('data: ')) {
+              try {
+                const data = JSON.parse(line.slice(6));
+
+                if (data.type === 'progress') {
+                  progressCount.textContent = `${data.current}/${data.total}`;
+                  progressFile.textContent = data.file;
+                } else if (data.type === 'complete') {
+                  if (loadingToast.parentNode) {
+                    document.body.removeChild(loadingToast);
+                  }
+
+                  const result = data.result;
+                  let summaryParts = [];
+                  if (result.cvinfo_created) summaryParts.push('cvinfo created');
+                  if (result.processed > 0) summaryParts.push(`${result.processed} file(s) updated`);
+                  if (result.skipped > 0) summaryParts.push(`${result.skipped} skipped`);
+                  if (result.errors > 0) summaryParts.push(`${result.errors} error(s)`);
+
+                  showToast(
+                    result.errors > 0 ? 'Metadata Complete (with errors)' : 'Metadata Complete',
+                    summaryParts.join(', ') || 'No changes needed',
+                    result.errors > 0 ? 'warning' : 'success'
+                  );
+
+                  // Refresh directory listing
+                  loadDirectory(directoryPath);
+                }
+              } catch (e) {
+                console.error('Error parsing SSE data:', e);
+              }
+            }
+          }
+
+          return processStream();
+        });
+      }
+
+      return processStream();
+    })
+    .catch(error => {
+      if (loadingToast.parentNode) {
+        document.body.removeChild(loadingToast);
+      }
+      showToast('Metadata Error', error.message, 'error');
+    });
 }
 
 function selectComicVineVolume(filePath, fileName, volumeId, publisherName, issueNumber, year) {

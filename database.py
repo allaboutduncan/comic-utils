@@ -105,6 +105,13 @@ def init_db():
                 c.execute(f'ALTER TABLE file_index ADD COLUMN {col} {col_type}')
                 app_logger.info(f"Migrating file_index: adding {col} column")
 
+        # Migration: Add first_indexed_at column to track when files were first added
+        if 'first_indexed_at' not in columns:
+            c.execute('ALTER TABLE file_index ADD COLUMN first_indexed_at REAL')
+            # Backfill existing records with modified_at as a fallback
+            c.execute('UPDATE file_index SET first_indexed_at = modified_at WHERE first_indexed_at IS NULL')
+            app_logger.info("Migrating file_index: adding first_indexed_at column")
+
         # Create indexes for file_index table
         c.execute('CREATE INDEX IF NOT EXISTS idx_file_index_name ON file_index(name)')
         c.execute('CREATE INDEX IF NOT EXISTS idx_file_index_parent ON file_index(parent)')
@@ -113,6 +120,7 @@ def init_db():
         c.execute('CREATE INDEX IF NOT EXISTS idx_file_index_metadata_scan ON file_index(metadata_scanned_at, modified_at)')
         c.execute('CREATE INDEX IF NOT EXISTS idx_file_index_characters ON file_index(ci_characters)')
         c.execute('CREATE INDEX IF NOT EXISTS idx_file_index_writer ON file_index(ci_writer)')
+        c.execute('CREATE INDEX IF NOT EXISTS idx_file_index_first_indexed ON file_index(first_indexed_at)')
 
         # Create rebuild_schedule table (store file index rebuild schedule)
         c.execute('''
@@ -555,7 +563,11 @@ def log_recent_file(file_path, file_name=None, file_size=None):
 
 def get_recent_files(limit=100):
     """
-    Get the most recent files added to the library.
+    Get the most recently added files to the library (by first indexed date).
+
+    This returns files ordered by when they were first added to the index,
+    not by file modification time. Renamed/updated files keep their original
+    indexed date and won't appear at the top of the list.
 
     Args:
         limit: Maximum number of files to return (default 100)
@@ -570,16 +582,16 @@ def get_recent_files(limit=100):
             return []
 
         c = conn.cursor()
-        
-        # Query file_index directly for recent comic files
+
+        # Query file_index for recent comic files by first_indexed_at (when file was first added)
         c.execute('''
-            SELECT path as file_path, name as file_name, size as file_size, 
-                   datetime(modified_at, 'unixepoch', 'localtime') as added_at
+            SELECT path as file_path, name as file_name, size as file_size,
+                   datetime(first_indexed_at, 'unixepoch', 'localtime') as added_at
             FROM file_index
-            WHERE type = 'file' 
+            WHERE type = 'file'
             AND (name LIKE '%.cbz' OR name LIKE '%.cbr')
-            AND modified_at IS NOT NULL
-            ORDER BY modified_at DESC
+            AND first_indexed_at IS NOT NULL
+            ORDER BY first_indexed_at DESC
             LIMIT ?
         ''', (limit,))
 
@@ -738,6 +750,8 @@ def save_file_index_to_db(file_index):
         c.execute('DELETE FROM file_index')
 
         # Prepare batch insert
+        import time
+        current_time = time.time()
         records = [
             (
                 entry['name'],
@@ -746,15 +760,16 @@ def save_file_index_to_db(file_index):
                 entry.get('size'),
                 entry['parent'],
                 entry.get('has_thumbnail', 0),
-                entry.get('modified_at')
+                entry.get('modified_at'),
+                current_time  # first_indexed_at
             )
             for entry in file_index
         ]
 
         # Batch insert
         c.executemany('''
-            INSERT INTO file_index (name, path, type, size, parent, has_thumbnail, modified_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO file_index (name, path, type, size, parent, has_thumbnail, modified_at, first_indexed_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         ''', records)
 
         conn.commit()
@@ -955,12 +970,21 @@ def add_file_index_entry(name, path, entry_type, size=None, parent=None, has_thu
         if not conn:
             return False
 
+        import time
         c = conn.cursor()
 
+        # Use ON CONFLICT to preserve first_indexed_at for existing entries
         c.execute('''
-            INSERT OR REPLACE INTO file_index (name, path, type, size, parent, has_thumbnail, modified_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-        ''', (name, path, entry_type, size, parent, has_thumbnail, modified_at))
+            INSERT INTO file_index (name, path, type, size, parent, has_thumbnail, modified_at, first_indexed_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(path) DO UPDATE SET
+                name = excluded.name,
+                type = excluded.type,
+                size = excluded.size,
+                parent = excluded.parent,
+                has_thumbnail = excluded.has_thumbnail,
+                modified_at = excluded.modified_at
+        ''', (name, path, entry_type, size, parent, has_thumbnail, modified_at, time.time()))
 
         conn.commit()
         conn.close()
@@ -1077,11 +1101,21 @@ def sync_file_index_incremental(filesystem_entries):
             app_logger.info(f"Removed {len(removed_paths)} orphaned entries from file_index")
 
         # Add new entries
+        import time
+        current_time = time.time()
         new_entries = [e for e in filesystem_entries if e['path'] in new_paths]
         for entry in new_entries:
+            # Use ON CONFLICT to preserve first_indexed_at for existing entries
             c.execute('''
-                INSERT OR REPLACE INTO file_index (name, path, type, size, parent, has_thumbnail, modified_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO file_index (name, path, type, size, parent, has_thumbnail, modified_at, first_indexed_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(path) DO UPDATE SET
+                    name = excluded.name,
+                    type = excluded.type,
+                    size = excluded.size,
+                    parent = excluded.parent,
+                    has_thumbnail = excluded.has_thumbnail,
+                    modified_at = excluded.modified_at
             ''', (
                 entry['name'],
                 entry['path'],
@@ -1089,7 +1123,8 @@ def sync_file_index_incremental(filesystem_entries):
                 entry.get('size'),
                 entry.get('parent'),
                 entry.get('has_thumbnail', 0),
-                entry.get('modified_at')
+                entry.get('modified_at'),
+                current_time
             ))
 
         conn.commit()

@@ -49,6 +49,8 @@ scanner_progress = {
 }
 scanner_lock = threading.Lock()
 worker_threads = []
+monitor_thread = None
+monitor_stop_event = threading.Event()
 
 
 class ScanTask:
@@ -80,6 +82,7 @@ def scan_worker():
     Runs indefinitely until shutdown signal (None) is received.
     """
     while True:
+        task = None
         try:
             task = metadata_queue.get()
             if task is None:  # Shutdown signal
@@ -94,12 +97,14 @@ def scan_worker():
                 scanner_progress['scanned_count'] += 1
                 scanner_progress['last_update'] = time.time()
 
-            metadata_queue.task_done()
-
         except Exception as e:
             app_logger.error(f"Metadata scanner worker error: {e}")
             with scanner_lock:
                 scanner_progress['errors'] += 1
+        finally:
+            # Always mark task as done (if we got one)
+            if task is not None:
+                metadata_queue.task_done()
 
 
 def process_metadata_scan(task):
@@ -294,6 +299,35 @@ def queue_files_for_scan(file_paths, priority=PRIORITY_NEW_FILE):
     return queued_count
 
 
+def queue_monitor():
+    """
+    Background thread that continuously monitors and queues pending files.
+
+    Runs every 30 seconds to check if the queue is empty and there are
+    more files needing scanning. This ensures all files eventually get scanned,
+    even if the initial batch limit was exceeded.
+    """
+    check_interval = 30  # seconds between checks
+
+    while not monitor_stop_event.is_set():
+        try:
+            # Wait for the specified interval or until stop event is set
+            if monitor_stop_event.wait(timeout=check_interval):
+                break  # Stop event was set
+
+            # Only queue more files if queue is nearly empty
+            if metadata_queue.qsize() < 100:
+                # Check if there are more files needing scan
+                files_needing_scan = get_files_needing_metadata_scan(limit=1)
+                if files_needing_scan:
+                    queued = queue_pending_files()
+                    if queued > 0:
+                        app_logger.info(f"Queue monitor: Queued {queued} additional files for metadata scanning")
+
+        except Exception as e:
+            app_logger.error(f"Queue monitor error: {e}")
+
+
 def start_metadata_scanner(num_workers=None):
     """
     Initialize and start the metadata scanner background workers.
@@ -303,7 +337,7 @@ def start_metadata_scanner(num_workers=None):
     Args:
         num_workers: Number of worker threads (default from config or 2)
     """
-    global worker_threads
+    global worker_threads, monitor_thread
 
     # Check if scanning is enabled
     enabled = config.getboolean('SETTINGS', 'ENABLE_METADATA_SCAN', fallback=True)
@@ -322,6 +356,9 @@ def start_metadata_scanner(num_workers=None):
         scanner_progress['scanned_count'] = 0
         scanner_progress['errors'] = 0
 
+    # Clear the stop event in case scanner was previously stopped
+    monitor_stop_event.clear()
+
     # Start worker threads
     for i in range(num_workers):
         t = threading.Thread(
@@ -334,16 +371,31 @@ def start_metadata_scanner(num_workers=None):
 
     app_logger.info(f"Started {num_workers} metadata scanner worker thread(s)")
 
+    # Start queue monitor thread to continuously queue pending files
+    monitor_thread = threading.Thread(
+        target=queue_monitor,
+        daemon=True,
+        name="MetadataQueueMonitor"
+    )
+    monitor_thread.start()
+    app_logger.info("Started metadata queue monitor thread")
+
     # Queue initial batch of files needing scan
     queue_pending_files()
 
 
 def stop_metadata_scanner():
     """Gracefully stop the metadata scanner workers."""
-    global worker_threads
+    global worker_threads, monitor_thread
 
     with scanner_lock:
         scanner_progress['is_running'] = False
+
+    # Signal the monitor thread to stop
+    monitor_stop_event.set()
+    if monitor_thread:
+        monitor_thread.join(timeout=5)
+        monitor_thread = None
 
     # Send shutdown signal to all workers
     for _ in worker_threads:

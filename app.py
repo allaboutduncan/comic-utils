@@ -7211,6 +7211,7 @@ def batch_metadata():
     try:
         data = request.get_json()
         directory = data.get('directory')
+        selected_volume_id = data.get('volume_id')  # Optional: pre-selected ComicVine volume ID
 
         if not directory:
             return jsonify({"error": "Missing directory parameter"}), 400
@@ -7330,9 +7331,31 @@ def batch_metadata():
             if not cvinfo_created and comicvine_available:
                 app_logger.info("Trying ComicVine for cvinfo creation...")
                 try:
-                    volumes = comicvine.search_volumes(comicvine_api_key, series_name, extracted_year)
-                    if volumes:
-                        cv_volume_id = volumes[0]['id']
+                    # If user already selected a volume, use it directly
+                    if selected_volume_id:
+                        cv_volume_id = selected_volume_id
+                        app_logger.info(f"Using pre-selected volume ID: {cv_volume_id}")
+                    else:
+                        # Search for volumes
+                        volumes = comicvine.search_volumes(comicvine_api_key, series_name, extracted_year)
+                        if volumes:
+                            # If multiple volumes found, return them for user selection
+                            if len(volumes) > 1:
+                                app_logger.info(f"Found {len(volumes)} volumes - returning for user selection")
+                                return jsonify({
+                                    "requires_selection": True,
+                                    "directory": directory,
+                                    "parsed_filename": {
+                                        "series_name": series_name,
+                                        "issue_number": str(len(comic_files)),
+                                        "year": extracted_year
+                                    },
+                                    "possible_matches": volumes
+                                })
+                            cv_volume_id = volumes[0]['id']
+
+                    # Create cvinfo with the selected/found volume
+                    if cv_volume_id:
                         url = f"https://comicvine.gamespot.com/volume/4050-{cv_volume_id}/"
                         with open(cvinfo_path, 'w', encoding='utf-8') as f:
                             f.write(url)
