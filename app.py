@@ -4582,6 +4582,9 @@ def auto_fetch_metron_metadata(destination_path):
             app_logger.debug("Could not determine Metron series ID")
             return destination_path
 
+        # Track if we've saved cvinfo fields (only need to do once per folder)
+        cvinfo_fields_saved = False
+
         # If target_file specified, only process that file
         if target_file:
             files_to_process = [target_file]
@@ -4614,6 +4617,17 @@ def auto_fetch_metron_metadata(destination_path):
             issue_data = get_issue_metadata(api, series_id, issue_number)
             if not issue_data:
                 continue
+
+            # Save publisher_name and start_year to cvinfo (once per folder)
+            if not cvinfo_fields_saved:
+                from models.metron import write_cvinfo_fields, _get_attr
+                publisher = _get_attr(issue_data, 'publisher', {}) or {}
+                publisher_name = _get_attr(publisher, 'name', None)
+                series = _get_attr(issue_data, 'series', {}) or {}
+                year_began = _get_attr(series, 'year_began', None)
+                if publisher_name or year_began:
+                    write_cvinfo_fields(cvinfo_path, publisher_name, year_began)
+                cvinfo_fields_saved = True
 
             # Map to ComicInfo format
             metadata = map_to_comicinfo(issue_data)
@@ -7188,9 +7202,9 @@ def batch_metadata():
     1. Check for cvinfo in folder
     2. If no cvinfo, create via ComicVine search (using folder name as series)
     3. Add Metron series ID to cvinfo if not present
-    4. For each CBZ/CBR without ComicInfo.xml:
-       - If year < 2022 or unknown: GCD -> ComicVine -> Metron
-       - If year >= 2022: Metron -> ComicVine -> GCD
+    4. Read/fetch start_year for Volume field from cvinfo
+    5. For each CBZ/CBR without ComicInfo.xml:
+       - Try Metron first, then ComicVine, then GCD
     """
     from comicinfo import read_comicinfo_from_zip
 
@@ -7221,58 +7235,12 @@ def batch_metadata():
 
         app_logger.info(f"Batch metadata: CV={comicvine_available}, Metron={metron_available}, GCD={gcd_available}")
 
-        # Step 1: Check for cvinfo
-        cvinfo_path = os.path.join(directory, 'cvinfo')
-        cv_volume_id = None
-        cvinfo_created = False
-
-        if not os.path.exists(cvinfo_path):
-            # Create cvinfo via ComicVine search if ComicVine is available
-            if comicvine_available:
-                # Use folder name as series name
-                series_name = os.path.basename(directory)
-                # Clean up common patterns
-                series_name = re.sub(r'\s*\(\d{4}\).*$', '', series_name)  # Remove (1994) and everything after
-                series_name = re.sub(r'\s*v\d+.*$', '', series_name)  # Remove v1, v2 etc
-                series_name = re.sub(r'\s*-\s*complete.*$', '', series_name, flags=re.IGNORECASE)
-
-                app_logger.info(f"Searching ComicVine for series: {series_name}")
-
-                try:
-                    volumes = comicvine.search_volumes(comicvine_api_key, series_name)
-                    if volumes:
-                        cv_volume_id = volumes[0]['id']
-                        url = f"https://comicvine.gamespot.com/x/4050-{cv_volume_id}/"
-                        with open(cvinfo_path, 'w', encoding='utf-8') as f:
-                            f.write(url)
-                        cvinfo_created = True
-                        app_logger.info(f"Created cvinfo with ComicVine volume ID: {cv_volume_id}")
-                except Exception as e:
-                    app_logger.error(f"Error searching ComicVine: {e}")
-        else:
-            # Parse existing cvinfo for volume ID
-            cv_volume_id = comicvine.parse_cvinfo_volume_id(cvinfo_path)
-            app_logger.info(f"Found existing cvinfo with volume ID: {cv_volume_id}")
-
-        # Step 2: Add Metron series ID if not present
-        series_id = None
+        # Initialize Metron API early (needed for cvinfo creation)
         metron_api = None
-        metron_id_added = False
-
-        if metron_available and os.path.exists(cvinfo_path):
+        if metron_available:
             metron_api = metron.get_api(metron_username, metron_password)
-            if metron_api:
-                series_id = metron.parse_cvinfo_for_metron_id(cvinfo_path)
-                if not series_id:
-                    cv_id = metron.parse_cvinfo_for_comicvine_id(cvinfo_path)
-                    if cv_id:
-                        series_id = metron.get_series_id_by_comicvine_id(metron_api, cv_id)
-                        if series_id:
-                            metron.update_cvinfo_with_metron_id(cvinfo_path, series_id)
-                            metron_id_added = True
-                            app_logger.info(f"Added Metron series ID: {series_id}")
 
-        # Step 3: Get list of comic files
+        # Step 1: Get list of comic files (needed for year extraction)
         comic_files = []
         for item in os.listdir(directory):
             item_path = os.path.join(directory, item)
@@ -7281,17 +7249,155 @@ def batch_metadata():
 
         app_logger.info(f"Found {len(comic_files)} comic files to process")
 
-        # Determine service order based on volume year
-        # If year < 2022 or no year found, use legacy order: GCD -> ComicVine -> Metron
-        # Otherwise use modern order: Metron -> ComicVine -> GCD
-        year_match = re.search(r'\((\d{4})\)|v(\d{4})', os.path.basename(directory))
-        volume_year = int(year_match.group(1) or year_match.group(2)) if year_match else None
-        use_legacy_order = volume_year is None or volume_year < 2022
+        # Helper function to extract year from filename or folder name
+        def extract_year_from_name(name: str):
+            """Extract year from name in (YYYY) or vYYYY format."""
+            # Try (YYYY) format
+            match = re.search(r'\((\d{4})\)', name)
+            if match:
+                return int(match.group(1))
+            # Try vYYYY format
+            match = re.search(r'v(\d{4})', name)
+            if match:
+                return int(match.group(1))
+            return None
 
-        if use_legacy_order:
-            app_logger.info(f"Using legacy service order (GCD first) - volume year: {volume_year or 'unknown'}")
+        # Extract year - try first filename, then folder name
+        extracted_year = None
+        if comic_files:
+            extracted_year = extract_year_from_name(os.path.basename(comic_files[0]))
+        if not extracted_year:
+            extracted_year = extract_year_from_name(os.path.basename(directory))
+
+        app_logger.info(f"Extracted year from filename/folder: {extracted_year}")
+
+        # Step 2: Check for cvinfo
+        cvinfo_path = os.path.join(directory, 'cvinfo')
+        cv_volume_id = None
+        series_id = None
+        cvinfo_created = False
+        metron_id_added = False
+        cvinfo_start_year = None
+
+        if not os.path.exists(cvinfo_path):
+            # Extract series name from folder first
+            series_name = os.path.basename(directory)
+            series_name = re.sub(r'\s*\(\d{4}\).*$', '', series_name)  # Remove (1994) and everything after
+            series_name = re.sub(r'\s*v\d+.*$', '', series_name)  # Remove v1, v2 etc
+            series_name = re.sub(r'\s*-\s*complete.*$', '', series_name, flags=re.IGNORECASE)
+            series_name = series_name.strip()
+
+            # If folder name didn't yield a series name, try extracting from first filename
+            if not series_name and comic_files:
+                filename = os.path.basename(comic_files[0])
+                # Remove extension
+                series_name = os.path.splitext(filename)[0]
+                # Remove year in parentheses: "(2005)"
+                series_name = re.sub(r'\s*\(\d{4}\)', '', series_name)
+                # Remove issue number patterns: "003", "#3", "Issue 3"
+                series_name = re.sub(r'\s*#?\d{1,4}\s*$', '', series_name)  # Trailing numbers
+                series_name = re.sub(r'\s*-\s*\d{1,4}\s*$', '', series_name)  # "- 003"
+                series_name = re.sub(r'\s+Issue\s+\d+', '', series_name, flags=re.IGNORECASE)
+                series_name = series_name.strip()
+                app_logger.info(f"Extracted series name from filename: '{series_name}'")
+
+            app_logger.info(f"No cvinfo found, searching for series: '{series_name}' (year: {extracted_year})")
+
+            # Try Metron first if available
+            if metron_api:
+                app_logger.info("Trying Metron first for cvinfo creation...")
+                try:
+                    metron_series = metron.search_series_by_name(metron_api, series_name, extracted_year)
+                    if metron_series:
+                        # Create cvinfo with all Metron data
+                        metron.create_cvinfo_file(
+                            cvinfo_path,
+                            cv_id=metron_series.get('cv_id'),
+                            series_id=metron_series['id'],
+                            publisher_name=metron_series.get('publisher_name'),
+                            start_year=metron_series.get('year_began')
+                        )
+                        cv_volume_id = metron_series.get('cv_id')
+                        series_id = metron_series['id']
+                        cvinfo_start_year = metron_series.get('year_began')
+                        cvinfo_created = True
+                        metron_id_added = True
+                        app_logger.info(f"Created cvinfo via Metron: series_id={series_id}, cv_id={cv_volume_id}")
+                except Exception as e:
+                    app_logger.error(f"Error searching Metron for series: {e}")
+
+            # Fallback to ComicVine if Metron didn't find it
+            if not cvinfo_created and comicvine_available:
+                app_logger.info("Trying ComicVine for cvinfo creation...")
+                try:
+                    volumes = comicvine.search_volumes(comicvine_api_key, series_name, extracted_year)
+                    if volumes:
+                        cv_volume_id = volumes[0]['id']
+                        url = f"https://comicvine.gamespot.com/volume/4050-{cv_volume_id}/"
+                        with open(cvinfo_path, 'w', encoding='utf-8') as f:
+                            f.write(url)
+                        cvinfo_created = True
+                        app_logger.info(f"Created cvinfo with ComicVine volume ID: {cv_volume_id}")
+
+                        # Fetch and save volume details
+                        volume_details = comicvine.get_volume_details(comicvine_api_key, cv_volume_id)
+                        if volume_details:
+                            comicvine.write_cvinfo_fields(cvinfo_path,
+                                volume_details.get('publisher_name'),
+                                volume_details.get('start_year'))
+                            cvinfo_start_year = volume_details.get('start_year')
+                except Exception as e:
+                    app_logger.error(f"Error searching ComicVine: {e}")
         else:
-            app_logger.info(f"Using modern service order (Metron first) - volume year: {volume_year}")
+            # Parse existing cvinfo
+            cv_volume_id = comicvine.parse_cvinfo_volume_id(cvinfo_path)
+            series_id = metron.parse_cvinfo_for_metron_id(cvinfo_path)
+            app_logger.info(f"Found existing cvinfo with volume ID: {cv_volume_id}, series_id: {series_id}")
+
+            # If cvinfo has series_id but no CV URL, look up cv_id from Metron and add it
+            if not cv_volume_id and series_id and metron_api:
+                cv_id_from_metron = metron.get_series_cv_id(metron_api, series_id)
+                if cv_id_from_metron:
+                    metron.add_cvinfo_url(cvinfo_path, cv_id_from_metron)
+                    cv_volume_id = cv_id_from_metron
+                    app_logger.info(f"Added CV URL to existing cvinfo: cv_id={cv_id_from_metron}")
+
+        # Step 3: Add Metron series ID and details if not present in existing cvinfo
+        if metron_api and os.path.exists(cvinfo_path) and not series_id:
+            cv_id = metron.parse_cvinfo_for_comicvine_id(cvinfo_path)
+            if cv_id:
+                series_id = metron.get_series_id_by_comicvine_id(metron_api, cv_id)
+                if series_id:
+                    # Get full series details from Metron
+                    series_details = metron.get_series_details(metron_api, series_id)
+                    if series_details:
+                        # Update cvinfo with series_id
+                        metron.update_cvinfo_with_metron_id(cvinfo_path, series_id)
+                        # Also add publisher_name and start_year if available
+                        if series_details.get('publisher_name') or series_details.get('year_began'):
+                            metron.write_cvinfo_fields(cvinfo_path,
+                                series_details.get('publisher_name'),
+                                series_details.get('year_began'))
+                            cvinfo_start_year = series_details.get('year_began')
+                        metron_id_added = True
+                        app_logger.info(f"Added Metron data to cvinfo: series_id={series_id}, publisher={series_details.get('publisher_name')}, year={series_details.get('year_began')}")
+
+        # Step 4: Read start_year from cvinfo for ComicVine calls (for Volume field)
+        if not cvinfo_start_year and os.path.exists(cvinfo_path):
+            cvinfo_fields = comicvine.read_cvinfo_fields(cvinfo_path)
+            cvinfo_start_year = cvinfo_fields.get('start_year')
+            # If not in cvinfo but we have a volume_id, fetch and save
+            if not cvinfo_start_year and cv_volume_id and comicvine_available:
+                volume_details = comicvine.get_volume_details(comicvine_api_key, cv_volume_id)
+                if volume_details.get('start_year') or volume_details.get('publisher_name'):
+                    cvinfo_start_year = volume_details.get('start_year')
+                    comicvine.write_cvinfo_fields(cvinfo_path, volume_details.get('publisher_name'), cvinfo_start_year)
+
+        # Store year for GCD lookups
+        gcd_year = extracted_year or cvinfo_start_year
+
+        # Service order: Metron first, then ComicVine, then GCD
+        app_logger.info("Using Metron-first service order (Metron -> ComicVine -> GCD)")
 
         def generate():
             """Generator for SSE streaming."""
@@ -7361,8 +7467,8 @@ def batch_metadata():
                             gcd_series_name = re.sub(r'\s*\(\d{4}\).*$', '', gcd_series_name)
                             gcd_series_name = re.sub(r'\s*v\d+.*$', '', gcd_series_name)
 
-                            # Use volume_year extracted earlier
-                            gcd_series = gcd.search_series(gcd_series_name, volume_year)
+                            # Use gcd_year (from filename/folder or cvinfo)
+                            gcd_series = gcd.search_series(gcd_series_name, gcd_year)
                             if gcd_series:
                                 metadata = gcd.get_issue_metadata(gcd_series['id'], issue_number)
                                 if metadata:
@@ -7379,7 +7485,7 @@ def batch_metadata():
                         if not (comicvine_available and cv_volume_id):
                             return False
                         try:
-                            metadata = comicvine.get_metadata_by_volume_id(comicvine_api_key, cv_volume_id, issue_number)
+                            metadata = comicvine.get_metadata_by_volume_id(comicvine_api_key, cv_volume_id, issue_number, start_year=cvinfo_start_year)
                             if metadata:
                                 source = 'ComicVine'
                                 app_logger.info(f"Found metadata from ComicVine for {filename}")
@@ -7404,16 +7510,10 @@ def batch_metadata():
                             app_logger.warning(f"Metron lookup failed for {filename}: {e}")
                         return False
 
-                    if use_legacy_order:
-                        # Legacy order: GCD -> ComicVine -> Metron (for pre-2022 or unknown year)
-                        if not try_gcd():
-                            if not try_comicvine():
-                                try_metron()
-                    else:
-                        # Modern order: Metron -> ComicVine -> GCD (for 2022+)
-                        if not try_metron():
-                            if not try_comicvine():
-                                try_gcd()
+                    # Always use Metron-first order: Metron -> ComicVine -> GCD
+                    if not try_metron():
+                        if not try_comicvine():
+                            try_gcd()
 
                     if metadata:
                         # Generate and add ComicInfo.xml

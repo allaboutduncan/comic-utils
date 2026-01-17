@@ -166,6 +166,68 @@ def update_cvinfo_with_metron_id(cvinfo_path: str, series_id: int) -> bool:
         return False
 
 
+def read_cvinfo_fields(cvinfo_path: str) -> Dict[str, Any]:
+    """
+    Read publisher_name and start_year from cvinfo file if present.
+
+    Args:
+        cvinfo_path: Path to the cvinfo file
+
+    Returns:
+        Dict with 'publisher_name' and 'start_year' keys (values may be None)
+    """
+    result = {'publisher_name': None, 'start_year': None}
+    try:
+        with open(cvinfo_path, 'r', encoding='utf-8') as f:
+            for line in f:
+                line = line.strip()
+                if line.startswith('publisher_name:'):
+                    result['publisher_name'] = line.split(':', 1)[1].strip()
+                elif line.startswith('start_year:'):
+                    try:
+                        result['start_year'] = int(line.split(':', 1)[1].strip())
+                    except ValueError:
+                        pass
+    except Exception as e:
+        app_logger.error(f"Error reading cvinfo fields from {cvinfo_path}: {e}")
+    return result
+
+
+def write_cvinfo_fields(cvinfo_path: str, publisher_name: Optional[str], start_year: Optional[int]) -> bool:
+    """
+    Append publisher_name and start_year to cvinfo file if not already present.
+
+    Args:
+        cvinfo_path: Path to the cvinfo file
+        publisher_name: Publisher name to save
+        start_year: Series start year to save
+
+    Returns:
+        True if successful, False otherwise
+    """
+    try:
+        existing = read_cvinfo_fields(cvinfo_path)
+        lines_to_add = []
+
+        if publisher_name and not existing['publisher_name']:
+            lines_to_add.append(f"publisher_name: {publisher_name}")
+        if start_year and not existing['start_year']:
+            lines_to_add.append(f"start_year: {start_year}")
+
+        if not lines_to_add:
+            return True  # Nothing to add
+
+        with open(cvinfo_path, 'a', encoding='utf-8') as f:
+            for line in lines_to_add:
+                f.write(f"\n{line}")
+
+        app_logger.debug(f"Added to cvinfo: {', '.join(lines_to_add)}")
+        return True
+    except Exception as e:
+        app_logger.error(f"Error writing cvinfo fields to {cvinfo_path}: {e}")
+        return False
+
+
 def get_issue_metadata(api, series_id: int, issue_number: str) -> Optional[Dict[str, Any]]:
     """
     Fetch issue metadata from Metron.
@@ -301,7 +363,8 @@ def map_to_comicinfo(issue_data) -> Dict[str, Any]:
     # Extract series info
     series = _get_attr(issue_data, 'series', {}) or {}
     series_name = _get_attr(series, 'name', '') or ''
-    volume = _get_attr(series, 'volume', None)
+    # Use year_began for Volume field (series start year, not volume number)
+    year_began = _get_attr(series, 'year_began', None)
 
     # Extract genres from series
     genres = _get_attr(series, 'genres', []) or []
@@ -364,7 +427,7 @@ def map_to_comicinfo(issue_data) -> Dict[str, Any]:
     comicinfo = {
         'Series': series_name,
         'Number': _get_attr(issue_data, 'number', None),
-        'Volume': volume,
+        'Volume': year_began,
         'Title': title,
         'Summary': _get_attr(issue_data, 'desc', None),
         'Publisher': publisher_name,
@@ -437,6 +500,7 @@ def fetch_and_map_issue(api, cvinfo_path: str, issue_number: str) -> Optional[Di
     Convenience function to fetch issue metadata and map to ComicInfo format.
 
     This combines get_series_id, get_issue_metadata, and map_to_comicinfo.
+    Also saves publisher_name and start_year to cvinfo for future use.
 
     Args:
         api: Mokkari API client
@@ -456,6 +520,16 @@ def fetch_and_map_issue(api, cvinfo_path: str, issue_number: str) -> Optional[Di
     issue_data = get_issue_metadata(api, series_id, issue_number)
     if not issue_data:
         return None
+
+    # Extract publisher_name and start_year for cvinfo
+    publisher = _get_attr(issue_data, 'publisher', {}) or {}
+    publisher_name = _get_attr(publisher, 'name', None)
+    series = _get_attr(issue_data, 'series', {}) or {}
+    year_began = _get_attr(series, 'year_began', None)
+
+    # Save to cvinfo for future use
+    if publisher_name or year_began:
+        write_cvinfo_fields(cvinfo_path, publisher_name, year_began)
 
     # Map to ComicInfo format
     return map_to_comicinfo(issue_data)
@@ -545,6 +619,200 @@ def get_all_issues_for_series(api, series_id):
         app_logger.error(f"Error retrieving issues for series {series_id}: {e}")
         return []
 
-# Example usage:
-# series_id = 12345
-# issues = get_all_issues_for_series(api, series_id)
+def search_series_by_name(api, series_name: str, year: Optional[int] = None) -> Optional[Dict[str, Any]]:
+    """
+    Search Metron for a series by name, optionally filtering by year.
+
+    Args:
+        api: Mokkari API client
+        series_name: Series name to search for
+        year: Optional year to filter/rank results by year_began
+
+    Returns:
+        Dict with id, name, cv_id, publisher_name, year_began, or None if not found
+    """
+    try:
+        if not api or not series_name:
+            return None
+
+        app_logger.info(f"Searching Metron for series: '{series_name}' (year: {year})")
+        results = api.series_list({'name': series_name})
+
+        if not results:
+            app_logger.info(f"No Metron series found for '{series_name}'")
+            return None
+
+        # Convert results to list for sorting
+        series_list = list(results)
+        app_logger.info(f"Found {len(series_list)} Metron series matches")
+
+        # If year provided, sort by closest year_began match
+        if year and len(series_list) > 1:
+            def year_distance(s):
+                s_year = getattr(s, 'year_began', None)
+                if s_year is None:
+                    return 9999
+                return abs(s_year - year)
+            series_list = sorted(series_list, key=year_distance)
+
+        # Take best match
+        series = series_list[0]
+
+        # Extract publisher info
+        publisher = getattr(series, 'publisher', None)
+        publisher_name = None
+        if publisher:
+            publisher_name = getattr(publisher, 'name', None)
+
+        result = {
+            'id': getattr(series, 'id', None),
+            'name': getattr(series, 'name', '') or getattr(series, 'display_name', ''),
+            'cv_id': getattr(series, 'cv_id', None),
+            'publisher_name': publisher_name,
+            'year_began': getattr(series, 'year_began', None)
+        }
+
+        app_logger.info(f"Best Metron match: {result['name']} ({result['year_began']}) - cv_id: {result['cv_id']}")
+        return result
+
+    except Exception as e:
+        app_logger.error(f"Error searching Metron for series '{series_name}': {e}")
+        return None
+
+
+def get_series_details(api, series_id: int) -> Optional[Dict[str, Any]]:
+    """
+    Get full details for a Metron series including cv_id, publisher, year_began.
+
+    Args:
+        api: Mokkari API client
+        series_id: Metron series ID
+
+    Returns:
+        Dict with id, cv_id, publisher_name, year_began, or None if not found
+    """
+    try:
+        if not api or not series_id:
+            return None
+
+        # Get series details
+        series = api.series(series_id)
+        if series:
+            publisher = getattr(series, 'publisher', None)
+            publisher_name = None
+            if publisher:
+                publisher_name = getattr(publisher, 'name', None)
+
+            result = {
+                'id': series_id,
+                'cv_id': getattr(series, 'cv_id', None),
+                'publisher_name': publisher_name,
+                'year_began': getattr(series, 'year_began', None)
+            }
+            app_logger.info(f"Metron series details: cv_id={result['cv_id']}, publisher={result['publisher_name']}, year={result['year_began']}")
+            return result
+
+        return None
+    except Exception as e:
+        app_logger.error(f"Error getting details for series {series_id}: {e}")
+        return None
+
+
+def get_series_cv_id(api, series_id: int) -> Optional[int]:
+    """
+    Get the ComicVine ID for a Metron series.
+
+    Args:
+        api: Mokkari API client
+        series_id: Metron series ID
+
+    Returns:
+        ComicVine volume ID, or None if not found
+    """
+    details = get_series_details(api, series_id)
+    return details.get('cv_id') if details else None
+
+
+def add_cvinfo_url(cvinfo_path: str, cv_id: int) -> bool:
+    """
+    Add or update the ComicVine URL as the first line of a cvinfo file.
+
+    Args:
+        cvinfo_path: Path to the cvinfo file
+        cv_id: ComicVine volume ID
+
+    Returns:
+        True if successful, False otherwise
+    """
+    try:
+        cv_url = f"https://comicvine.gamespot.com/volume/4050-{cv_id}/"
+
+        # Read existing content
+        with open(cvinfo_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+
+        # Check if URL already exists
+        if f"4050-{cv_id}" in content:
+            app_logger.debug(f"CV URL already exists in {cvinfo_path}")
+            return True
+
+        # Check if any CV URL exists (different ID)
+        if "comicvine.gamespot.com/volume/4050-" in content:
+            app_logger.warning(f"Different CV URL exists in {cvinfo_path}, not overwriting")
+            return False
+
+        # Prepend the URL to the content
+        new_content = cv_url + '\n' + content
+
+        with open(cvinfo_path, 'w', encoding='utf-8') as f:
+            f.write(new_content)
+
+        app_logger.info(f"Added CV URL to cvinfo: {cv_url}")
+        return True
+
+    except Exception as e:
+        app_logger.error(f"Error adding CV URL to {cvinfo_path}: {e}")
+        return False
+
+
+def create_cvinfo_file(cvinfo_path: str, cv_id: Optional[int], series_id: int,
+                       publisher_name: Optional[str] = None, start_year: Optional[int] = None) -> bool:
+    """
+    Create a cvinfo file with all available fields.
+
+    Args:
+        cvinfo_path: Path to create the cvinfo file
+        cv_id: ComicVine volume ID (for URL)
+        series_id: Metron series ID
+        publisher_name: Publisher name
+        start_year: Series start year (year_began)
+
+    Returns:
+        True if successful, False otherwise
+    """
+    try:
+        lines = []
+
+        # Add ComicVine URL if cv_id is available
+        if cv_id:
+            lines.append(f"https://comicvine.gamespot.com/volume/4050-{cv_id}/")
+
+        # Add Metron series_id
+        lines.append(f"series_id: {series_id}")
+
+        # Add optional fields
+        if publisher_name:
+            lines.append(f"publisher_name: {publisher_name}")
+        if start_year:
+            lines.append(f"start_year: {start_year}")
+
+        # Write to file
+        with open(cvinfo_path, 'w', encoding='utf-8') as f:
+            f.write('\n'.join(lines))
+
+        app_logger.info(f"Created cvinfo file: {cvinfo_path}")
+        return True
+
+    except Exception as e:
+        app_logger.error(f"Error creating cvinfo file {cvinfo_path}: {e}")
+        return False

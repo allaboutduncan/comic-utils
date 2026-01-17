@@ -336,13 +336,14 @@ def _issue_to_dict(issue: Any) -> Dict[str, Any]:
     }
 
 
-def map_to_comicinfo(issue_data: Dict[str, Any], volume_data: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+def map_to_comicinfo(issue_data: Dict[str, Any], volume_data: Optional[Dict[str, Any]] = None, start_year: Optional[int] = None) -> Dict[str, Any]:
     """
     Map ComicVine issue data to ComicInfo.xml format.
 
     Args:
         issue_data: Issue data from ComicVine
         volume_data: Optional volume data for additional context
+        start_year: Optional series start year to use for Volume field (preferred over publication year)
 
     Returns:
         Dictionary in ComicInfo.xml format
@@ -373,7 +374,8 @@ def map_to_comicinfo(issue_data: Dict[str, Any], volume_data: Optional[Dict[str,
     comicinfo = {
         'Series': series_name,
         'Number': issue_data.get('issue_number'),
-        'Volume': issue_data.get('year'),  # Use publication year as Volume (ComicVine standard)
+        # Use start_year (series start year) for Volume field, fallback to publication year
+        'Volume': start_year if start_year else (volume_data.get('start_year') if volume_data else issue_data.get('year')),
         'Title': issue_data.get('name'),
         'Publisher': publisher,
         'Summary': issue_data.get('description'),
@@ -544,7 +546,7 @@ def auto_move_file(file_path: str, volume_data: Dict[str, Any], config: Dict[str
         raise
 
 
-def get_metadata_by_volume_id(api_key: str, volume_id: int, issue_number: str, year: Optional[int] = None) -> Optional[Dict[str, Any]]:
+def get_metadata_by_volume_id(api_key: str, volume_id: int, issue_number: str, year: Optional[int] = None, start_year: Optional[int] = None) -> Optional[Dict[str, Any]]:
     """
     Get issue metadata using a known volume ID (from cvinfo file).
 
@@ -553,6 +555,7 @@ def get_metadata_by_volume_id(api_key: str, volume_id: int, issue_number: str, y
         volume_id: ComicVine volume ID (extracted from cvinfo URL)
         issue_number: Issue number to look up
         year: Optional year for filtering
+        start_year: Optional series start year to use for Volume field
 
     Returns:
         Dictionary with metadata in ComicInfo.xml format, or None if not found
@@ -565,7 +568,7 @@ def get_metadata_by_volume_id(api_key: str, volume_id: int, issue_number: str, y
             return None
 
         # Map to ComicInfo format (volume_data=None since we don't have full volume info)
-        comicinfo = map_to_comicinfo(issue_data, None)
+        comicinfo = map_to_comicinfo(issue_data, None, start_year=start_year)
         comicinfo['_image_url'] = issue_data.get('image_url')
 
         return comicinfo
@@ -622,6 +625,110 @@ def find_cvinfo_in_folder(folder_path: str) -> Optional[str]:
     except Exception as e:
         app_logger.error(f"Error searching for cvinfo in {folder_path}: {e}")
         return None
+
+
+def read_cvinfo_fields(cvinfo_path: str) -> Dict[str, Any]:
+    """
+    Read publisher_name and start_year from cvinfo file if present.
+
+    Args:
+        cvinfo_path: Path to the cvinfo file
+
+    Returns:
+        Dict with 'publisher_name' and 'start_year' keys (values may be None)
+    """
+    result = {'publisher_name': None, 'start_year': None}
+
+    try:
+        with open(cvinfo_path, 'r', encoding='utf-8') as f:
+            for line in f:
+                line = line.strip()
+                if line.startswith('publisher_name:'):
+                    result['publisher_name'] = line.split(':', 1)[1].strip()
+                elif line.startswith('start_year:'):
+                    try:
+                        result['start_year'] = int(line.split(':', 1)[1].strip())
+                    except ValueError:
+                        pass
+    except Exception as e:
+        app_logger.error(f"Error reading cvinfo fields from {cvinfo_path}: {e}")
+
+    return result
+
+
+def write_cvinfo_fields(cvinfo_path: str, publisher_name: Optional[str], start_year: Optional[int]) -> bool:
+    """
+    Append publisher_name and start_year to cvinfo file if not already present.
+
+    Args:
+        cvinfo_path: Path to the cvinfo file
+        publisher_name: Publisher name to save
+        start_year: Series start year to save
+
+    Returns:
+        True if successful, False otherwise
+    """
+    try:
+        # Read existing content
+        existing = read_cvinfo_fields(cvinfo_path)
+
+        # Determine what needs to be added
+        lines_to_add = []
+        if publisher_name and not existing['publisher_name']:
+            lines_to_add.append(f"publisher_name: {publisher_name}")
+        if start_year and not existing['start_year']:
+            lines_to_add.append(f"start_year: {start_year}")
+
+        if not lines_to_add:
+            return True  # Nothing to add
+
+        # Append to file
+        with open(cvinfo_path, 'a', encoding='utf-8') as f:
+            for line in lines_to_add:
+                f.write(f"\n{line}")
+
+        app_logger.debug(f"Added to cvinfo: {', '.join(lines_to_add)}")
+        return True
+
+    except Exception as e:
+        app_logger.error(f"Error writing cvinfo fields to {cvinfo_path}: {e}")
+        return False
+
+
+def get_volume_details(api_key: str, volume_id: int) -> Dict[str, Any]:
+    """
+    Fetch volume details from ComicVine including publisher and start_year.
+
+    Args:
+        api_key: ComicVine API key
+        volume_id: ComicVine volume ID
+
+    Returns:
+        Dict with 'publisher_name' and 'start_year' keys
+    """
+    result = {'publisher_name': None, 'start_year': None}
+
+    if not SIMYAN_AVAILABLE:
+        app_logger.warning("Simyan library not available for volume details lookup")
+        return result
+
+    try:
+        app_logger.info(f"Fetching volume details for volume ID: {volume_id}")
+        cv = Comicvine(api_key=api_key)
+        volume = cv.get_volume(volume_id)
+
+        if volume:
+            result['start_year'] = getattr(volume, 'start_year', None)
+            if hasattr(volume, 'publisher') and volume.publisher:
+                result['publisher_name'] = getattr(volume.publisher, 'name', None)
+
+            app_logger.info(f"Volume details: publisher={result['publisher_name']}, start_year={result['start_year']}")
+
+        return result
+
+    except Exception as e:
+        app_logger.error(f"Error fetching volume details for {volume_id}: {e}")
+        return result
 
 
 def extract_issue_number(filename: str) -> Optional[str]:
@@ -850,6 +957,26 @@ def auto_fetch_metadata_for_folder(folder_path: str, api_key: str, target_file: 
 
     app_logger.info(f"Found cvinfo with volume ID: {volume_id}")
 
+    # Read cvinfo fields for publisher_name and start_year
+    cvinfo_fields = read_cvinfo_fields(cvinfo_path)
+    start_year = cvinfo_fields.get('start_year')
+    publisher_name = cvinfo_fields.get('publisher_name')
+
+    # If not present in cvinfo, fetch from ComicVine and save
+    if not start_year or not publisher_name:
+        app_logger.info("Fetching volume details from ComicVine to get publisher/start_year")
+        volume_details = get_volume_details(api_key, volume_id)
+
+        if volume_details.get('start_year') or volume_details.get('publisher_name'):
+            # Update local vars
+            if not start_year and volume_details.get('start_year'):
+                start_year = volume_details['start_year']
+            if not publisher_name and volume_details.get('publisher_name'):
+                publisher_name = volume_details['publisher_name']
+
+            # Save to cvinfo for future use
+            write_cvinfo_fields(cvinfo_path, publisher_name, start_year)
+
     # Get list of comic files to process
     comic_files = []
 
@@ -888,8 +1015,8 @@ def auto_fetch_metadata_for_folder(folder_path: str, api_key: str, target_file: 
                 result['details'].append({'file': file_path, 'status': 'error', 'reason': 'no issue number'})
                 continue
 
-            # Fetch metadata from ComicVine
-            metadata = get_metadata_by_volume_id(api_key, volume_id, issue_number)
+            # Fetch metadata from ComicVine (pass start_year for Volume field)
+            metadata = get_metadata_by_volume_id(api_key, volume_id, issue_number, start_year=start_year)
 
             if not metadata:
                 app_logger.warning(f"No metadata found for {file_path}, issue #{issue_number}")
