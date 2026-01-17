@@ -12,8 +12,6 @@ from flask import Blueprint, request, jsonify
 from database import (
     add_favorite_publisher, remove_favorite_publisher,
     get_favorite_publishers, is_favorite_publisher,
-    add_favorite_series, remove_favorite_series,
-    get_favorite_series, is_favorite_series,
     mark_issue_read, unmark_issue_read,
     get_issues_read, is_issue_read, get_issue_read_date,
     add_to_read, remove_to_read, get_to_read_items, is_to_read,
@@ -97,82 +95,6 @@ def remove_publisher():
             return jsonify({"success": False, "error": "Failed to remove favorite publisher"}), 500
     except Exception as e:
         app_logger.error(f"Error removing favorite publisher: {e}")
-        return jsonify({"success": False, "error": str(e)}), 500
-
-
-# =============================================================================
-# Series Endpoints
-# =============================================================================
-
-@favorites_bp.route('/series', methods=['GET'])
-def get_series():
-    """Get all favorite series."""
-    try:
-        series = get_favorite_series()
-        return jsonify({
-            "success": True,
-            "series": series
-        })
-    except Exception as e:
-        app_logger.error(f"Error getting favorite series: {e}")
-        return jsonify({"success": False, "error": str(e)}), 500
-
-
-@favorites_bp.route('/series/check', methods=['GET'])
-def check_series():
-    """Check if a series is favorited."""
-    path = request.args.get('path')
-    if not path:
-        return jsonify({"success": False, "error": "Missing path parameter"}), 400
-
-    try:
-        is_fav = is_favorite_series(path)
-        return jsonify({
-            "success": True,
-            "is_favorite": is_fav
-        })
-    except Exception as e:
-        app_logger.error(f"Error checking favorite series: {e}")
-        return jsonify({"success": False, "error": str(e)}), 500
-
-
-@favorites_bp.route('/series', methods=['POST'])
-def add_series():
-    """Add a series to favorites."""
-    data = request.get_json() or {}
-    path = data.get('path')
-
-    if not path:
-        return jsonify({"success": False, "error": "Missing path in request body"}), 400
-
-    try:
-        success = add_favorite_series(path)
-        if success:
-            return jsonify({"success": True})
-        else:
-            return jsonify({"success": False, "error": "Failed to add favorite series"}), 500
-    except Exception as e:
-        app_logger.error(f"Error adding favorite series: {e}")
-        return jsonify({"success": False, "error": str(e)}), 500
-
-
-@favorites_bp.route('/series', methods=['DELETE'])
-def remove_series():
-    """Remove a series from favorites."""
-    data = request.get_json() or {}
-    path = data.get('path')
-
-    if not path:
-        return jsonify({"success": False, "error": "Missing path in request body"}), 400
-
-    try:
-        success = remove_favorite_series(path)
-        if success:
-            return jsonify({"success": True})
-        else:
-            return jsonify({"success": False, "error": "Failed to remove favorite series"}), 500
-    except Exception as e:
-        app_logger.error(f"Error removing favorite series: {e}")
         return jsonify({"success": False, "error": str(e)}), 500
 
 

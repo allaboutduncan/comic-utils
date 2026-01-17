@@ -58,8 +58,8 @@ import requests
 from packaging import version as pkg_version
 from database import (init_db, get_db_connection, get_recent_files, log_recent_file, invalidate_browse_cache,
                       get_file_index_from_db, save_file_index_to_db, update_file_index_entry,
-                      add_file_index_entry, delete_file_index_entry, clear_file_index_from_db, search_file_index,
-                      get_search_cache, save_search_cache, clear_search_cache,
+                      add_file_index_entry, delete_file_index_entry, clear_file_index_from_db,
+                      sync_file_index_incremental, search_file_index,
                       get_rebuild_schedule, save_rebuild_schedule as db_save_rebuild_schedule, update_last_rebuild,
                       get_sync_schedule, save_sync_schedule as db_save_sync_schedule, update_last_sync,
                       get_path_counts_batch, get_directory_children, clear_stats_cache,
@@ -138,26 +138,38 @@ app_logger.info("📅 Rebuild scheduler initialized")
 
 # Function to perform scheduled file index rebuild
 def scheduled_file_index_rebuild():
-    """Rebuild the file index on schedule."""
+    """Rebuild the file index on schedule using incremental sync."""
     global index_built
-    
+
     try:
-        app_logger.info("🔄 Starting scheduled file index rebuild...")
+        app_logger.info("🔄 Starting scheduled file index sync...")
         start_time = time.time()
 
-        # Reset the index_built flag to force a full rebuild
-        index_built = False
+        # Scan filesystem to get current state
+        app_logger.info("Scanning filesystem...")
+        filesystem_entries = scan_filesystem_for_sync()
+        scan_time = time.time() - start_time
+        app_logger.info(f"Filesystem scan completed: {len(filesystem_entries)} entries in {scan_time:.2f}s")
 
-        # Clear the database so build_file_index() will scan the filesystem
-        app_logger.info("Clearing file index database...")
-        clear_file_index_from_db()
+        # Incremental sync (preserves metadata for existing files)
+        app_logger.info("Performing incremental sync...")
+        sync_result = sync_file_index_incremental(filesystem_entries)
+        app_logger.info(f"Sync result: {sync_result['added']} added, {sync_result['removed']} removed, {sync_result['unchanged']} unchanged")
 
-        # Clear the in-memory file index
+        # Queue only NEW files for metadata scanning
+        if sync_result['added'] > 0:
+            from metadata_scanner import queue_files_for_scan, PRIORITY_NEW_FILE
+            new_cbz_paths = [p for p in sync_result['new_paths'] if p.lower().endswith('.cbz')]
+            if new_cbz_paths:
+                queue_files_for_scan(new_cbz_paths, PRIORITY_NEW_FILE)
+                app_logger.info(f"Queued {len(new_cbz_paths)} new CBZ files for metadata scanning")
+
+        # Refresh in-memory index from DB
         file_index.clear()
-
-        # Build from filesystem (will scan since database is now empty)
-        app_logger.info("Scanning filesystem to rebuild index...")
-        build_file_index()
+        db_index = get_file_index_from_db()
+        if db_index:
+            file_index.extend(db_index)
+        index_built = True
 
         # Update last rebuild timestamp
         update_last_rebuild()
@@ -170,9 +182,9 @@ def scheduled_file_index_rebuild():
         get_reading_history_stats()
 
         elapsed = time.time() - start_time
-        app_logger.info(f"✅ Scheduled file index rebuild completed in {elapsed:.2f}s")
+        app_logger.info(f"✅ Scheduled file index sync completed in {elapsed:.2f}s")
     except Exception as e:
-        app_logger.error(f"❌ Scheduled file index rebuild failed: {e}")
+        app_logger.error(f"❌ Scheduled file index sync failed: {e}")
 
 # Function to configure scheduled rebuild based on database settings
 def configure_rebuild_schedule():
@@ -2722,35 +2734,6 @@ def cleanup_cache():
             cache_timestamps.pop(oldest_path, None)
             cache_stats['evictions'] += 1
 
-def cached_search(query):
-    """
-    Search function with SQLite-backed caching.
-    Checks cache first, then queries database, then falls back to filesystem.
-    """
-    global file_index, index_built
-
-    # Try to get from cache first
-    cached_results = get_search_cache(query)
-    if cached_results is not None:
-        app_logger.debug(f"Search cache hit for query: '{query}'")
-        return cached_results
-
-    # If index is built (loaded from DB), search in database
-    if index_built:
-        app_logger.debug(f"Searching file index database for: '{query}'")
-        results = search_file_index(query, limit=100)
-
-        # Cache the results for future queries
-        save_search_cache(query, results)
-        return results
-
-    # Fallback to filesystem search if index not ready
-    app_logger.info("Search index not ready, using filesystem search...")
-    results = filesystem_search(query)
-
-    # Don't cache filesystem search results (may be incomplete)
-    return results
-
 def filesystem_search(query):
     """Fallback filesystem search when index is not ready"""
 
@@ -3279,26 +3262,38 @@ def get_cache_debug():
 
 @app.route('/api/rebuild-file-index', methods=['POST'])
 def api_rebuild_file_index():
-    """Manually rebuild the file index."""
+    """Manually rebuild the file index using incremental sync."""
     global index_built
 
     try:
-        app_logger.info("🔄 Manual file index rebuild requested...")
+        app_logger.info("🔄 Manual file index sync requested...")
         start_time = time.time()
 
-        # Reset the index_built flag to force a full rebuild
-        index_built = False
+        # Scan filesystem to get current state
+        app_logger.info("Scanning filesystem...")
+        filesystem_entries = scan_filesystem_for_sync()
+        scan_time = time.time() - start_time
+        app_logger.info(f"Filesystem scan completed: {len(filesystem_entries)} entries in {scan_time:.2f}s")
 
-        # Clear the database so build_file_index() will scan the filesystem
-        app_logger.info("Clearing file index database...")
-        clear_file_index_from_db()
+        # Incremental sync (preserves metadata for existing files)
+        app_logger.info("Performing incremental sync...")
+        sync_result = sync_file_index_incremental(filesystem_entries)
+        app_logger.info(f"Sync result: {sync_result['added']} added, {sync_result['removed']} removed, {sync_result['unchanged']} unchanged")
 
-        # Clear the in-memory file index
+        # Queue only NEW files for metadata scanning
+        if sync_result['added'] > 0:
+            from metadata_scanner import queue_files_for_scan, PRIORITY_NEW_FILE
+            new_cbz_paths = [p for p in sync_result['new_paths'] if p.lower().endswith('.cbz')]
+            if new_cbz_paths:
+                queue_files_for_scan(new_cbz_paths, PRIORITY_NEW_FILE)
+                app_logger.info(f"Queued {len(new_cbz_paths)} new CBZ files for metadata scanning")
+
+        # Refresh in-memory index from DB
         file_index.clear()
-
-        # Build from filesystem (will scan since database is now empty)
-        app_logger.info("Scanning filesystem to rebuild index...")
-        build_file_index()
+        db_index = get_file_index_from_db()
+        if db_index:
+            file_index.extend(db_index)
+        index_built = True
 
         # Update last rebuild timestamp
         update_last_rebuild()
@@ -3311,16 +3306,19 @@ def api_rebuild_file_index():
         get_reading_history_stats()
 
         elapsed = time.time() - start_time
-        app_logger.info(f"✅ Manual file index rebuild completed in {elapsed:.2f}s")
+        app_logger.info(f"✅ Manual file index sync completed in {elapsed:.2f}s")
 
         return jsonify({
             "success": True,
-            "message": f"File index rebuilt successfully in {elapsed:.2f} seconds",
+            "message": f"File index synced successfully in {elapsed:.2f} seconds",
+            "added": sync_result['added'],
+            "removed": sync_result['removed'],
+            "unchanged": sync_result['unchanged'],
             "total_files": len([e for e in file_index if e['type'] == 'file']),
             "total_directories": len([e for e in file_index if e['type'] == 'directory'])
         })
     except Exception as e:
-        app_logger.error(f"❌ File index rebuild failed: {e}")
+        app_logger.error(f"❌ File index sync failed: {e}")
         return jsonify({"success": False, "error": str(e)}), 500
 
 @app.route('/api/file-index-status', methods=['GET'])
@@ -3873,6 +3871,96 @@ def build_file_index():
 
     # Legacy: update_recent_files_from_scan(comic_files) - Removed as we now use file_index directly
 
+
+def scan_filesystem_for_sync():
+    """
+    Scan the filesystem and return a list of entries without modifying the database.
+
+    Used by incremental sync to compare filesystem state with database state.
+    Excludes TARGET folder (from app.config) as those files should not be indexed.
+
+    Returns:
+        List of dicts with {name, path, type, size, parent, has_thumbnail, modified_at}
+    """
+    entries = []
+    excluded_extensions = {".png", ".jpg", ".jpeg", ".gif", ".html", ".css", ".ds_store", ".json", ".db"}
+    allowed_files = {"missing.txt", "cvinfo"}
+
+    # Get TARGET from app.config (the authoritative source)
+    target_dir = app.config.get('TARGET', '/downloads/processed')
+    normalized_target_dir = os.path.normpath(target_dir)
+
+    def is_in_target_dir(path):
+        """Check if path is within TARGET folder (should be excluded from index)."""
+        normalized_path = os.path.normpath(path)
+        try:
+            common_path = os.path.commonpath([normalized_path, normalized_target_dir])
+            return os.path.samefile(common_path, normalized_target_dir)
+        except (ValueError, OSError):
+            return normalized_path.startswith(normalized_target_dir)
+
+    def check_has_thumbnail(folder_path):
+        for ext in ['.png', '.jpg', '.jpeg']:
+            if os.path.exists(os.path.join(folder_path, f'folder{ext}')):
+                return 1
+        return 0
+
+    try:
+        for root, dirs, files in os.walk(DATA_DIR):
+            # Skip hidden directories and TARGET_DIR
+            dirs[:] = [d for d in dirs if not d.startswith('.') and not d.startswith('_')
+                       and not is_in_target_dir(os.path.join(root, d))]
+
+            # Index directories
+            for name in dirs:
+                try:
+                    full_dir_path = os.path.join(root, name)
+                    rel_path = os.path.relpath(full_dir_path, DATA_DIR)
+                    entries.append({
+                        "name": name,
+                        "path": f"/data/{rel_path}",
+                        "type": "directory",
+                        "parent": f"/data/{os.path.dirname(rel_path)}" if os.path.dirname(rel_path) else "/data",
+                        "has_thumbnail": check_has_thumbnail(full_dir_path),
+                        "size": None,
+                        "modified_at": None
+                    })
+                except (OSError, IOError):
+                    continue
+
+            # Index files
+            for name in files:
+                if name.startswith('.') or name.startswith('_'):
+                    continue
+
+                # Skip excluded file types (but allow specific files like missing.txt and cvinfo)
+                if name.lower() not in allowed_files and any(name.lower().endswith(ext) for ext in excluded_extensions):
+                    continue
+
+                try:
+                    full_path = os.path.join(root, name)
+                    rel_path = os.path.relpath(full_path, DATA_DIR)
+                    file_size = os.path.getsize(full_path)
+                    mtime = os.path.getmtime(full_path)
+
+                    entries.append({
+                        "name": name,
+                        "path": f"/data/{rel_path}",
+                        "type": "file",
+                        "size": file_size,
+                        "parent": f"/data/{os.path.dirname(rel_path)}" if os.path.dirname(rel_path) else "/data",
+                        "has_thumbnail": 0,
+                        "modified_at": mtime
+                    })
+                except (OSError, IOError):
+                    continue
+
+    except Exception as e:
+        app_logger.error(f"Error scanning filesystem for sync: {e}")
+
+    return entries
+
+
 def invalidate_file_index():
     """
     Invalidate the file index search cache.
@@ -3886,9 +3974,11 @@ def update_index_on_move(old_path, new_path):
     """
     Update file index when a file or directory is moved.
     Handles three scenarios:
-    1. Move from outside /data to /data -> ADD to index
+    1. Move from outside /data to /data -> ADD to index (unless in TARGET folder)
     2. Move within /data -> UPDATE in index
     3. Move from /data to outside /data -> DELETE from index
+
+    Note: Files in TARGET folder (from app.config) are excluded from the index.
 
     Args:
         old_path: Original path
@@ -3899,6 +3989,19 @@ def update_index_on_move(old_path, new_path):
         normalized_old = os.path.normpath(old_path)
         normalized_new = os.path.normpath(new_path)
         normalized_data_dir = os.path.normpath(DATA_DIR)
+
+        # Get TARGET from app.config (the authoritative source)
+        target_dir = app.config.get('TARGET', '/downloads/processed')
+        normalized_target_dir = os.path.normpath(target_dir)
+
+        # Check if path is in TARGET folder (should be excluded from index)
+        def is_in_target_dir(path):
+            try:
+                common_path = os.path.commonpath([path, normalized_target_dir])
+                return os.path.samefile(common_path, normalized_target_dir)
+            except (ValueError, OSError):
+                # Fallback: Check if normalized path starts with TARGET folder
+                return path.startswith(normalized_target_dir)
 
         # Check if old and new paths are in DATA_DIR using robust comparison
         # Same logic as log_file_if_in_data() for consistency
@@ -3912,11 +4015,17 @@ def update_index_on_move(old_path, new_path):
 
         old_in_data = is_in_data_dir(normalized_old)
         new_in_data = is_in_data_dir(normalized_new)
+        new_in_target = is_in_target_dir(normalized_new)
 
         # Debug logging to help diagnose path comparison issues
         app_logger.debug(f"Path comparison - Old: {normalized_old} (in_data: {old_in_data})")
-        app_logger.debug(f"Path comparison - New: {normalized_new} (in_data: {new_in_data})")
-        app_logger.debug(f"Path comparison - DATA_DIR: {normalized_data_dir}")
+        app_logger.debug(f"Path comparison - New: {normalized_new} (in_data: {new_in_data}, in_target: {new_in_target})")
+        app_logger.debug(f"Path comparison - DATA_DIR: {normalized_data_dir}, TARGET_DIR: {normalized_target_dir}")
+
+        # Skip files in TARGET_DIR - they should not be indexed
+        if new_in_target:
+            app_logger.debug(f"Skipping index update - file is in TARGET folder: {new_path}")
+            return
 
         # Scenario 1: Moving INTO /data (from WATCH/TEMP) -> ADD to index
         if not old_in_data and new_in_data:
@@ -3976,8 +4085,6 @@ def update_index_on_move(old_path, new_path):
                     conn.close()
                     app_logger.debug(f"Updated {rows_affected} child entries for moved directory: {old_path} -> {new_path}")
 
-            # Clear search cache
-            clear_search_cache()
             return
 
         # Scenario 4: Both outside /data -> do nothing
@@ -3995,7 +4102,6 @@ def update_index_on_delete(path):
     """
     try:
         delete_file_index_entry(path)
-        clear_search_cache()
         app_logger.debug(f"Updated file index for deleted item: {path}")
     except Exception as e:
         app_logger.error(f"Failed to update index on delete {path}: {e}")
@@ -4063,8 +4169,6 @@ def update_index_on_create(path):
                 app_logger.info(f"Recursively indexed directory and contents: {path}")
             except Exception as e:
                 app_logger.error(f"Error recursively indexing directory {path}: {e}")
-
-        clear_search_cache()
 
     except Exception as e:
         app_logger.error(f"Failed to update index on create {path}: {e}")
@@ -5048,28 +5152,27 @@ def resize_upload(file_path, target_dir):
 #####################################
 @app.route('/search-files', methods=['GET'])
 def search_files():
-    """Search for files and directories in /data directory using cached index"""
+    """Search for files and directories in /data directory using file_index table"""
     query = request.args.get('query', '').strip()
-    
+
     if not query:
         return jsonify({"error": "No search query provided"}), 400
-    
+
     if len(query) < 2:
         return jsonify({"error": "Search query must be at least 2 characters"}), 400
-    
+
     try:
-        # Use cached search function
-        results = cached_search(query)
-        
+        # Use search_file_index from database.py
+        results = search_file_index(query, limit=100)
+
         return jsonify({
             "success": True,
             "results": results,
             "total_found": len(results),
             "query": query,
-            "cached": True,
             "index_ready": index_built
         })
-        
+
     except Exception as e:
         app_logger.error(f"Error searching files: {e}")
         return jsonify({"error": str(e)}), 500

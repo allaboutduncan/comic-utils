@@ -114,15 +114,6 @@ def init_db():
         c.execute('CREATE INDEX IF NOT EXISTS idx_file_index_characters ON file_index(ci_characters)')
         c.execute('CREATE INDEX IF NOT EXISTS idx_file_index_writer ON file_index(ci_writer)')
 
-        # Create search_cache table (cache recent search queries)
-        c.execute('''
-            CREATE TABLE IF NOT EXISTS search_cache (
-                query TEXT PRIMARY KEY,
-                results TEXT NOT NULL,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        ''')
-
         # Create rebuild_schedule table (store file index rebuild schedule)
         c.execute('''
             CREATE TABLE IF NOT EXISTS rebuild_schedule (
@@ -1045,6 +1036,80 @@ def clear_file_index_from_db():
         app_logger.error(f"Failed to clear file index database: {e}")
         return False
 
+
+def sync_file_index_incremental(filesystem_entries):
+    """
+    Incrementally sync file_index with filesystem.
+
+    - Adds new entries (files in filesystem but not in DB)
+    - Removes orphaned entries (files in DB but not in filesystem)
+    - Preserves existing entries (keeps metadata intact)
+
+    Args:
+        filesystem_entries: List of dicts with {path, name, type, size, parent, has_thumbnail, modified_at}
+
+    Returns:
+        Dict with counts: {'added': N, 'removed': N, 'unchanged': N, 'new_paths': [...]}
+    """
+    try:
+        conn = get_db_connection()
+        if not conn:
+            return {'added': 0, 'removed': 0, 'unchanged': 0, 'new_paths': []}
+
+        c = conn.cursor()
+
+        # Get all current paths in DB
+        c.execute('SELECT path FROM file_index')
+        db_paths = set(row[0] for row in c.fetchall())
+
+        # Get all paths from filesystem scan
+        fs_paths = set(entry['path'] for entry in filesystem_entries)
+
+        # Find differences
+        new_paths = fs_paths - db_paths          # In filesystem, not in DB -> ADD
+        removed_paths = db_paths - fs_paths      # In DB, not in filesystem -> REMOVE
+        existing_paths = fs_paths & db_paths     # In both -> KEEP (preserve metadata)
+
+        # Remove orphaned entries
+        if removed_paths:
+            for path in removed_paths:
+                c.execute('DELETE FROM file_index WHERE path = ?', (path,))
+            app_logger.info(f"Removed {len(removed_paths)} orphaned entries from file_index")
+
+        # Add new entries
+        new_entries = [e for e in filesystem_entries if e['path'] in new_paths]
+        for entry in new_entries:
+            c.execute('''
+                INSERT OR REPLACE INTO file_index (name, path, type, size, parent, has_thumbnail, modified_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            ''', (
+                entry['name'],
+                entry['path'],
+                entry['type'],
+                entry.get('size'),
+                entry.get('parent'),
+                entry.get('has_thumbnail', 0),
+                entry.get('modified_at')
+            ))
+
+        conn.commit()
+        conn.close()
+
+        if new_paths:
+            app_logger.info(f"Added {len(new_paths)} new entries to file_index")
+
+        return {
+            'added': len(new_paths),
+            'removed': len(removed_paths),
+            'unchanged': len(existing_paths),
+            'new_paths': list(new_paths)
+        }
+
+    except Exception as e:
+        app_logger.error(f"Failed to sync file index incrementally: {e}")
+        return {'added': 0, 'removed': 0, 'unchanged': 0, 'new_paths': []}
+
+
 def search_file_index(query, limit=100):
     """
     Search the file index for entries matching the query.
@@ -1297,114 +1362,6 @@ def get_file_index_entry_by_path(path):
         app_logger.error(f"Failed to get file_index entry for {path}: {e}")
         return None
 
-
-def get_search_cache(query):
-    """
-    Get cached search results for a query.
-
-    Args:
-        query: Search query string
-
-    Returns:
-        List of results if cached, None if not found or expired
-    """
-    try:
-        import json
-        from datetime import datetime, timedelta
-
-        conn = get_db_connection()
-        if not conn:
-            return None
-
-        c = conn.cursor()
-
-        # Get cached results (only if less than 5 minutes old)
-        c.execute('''
-            SELECT results, created_at
-            FROM search_cache
-            WHERE query = ? AND created_at > datetime('now', '-5 minutes')
-        ''', (query.lower(),))
-
-        row = c.fetchone()
-        conn.close()
-
-        if row:
-            return json.loads(row['results'])
-        return None
-
-    except Exception as e:
-        app_logger.error(f"Failed to get search cache for '{query}': {e}")
-        return None
-
-def save_search_cache(query, results):
-    """
-    Save search results to cache.
-
-    Args:
-        query: Search query string
-        results: List of result dictionaries to cache
-
-    Returns:
-        True if successful, False otherwise
-    """
-    try:
-        import json
-
-        conn = get_db_connection()
-        if not conn:
-            return False
-
-        c = conn.cursor()
-
-        # Save/update cache entry
-        c.execute('''
-            INSERT OR REPLACE INTO search_cache (query, results, created_at)
-            VALUES (?, ?, CURRENT_TIMESTAMP)
-        ''', (query.lower(), json.dumps(results)))
-
-        # Limit cache size to 100 most recent queries
-        c.execute('''
-            DELETE FROM search_cache
-            WHERE query NOT IN (
-                SELECT query FROM search_cache
-                ORDER BY created_at DESC
-                LIMIT 100
-            )
-        ''')
-
-        conn.commit()
-        conn.close()
-
-        return True
-
-    except Exception as e:
-        app_logger.error(f"Failed to save search cache for '{query}': {e}")
-        return False
-
-def clear_search_cache():
-    """
-    Clear all cached search results.
-
-    Returns:
-        True if successful, False otherwise
-    """
-    try:
-        conn = get_db_connection()
-        if not conn:
-            return False
-
-        c = conn.cursor()
-        c.execute('DELETE FROM search_cache')
-
-        conn.commit()
-        conn.close()
-
-        app_logger.info("Cleared search cache")
-        return True
-
-    except Exception as e:
-        app_logger.error(f"Failed to clear search cache: {e}")
-        return False
 
 #########################
 #   Rebuild Schedule    #

@@ -249,6 +249,51 @@ def queue_file_for_scan(file_path, priority=PRIORITY_NEW_FILE):
         app_logger.error(f"Error queuing file for metadata scan: {e}")
 
 
+def queue_files_for_scan(file_paths, priority=PRIORITY_NEW_FILE):
+    """
+    Queue multiple files for metadata scanning.
+
+    Called by incremental sync when new files are detected.
+
+    Args:
+        file_paths: List of database paths (already in /data/... format)
+        priority: Scan priority (default: high priority for new files)
+    """
+    queued_count = 0
+
+    for file_path in file_paths:
+        try:
+            # Only process CBZ/ZIP files
+            if not file_path.lower().endswith(('.cbz', '.zip')):
+                continue
+
+            # Normalize path separators
+            db_path = file_path.replace('\\', '/')
+
+            # Get file_id from database
+            entry = get_file_index_entry_by_path(db_path)
+
+            if entry:
+                task = ScanTask(
+                    priority=priority,
+                    file_path=db_path,
+                    file_id=entry['id'],
+                    modified_at=entry['modified_at'] or time.time()
+                )
+                metadata_queue.put(task)
+                queued_count += 1
+
+        except Exception as e:
+            app_logger.error(f"Error queuing file {file_path} for metadata scan: {e}")
+
+    if queued_count > 0:
+        with scanner_lock:
+            scanner_progress['total_pending'] += queued_count
+        app_logger.debug(f"Queued {queued_count} files for metadata scan")
+
+    return queued_count
+
+
 def start_metadata_scanner(num_workers=None):
     """
     Initialize and start the metadata scanner background workers.
