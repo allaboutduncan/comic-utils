@@ -18,7 +18,8 @@
             </p>
         </div>
         <div class="d-flex gap-2">
-            <button class="btn btn-outline-secondary" id="refreshBtn" onclick="refreshWanted()" {% if refreshing %}disabled{% endif %}>
+            <button class="btn btn-outline-secondary" id="refreshBtn" onclick="refreshWanted()" {% if refreshing
+                %}disabled{% endif %}>
                 {% if refreshing %}
                 <span class="spinner-border spinner-border-sm me-1"></span>Refreshing...
                 {% else %}
@@ -106,7 +107,7 @@
                             <tr>
                                 <th scope="col" class="ps-4">Series</th>
                                 <th scope="col">Issue</th>
-                                <th scope="col">Cover Date</th>
+                                <th scope="col">Store Date</th>
                                 <th scope="col" class="text-end pe-4">Action</th>
                             </tr>
                         </thead>
@@ -129,9 +130,9 @@
                                     {% endif %}
                                 </td>
                                 <td>
-                                    {% if item.issue.cover_date %}
+                                    {% if item.issue.store_date %}
                                     <i class="bi bi-calendar me-1 text-muted"></i>
-                                    {{ item.issue.cover_date }}
+                                    {{ item.issue.store_date }}
                                     {% else %}
                                     <span class="text-muted">-</span>
                                     {% endif %}
@@ -457,7 +458,7 @@
 
     // Auto-poll when in loading state
     {% if loading or refreshing %}
-    document.addEventListener('DOMContentLoaded', function() {
+    document.addEventListener('DOMContentLoaded', function () {
         pollRefreshStatus();
     });
     {% endif %}

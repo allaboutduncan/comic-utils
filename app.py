@@ -4177,6 +4177,13 @@ def update_index_on_create(path):
 def inject_monitor():
     return {'monitor': os.getenv("MONITOR", "no")}  # Default to "no" if not set
 
+@app.context_processor
+def inject_metron_available():
+    """Inject metron_available flag for templates (e.g., to show/hide Pull List menu)."""
+    metron_username = app.config.get('METRON_USERNAME', '')
+    metron_password = app.config.get('METRON_PASSWORD', '')
+    return {'metron_available': bool(metron_username and metron_username.strip() and metron_password and metron_password.strip())}
+
 #########################
 #     Logging Setup     #
 #########################

@@ -43,7 +43,8 @@
             Reading Lists
           </a>
         </li>
-        <li class="nav-item dropdown">
+        {% if metron_available %}
+        <li class="nav-item dropdown" id="pull-list-dropdown">
           <a class="nav-link dropdown-toggle {% if current_page in [url_for('pull_list'), url_for('releases'), url_for('wanted'), url_for('publishers_page'), url_for('series_search')] %}active{% endif %}"
             href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">
             Pull List
@@ -81,6 +82,7 @@
             </li>
           </ul>
         </li>
+        {% endif %}
         <!--
         <li class="nav-item">
           <a href="{{ url_for('scrape_page') }}" class="nav-link position-relative {% if current_page == url_for('scrape_page') %}active{% endif %}">
