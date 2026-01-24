@@ -718,6 +718,13 @@
                     <p class="text-muted">Automatically search GetComics for wanted issues (with today's release date or
                         later) and queue downloads.</p>
 
+                    <!-- Weekly Packs Warning Banner -->
+                    <div id="weeklyPacksWarning" class="alert alert-info d-none mb-3">
+                        <i class="bi bi-info-circle me-2"></i>
+                        <strong>Weekly Packs Enabled:</strong> Individual issue auto-download is disabled because Weekly Packs is enabled.
+                        <a href="{{ url_for('weekly_packs') }}">Manage Weekly Packs</a>
+                    </div>
+
                     <div class="row">
                         <div class="col-md-4">
                             <label for="getcomicsFrequency" class="form-label">Download Frequency:</label>
@@ -1474,6 +1481,42 @@
 
     // GetComics Schedule Functions
     function loadGetcomicsSchedule() {
+        // First check if weekly packs is enabled
+        fetch('/api/get-weekly-packs-config', {
+            headers: { 'Cache-Control': 'no-cache' }
+        })
+            .then(response => response.json())
+            .then(wpData => {
+                const warningEl = document.getElementById('weeklyPacksWarning');
+                const frequencyEl = document.getElementById('getcomicsFrequency');
+                const timeEl = document.getElementById('getcomicsTime');
+                const weekdayEl = document.getElementById('getcomicsWeekday');
+                const saveBtn = document.querySelector('button[onclick="saveGetcomicsSchedule()"]');
+                const runBtn = document.querySelector('button[onclick="runGetcomicsNow()"]');
+
+                if (wpData.success && wpData.config && wpData.config.enabled) {
+                    // Weekly packs is enabled - show warning and disable controls
+                    if (warningEl) warningEl.classList.remove('d-none');
+                    if (frequencyEl) frequencyEl.disabled = true;
+                    if (timeEl) timeEl.disabled = true;
+                    if (weekdayEl) weekdayEl.disabled = true;
+                    if (saveBtn) saveBtn.disabled = true;
+                    if (runBtn) runBtn.disabled = true;
+                } else {
+                    // Weekly packs is disabled - hide warning and enable controls
+                    if (warningEl) warningEl.classList.add('d-none');
+                    if (frequencyEl) frequencyEl.disabled = false;
+                    if (timeEl) timeEl.disabled = false;
+                    if (weekdayEl) weekdayEl.disabled = false;
+                    if (saveBtn) saveBtn.disabled = false;
+                    if (runBtn) runBtn.disabled = false;
+                }
+            })
+            .catch(error => {
+                console.error('Error checking weekly packs status:', error);
+            });
+
+        // Load the actual getcomics schedule
         fetch('/api/get-getcomics-schedule', {
             headers: { 'Cache-Control': 'no-cache' }
         })

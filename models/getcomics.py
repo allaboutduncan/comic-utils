@@ -197,3 +197,237 @@ def score_getcomics_result(result_title: str, series_name: str, issue_number: st
 
     logger.debug(f"Score for '{result_title}' vs '{series_name} #{issue_number} ({year})': {score}")
     return score
+
+
+#########################
+#   Weekly Packs        #
+#########################
+
+def find_latest_weekly_pack_url():
+    """
+    Find the latest weekly pack URL from getcomics.org homepage.
+
+    Searches the .cover-blog-posts section for links matching:
+    <h2 class="post-title"><a href="...weekly-pack/">YYYY.MM.DD Weekly Pack</a></h2>
+
+    Returns:
+        Tuple of (pack_url, pack_date) or (None, None) if not found
+        pack_date is in format "YYYY.MM.DD"
+    """
+    import re
+
+    base_url = "https://getcomics.org"
+
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+    }
+
+    try:
+        logger.info("Fetching getcomics.org homepage to find weekly pack")
+        resp = requests.get(base_url, headers=headers, timeout=15)
+        resp.raise_for_status()
+
+        soup = BeautifulSoup(resp.text, 'html.parser')
+
+        # Find the cover-blog-posts section
+        cover_section = soup.find(class_="cover-blog-posts")
+        if not cover_section:
+            logger.warning("Could not find .cover-blog-posts section on homepage")
+            # Fall back to searching entire page
+            cover_section = soup
+
+        # Look for weekly pack links
+        # Pattern: YYYY.MM.DD Weekly Pack or YYYY-MM-DD Weekly Pack
+        weekly_pack_pattern = re.compile(r'(\d{4})[.\-](\d{2})[.\-](\d{2})\s*Weekly\s*Pack', re.IGNORECASE)
+
+        for h2 in cover_section.find_all(['h2', 'h3'], class_='post-title'):
+            link = h2.find('a')
+            if not link:
+                continue
+
+            title = link.get_text(strip=True)
+            href = link.get('href', '')
+
+            match = weekly_pack_pattern.search(title)
+            if match:
+                # Found a weekly pack
+                year, month, day = match.groups()
+                pack_date = f"{year}.{month}.{day}"
+                logger.info(f"Found weekly pack: {title} -> {href} (date: {pack_date})")
+                return (href, pack_date)
+
+        # Also check the URL pattern if title didn't match
+        for link in cover_section.find_all('a', href=True):
+            href = link.get('href', '')
+            if 'weekly-pack' in href.lower():
+                # Extract date from URL like: /other-comics/2026-01-14-weekly-pack/
+                url_match = re.search(r'(\d{4})-(\d{2})-(\d{2})-weekly-pack', href, re.IGNORECASE)
+                if url_match:
+                    year, month, day = url_match.groups()
+                    pack_date = f"{year}.{month}.{day}"
+                    logger.info(f"Found weekly pack via URL: {href} (date: {pack_date})")
+                    return (href, pack_date)
+
+        logger.warning("No weekly pack found on homepage")
+        return (None, None)
+
+    except requests.RequestException as e:
+        logger.error(f"Error fetching homepage: {e}")
+        return (None, None)
+    except Exception as e:
+        logger.error(f"Error parsing homepage for weekly pack: {e}")
+        return (None, None)
+
+
+def check_weekly_pack_availability(pack_url: str) -> bool:
+    """
+    Check if weekly pack download links are available yet.
+
+    Returns:
+        True if download links are present, False if still pending
+    """
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+    }
+
+    try:
+        logger.info(f"Checking weekly pack availability: {pack_url}")
+        resp = requests.get(pack_url, headers=headers, timeout=15)
+        resp.raise_for_status()
+
+        page_text = resp.text.lower()
+
+        # Check for the "not ready" message
+        not_ready_phrases = [
+            "will be updated once all the files is complete",
+            "will be updated once all the files are complete",
+            "download link will be updated",
+            "links will be updated"
+        ]
+
+        for phrase in not_ready_phrases:
+            if phrase in page_text:
+                logger.info(f"Weekly pack links not ready yet (found: '{phrase}')")
+                return False
+
+        # Check if PIXELDRAIN links exist
+        soup = BeautifulSoup(resp.text, 'html.parser')
+        pixeldrain_links = soup.find_all('a', href=lambda h: h and ('pixeldrain' in h.lower() or 'getcomics.org/dlds/' in h.lower()))
+
+        if pixeldrain_links:
+            logger.info(f"Weekly pack links are available ({len(pixeldrain_links)} PIXELDRAIN links found)")
+            return True
+
+        logger.info("No PIXELDRAIN links found on weekly pack page")
+        return False
+
+    except requests.RequestException as e:
+        logger.error(f"Error checking pack availability: {e}")
+        return False
+    except Exception as e:
+        logger.error(f"Error parsing pack page: {e}")
+        return False
+
+
+def parse_weekly_pack_page(pack_url: str, format_preference: str, publishers: list) -> dict:
+    """
+    Parse a weekly pack page and extract PIXELDRAIN download links.
+
+    Args:
+        pack_url: URL of the weekly pack page
+        format_preference: 'JPG' or 'WEBP'
+        publishers: List of publishers to download ['DC', 'Marvel', 'Image', 'INDIE']
+
+    Returns:
+        Dict mapping publisher to pixeldrain URL: {publisher: url}
+        Returns empty dict if links not yet available
+    """
+    import re
+
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+    }
+
+    result = {}
+
+    try:
+        logger.info(f"Parsing weekly pack page: {pack_url}")
+        logger.info(f"Looking for format: {format_preference}, publishers: {publishers}")
+
+        resp = requests.get(pack_url, headers=headers, timeout=15)
+        resp.raise_for_status()
+
+        soup = BeautifulSoup(resp.text, 'html.parser')
+
+        # Find the section for the requested format (JPG or WEBP)
+        # Structure: <h3><span style="color: #3366ff;">JPG</span></h3> followed by <ul>
+        target_section = None
+
+        for h3 in soup.find_all('h3'):
+            h3_text = h3.get_text(strip=True).upper()
+            if format_preference.upper() in h3_text:
+                # Found the right format section
+                # Get the following <ul> element
+                target_section = h3.find_next_sibling('ul')
+                if target_section:
+                    logger.info(f"Found {format_preference} section")
+                    break
+
+        if not target_section:
+            logger.warning(f"Could not find {format_preference} section on page")
+            return {}
+
+        # Parse each <li> item for publisher packs
+        # Structure: <li>2026.01.14 DC Week (489 MB) :<br>...<a href="...">PIXELDRAIN</a>...</li>
+        for li in target_section.find_all('li'):
+            li_text = li.get_text(strip=True)
+
+            # Check which publisher this line is for
+            for publisher in publishers:
+                # Match patterns like "DC Week", "Marvel Week", "Image Week", "INDIE Week"
+                publisher_patterns = [
+                    rf'\b{re.escape(publisher)}\s*Week\b',
+                    rf'\b{re.escape(publisher)}\b.*Week'
+                ]
+
+                matched = False
+                for pattern in publisher_patterns:
+                    if re.search(pattern, li_text, re.IGNORECASE):
+                        matched = True
+                        break
+
+                if matched:
+                    # Found the right publisher, now find the PIXELDRAIN link
+                    pixeldrain_link = None
+
+                    for a in li.find_all('a', href=True):
+                        href = a.get('href', '')
+                        link_text = a.get_text(strip=True).upper()
+
+                        # Check if this is a PIXELDRAIN link
+                        # Can be direct pixeldrain.com URL or getcomics.org/dlds/ redirect
+                        if 'PIXELDRAIN' in link_text or 'pixeldrain.com' in href.lower():
+                            pixeldrain_link = href
+                            break
+                        # Check for getcomics redirect link with PIXELDRAIN in text
+                        elif 'getcomics.org/dlds/' in href.lower() and 'PIXELDRAIN' in link_text:
+                            pixeldrain_link = href
+                            break
+
+                    if pixeldrain_link:
+                        result[publisher] = pixeldrain_link
+                        logger.info(f"Found {publisher} {format_preference} link: {pixeldrain_link[:80]}...")
+                    else:
+                        logger.warning(f"Could not find PIXELDRAIN link for {publisher}")
+
+                    break  # Move to next li item
+
+        logger.info(f"Parsed {len(result)} publisher links from weekly pack")
+        return result
+
+    except requests.RequestException as e:
+        logger.error(f"Error fetching pack page: {e}")
+        return {}
+    except Exception as e:
+        logger.error(f"Error parsing pack page: {e}")
+        return {}

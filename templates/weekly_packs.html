@@ -1,0 +1,467 @@
+{% extends "base.html" %}
+
+{% block title %}Weekly Packs{% endblock %}
+
+{% block content %}
+<div class="container py-5">
+    <!-- Header Section -->
+    <div class="d-flex justify-content-between align-items-center mb-4 fade-in-down">
+        <div>
+            <h2 class="display-4 fw-bold mb-1">Weekly Packs</h2>
+            <p class="text-muted lead mb-0">Automated weekly comic pack downloads from GetComics</p>
+        </div>
+        <div class="d-flex gap-2">
+            <a href="{{ url_for('pull_list') }}" class="btn btn-outline-primary">
+                <i class="bi bi-list-check me-1"></i>Pull List
+            </a>
+            <a href="{{ url_for('status') }}" class="btn btn-outline-info">
+                <i class="bi bi-download me-1"></i>Downloads
+            </a>
+        </div>
+    </div>
+
+    <!-- Configuration Card -->
+    <div class="card border-0 shadow-sm mb-4">
+        <div class="card-header bg-transparent">
+            <h5 class="mb-0"><i class="bi bi-gear me-2"></i>Weekly Pack Settings</h5>
+        </div>
+        <div class="card-body">
+            <!-- Enable/Disable Toggle -->
+            <div class="form-check form-switch mb-4">
+                <input class="form-check-input" type="checkbox" id="weeklyPacksEnabled"
+                    {% if config and config.enabled %}checked{% endif %}>
+                <label class="form-check-label" for="weeklyPacksEnabled">
+                    <strong>Enable Weekly Packs</strong>
+                </label>
+                <small class="form-text text-muted d-block mt-1">
+                    When enabled, individual issue auto-downloads from GetComics will be disabled to prevent duplicates.
+                </small>
+            </div>
+
+            <hr>
+
+            <!-- Format Selection -->
+            <div class="row mb-4">
+                <div class="col-md-6">
+                    <label class="form-label fw-semibold">Image Format:</label>
+                    <div class="btn-group w-100" role="group" aria-label="Format selection">
+                        <input type="radio" class="btn-check" name="format" id="formatJPG" value="JPG"
+                            {% if not config or config.format == 'JPG' %}checked{% endif %}>
+                        <label class="btn btn-outline-primary" for="formatJPG">
+                            <i class="bi bi-file-image me-1"></i>JPG
+                            <small class="d-block text-muted">Larger files, better compatibility</small>
+                        </label>
+                        <input type="radio" class="btn-check" name="format" id="formatWEBP" value="WEBP"
+                            {% if config and config.format == 'WEBP' %}checked{% endif %}>
+                        <label class="btn btn-outline-primary" for="formatWEBP">
+                            <i class="bi bi-file-earmark-image me-1"></i>WEBP
+                            <small class="d-block text-muted">Smaller files, modern format</small>
+                        </label>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Publisher Selection -->
+            <div class="row mb-4">
+                <div class="col-md-12">
+                    <label class="form-label fw-semibold">Publishers to Download:</label>
+                    <div class="d-flex flex-wrap gap-3">
+                        <div class="form-check form-check-inline">
+                            <input class="form-check-input publisher-checkbox" type="checkbox" id="pubDC" value="DC"
+                                {% if config and 'DC' in config.publishers %}checked{% endif %}>
+                            <label class="form-check-label" for="pubDC">
+                                <span class="badge bg-primary">DC</span>
+                            </label>
+                        </div>
+                        <div class="form-check form-check-inline">
+                            <input class="form-check-input publisher-checkbox" type="checkbox" id="pubMarvel" value="Marvel"
+                                {% if config and 'Marvel' in config.publishers %}checked{% endif %}>
+                            <label class="form-check-label" for="pubMarvel">
+                                <span class="badge bg-danger">Marvel</span>
+                            </label>
+                        </div>
+                        <div class="form-check form-check-inline">
+                            <input class="form-check-input publisher-checkbox" type="checkbox" id="pubImage" value="Image"
+                                {% if config and 'Image' in config.publishers %}checked{% endif %}>
+                            <label class="form-check-label" for="pubImage">
+                                <span class="badge bg-success">Image</span>
+                            </label>
+                        </div>
+                        <div class="form-check form-check-inline">
+                            <input class="form-check-input publisher-checkbox" type="checkbox" id="pubIndie" value="INDIE"
+                                {% if config and 'INDIE' in config.publishers %}checked{% endif %}>
+                            <label class="form-check-label" for="pubIndie">
+                                <span class="badge bg-secondary">INDIE</span>
+                            </label>
+                        </div>
+                    </div>
+                    <small class="form-text text-muted d-block mt-2">
+                        Select which publisher packs to download each week.
+                    </small>
+                </div>
+            </div>
+
+            <hr>
+
+            <!-- Schedule Configuration -->
+            <div class="row mb-4">
+                <div class="col-md-4">
+                    <label for="weeklyPacksWeekday" class="form-label fw-semibold">Check Day:</label>
+                    <select class="form-select" id="weeklyPacksWeekday">
+                        <option value="0" {% if config and config.weekday == 0 %}selected{% endif %}>Monday</option>
+                        <option value="1" {% if config and config.weekday == 1 %}selected{% endif %}>Tuesday</option>
+                        <option value="2" {% if not config or config.weekday == 2 %}selected{% endif %}>Wednesday</option>
+                        <option value="3" {% if config and config.weekday == 3 %}selected{% endif %}>Thursday</option>
+                        <option value="4" {% if config and config.weekday == 4 %}selected{% endif %}>Friday</option>
+                        <option value="5" {% if config and config.weekday == 5 %}selected{% endif %}>Saturday</option>
+                        <option value="6" {% if config and config.weekday == 6 %}selected{% endif %}>Sunday</option>
+                    </select>
+                    <small class="form-text text-muted">
+                        Comics typically release on Wednesdays.
+                    </small>
+                </div>
+                <div class="col-md-4">
+                    <label for="weeklyPacksTime" class="form-label fw-semibold">Check Time:</label>
+                    <input type="time" class="form-control" id="weeklyPacksTime"
+                        value="{{ config.time if config else '10:00' }}">
+                    <small class="form-text text-muted">
+                        Time to check for packs (24-hour format).
+                    </small>
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label fw-semibold d-block">Retry Option:</label>
+                    <div class="form-check form-switch mt-2">
+                        <input class="form-check-input" type="checkbox" id="retryEnabled"
+                            {% if not config or config.retry_enabled %}checked{% endif %}>
+                        <label class="form-check-label" for="retryEnabled">
+                            Retry daily if not ready
+                        </label>
+                    </div>
+                    <small class="form-text text-muted d-block mt-1">
+                        If pack links aren't available yet, retry the next day.
+                    </small>
+                </div>
+            </div>
+
+            <!-- Action Buttons -->
+            <div class="row">
+                <div class="col-md-12">
+                    <div class="d-flex gap-2">
+                        <button type="button" class="btn btn-success" id="saveConfig">
+                            <i class="bi bi-floppy me-1"></i>Save Settings
+                        </button>
+                        <button type="button" class="btn btn-outline-primary" id="checkNow">
+                            <i class="bi bi-cloud-download me-1"></i>Check & Download Now
+                        </button>
+                        <button type="button" class="btn btn-outline-secondary" id="checkStatus">
+                            <i class="bi bi-search me-1"></i>Check Pack Status
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Status Card -->
+    <div class="card border-0 shadow-sm mb-4">
+        <div class="card-header bg-transparent">
+            <h5 class="mb-0"><i class="bi bi-info-circle me-2"></i>Status</h5>
+        </div>
+        <div class="card-body">
+            <div class="row">
+                <div class="col-md-4">
+                    <p class="mb-1"><strong>Last Run:</strong></p>
+                    <p class="text-muted" id="lastRun">{{ config.last_run if config and config.last_run else 'Never' }}</p>
+                </div>
+                <div class="col-md-4">
+                    <p class="mb-1"><strong>Next Scheduled:</strong></p>
+                    <p class="text-muted" id="nextRun">Loading...</p>
+                </div>
+                <div class="col-md-4">
+                    <p class="mb-1"><strong>Last Successful Pack:</strong></p>
+                    <p class="text-muted" id="lastSuccessfulPack">{{ config.last_successful_pack if config and config.last_successful_pack else 'None' }}</p>
+                </div>
+            </div>
+            <div id="statusMessage" class="alert d-none mt-3"></div>
+        </div>
+    </div>
+
+    <!-- Download History Card -->
+    <div class="card border-0 shadow-sm mb-4">
+        <div class="card-header bg-transparent d-flex justify-content-between align-items-center">
+            <h5 class="mb-0"><i class="bi bi-clock-history me-2"></i>Recent Downloads</h5>
+            <button type="button" class="btn btn-sm btn-outline-secondary" id="refreshHistory">
+                <i class="bi bi-arrow-clockwise"></i>
+            </button>
+        </div>
+        <div class="card-body">
+            {% if history %}
+            <div class="table-responsive">
+                <table class="table table-sm table-hover">
+                    <thead>
+                        <tr>
+                            <th>Pack Date</th>
+                            <th>Publisher</th>
+                            <th>Format</th>
+                            <th>Status</th>
+                            <th>Downloaded</th>
+                        </tr>
+                    </thead>
+                    <tbody id="historyTable">
+                        {% for item in history %}
+                        <tr>
+                            <td>{{ item.pack_date }}</td>
+                            <td>
+                                {% if item.publisher == 'DC' %}
+                                <span class="badge bg-primary">{{ item.publisher }}</span>
+                                {% elif item.publisher == 'Marvel' %}
+                                <span class="badge bg-danger">{{ item.publisher }}</span>
+                                {% elif item.publisher == 'Image' %}
+                                <span class="badge bg-success">{{ item.publisher }}</span>
+                                {% else %}
+                                <span class="badge bg-secondary">{{ item.publisher }}</span>
+                                {% endif %}
+                            </td>
+                            <td>{{ item.format }}</td>
+                            <td>
+                                {% if item.status == 'completed' %}
+                                <span class="badge bg-success">Completed</span>
+                                {% elif item.status == 'queued' %}
+                                <span class="badge bg-info">Queued</span>
+                                {% elif item.status == 'downloading' %}
+                                <span class="badge bg-warning">Downloading</span>
+                                {% else %}
+                                <span class="badge bg-danger">{{ item.status }}</span>
+                                {% endif %}
+                            </td>
+                            <td>{{ item.downloaded_at }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% else %}
+            <div class="text-center py-4 text-muted">
+                <i class="bi bi-inbox display-4 opacity-25"></i>
+                <p class="mt-2">No download history yet</p>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Load current status
+    loadStatus();
+
+    // Save config
+    document.getElementById('saveConfig').addEventListener('click', function() {
+        saveConfig();
+    });
+
+    // Check now
+    document.getElementById('checkNow').addEventListener('click', function() {
+        checkNow();
+    });
+
+    // Check status
+    document.getElementById('checkStatus').addEventListener('click', function() {
+        checkPackStatus();
+    });
+
+    // Refresh history
+    document.getElementById('refreshHistory').addEventListener('click', function() {
+        refreshHistory();
+    });
+});
+
+function loadStatus() {
+    fetch('/api/get-weekly-packs-config')
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                document.getElementById('nextRun').textContent = data.next_run || 'Not scheduled';
+                if (data.last_run) {
+                    document.getElementById('lastRun').textContent = data.last_run;
+                }
+                if (data.last_successful_pack) {
+                    document.getElementById('lastSuccessfulPack').textContent = data.last_successful_pack;
+                }
+            }
+        })
+        .catch(error => {
+            console.error('Error loading status:', error);
+        });
+}
+
+function saveConfig() {
+    const enabled = document.getElementById('weeklyPacksEnabled').checked;
+    const format = document.querySelector('input[name="format"]:checked').value;
+    const publishers = Array.from(document.querySelectorAll('.publisher-checkbox:checked')).map(cb => cb.value);
+    const weekday = parseInt(document.getElementById('weeklyPacksWeekday').value);
+    const time = document.getElementById('weeklyPacksTime').value;
+    const retryEnabled = document.getElementById('retryEnabled').checked;
+
+    const saveBtn = document.getElementById('saveConfig');
+    saveBtn.disabled = true;
+    saveBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Saving...';
+
+    fetch('/api/save-weekly-packs-config', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            enabled: enabled,
+            format: format,
+            publishers: publishers,
+            weekday: weekday,
+            time: time,
+            retry_enabled: retryEnabled
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        saveBtn.disabled = false;
+        saveBtn.innerHTML = '<i class="bi bi-floppy me-1"></i>Save Settings';
+
+        if (data.success) {
+            showStatus('Settings saved successfully!', 'success');
+            loadStatus();
+        } else {
+            showStatus('Error: ' + data.error, 'danger');
+        }
+    })
+    .catch(error => {
+        saveBtn.disabled = false;
+        saveBtn.innerHTML = '<i class="bi bi-floppy me-1"></i>Save Settings';
+        showStatus('Error saving settings: ' + error, 'danger');
+    });
+}
+
+function checkNow() {
+    const btn = document.getElementById('checkNow');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Checking...';
+
+    fetch('/api/run-weekly-packs-now', {
+        method: 'POST'
+    })
+    .then(response => response.json())
+    .then(data => {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="bi bi-cloud-download me-1"></i>Check & Download Now';
+
+        if (data.success) {
+            showStatus('Weekly packs check started in background. Check Downloads page for progress.', 'info');
+        } else {
+            showStatus('Error: ' + data.error, 'danger');
+        }
+    })
+    .catch(error => {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="bi bi-cloud-download me-1"></i>Check & Download Now';
+        showStatus('Error: ' + error, 'danger');
+    });
+}
+
+function checkPackStatus() {
+    const btn = document.getElementById('checkStatus');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Checking...';
+
+    fetch('/api/check-weekly-pack-status')
+        .then(response => response.json())
+        .then(data => {
+            btn.disabled = false;
+            btn.innerHTML = '<i class="bi bi-search me-1"></i>Check Pack Status';
+
+            if (data.success) {
+                if (data.found) {
+                    const status = data.links_available
+                        ? `<strong>${data.pack_date}</strong> - Links are available!`
+                        : `<strong>${data.pack_date}</strong> - Links not ready yet`;
+                    showStatus(status, data.links_available ? 'success' : 'warning');
+                } else {
+                    showStatus(data.message, 'warning');
+                }
+            } else {
+                showStatus('Error: ' + data.error, 'danger');
+            }
+        })
+        .catch(error => {
+            btn.disabled = false;
+            btn.innerHTML = '<i class="bi bi-search me-1"></i>Check Pack Status';
+            showStatus('Error: ' + error, 'danger');
+        });
+}
+
+function refreshHistory() {
+    fetch('/api/weekly-packs-history?limit=20')
+        .then(response => response.json())
+        .then(data => {
+            if (data.success && data.history) {
+                updateHistoryTable(data.history);
+            }
+        })
+        .catch(error => {
+            console.error('Error refreshing history:', error);
+        });
+}
+
+function updateHistoryTable(history) {
+    const tbody = document.getElementById('historyTable');
+    if (!tbody) return;
+
+    if (history.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted">No download history yet</td></tr>';
+        return;
+    }
+
+    tbody.innerHTML = history.map(item => {
+        let publisherBadge = '';
+        if (item.publisher === 'DC') {
+            publisherBadge = '<span class="badge bg-primary">DC</span>';
+        } else if (item.publisher === 'Marvel') {
+            publisherBadge = '<span class="badge bg-danger">Marvel</span>';
+        } else if (item.publisher === 'Image') {
+            publisherBadge = '<span class="badge bg-success">Image</span>';
+        } else {
+            publisherBadge = '<span class="badge bg-secondary">' + item.publisher + '</span>';
+        }
+
+        let statusBadge = '';
+        if (item.status === 'completed') {
+            statusBadge = '<span class="badge bg-success">Completed</span>';
+        } else if (item.status === 'queued') {
+            statusBadge = '<span class="badge bg-info">Queued</span>';
+        } else if (item.status === 'downloading') {
+            statusBadge = '<span class="badge bg-warning">Downloading</span>';
+        } else {
+            statusBadge = '<span class="badge bg-danger">' + item.status + '</span>';
+        }
+
+        return `<tr>
+            <td>${item.pack_date}</td>
+            <td>${publisherBadge}</td>
+            <td>${item.format}</td>
+            <td>${statusBadge}</td>
+            <td>${item.downloaded_at}</td>
+        </tr>`;
+    }).join('');
+}
+
+function showStatus(message, type) {
+    const statusDiv = document.getElementById('statusMessage');
+    statusDiv.className = 'alert alert-' + type + ' mt-3';
+    statusDiv.innerHTML = message;
+    statusDiv.classList.remove('d-none');
+
+    // Auto-hide after 5 seconds
+    setTimeout(() => {
+        statusDiv.classList.add('d-none');
+    }, 5000);
+}
+</script>
+{% endblock %}

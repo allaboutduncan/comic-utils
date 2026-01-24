@@ -246,6 +246,11 @@ getcomics_scheduler = BackgroundScheduler(daemon=True)
 getcomics_scheduler.start()
 app_logger.info("📅 GetComics scheduler initialized")
 
+# Initialize APScheduler for Weekly Packs auto-download
+weekly_packs_scheduler = BackgroundScheduler(daemon=True)
+weekly_packs_scheduler.start()
+app_logger.info("📅 Weekly Packs scheduler initialized")
+
 # Global state for wanted issues refresh
 wanted_refresh_in_progress = False
 wanted_refresh_lock = threading.Lock()
@@ -828,6 +833,197 @@ def configure_getcomics_schedule():
         app_logger.error(f"Failed to configure GetComics schedule: {e}")
 
 
+# Function to perform scheduled Weekly Packs auto-download
+def scheduled_weekly_packs_download():
+    """Auto-download weekly packs from GetComics on schedule."""
+    try:
+        from database import (get_weekly_packs_config, update_last_weekly_packs_run,
+                              log_weekly_pack_download, save_getcomics_schedule)
+        from models.getcomics import (find_latest_weekly_pack_url, check_weekly_pack_availability,
+                                      parse_weekly_pack_page)
+        from api import download_queue, download_progress
+        import uuid
+
+        app_logger.info("📦 Starting scheduled Weekly Packs download...")
+        start_time = time.time()
+
+        # Get configuration
+        config = get_weekly_packs_config()
+        if not config:
+            app_logger.warning("No weekly packs config found in database")
+            return
+
+        if not config['enabled']:
+            app_logger.info("Weekly packs is disabled, skipping")
+            return
+
+        if not config['publishers']:
+            app_logger.info("No publishers selected for weekly packs, skipping")
+            return
+
+        # Find the latest weekly pack URL
+        pack_url, pack_date = find_latest_weekly_pack_url()
+        if not pack_url or not pack_date:
+            app_logger.warning("Could not find weekly pack on GetComics homepage")
+            update_last_weekly_packs_run()
+            return
+
+        app_logger.info(f"Found weekly pack: {pack_date} -> {pack_url}")
+
+        # Check if we already downloaded this pack
+        if config['last_successful_pack'] == pack_date:
+            app_logger.info(f"Already downloaded pack {pack_date}, skipping")
+            update_last_weekly_packs_run()
+            return
+
+        # Check if links are available
+        if not check_weekly_pack_availability(pack_url):
+            app_logger.info(f"Weekly pack {pack_date} links not ready yet")
+            update_last_weekly_packs_run()
+
+            # Schedule retry for tomorrow if enabled
+            if config['retry_enabled']:
+                schedule_weekly_packs_retry()
+            return
+
+        # Parse the page for download links
+        format_pref = config['format']
+        publishers = config['publishers']
+        download_links = parse_weekly_pack_page(pack_url, format_pref, publishers)
+
+        if not download_links:
+            app_logger.warning(f"No download links found for {pack_date}")
+            update_last_weekly_packs_run()
+            return
+
+        # Queue downloads for each publisher
+        download_count = 0
+        for publisher, pixeldrain_url in download_links.items():
+            # Generate filename
+            filename = f"{pack_date} {publisher} Week ({format_pref}).zip"
+            filename = filename.replace('/', '-').replace('\\', '-')
+
+            download_id = str(uuid.uuid4())
+
+            # Set up progress tracking
+            download_progress[download_id] = {
+                'url': pixeldrain_url,
+                'progress': 0,
+                'bytes_total': 0,
+                'bytes_downloaded': 0,
+                'status': 'queued',
+                'filename': filename,
+                'error': None,
+            }
+
+            # Queue task
+            task = {
+                'download_id': download_id,
+                'url': pixeldrain_url,
+                'dest_filename': filename
+            }
+            download_queue.put(task)
+
+            # Log to history
+            log_weekly_pack_download(pack_date, publisher, format_pref, pixeldrain_url, 'queued')
+
+            download_count += 1
+            app_logger.info(f"📥 Queued weekly pack download: {filename}")
+
+        # Update last run and successful pack date
+        update_last_weekly_packs_run(pack_date)
+
+        elapsed = time.time() - start_time
+        app_logger.info(f"✅ Weekly packs download completed in {elapsed:.2f}s ({download_count} packs queued)")
+
+    except Exception as e:
+        app_logger.error(f"❌ Weekly packs download failed: {e}")
+
+
+def schedule_weekly_packs_retry():
+    """Schedule a one-time retry job for tomorrow at the same time."""
+    try:
+        from database import get_weekly_packs_config
+        from datetime import datetime, timedelta
+
+        config = get_weekly_packs_config()
+        if not config:
+            return
+
+        # Parse time
+        time_parts = config['time'].split(':')
+        hour = int(time_parts[0])
+        minute = int(time_parts[1])
+
+        # Calculate tomorrow's date/time
+        tomorrow = datetime.now() + timedelta(days=1)
+        run_time = tomorrow.replace(hour=hour, minute=minute, second=0, microsecond=0)
+
+        # Add a one-time job (DateTrigger)
+        from apscheduler.triggers.date import DateTrigger
+        trigger = DateTrigger(run_date=run_time)
+
+        weekly_packs_scheduler.add_job(
+            scheduled_weekly_packs_download,
+            trigger=trigger,
+            id='weekly_packs_retry',
+            name='Weekly Packs Retry',
+            replace_existing=True
+        )
+
+        app_logger.info(f"📅 Scheduled weekly packs retry for {run_time.strftime('%Y-%m-%d %H:%M')}")
+
+    except Exception as e:
+        app_logger.error(f"Failed to schedule weekly packs retry: {e}")
+
+
+def configure_weekly_packs_schedule():
+    """Configure the Weekly Packs schedule based on database settings."""
+    try:
+        from database import get_weekly_packs_config, save_getcomics_schedule, get_getcomics_schedule
+
+        config = get_weekly_packs_config()
+        if not config:
+            app_logger.warning("No weekly packs config found in database")
+            return
+
+        # Remove existing jobs
+        weekly_packs_scheduler.remove_all_jobs()
+
+        if not config['enabled']:
+            app_logger.info("📅 Scheduled Weekly Packs download is disabled")
+            return
+
+        # When weekly packs is enabled, disable getcomics individual downloads
+        getcomics_schedule = get_getcomics_schedule()
+        if getcomics_schedule and getcomics_schedule['frequency'] != 'disabled':
+            app_logger.info("📅 Disabling GetComics individual downloads (weekly packs enabled)")
+            save_getcomics_schedule('disabled', getcomics_schedule['time'], getcomics_schedule['weekday'])
+            configure_getcomics_schedule()
+
+        # Parse time
+        time_parts = config['time'].split(':')
+        hour = int(time_parts[0])
+        minute = int(time_parts[1])
+
+        # Weekly on specified day at specified time
+        weekday = int(config['weekday'])
+        trigger = CronTrigger(day_of_week=weekday, hour=hour, minute=minute)
+        weekly_packs_scheduler.add_job(
+            scheduled_weekly_packs_download,
+            trigger=trigger,
+            id='weekly_packs_download',
+            name='Weekly Packs Download',
+            replace_existing=True
+        )
+
+        days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+        app_logger.info(f"📅 Scheduled weekly packs download on {days[weekday]} at {config['time']}")
+
+    except Exception as e:
+        app_logger.error(f"Failed to configure weekly packs schedule: {e}")
+
+
 # Thread pool for thumbnail generation
 thumbnail_executor = ThreadPoolExecutor(max_workers=2)
 
@@ -1239,6 +1435,21 @@ def pull_list():
                          series_list=series_list,
                          total_series=len(series_list),
                          publishers=publishers)
+
+
+@app.route('/weekly-packs')
+def weekly_packs():
+    """
+    Weekly Packs page - configure automated weekly pack downloads from GetComics.
+    """
+    from database import get_weekly_packs_config, get_weekly_packs_history
+
+    config = get_weekly_packs_config()
+    history = get_weekly_packs_history(limit=20)
+
+    return render_template('weekly_packs.html',
+                         config=config,
+                         history=history)
 
 
 @app.route('/series-search')
@@ -3618,6 +3829,180 @@ def api_run_getcomics_now():
         })
     except Exception as e:
         app_logger.error(f"Failed to start getcomics download: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+#########################
+#   Weekly Packs API    #
+#########################
+
+@app.route('/api/get-weekly-packs-config', methods=['GET'])
+def api_get_weekly_packs_config():
+    """Get the current Weekly Packs configuration."""
+    try:
+        from database import get_weekly_packs_config
+
+        config = get_weekly_packs_config()
+        if not config:
+            return jsonify({
+                "success": True,
+                "config": {
+                    "enabled": False,
+                    "format": "JPG",
+                    "publishers": [],
+                    "weekday": 2,
+                    "time": "10:00",
+                    "retry_enabled": True
+                },
+                "next_run": "Not scheduled",
+                "last_run": None,
+                "last_successful_pack": None
+            })
+
+        # Calculate next run time
+        next_run = "Not scheduled"
+        if config['enabled']:
+            try:
+                jobs = weekly_packs_scheduler.get_jobs()
+                if jobs:
+                    next_run_time = jobs[0].next_run_time
+                    if next_run_time:
+                        next_run = next_run_time.strftime('%Y-%m-%d %H:%M:%S')
+            except Exception:
+                pass
+
+        return jsonify({
+            "success": True,
+            "config": {
+                "enabled": config['enabled'],
+                "format": config['format'],
+                "publishers": config['publishers'],
+                "weekday": config['weekday'],
+                "time": config['time'],
+                "retry_enabled": config['retry_enabled']
+            },
+            "next_run": next_run,
+            "last_run": config.get('last_run'),
+            "last_successful_pack": config.get('last_successful_pack')
+        })
+    except Exception as e:
+        app_logger.error(f"Failed to get weekly packs config: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route('/api/save-weekly-packs-config', methods=['POST'])
+def api_save_weekly_packs_config():
+    """Save the Weekly Packs configuration."""
+    try:
+        from database import save_weekly_packs_config
+
+        data = request.get_json()
+        enabled = bool(data.get('enabled', False))
+        format_pref = data.get('format', 'JPG')
+        publishers = data.get('publishers', [])
+        weekday = int(data.get('weekday', 2))
+        time_str = data.get('time', '10:00')
+        retry_enabled = bool(data.get('retry_enabled', True))
+
+        # Validate format
+        if format_pref not in ['JPG', 'WEBP']:
+            return jsonify({"success": False, "error": "Invalid format. Use JPG or WEBP"}), 400
+
+        # Validate publishers
+        valid_publishers = ['DC', 'Marvel', 'Image', 'INDIE']
+        if not all(p in valid_publishers for p in publishers):
+            return jsonify({"success": False, "error": f"Invalid publisher. Use: {valid_publishers}"}), 400
+
+        # Validate time format
+        try:
+            parts = time_str.split(':')
+            if len(parts) != 2 or not (0 <= int(parts[0]) <= 23) or not (0 <= int(parts[1]) <= 59):
+                raise ValueError("Invalid time format")
+        except Exception:
+            return jsonify({"success": False, "error": "Invalid time format. Use HH:MM"}), 400
+
+        # Validate weekday
+        if not (0 <= weekday <= 6):
+            return jsonify({"success": False, "error": "Invalid weekday. Use 0-6 (Mon-Sun)"}), 400
+
+        # Save to database
+        if not save_weekly_packs_config(enabled, format_pref, publishers, weekday, time_str, retry_enabled):
+            return jsonify({"success": False, "error": "Failed to save config to database"}), 500
+
+        # Reconfigure the scheduler
+        configure_weekly_packs_schedule()
+
+        days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+        app_logger.info(f"✅ Weekly packs config saved: enabled={enabled}, {format_pref}, {publishers}, {days[weekday]} at {time_str}")
+
+        return jsonify({
+            "success": True,
+            "message": f"Weekly packs config saved"
+        })
+    except Exception as e:
+        app_logger.error(f"Failed to save weekly packs config: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route('/api/run-weekly-packs-now', methods=['POST'])
+def api_run_weekly_packs_now():
+    """Manually trigger Weekly Packs download immediately."""
+    try:
+        # Run in a background thread to not block the request
+        threading.Thread(target=scheduled_weekly_packs_download, daemon=True).start()
+        return jsonify({
+            "success": True,
+            "message": "Weekly packs download check started in background"
+        })
+    except Exception as e:
+        app_logger.error(f"Failed to start weekly packs download: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route('/api/weekly-packs-history', methods=['GET'])
+def api_weekly_packs_history():
+    """Get recent weekly pack download history."""
+    try:
+        from database import get_weekly_packs_history
+
+        limit = request.args.get('limit', 20, type=int)
+        history = get_weekly_packs_history(limit)
+
+        return jsonify({
+            "success": True,
+            "history": history
+        })
+    except Exception as e:
+        app_logger.error(f"Failed to get weekly packs history: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route('/api/check-weekly-pack-status', methods=['GET'])
+def api_check_weekly_pack_status():
+    """Check if the latest weekly pack has links available."""
+    try:
+        from models.getcomics import find_latest_weekly_pack_url, check_weekly_pack_availability
+
+        pack_url, pack_date = find_latest_weekly_pack_url()
+        if not pack_url:
+            return jsonify({
+                "success": True,
+                "found": False,
+                "message": "Could not find weekly pack on homepage"
+            })
+
+        available = check_weekly_pack_availability(pack_url)
+
+        return jsonify({
+            "success": True,
+            "found": True,
+            "pack_date": pack_date,
+            "pack_url": pack_url,
+            "links_available": available,
+            "message": "Links available" if available else "Links not ready yet"
+        })
+    except Exception as e:
+        app_logger.error(f"Failed to check weekly pack status: {e}")
         return jsonify({"success": False, "error": str(e)}), 500
 
 
@@ -11232,6 +11617,9 @@ def start_background_services():
 
     # Configure GetComics schedule from database
     configure_getcomics_schedule()
+
+    # Configure Weekly Packs schedule from database
+    configure_weekly_packs_schedule()
 
     # Start monitor if enabled
     if os.environ.get("MONITOR", "").strip().lower() == "yes":

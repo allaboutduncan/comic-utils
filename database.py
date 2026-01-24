@@ -182,6 +182,44 @@ def init_db():
                 VALUES (1, 'disabled', '03:00', 0)
             ''')
 
+        # Create Weekly Packs configuration table
+        c.execute('''
+            CREATE TABLE IF NOT EXISTS weekly_packs_config (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                enabled INTEGER DEFAULT 0,
+                format TEXT NOT NULL DEFAULT 'JPG',
+                publishers TEXT NOT NULL DEFAULT '[]',
+                weekday INTEGER DEFAULT 2,
+                time TEXT NOT NULL DEFAULT '10:00',
+                retry_enabled INTEGER DEFAULT 1,
+                last_run TIMESTAMP,
+                last_successful_pack TEXT,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+
+        # Insert default weekly packs config if not exists
+        c.execute('SELECT COUNT(*) FROM weekly_packs_config WHERE id = 1')
+        if c.fetchone()[0] == 0:
+            c.execute('''
+                INSERT INTO weekly_packs_config (id, enabled, format, publishers, weekday, time, retry_enabled)
+                VALUES (1, 0, 'JPG', '[]', 2, '10:00', 1)
+            ''')
+
+        # Create Weekly Packs download history table
+        c.execute('''
+            CREATE TABLE IF NOT EXISTS weekly_packs_history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                pack_date TEXT NOT NULL,
+                publisher TEXT NOT NULL,
+                format TEXT NOT NULL,
+                download_url TEXT,
+                status TEXT DEFAULT 'queued',
+                downloaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(pack_date, publisher, format)
+            )
+        ''')
+
         # Create wanted_issues table (cache pre-computed wanted issues)
         c.execute('''
             CREATE TABLE IF NOT EXISTS wanted_issues (
@@ -1703,6 +1741,246 @@ def update_last_getcomics_run():
     except Exception as e:
         app_logger.error(f"Failed to update last getcomics run timestamp: {e}")
         return False
+
+
+#########################
+#   Weekly Packs        #
+#########################
+
+def get_weekly_packs_config():
+    """
+    Get the Weekly Packs configuration.
+
+    Returns:
+        Dictionary with enabled, format, publishers, weekday, time, retry_enabled,
+        last_run, and last_successful_pack, or None on error
+    """
+    try:
+        import json
+
+        conn = get_db_connection()
+        if not conn:
+            return None
+
+        c = conn.cursor()
+        c.execute('''
+            SELECT enabled, format, publishers, weekday, time, retry_enabled, last_run, last_successful_pack
+            FROM weekly_packs_config WHERE id = 1
+        ''')
+        row = c.fetchone()
+        conn.close()
+
+        if row:
+            return {
+                'enabled': bool(row[0]),
+                'format': row[1],
+                'publishers': json.loads(row[2]) if row[2] else [],
+                'weekday': row[3],
+                'time': row[4],
+                'retry_enabled': bool(row[5]),
+                'last_run': row[6],
+                'last_successful_pack': row[7]
+            }
+
+        return None
+
+    except Exception as e:
+        app_logger.error(f"Failed to get weekly packs config: {e}")
+        return None
+
+
+def save_weekly_packs_config(enabled, format_pref, publishers, weekday, time, retry_enabled):
+    """
+    Save the Weekly Packs configuration.
+
+    Args:
+        enabled: Boolean, whether weekly packs is enabled
+        format_pref: 'JPG' or 'WEBP'
+        publishers: List of publishers ['DC', 'Marvel', 'Image', 'INDIE']
+        weekday: Day of week (0=Monday, 6=Sunday)
+        time: Time in HH:MM format
+        retry_enabled: Boolean, whether to retry daily if links not ready
+
+    Returns:
+        True if successful, False otherwise
+    """
+    try:
+        import json
+
+        conn = get_db_connection()
+        if not conn:
+            return False
+
+        c = conn.cursor()
+        c.execute('''
+            UPDATE weekly_packs_config
+            SET enabled = ?, format = ?, publishers = ?, weekday = ?, time = ?,
+                retry_enabled = ?, updated_at = CURRENT_TIMESTAMP
+            WHERE id = 1
+        ''', (int(enabled), format_pref, json.dumps(publishers), weekday, time, int(retry_enabled)))
+
+        conn.commit()
+        conn.close()
+
+        app_logger.info(f"Saved weekly packs config: enabled={enabled}, format={format_pref}, publishers={publishers}")
+        return True
+
+    except Exception as e:
+        app_logger.error(f"Failed to save weekly packs config: {e}")
+        return False
+
+
+def update_last_weekly_packs_run(pack_date=None):
+    """
+    Update the last_run timestamp for Weekly Packs and optionally the last successful pack date.
+
+    Args:
+        pack_date: Optional date string of the successfully downloaded pack (e.g., "2026-01-14")
+
+    Returns:
+        True if successful, False otherwise
+    """
+    try:
+        conn = get_db_connection()
+        if not conn:
+            return False
+
+        c = conn.cursor()
+        if pack_date:
+            c.execute('''
+                UPDATE weekly_packs_config
+                SET last_run = CURRENT_TIMESTAMP, last_successful_pack = ?
+                WHERE id = 1
+            ''', (pack_date,))
+        else:
+            c.execute('''
+                UPDATE weekly_packs_config
+                SET last_run = CURRENT_TIMESTAMP
+                WHERE id = 1
+            ''')
+
+        conn.commit()
+        conn.close()
+
+        app_logger.info(f"Updated last weekly packs run timestamp (pack_date={pack_date})")
+        return True
+
+    except Exception as e:
+        app_logger.error(f"Failed to update last weekly packs run timestamp: {e}")
+        return False
+
+
+def log_weekly_pack_download(pack_date, publisher, format_pref, download_url, status='queued'):
+    """
+    Record a weekly pack download attempt in history.
+
+    Args:
+        pack_date: Date of the pack (e.g., "2026-01-14")
+        publisher: Publisher name ('DC', 'Marvel', 'Image', 'INDIE')
+        format_pref: Format ('JPG' or 'WEBP')
+        download_url: The PIXELDRAIN download URL
+        status: Download status ('queued', 'downloading', 'completed', 'failed')
+
+    Returns:
+        True if successful, False otherwise
+    """
+    try:
+        conn = get_db_connection()
+        if not conn:
+            return False
+
+        c = conn.cursor()
+        c.execute('''
+            INSERT OR REPLACE INTO weekly_packs_history (pack_date, publisher, format, download_url, status, downloaded_at)
+            VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+        ''', (pack_date, publisher, format_pref, download_url, status))
+
+        conn.commit()
+        conn.close()
+
+        app_logger.info(f"Logged weekly pack download: {pack_date} {publisher} {format_pref} - {status}")
+        return True
+
+    except Exception as e:
+        app_logger.error(f"Failed to log weekly pack download: {e}")
+        return False
+
+
+def update_weekly_pack_status(pack_date, publisher, format_pref, status):
+    """
+    Update the status of a weekly pack download.
+
+    Args:
+        pack_date: Date of the pack (e.g., "2026-01-14")
+        publisher: Publisher name ('DC', 'Marvel', 'Image', 'INDIE')
+        format_pref: Format ('JPG' or 'WEBP')
+        status: New status ('queued', 'downloading', 'completed', 'failed')
+
+    Returns:
+        True if successful, False otherwise
+    """
+    try:
+        conn = get_db_connection()
+        if not conn:
+            return False
+
+        c = conn.cursor()
+        c.execute('''
+            UPDATE weekly_packs_history
+            SET status = ?, downloaded_at = CURRENT_TIMESTAMP
+            WHERE pack_date = ? AND publisher = ? AND format = ?
+        ''', (status, pack_date, publisher, format_pref))
+
+        conn.commit()
+        conn.close()
+
+        return True
+
+    except Exception as e:
+        app_logger.error(f"Failed to update weekly pack status: {e}")
+        return False
+
+
+def get_weekly_packs_history(limit=20):
+    """
+    Get recent weekly pack download history.
+
+    Args:
+        limit: Maximum number of records to return
+
+    Returns:
+        List of dictionaries with pack download history, or empty list on error
+    """
+    try:
+        conn = get_db_connection()
+        if not conn:
+            return []
+
+        c = conn.cursor()
+        c.execute('''
+            SELECT pack_date, publisher, format, download_url, status, downloaded_at
+            FROM weekly_packs_history
+            ORDER BY downloaded_at DESC
+            LIMIT ?
+        ''', (limit,))
+        rows = c.fetchall()
+        conn.close()
+
+        return [
+            {
+                'pack_date': row[0],
+                'publisher': row[1],
+                'format': row[2],
+                'download_url': row[3],
+                'status': row[4],
+                'downloaded_at': row[5]
+            }
+            for row in rows
+        ]
+
+    except Exception as e:
+        app_logger.error(f"Failed to get weekly packs history: {e}")
+        return []
 
 
 #########################
