@@ -8847,6 +8847,19 @@ def scrape_status():
 #########################
 #   Config Page Route   #
 #########################
+def sanitize_config_value(value: str) -> str:
+    """
+    Sanitize a config value to ensure it's safe for INI file storage.
+    Removes newlines and strips whitespace while preserving special characters.
+    """
+    if not value:
+        return ""
+    # Remove newlines and carriage returns (would break INI format)
+    sanitized = value.replace('\n', '').replace('\r', '')
+    # Strip leading/trailing whitespace
+    return sanitized.strip()
+
+
 @app.route("/config", methods=["GET", "POST"])
 def config_page():
     if request.method == "POST":
@@ -8886,10 +8899,10 @@ def config_page():
         config["SETTINGS"]["DELETED_FILES"] = request.form.get("deletedFiles", "")
         config["SETTINGS"]["OPERATION_TIMEOUT"] = request.form.get("operationTimeout", "3600")
         config["SETTINGS"]["LARGE_FILE_THRESHOLD"] = request.form.get("largeFileThreshold", "500")
-        config["SETTINGS"]["PIXELDRAIN_API_KEY"] = request.form.get("pixeldrainApiKey", "")
-        config["SETTINGS"]["COMICVINE_API_KEY"] = request.form.get("comicvineApiKey", "")
-        config["SETTINGS"]["METRON_USERNAME"] = request.form.get("metronUsername", "")
-        config["SETTINGS"]["METRON_PASSWORD"] = request.form.get("metronPassword", "")
+        config["SETTINGS"]["PIXELDRAIN_API_KEY"] = sanitize_config_value(request.form.get("pixeldrainApiKey", ""))
+        config["SETTINGS"]["COMICVINE_API_KEY"] = sanitize_config_value(request.form.get("comicvineApiKey", ""))
+        config["SETTINGS"]["METRON_USERNAME"] = sanitize_config_value(request.form.get("metronUsername", ""))
+        config["SETTINGS"]["METRON_PASSWORD"] = sanitize_config_value(request.form.get("metronPassword", ""))
         config["SETTINGS"]["GCD_METADATA_LANGUAGES"] = request.form.get("gcdLanguages", "en")
         config["SETTINGS"]["ENABLE_CUSTOM_RENAME"] = str(request.form.get("enableCustomRename") == "on")
         config["SETTINGS"]["CUSTOM_RENAME_PATTERN"] = request.form.get("customRenamePattern", "")
@@ -8903,7 +8916,7 @@ def config_page():
         # Recommendations
         config["SETTINGS"]["REC_ENABLED"] = str(request.form.get("recEnabled") == "on")
         config["SETTINGS"]["REC_PROVIDER"] = request.form.get("recProvider", "gemini")
-        config["SETTINGS"]["REC_API_KEY"] = request.form.get("recApiKey", "")
+        config["SETTINGS"]["REC_API_KEY"] = sanitize_config_value(request.form.get("recApiKey", ""))
         config["SETTINGS"]["REC_MODEL"] = request.form.get("recModel", "gemini-2.0-flash")
 
         write_config()  # Save changes to config.ini

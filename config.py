@@ -10,7 +10,8 @@ CONFIG_DIR = os.environ.get('CONFIG_DIR', '/config' if os.path.exists('/config')
 os.makedirs(CONFIG_DIR, exist_ok=True)
 CONFIG_FILE = os.path.join(CONFIG_DIR, "config.ini")
 
-config = configparser.ConfigParser()
+# Use RawConfigParser to allow special characters like % in values (no interpolation)
+config = configparser.RawConfigParser()
 config.optionxform = str  # Preserve case sensitivity
 
 def write_config():

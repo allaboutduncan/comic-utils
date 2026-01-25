@@ -319,9 +319,14 @@
 
                         <div class="col-md-6">
                             <label for="pixeldrainApiKey" class="form-label">PixelDrain API Key</label>
-                            <input type="password" name="pixeldrainApiKey" id="pixeldrainApiKey"
-                                value="{{ pixeldrainApiKey }}" class="form-control"
-                                placeholder="Enter your PixelDrain API key">
+                            <div class="input-group">
+                                <input type="password" name="pixeldrainApiKey" id="pixeldrainApiKey"
+                                    value="{{ pixeldrainApiKey }}" class="form-control password-field"
+                                    placeholder="Enter your PixelDrain API key">
+                                <button class="btn btn-outline-secondary toggle-password" type="button" data-target="pixeldrainApiKey">
+                                    <i class="bi bi-eye"></i>
+                                </button>
+                            </div>
                             <small class="form-text text-muted">
                                 Optional: Enter your PixelDrain API key for authenticated downloads. This enables access
                                 to private files and higher download limits.
@@ -339,9 +344,14 @@
                     <div class="row">
                         <div class="col-md-6">
                             <label for="comicvineApiKey" class="form-label">ComicVine API Key</label>
-                            <input type="password" name="comicvineApiKey" id="comicvineApiKey"
-                                value="{{ comicvineApiKey }}" class="form-control"
-                                placeholder="Enter your ComicVine API key">
+                            <div class="input-group">
+                                <input type="password" name="comicvineApiKey" id="comicvineApiKey"
+                                    value="{{ comicvineApiKey }}" class="form-control password-field"
+                                    placeholder="Enter your ComicVine API key">
+                                <button class="btn btn-outline-secondary toggle-password" type="button" data-target="comicvineApiKey">
+                                    <i class="bi bi-eye"></i>
+                                </button>
+                            </div>
                             <small class="form-text text-muted">
                                 Optional: Enter your ComicVine API key to enable metadata lookup from ComicVine. Get
                                 your API key at <a href="https://comicvine.gamespot.com/api/"
@@ -372,9 +382,14 @@
                         </div>
                         <div class="col-md-6">
                             <label for="metronPassword" class="form-label">Metron Password</label>
-                            <input type="password" name="metronPassword" id="metronPassword"
-                                value="{{ metronPassword }}" class="form-control"
-                                placeholder="Enter your Metron password">
+                            <div class="input-group">
+                                <input type="password" name="metronPassword" id="metronPassword"
+                                    value="{{ metronPassword }}" class="form-control password-field"
+                                    placeholder="Enter your Metron password">
+                                <button class="btn btn-outline-secondary toggle-password" type="button" data-target="metronPassword">
+                                    <i class="bi bi-eye"></i>
+                                </button>
+                            </div>
                         </div>
                     </div>
 
@@ -1026,8 +1041,13 @@
 
                         <div class="col-md-8">
                             <label for="recApiKey" class="form-label">API Key:</label>
-                            <input type="password" name="recApiKey" id="recApiKey" value="{{ rec_api_key }}"
-                                class="form-control" autocomplete="off">
+                            <div class="input-group">
+                                <input type="password" name="recApiKey" id="recApiKey" value="{{ rec_api_key }}"
+                                    class="form-control password-field" autocomplete="off">
+                                <button class="btn btn-outline-secondary toggle-password" type="button" data-target="recApiKey">
+                                    <i class="bi bi-eye"></i>
+                                </button>
+                            </div>
                             <small class="form-text text-muted">
                                 Your API key is stored locally in <code>config.ini</code>.
                             </small>
@@ -1801,5 +1821,28 @@
 
     // Initialize on load
     document.addEventListener('DOMContentLoaded', updateModelOptions);
+</script>
+
+<script>
+    // Password visibility toggle
+    document.addEventListener('DOMContentLoaded', function() {
+        document.querySelectorAll('.toggle-password').forEach(function(button) {
+            button.addEventListener('click', function() {
+                const targetId = this.getAttribute('data-target');
+                const input = document.getElementById(targetId);
+                const icon = this.querySelector('i');
+
+                if (input.type === 'password') {
+                    input.type = 'text';
+                    icon.classList.remove('bi-eye');
+                    icon.classList.add('bi-eye-slash');
+                } else {
+                    input.type = 'password';
+                    icon.classList.remove('bi-eye-slash');
+                    icon.classList.add('bi-eye');
+                }
+            });
+        });
+    });
 </script>
 {% endblock %}
