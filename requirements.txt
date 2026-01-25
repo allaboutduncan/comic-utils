@@ -21,3 +21,4 @@ mokkari>=1.0.0
 openai>=1.42.1
 anthropic>=0.2.1
 gunicorn>=21.0.0
+cloudscraper>=1.2.71

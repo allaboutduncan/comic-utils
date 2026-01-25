@@ -1,16 +1,28 @@
 """
 GetComics.org search and download functionality.
+Uses cloudscraper to bypass Cloudflare protection.
 """
-import requests
+import cloudscraper
 from bs4 import BeautifulSoup
 import logging
 
 logger = logging.getLogger(__name__)
 
+# Create a cloudscraper instance for bypassing Cloudflare protection
+# This is reused across all requests for efficiency
+scraper = cloudscraper.create_scraper(
+    browser={
+        'browser': 'chrome',
+        'platform': 'windows',
+        'desktop': True
+    }
+)
+
 
 def search_getcomics(query: str, max_pages: int = 3) -> list:
     """
     Search getcomics.org and return list of results.
+    Uses cloudscraper to bypass Cloudflare protection.
 
     Args:
         query: Search query string
@@ -22,17 +34,13 @@ def search_getcomics(query: str, max_pages: int = 3) -> list:
     results = []
     base_url = "https://getcomics.org"
 
-    headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-    }
-
     for page in range(1, max_pages + 1):
         try:
             url = f"{base_url}/page/{page}/" if page > 1 else base_url
             params = {"s": query}
 
             logger.info(f"Searching getcomics.org page {page}: {query}")
-            resp = requests.get(url, params=params, headers=headers, timeout=15)
+            resp = scraper.get(url, params=params, timeout=30)
             resp.raise_for_status()
 
             soup = BeautifulSoup(resp.text, 'html.parser')
@@ -67,11 +75,8 @@ def search_getcomics(query: str, max_pages: int = 3) -> list:
 
             logger.info(f"Found {len(articles)} results on page {page}")
 
-        except requests.RequestException as e:
-            logger.error(f"Error fetching page {page}: {e}")
-            break
         except Exception as e:
-            logger.error(f"Error parsing page {page}: {e}")
+            logger.error(f"Error fetching/parsing page {page}: {e}")
             break
 
     logger.info(f"Total results found: {len(results)}")
@@ -81,6 +86,7 @@ def search_getcomics(query: str, max_pages: int = 3) -> list:
 def get_download_links(page_url: str) -> dict:
     """
     Fetch a getcomics page and extract download links.
+    Uses cloudscraper to bypass Cloudflare protection.
 
     Args:
         page_url: URL of the getcomics page
@@ -89,13 +95,9 @@ def get_download_links(page_url: str) -> dict:
         Dict with keys: pixeldrain, download_now (values are URLs or None)
         Priority: PIXELDRAIN first, then DOWNLOAD NOW
     """
-    headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-    }
-
     try:
         logger.info(f"Fetching download links from: {page_url}")
-        resp = requests.get(page_url, headers=headers, timeout=15)
+        resp = scraper.get(page_url, timeout=30)
         resp.raise_for_status()
 
         soup = BeautifulSoup(resp.text, 'html.parser')
@@ -135,11 +137,8 @@ def get_download_links(page_url: str) -> dict:
 
         return links
 
-    except requests.RequestException as e:
-        logger.error(f"Error fetching page: {e}")
-        return {"pixeldrain": None, "download_now": None}
     except Exception as e:
-        logger.error(f"Error parsing page: {e}")
+        logger.error(f"Error fetching/parsing page: {e}")
         return {"pixeldrain": None, "download_now": None}
 
 
@@ -206,6 +205,7 @@ def score_getcomics_result(result_title: str, series_name: str, issue_number: st
 def find_latest_weekly_pack_url():
     """
     Find the latest weekly pack URL from getcomics.org homepage.
+    Uses cloudscraper to bypass Cloudflare protection.
 
     Searches the .cover-blog-posts section for links matching:
     <h2 class="post-title"><a href="...weekly-pack/">YYYY.MM.DD Weekly Pack</a></h2>
@@ -218,13 +218,9 @@ def find_latest_weekly_pack_url():
 
     base_url = "https://getcomics.org"
 
-    headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-    }
-
     try:
         logger.info("Fetching getcomics.org homepage to find weekly pack")
-        resp = requests.get(base_url, headers=headers, timeout=15)
+        resp = scraper.get(base_url, timeout=30)
         resp.raise_for_status()
 
         soup = BeautifulSoup(resp.text, 'html.parser')
@@ -271,28 +267,22 @@ def find_latest_weekly_pack_url():
         logger.warning("No weekly pack found on homepage")
         return (None, None)
 
-    except requests.RequestException as e:
-        logger.error(f"Error fetching homepage: {e}")
-        return (None, None)
     except Exception as e:
-        logger.error(f"Error parsing homepage for weekly pack: {e}")
+        logger.error(f"Error fetching/parsing homepage for weekly pack: {e}")
         return (None, None)
 
 
 def check_weekly_pack_availability(pack_url: str) -> bool:
     """
     Check if weekly pack download links are available yet.
+    Uses cloudscraper to bypass Cloudflare protection.
 
     Returns:
         True if download links are present, False if still pending
     """
-    headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-    }
-
     try:
         logger.info(f"Checking weekly pack availability: {pack_url}")
-        resp = requests.get(pack_url, headers=headers, timeout=15)
+        resp = scraper.get(pack_url, timeout=30)
         resp.raise_for_status()
 
         page_text = resp.text.lower()
@@ -321,17 +311,15 @@ def check_weekly_pack_availability(pack_url: str) -> bool:
         logger.info("No PIXELDRAIN links found on weekly pack page")
         return False
 
-    except requests.RequestException as e:
-        logger.error(f"Error checking pack availability: {e}")
-        return False
     except Exception as e:
-        logger.error(f"Error parsing pack page: {e}")
+        logger.error(f"Error checking pack availability: {e}")
         return False
 
 
 def parse_weekly_pack_page(pack_url: str, format_preference: str, publishers: list) -> dict:
     """
     Parse a weekly pack page and extract PIXELDRAIN download links.
+    Uses cloudscraper to bypass Cloudflare protection.
 
     Args:
         pack_url: URL of the weekly pack page
@@ -344,17 +332,13 @@ def parse_weekly_pack_page(pack_url: str, format_preference: str, publishers: li
     """
     import re
 
-    headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-    }
-
     result = {}
 
     try:
         logger.info(f"Parsing weekly pack page: {pack_url}")
         logger.info(f"Looking for format: {format_preference}, publishers: {publishers}")
 
-        resp = requests.get(pack_url, headers=headers, timeout=15)
+        resp = scraper.get(pack_url, timeout=30)
         resp.raise_for_status()
 
         soup = BeautifulSoup(resp.text, 'html.parser')
@@ -425,9 +409,6 @@ def parse_weekly_pack_page(pack_url: str, format_preference: str, publishers: li
         logger.info(f"Parsed {len(result)} publisher links from weekly pack")
         return result
 
-    except requests.RequestException as e:
-        logger.error(f"Error fetching pack page: {e}")
-        return {}
     except Exception as e:
-        logger.error(f"Error parsing pack page: {e}")
+        logger.error(f"Error fetching/parsing pack page: {e}")
         return {}

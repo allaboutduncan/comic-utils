@@ -21,6 +21,7 @@ import signal
 import base64
 
 import pixeldrain
+import cloudscraper
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
@@ -78,6 +79,25 @@ if custom_headers_str:
 
 headers = default_headers
 
+# Basic headers for internal downloads (no custom headers required)
+# Used when downloads are initiated from within the app (Pull List, Weekly Packs)
+basic_headers = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/112.0.0.0 Safari/537.36"
+    )
+}
+
+# Cloudscraper instance for bypassing Cloudflare protection on getcomics.org
+gc_scraper = cloudscraper.create_scraper(
+    browser={
+        'browser': 'chrome',
+        'platform': 'windows',
+        'desktop': True
+    }
+)
+
 # Allow cross-origin requests.
 CORS(app, resources={r"/*": {"origins": "*"}})
 
@@ -90,21 +110,32 @@ def resolve_final_url(url: str, *, hdrs=headers, max_hops: int = 6) -> str:
     that GetComics sometimes serves, stopping once we reach the real file
     host (PixelDrain, etc.).  We never download the payload – only the
     headers or a tiny bit of the HTML.
+
+    Uses cloudscraper for getcomics.org URLs to bypass Cloudflare protection.
     """
     current = url
     for _ in range(max_hops):
         try:
-            r = requests.head(current, headers=hdrs,
-                              allow_redirects=False, timeout=15)
-        except requests.RequestException:
-            # some hosts block HEAD → fall back to a very small GET
-            r = requests.get(current, headers=hdrs, stream=True,
-                             allow_redirects=False, timeout=15)
+            # Use cloudscraper for getcomics.org URLs to bypass Cloudflare
+            if 'getcomics.org' in current.lower():
+                r = gc_scraper.get(current, allow_redirects=False, timeout=30)
+            else:
+                try:
+                    r = requests.head(current, headers=hdrs,
+                                      allow_redirects=False, timeout=15)
+                except requests.RequestException:
+                    # some hosts block HEAD → fall back to a very small GET
+                    r = requests.get(current, headers=hdrs, stream=True,
+                                     allow_redirects=False, timeout=15)
+        except Exception as e:
+            monitor_logger.warning(f"Error resolving URL {current}: {e}")
+            return current
+
         # Ordinary HTTP 3xx
         if 300 <= r.status_code < 400 and 'location' in r.headers:
             current = urljoin(current, r.headers['location'])
             continue
-        # Meta-refresh (GetComics’ /dlds pages)
+        # Meta-refresh (GetComics' /dlds pages)
         if ('text/html' in r.headers.get('content-type', '') and
                 b'<meta' in r.content[:2048]):
             m = re.search(br'url=([^">]+)', r.content[:2048], flags=re.I)
@@ -123,21 +154,26 @@ def process_download(task):
     download_id = task['download_id']
     original_url  = task['url']
     dest_filename = task.get('dest_filename')
+    internal = task.get('internal', False)
+
+    # Use basic headers for internal downloads (Pull List, Weekly Packs, UI searches)
+    # Use full headers (with custom_headers_str) for external downloads (browser extension)
+    use_headers = basic_headers if internal else headers
 
     download_progress[download_id]['status'] = 'in_progress'
 
     try:
-        final_url = resolve_final_url(original_url)
-        monitor_logger.info(f"Resolved → {final_url}")
+        final_url = resolve_final_url(original_url, hdrs=use_headers)
+        monitor_logger.info(f"Resolved → {final_url} (internal={internal})")
 
         if "pixeldrain.com" in final_url:
-            file_path = download_pixeldrain(final_url, download_id, dest_filename)
+            file_path = download_pixeldrain(final_url, download_id, dest_filename, hdrs=use_headers)
         elif "comicbookplus.com" in final_url:
-            file_path = download_comicbookplus(final_url, download_id, dest_filename)
+            file_path = download_comicbookplus(final_url, download_id, dest_filename, hdrs=use_headers)
         elif "comicfiles.ru" in final_url:              # GetComics' direct host
-            file_path = download_getcomics(final_url, download_id)
+            file_path = download_getcomics(final_url, download_id, hdrs=use_headers)
         else:                                           # fall-back
-            file_path = download_getcomics(final_url, download_id)
+            file_path = download_getcomics(final_url, download_id, hdrs=use_headers)
 
         download_progress[download_id]['filename'] = file_path
         download_progress[download_id]['status']   = 'complete'
@@ -194,7 +230,17 @@ for i in range(3):
 # -------------------------------
 # Other Download Functions
 # -------------------------------
-def download_getcomics(url, download_id):
+def download_getcomics(url, download_id, hdrs=None):
+    """Download a file from GetComics or similar direct download hosts.
+
+    Args:
+        url: The download URL
+        download_id: Unique identifier for progress tracking
+        hdrs: Optional headers dict. If None, uses global headers (with custom_headers_str)
+    """
+    if hdrs is None:
+        hdrs = headers
+
     retries = 3
     delay = 2  # base delay in seconds
     last_exception = None
@@ -219,7 +265,7 @@ def download_getcomics(url, download_id):
     session.mount("https://", adapter)
 
     # Set TCP keepalive and socket options for better performance
-    session.headers.update(headers)
+    session.headers.update(hdrs)
 
     for attempt in range(retries):
         try:
@@ -427,12 +473,21 @@ def _parse_total_from_headers(hdrs, default_size=None):
             pass
     return default_size
 
-def download_pixeldrain(url: str, download_id: str, dest_name: Optional[str] = None) -> str:
+def download_pixeldrain(url: str, download_id: str, dest_name: Optional[str] = None, hdrs=None) -> str:
     """
     Download a single PixelDrain file or folder (as ZIP).
     Keeps anonymous + API-key modes, but uses the fast '?download' endpoint,
     enables resume, larger chunks, and resilient retries.
+
+    Args:
+        url: The PixelDrain URL
+        download_id: Unique identifier for progress tracking
+        dest_name: Optional destination filename
+        hdrs: Optional headers dict. If None, uses global headers (with custom_headers_str)
     """
+    if hdrs is None:
+        hdrs = headers
+
     file_id = _pd_id(url)
 
     # --- config / auth ---
@@ -451,7 +506,7 @@ def download_pixeldrain(url: str, download_id: str, dest_name: Optional[str] = N
 
     try:
         # Quick HEAD on file endpoint (if it's actually a folder we'll detect after)
-        h = session.head(file_dl_url, headers={**headers, "Accept": "application/octet-stream"},
+        h = session.head(file_dl_url, headers={**hdrs, "Accept": "application/octet-stream"},
                          auth=auth, allow_redirects=True, timeout=(10, 60))
         # PixelDrain sends filename via Content-Disposition
         cd = h.headers.get("Content-Disposition", "")
@@ -470,11 +525,11 @@ def download_pixeldrain(url: str, download_id: str, dest_name: Optional[str] = N
             if not original_name:
                 original_name = f"{file_id}.bin"
 
-    # If we didn’t know folder/file yet, do a tiny GET to folder URL to check
+    # If we didn't know folder/file yet, do a tiny GET to folder URL to check
     if not is_folder:
         try:
             # Ping the folder url; folder responses are not octet-stream for direct file
-            test = session.head(folder_dl_url, headers=headers, auth=auth,
+            test = session.head(folder_dl_url, headers=hdrs, auth=auth,
                                 allow_redirects=False, timeout=(5, 30))
             # folder zip exists if not 404
             is_folder = test.status_code != 404
@@ -506,7 +561,7 @@ def download_pixeldrain(url: str, download_id: str, dest_name: Optional[str] = N
 
     # 5) start download (bigger chunks; robust retries)
     req_headers = {
-        **headers,
+        **hdrs,
         "Accept": "application/octet-stream",
         "Connection": "keep-alive",
         "Accept-Encoding": "identity",  # avoid gzip on large binaries
@@ -586,12 +641,20 @@ def download_pixeldrain(url: str, download_id: str, dest_name: Optional[str] = N
 # -------------------------------
 # ComicBookPlus support
 # -------------------------------
-def download_comicbookplus(url: str, download_id: str, dest_name: Optional[str] = None) -> str:
+def download_comicbookplus(url: str, download_id: str, dest_name: Optional[str] = None, hdrs=None) -> str:
     """
     Download a file from comicbookplus.com.
     URL format: https://box01.comicbookplus.com/dload/?f=...&t=cbr&n=Black_Cat_01&sess=...
     The 'n' parameter contains the filename and 't' contains the extension.
+
+    Args:
+        url: The ComicBookPlus download URL
+        download_id: Unique identifier for progress tracking
+        dest_name: Optional destination filename
+        hdrs: Optional headers dict. If None, uses global headers (with custom_headers_str)
     """
+    if hdrs is None:
+        hdrs = headers
     parsed = urlparse(url)
     query_params = dict(param.split('=') for param in parsed.query.split('&') if '=' in param)
 
@@ -638,7 +701,7 @@ def download_comicbookplus(url: str, download_id: str, dest_name: Optional[str] 
     chunk_size = 1024 * 1024  # 1 MiB chunks
 
     try:
-        with session.get(url, stream=True, headers=headers,
+        with session.get(url, stream=True, headers=hdrs,
                          allow_redirects=True, timeout=(30, 300)) as r:
             r.raise_for_status()
 

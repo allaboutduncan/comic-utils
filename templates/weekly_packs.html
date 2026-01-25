@@ -105,7 +105,7 @@
 
             <!-- Schedule Configuration -->
             <div class="row mb-4">
-                <div class="col-md-4">
+                <div class="col-md-3">
                     <label for="weeklyPacksWeekday" class="form-label fw-semibold">Check Day:</label>
                     <select class="form-select" id="weeklyPacksWeekday">
                         <option value="0" {% if config and config.weekday == 0 %}selected{% endif %}>Monday</option>
@@ -120,7 +120,7 @@
                         Comics typically release on Wednesdays.
                     </small>
                 </div>
-                <div class="col-md-4">
+                <div class="col-md-3">
                     <label for="weeklyPacksTime" class="form-label fw-semibold">Check Time:</label>
                     <input type="time" class="form-control" id="weeklyPacksTime"
                         value="{{ config.time if config else '10:00' }}">
@@ -128,7 +128,15 @@
                         Time to check for packs (24-hour format).
                     </small>
                 </div>
-                <div class="col-md-4">
+                <div class="col-md-3">
+                    <label for="startDate" class="form-label fw-semibold">Start Date:</label>
+                    <input type="date" class="form-control" id="startDate"
+                        value="{{ config.start_date if config and config.start_date else '' }}">
+                    <small class="form-text text-muted">
+                        Only download packs on/after this date.
+                    </small>
+                </div>
+                <div class="col-md-3">
                     <label class="form-label fw-semibold d-block">Retry Option:</label>
                     <div class="form-check form-switch mt-2">
                         <input class="form-check-input" type="checkbox" id="retryEnabled"
@@ -252,6 +260,15 @@
 
 <script>
 document.addEventListener('DOMContentLoaded', function() {
+    // Set date picker min/max (6 months back to today)
+    const startDateInput = document.getElementById('startDate');
+    const today = new Date();
+    const sixMonthsAgo = new Date();
+    sixMonthsAgo.setDate(today.getDate() - 180);
+
+    startDateInput.max = today.toISOString().split('T')[0];
+    startDateInput.min = sixMonthsAgo.toISOString().split('T')[0];
+
     // Load current status
     loadStatus();
 
@@ -288,6 +305,10 @@ function loadStatus() {
                 if (data.last_successful_pack) {
                     document.getElementById('lastSuccessfulPack').textContent = data.last_successful_pack;
                 }
+                // Update start_date if provided
+                if (data.start_date) {
+                    document.getElementById('startDate').value = data.start_date;
+                }
             }
         })
         .catch(error => {
@@ -302,6 +323,7 @@ function saveConfig() {
     const weekday = parseInt(document.getElementById('weeklyPacksWeekday').value);
     const time = document.getElementById('weeklyPacksTime').value;
     const retryEnabled = document.getElementById('retryEnabled').checked;
+    const startDate = document.getElementById('startDate').value || null;
 
     const saveBtn = document.getElementById('saveConfig');
     saveBtn.disabled = true;
@@ -318,7 +340,8 @@ function saveConfig() {
             publishers: publishers,
             weekday: weekday,
             time: time,
-            retry_enabled: retryEnabled
+            retry_enabled: retryEnabled,
+            start_date: startDate
         })
     })
     .then(response => response.json())

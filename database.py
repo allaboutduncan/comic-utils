@@ -192,11 +192,18 @@ def init_db():
                 weekday INTEGER DEFAULT 2,
                 time TEXT NOT NULL DEFAULT '10:00',
                 retry_enabled INTEGER DEFAULT 1,
+                start_date TEXT,
                 last_run TIMESTAMP,
                 last_successful_pack TEXT,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         ''')
+
+        # Migration: Add start_date column if it doesn't exist (for existing installations)
+        try:
+            c.execute('ALTER TABLE weekly_packs_config ADD COLUMN start_date TEXT')
+        except Exception:
+            pass  # Column already exists
 
         # Insert default weekly packs config if not exists
         c.execute('SELECT COUNT(*) FROM weekly_packs_config WHERE id = 1')
@@ -1764,7 +1771,7 @@ def get_weekly_packs_config():
 
         c = conn.cursor()
         c.execute('''
-            SELECT enabled, format, publishers, weekday, time, retry_enabled, last_run, last_successful_pack
+            SELECT enabled, format, publishers, weekday, time, retry_enabled, last_run, last_successful_pack, start_date
             FROM weekly_packs_config WHERE id = 1
         ''')
         row = c.fetchone()
@@ -1779,7 +1786,8 @@ def get_weekly_packs_config():
                 'time': row[4],
                 'retry_enabled': bool(row[5]),
                 'last_run': row[6],
-                'last_successful_pack': row[7]
+                'last_successful_pack': row[7],
+                'start_date': row[8]
             }
 
         return None
@@ -1789,7 +1797,7 @@ def get_weekly_packs_config():
         return None
 
 
-def save_weekly_packs_config(enabled, format_pref, publishers, weekday, time, retry_enabled):
+def save_weekly_packs_config(enabled, format_pref, publishers, weekday, time, retry_enabled, start_date=None):
     """
     Save the Weekly Packs configuration.
 
@@ -1800,6 +1808,7 @@ def save_weekly_packs_config(enabled, format_pref, publishers, weekday, time, re
         weekday: Day of week (0=Monday, 6=Sunday)
         time: Time in HH:MM format
         retry_enabled: Boolean, whether to retry daily if links not ready
+        start_date: Optional start date in YYYY-MM-DD format (only download packs on/after this date)
 
     Returns:
         True if successful, False otherwise
@@ -1815,9 +1824,9 @@ def save_weekly_packs_config(enabled, format_pref, publishers, weekday, time, re
         c.execute('''
             UPDATE weekly_packs_config
             SET enabled = ?, format = ?, publishers = ?, weekday = ?, time = ?,
-                retry_enabled = ?, updated_at = CURRENT_TIMESTAMP
+                retry_enabled = ?, start_date = ?, updated_at = CURRENT_TIMESTAMP
             WHERE id = 1
-        ''', (int(enabled), format_pref, json.dumps(publishers), weekday, time, int(retry_enabled)))
+        ''', (int(enabled), format_pref, json.dumps(publishers), weekday, time, int(retry_enabled), start_date))
 
         conn.commit()
         conn.close()

@@ -759,7 +759,8 @@ def scheduled_getcomics_download():
                         task = {
                             'download_id': download_id,
                             'url': download_url,
-                            'dest_filename': filename
+                            'dest_filename': filename,
+                            'internal': True  # Use basic headers (no custom_headers_str required)
                         }
                         download_queue.put(task)
 
@@ -870,6 +871,16 @@ def scheduled_weekly_packs_download():
 
         app_logger.info(f"Found weekly pack: {pack_date} -> {pack_url}")
 
+        # Check if pack date is before the configured start_date
+        start_date = config.get('start_date')
+        if start_date:
+            # Convert pack_date from YYYY.MM.DD to YYYY-MM-DD for comparison
+            pack_date_normalized = pack_date.replace('.', '-')
+            if pack_date_normalized < start_date:
+                app_logger.info(f"Pack {pack_date} is before start_date {start_date}, skipping")
+                update_last_weekly_packs_run()
+                return
+
         # Check if we already downloaded this pack
         if config['last_successful_pack'] == pack_date:
             app_logger.info(f"Already downloaded pack {pack_date}, skipping")
@@ -920,7 +931,8 @@ def scheduled_weekly_packs_download():
             task = {
                 'download_id': download_id,
                 'url': pixeldrain_url,
-                'dest_filename': filename
+                'dest_filename': filename,
+                'internal': True  # Use basic headers (no custom_headers_str required)
             }
             download_queue.put(task)
 
@@ -2622,7 +2634,8 @@ def api_getcomics_download():
         task = {
             'download_id': download_id,
             'url': download_url,
-            'dest_filename': filename
+            'dest_filename': filename,
+            'internal': True  # Use basic headers (no custom_headers_str required)
         }
         download_queue.put(task)
 
@@ -3852,11 +3865,13 @@ def api_get_weekly_packs_config():
                     "publishers": [],
                     "weekday": 2,
                     "time": "10:00",
-                    "retry_enabled": True
+                    "retry_enabled": True,
+                    "start_date": None
                 },
                 "next_run": "Not scheduled",
                 "last_run": None,
-                "last_successful_pack": None
+                "last_successful_pack": None,
+                "start_date": None
             })
 
         # Calculate next run time
@@ -3879,11 +3894,13 @@ def api_get_weekly_packs_config():
                 "publishers": config['publishers'],
                 "weekday": config['weekday'],
                 "time": config['time'],
-                "retry_enabled": config['retry_enabled']
+                "retry_enabled": config['retry_enabled'],
+                "start_date": config.get('start_date')
             },
             "next_run": next_run,
             "last_run": config.get('last_run'),
-            "last_successful_pack": config.get('last_successful_pack')
+            "last_successful_pack": config.get('last_successful_pack'),
+            "start_date": config.get('start_date')
         })
     except Exception as e:
         app_logger.error(f"Failed to get weekly packs config: {e}")
@@ -3903,6 +3920,20 @@ def api_save_weekly_packs_config():
         weekday = int(data.get('weekday', 2))
         time_str = data.get('time', '10:00')
         retry_enabled = bool(data.get('retry_enabled', True))
+        start_date = data.get('start_date')  # Optional YYYY-MM-DD format
+
+        # Validate start_date if provided
+        if start_date:
+            try:
+                from datetime import datetime, timedelta
+                parsed_date = datetime.strptime(start_date, '%Y-%m-%d')
+                # Validate it's within 6 months back to current
+                now = datetime.now()
+                six_months_ago = now - timedelta(days=180)
+                if parsed_date < six_months_ago or parsed_date > now:
+                    return jsonify({"success": False, "error": "Start date must be within the last 6 months"}), 400
+            except ValueError:
+                return jsonify({"success": False, "error": "Invalid start_date format. Use YYYY-MM-DD"}), 400
 
         # Validate format
         if format_pref not in ['JPG', 'WEBP']:
@@ -3926,7 +3957,7 @@ def api_save_weekly_packs_config():
             return jsonify({"success": False, "error": "Invalid weekday. Use 0-6 (Mon-Sun)"}), 400
 
         # Save to database
-        if not save_weekly_packs_config(enabled, format_pref, publishers, weekday, time_str, retry_enabled):
+        if not save_weekly_packs_config(enabled, format_pref, publishers, weekday, time_str, retry_enabled, start_date):
             return jsonify({"success": False, "error": "Failed to save config to database"}), 500
 
         # Reconfigure the scheduler
