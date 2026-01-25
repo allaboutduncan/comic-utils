@@ -839,10 +839,12 @@ def scheduled_weekly_packs_download():
     """Auto-download weekly packs from GetComics on schedule."""
     try:
         from database import (get_weekly_packs_config, update_last_weekly_packs_run,
-                              log_weekly_pack_download, save_getcomics_schedule)
+                              log_weekly_pack_download, is_weekly_pack_downloaded)
         from models.getcomics import (find_latest_weekly_pack_url, check_weekly_pack_availability,
-                                      parse_weekly_pack_page)
+                                      parse_weekly_pack_page, get_weekly_pack_url_for_date,
+                                      get_weekly_pack_dates_in_range)
         from api import download_queue, download_progress
+        from datetime import datetime
         import uuid
 
         app_logger.info("📦 Starting scheduled Weekly Packs download...")
@@ -862,91 +864,134 @@ def scheduled_weekly_packs_download():
             app_logger.info("No publishers selected for weekly packs, skipping")
             return
 
-        # Find the latest weekly pack URL
-        pack_url, pack_date = find_latest_weekly_pack_url()
-        if not pack_url or not pack_date:
-            app_logger.warning("Could not find weekly pack on GetComics homepage")
-            update_last_weekly_packs_run()
-            return
-
-        app_logger.info(f"Found weekly pack: {pack_date} -> {pack_url}")
-
-        # Check if pack date is before the configured start_date
+        format_pref = config['format']
+        publishers = config['publishers']
         start_date = config.get('start_date')
+        total_download_count = 0
+        latest_successful_pack = None
+        any_not_ready = False
+
+        # If start_date is set, check all weeks in range
         if start_date:
-            # Convert pack_date from YYYY.MM.DD to YYYY-MM-DD for comparison
-            pack_date_normalized = pack_date.replace('.', '-')
-            if pack_date_normalized < start_date:
-                app_logger.info(f"Pack {pack_date} is before start_date {start_date}, skipping")
+            today = datetime.now().strftime('%Y-%m-%d')
+            pack_dates = get_weekly_pack_dates_in_range(start_date, today)
+            app_logger.info(f"Checking {len(pack_dates)} potential pack dates from {start_date} to {today}")
+
+            for pack_date in pack_dates:
+                # Check if all publishers for this pack have been downloaded
+                all_downloaded = all(
+                    is_weekly_pack_downloaded(pack_date, pub, format_pref)
+                    for pub in publishers
+                )
+                if all_downloaded:
+                    app_logger.debug(f"Pack {pack_date} already downloaded for all publishers, skipping")
+                    continue
+
+                # Construct URL and check availability
+                pack_url = get_weekly_pack_url_for_date(pack_date)
+                app_logger.info(f"Checking pack {pack_date} -> {pack_url}")
+
+                if not check_weekly_pack_availability(pack_url):
+                    app_logger.info(f"Pack {pack_date} links not ready yet")
+                    any_not_ready = True
+                    continue
+
+                # Parse download links
+                download_links = parse_weekly_pack_page(pack_url, format_pref, publishers)
+                if not download_links:
+                    app_logger.warning(f"No download links found for {pack_date}")
+                    continue
+
+                # Queue downloads for publishers not yet downloaded
+                for publisher, pixeldrain_url in download_links.items():
+                    if is_weekly_pack_downloaded(pack_date, publisher, format_pref):
+                        app_logger.debug(f"Already downloaded {pack_date} {publisher}, skipping")
+                        continue
+
+                    filename = f"{pack_date} {publisher} Week ({format_pref}).zip"
+                    filename = filename.replace('/', '-').replace('\\', '-')
+                    download_id = str(uuid.uuid4())
+
+                    download_progress[download_id] = {
+                        'url': pixeldrain_url,
+                        'progress': 0,
+                        'bytes_total': 0,
+                        'bytes_downloaded': 0,
+                        'status': 'queued',
+                        'filename': filename,
+                        'error': None,
+                    }
+
+                    task = {
+                        'download_id': download_id,
+                        'url': pixeldrain_url,
+                        'dest_filename': filename,
+                        'internal': True
+                    }
+                    download_queue.put(task)
+                    log_weekly_pack_download(pack_date, publisher, format_pref, pixeldrain_url, 'queued')
+                    total_download_count += 1
+                    latest_successful_pack = pack_date
+                    app_logger.info(f"📥 Queued weekly pack download: {filename}")
+
+        else:
+            # No start_date: just check the latest pack from homepage
+            pack_url, pack_date = find_latest_weekly_pack_url()
+            if not pack_url or not pack_date:
+                app_logger.warning("Could not find weekly pack on GetComics homepage")
                 update_last_weekly_packs_run()
                 return
 
-        # Check if we already downloaded this pack
-        if config['last_successful_pack'] == pack_date:
-            app_logger.info(f"Already downloaded pack {pack_date}, skipping")
-            update_last_weekly_packs_run()
-            return
+            app_logger.info(f"Found weekly pack: {pack_date} -> {pack_url}")
 
-        # Check if links are available
-        if not check_weekly_pack_availability(pack_url):
-            app_logger.info(f"Weekly pack {pack_date} links not ready yet")
-            update_last_weekly_packs_run()
+            # Check if we already downloaded this pack
+            if config['last_successful_pack'] == pack_date:
+                app_logger.info(f"Already downloaded pack {pack_date}, skipping")
+                update_last_weekly_packs_run()
+                return
 
-            # Schedule retry for tomorrow if enabled
-            if config['retry_enabled']:
-                schedule_weekly_packs_retry()
-            return
+            if not check_weekly_pack_availability(pack_url):
+                app_logger.info(f"Weekly pack {pack_date} links not ready yet")
+                any_not_ready = True
+            else:
+                download_links = parse_weekly_pack_page(pack_url, format_pref, publishers)
+                if download_links:
+                    for publisher, pixeldrain_url in download_links.items():
+                        filename = f"{pack_date} {publisher} Week ({format_pref}).zip"
+                        filename = filename.replace('/', '-').replace('\\', '-')
+                        download_id = str(uuid.uuid4())
 
-        # Parse the page for download links
-        format_pref = config['format']
-        publishers = config['publishers']
-        download_links = parse_weekly_pack_page(pack_url, format_pref, publishers)
+                        download_progress[download_id] = {
+                            'url': pixeldrain_url,
+                            'progress': 0,
+                            'bytes_total': 0,
+                            'bytes_downloaded': 0,
+                            'status': 'queued',
+                            'filename': filename,
+                            'error': None,
+                        }
 
-        if not download_links:
-            app_logger.warning(f"No download links found for {pack_date}")
-            update_last_weekly_packs_run()
-            return
+                        task = {
+                            'download_id': download_id,
+                            'url': pixeldrain_url,
+                            'dest_filename': filename,
+                            'internal': True
+                        }
+                        download_queue.put(task)
+                        log_weekly_pack_download(pack_date, publisher, format_pref, pixeldrain_url, 'queued')
+                        total_download_count += 1
+                        latest_successful_pack = pack_date
+                        app_logger.info(f"📥 Queued weekly pack download: {filename}")
 
-        # Queue downloads for each publisher
-        download_count = 0
-        for publisher, pixeldrain_url in download_links.items():
-            # Generate filename
-            filename = f"{pack_date} {publisher} Week ({format_pref}).zip"
-            filename = filename.replace('/', '-').replace('\\', '-')
+        # Update last run timestamp
+        update_last_weekly_packs_run(latest_successful_pack)
 
-            download_id = str(uuid.uuid4())
-
-            # Set up progress tracking
-            download_progress[download_id] = {
-                'url': pixeldrain_url,
-                'progress': 0,
-                'bytes_total': 0,
-                'bytes_downloaded': 0,
-                'status': 'queued',
-                'filename': filename,
-                'error': None,
-            }
-
-            # Queue task
-            task = {
-                'download_id': download_id,
-                'url': pixeldrain_url,
-                'dest_filename': filename,
-                'internal': True  # Use basic headers (no custom_headers_str required)
-            }
-            download_queue.put(task)
-
-            # Log to history
-            log_weekly_pack_download(pack_date, publisher, format_pref, pixeldrain_url, 'queued')
-
-            download_count += 1
-            app_logger.info(f"📥 Queued weekly pack download: {filename}")
-
-        # Update last run and successful pack date
-        update_last_weekly_packs_run(pack_date)
+        # Schedule retry if any packs weren't ready
+        if any_not_ready and config['retry_enabled']:
+            schedule_weekly_packs_retry()
 
         elapsed = time.time() - start_time
-        app_logger.info(f"✅ Weekly packs download completed in {elapsed:.2f}s ({download_count} packs queued)")
+        app_logger.info(f"✅ Weekly packs download completed in {elapsed:.2f}s ({total_download_count} packs queued)")
 
     except Exception as e:
         app_logger.error(f"❌ Weekly packs download failed: {e}")

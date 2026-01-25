@@ -202,6 +202,52 @@ def score_getcomics_result(result_title: str, series_name: str, issue_number: st
 #   Weekly Packs        #
 #########################
 
+def get_weekly_pack_url_for_date(pack_date: str) -> str:
+    """
+    Generate the GetComics weekly pack URL for a specific date.
+
+    Args:
+        pack_date: Date in YYYY.MM.DD or YYYY-MM-DD format
+
+    Returns:
+        URL string like https://getcomics.org/other-comics/2026-01-14-weekly-pack/
+    """
+    # Normalize date to YYYY-MM-DD format
+    normalized = pack_date.replace('.', '-')
+    return f"https://getcomics.org/other-comics/{normalized}-weekly-pack/"
+
+
+def get_weekly_pack_dates_in_range(start_date: str, end_date: str) -> list:
+    """
+    Generate list of weekly pack dates between start_date and end_date.
+    Weekly packs are released on Wednesdays (or Tuesdays sometimes).
+
+    Args:
+        start_date: Start date in YYYY-MM-DD format
+        end_date: End date in YYYY-MM-DD format
+
+    Returns:
+        List of date strings in YYYY.MM.DD format (newest first)
+    """
+    from datetime import datetime, timedelta
+
+    start = datetime.strptime(start_date, '%Y-%m-%d')
+    end = datetime.strptime(end_date, '%Y-%m-%d')
+
+    # Find all Wednesdays in the range (weekly packs typically release Wed)
+    # Also include Tuesdays as some packs release then
+    dates = []
+    current = end
+
+    while current >= start:
+        # Check if this is a Tuesday (1) or Wednesday (2)
+        if current.weekday() in [1, 2]:  # Tuesday or Wednesday
+            dates.append(current.strftime('%Y.%m.%d'))
+        current -= timedelta(days=1)
+
+    return dates
+
+
 def find_latest_weekly_pack_url():
     """
     Find the latest weekly pack URL from getcomics.org homepage.

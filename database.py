@@ -1950,6 +1950,39 @@ def update_weekly_pack_status(pack_date, publisher, format_pref, status):
         return False
 
 
+def is_weekly_pack_downloaded(pack_date: str, publisher: str, format_pref: str) -> bool:
+    """
+    Check if a specific weekly pack has already been downloaded.
+
+    Args:
+        pack_date: Pack date in YYYY.MM.DD format
+        publisher: Publisher name (DC, Marvel, Image, INDIE)
+        format_pref: Format (JPG or WEBP)
+
+    Returns:
+        True if already downloaded (status is 'queued' or 'completed'), False otherwise
+    """
+    try:
+        conn = get_db_connection()
+        if not conn:
+            return False
+
+        c = conn.cursor()
+        c.execute('''
+            SELECT COUNT(*) FROM weekly_packs_history
+            WHERE pack_date = ? AND publisher = ? AND format = ?
+            AND status IN ('queued', 'completed', 'downloading')
+        ''', (pack_date, publisher, format_pref))
+        count = c.fetchone()[0]
+        conn.close()
+
+        return count > 0
+
+    except Exception as e:
+        app_logger.error(f"Failed to check weekly pack status: {e}")
+        return False
+
+
 def get_weekly_packs_history(limit=20):
     """
     Get recent weekly pack download history.
