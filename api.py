@@ -155,12 +155,29 @@ def process_download(task):
     original_url  = task['url']
     dest_filename = task.get('dest_filename')
     internal = task.get('internal', False)
+    weekly_pack_info = task.get('weekly_pack_info')  # Optional: for weekly pack status updates
 
     # Use basic headers for internal downloads (Pull List, Weekly Packs, UI searches)
     # Use full headers (with custom_headers_str) for external downloads (browser extension)
     use_headers = basic_headers if internal else headers
 
     download_progress[download_id]['status'] = 'in_progress'
+    monitor_logger.info(f"Processing download: {download_id}, weekly_pack_info={weekly_pack_info is not None}")
+
+    # Update weekly pack status to 'downloading' if applicable
+    if weekly_pack_info:
+        try:
+            from database import log_weekly_pack_download
+            monitor_logger.info(f"Updating weekly pack status to 'downloading': {weekly_pack_info}")
+            log_weekly_pack_download(
+                weekly_pack_info['pack_date'],
+                weekly_pack_info['publisher'],
+                weekly_pack_info['format'],
+                original_url,
+                'downloading'
+            )
+        except Exception as e:
+            monitor_logger.error(f"Error updating weekly pack status to downloading: {e}")
 
     try:
         final_url = resolve_final_url(original_url, hdrs=use_headers)
@@ -177,6 +194,21 @@ def process_download(task):
 
         download_progress[download_id]['filename'] = file_path
         download_progress[download_id]['status']   = 'complete'
+
+        # Update weekly pack status to 'completed' if applicable
+        if weekly_pack_info:
+            try:
+                from database import log_weekly_pack_download
+                monitor_logger.info(f"Updating weekly pack status to 'completed': {weekly_pack_info}")
+                log_weekly_pack_download(
+                    weekly_pack_info['pack_date'],
+                    weekly_pack_info['publisher'],
+                    weekly_pack_info['format'],
+                    original_url,
+                    'completed'
+                )
+            except Exception as e:
+                monitor_logger.error(f"Error updating weekly pack status to completed: {e}")
 
         # Wait for WATCH folder to be empty, then check wanted issues
         def check_wanted_after_watch_empty():
@@ -211,6 +243,20 @@ def process_download(task):
         monitor_logger.error(f"Error during background download: {e}")
         download_progress[download_id]['status']   = 'error'
         download_progress[download_id]['error'] = str(e)
+
+        # Update weekly pack status to 'failed' if applicable
+        if weekly_pack_info:
+            try:
+                from database import log_weekly_pack_download
+                log_weekly_pack_download(
+                    weekly_pack_info['pack_date'],
+                    weekly_pack_info['publisher'],
+                    weekly_pack_info['format'],
+                    original_url,
+                    'failed'
+                )
+            except Exception as e2:
+                monitor_logger.error(f"Error updating weekly pack status to failed: {e2}")
 
 def worker():
     while True:

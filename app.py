@@ -926,7 +926,12 @@ def scheduled_weekly_packs_download():
                         'download_id': download_id,
                         'url': pixeldrain_url,
                         'dest_filename': filename,
-                        'internal': True
+                        'internal': True,
+                        'weekly_pack_info': {
+                            'pack_date': pack_date,
+                            'publisher': publisher,
+                            'format': format_pref
+                        }
                     }
                     download_queue.put(task)
                     log_weekly_pack_download(pack_date, publisher, format_pref, pixeldrain_url, 'queued')
@@ -975,7 +980,12 @@ def scheduled_weekly_packs_download():
                             'download_id': download_id,
                             'url': pixeldrain_url,
                             'dest_filename': filename,
-                            'internal': True
+                            'internal': True,
+                            'weekly_pack_info': {
+                                'pack_date': pack_date,
+                                'publisher': publisher,
+                                'format': format_pref
+                            }
                         }
                         download_queue.put(task)
                         log_weekly_pack_download(pack_date, publisher, format_pref, pixeldrain_url, 'queued')
