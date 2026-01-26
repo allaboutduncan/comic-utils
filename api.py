@@ -184,12 +184,19 @@ def process_download(task):
         monitor_logger.info(f"Resolved → {final_url} (internal={internal})")
 
         if "pixeldrain.com" in final_url:
+            monitor_logger.debug(f"Routing to: download_pixeldrain")
             file_path = download_pixeldrain(final_url, download_id, dest_filename, hdrs=use_headers)
         elif "comicbookplus.com" in final_url:
+            monitor_logger.debug(f"Routing to: download_comicbookplus")
             file_path = download_comicbookplus(final_url, download_id, dest_filename, hdrs=use_headers)
         elif "comicfiles.ru" in final_url:              # GetComics' direct host
+            monitor_logger.debug(f"Routing to: download_getcomics (comicfiles.ru)")
             file_path = download_getcomics(final_url, download_id, hdrs=use_headers)
+        elif "mega.nz" in final_url or "mega.co.nz" in final_url:  # MEGA
+            monitor_logger.debug(f"Routing to: download_mega")
+            file_path = download_mega(final_url, download_id, dest_filename, hdrs=use_headers)
         else:                                           # fall-back
+            monitor_logger.debug(f"Routing to: download_getcomics (fallback)")
             file_path = download_getcomics(final_url, download_id, hdrs=use_headers)
 
         download_progress[download_id]['filename'] = file_path
@@ -809,6 +816,106 @@ def download_comicbookplus(url: str, download_id: str, dest_name: Optional[str] 
         raise
     finally:
         session.close()
+
+
+def download_mega(url: str, download_id: str, dest_name: Optional[str] = None, hdrs=None) -> str:
+    """
+    Download a file from mega.nz using the MegaDownloader class.
+
+    Args:
+        url: The MEGA download URL (mega.nz or mega.co.nz)
+        download_id: Unique identifier for progress tracking
+        dest_name: Optional destination filename override
+        hdrs: Headers dict (not used by MEGA but kept for API consistency)
+
+    Returns:
+        str: Full path to downloaded file
+    """
+    monitor_logger.info(f"download_mega called: url={url}, download_id={download_id}, dest_name={dest_name}")
+
+    try:
+        from models.mega import MegaDownloader
+        monitor_logger.debug("MegaDownloader imported successfully")
+    except ImportError as e:
+        monitor_logger.error(f"Failed to import MegaDownloader: {e}")
+        raise Exception(f"MEGA module not available: {e}")
+
+    try:
+        # Initialize MEGA downloader and get metadata
+        monitor_logger.debug(f"Initializing MegaDownloader with URL: {url}")
+        mega_dl = MegaDownloader(url)
+        monitor_logger.debug("MegaDownloader initialized, fetching metadata...")
+
+        meta = mega_dl.get_metadata()
+        monitor_logger.debug(f"Metadata received: {meta}")
+
+        # Determine filename
+        original_filename = meta['filename']
+        filename = dest_name if dest_name else original_filename
+        total_size = meta['size']
+
+        monitor_logger.info(f"MEGA file: {filename} ({total_size / 1024 / 1024:.2f} MB)")
+
+        # Resolve output path (handle duplicates)
+        out_path = os.path.join(DOWNLOAD_DIR, filename)
+        base, ext = os.path.splitext(out_path)
+        n = 1
+        while os.path.exists(out_path):
+            out_path = f"{base}_{n}{ext}"
+            n += 1
+
+        monitor_logger.debug(f"Output path: {out_path}")
+
+        # Initialize progress tracking
+        download_progress[download_id].update({
+            'filename': out_path,
+            'progress': 0,
+            'bytes_downloaded': 0,
+            'bytes_total': total_size,
+            'status': 'in_progress'
+        })
+        monitor_logger.debug(f"Progress tracking initialized for {download_id}")
+
+        # Progress callback that updates download_progress and checks cancellation
+        def progress_callback(downloaded_bytes, total_bytes, percent):
+            # Check for cancellation
+            if download_progress.get(download_id, {}).get('cancelled'):
+                monitor_logger.info(f"Cancellation requested for {download_id}")
+                return False  # Signal cancellation
+
+            download_progress[download_id]['bytes_downloaded'] = downloaded_bytes
+            download_progress[download_id]['progress'] = int(percent)
+            return True  # Continue download
+
+        # Download to DOWNLOAD_DIR, MegaDownloader handles decryption
+        monitor_logger.debug(f"Starting MEGA download to {DOWNLOAD_DIR}")
+        result_path = mega_dl.download(DOWNLOAD_DIR, progress_callback=progress_callback)
+        monitor_logger.debug(f"Download returned path: {result_path}")
+
+        # If dest_name was specified, rename the file
+        if result_path != out_path:
+            monitor_logger.debug(f"Renaming {result_path} to {out_path}")
+            os.replace(result_path, out_path)
+            result_path = out_path
+
+        download_progress[download_id]['progress'] = 100
+        download_progress[download_id]['filename'] = result_path
+        monitor_logger.info(f"MEGA download complete: {result_path}")
+
+        return result_path
+
+    except Exception as e:
+        import traceback
+        error_msg = str(e)
+        monitor_logger.error(f"MEGA download failed: {error_msg}")
+        monitor_logger.error(f"Traceback: {traceback.format_exc()}")
+
+        if "cancelled" in error_msg.lower():
+            download_progress[download_id]['status'] = 'cancelled'
+        else:
+            download_progress[download_id]['status'] = 'error'
+            download_progress[download_id]['error'] = error_msg
+        raise
 
 # -------------------------------
 # API Endpoints
