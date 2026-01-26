@@ -398,9 +398,15 @@ function refreshCollectionStatus() {
                         const storeDate = storeDateCell ? storeDateCell.textContent.trim() : '';
                         const isUpcoming = storeDate && storeDate !== '-' && storeDate > today;
 
-                        if (status) {
+                        // Check for manual status
+                        const manualStatus = data.manual_status ? (data.manual_status[issueNum] || data.manual_status[rawIssueNum]) : null;
+                        const hasManual = manualStatus && manualStatus.status;
+
+                        if (status || hasManual) {
                             // Update row class based on status
-                            if (status.found) {
+                            if (status && status.found) {
+                                row.className = 'table-success';
+                            } else if (hasManual) {
                                 row.className = 'table-success';
                             } else if (isUpcoming) {
                                 row.className = 'table-info';
@@ -409,12 +415,28 @@ function refreshCollectionStatus() {
                             }
 
                             // Update cell content with icon and wanted badge
-                            const iconClass = status.found ? 'check-circle-fill' : 'x-circle-fill';
                             const paddedNum = /^\d+$/.test(rawIssueNum) ? rawIssueNum : rawIssueNum;
-                            let cellHtml = `<i class="bi bi-${iconClass} me-1"></i>#${paddedNum}`;
+                            let iconClass, iconTitle, iconColor;
 
-                            // Add "Wanted" badge if not found
-                            if (!status.found) {
+                            if (status && status.found) {
+                                iconClass = 'check-circle-fill';
+                                iconTitle = 'Found in collection';
+                                iconColor = 'text-success';
+                            } else if (hasManual) {
+                                iconClass = manualStatus.status === 'owned' ? 'bookmark-check-fill' : 'skip-forward-circle-fill';
+                                iconTitle = manualStatus.status === 'owned' ? 'Owned' : 'Skipped';
+                                if (manualStatus.notes) iconTitle += ': ' + manualStatus.notes;
+                                iconColor = 'text-success';
+                            } else {
+                                iconClass = 'x-circle-fill';
+                                iconTitle = 'Not found';
+                                iconColor = 'text-danger';
+                            }
+
+                            let cellHtml = `<i class="bi bi-${iconClass} ${iconColor} me-1" title="${iconTitle}"></i>#${paddedNum}`;
+
+                            // Add "Wanted" badge if not found and not manually marked and not upcoming
+                            if ((!status || !status.found) && !hasManual && !isUpcoming) {
                                 cellHtml += '<span class="badge bg-warning text-dark ms-2">Wanted</span>';
                             }
 
@@ -422,7 +444,7 @@ function refreshCollectionStatus() {
 
                             // Update action buttons
                             if (actionCell) {
-                                if (status.found && status.file_path) {
+                                if (status && status.found && status.file_path) {
                                     const escapedPath = status.file_path.replace(/\\/g, '/').replace(/'/g, "\\'");
                                     actionCell.innerHTML = `
                                         <div class="btn-group" role="group">
@@ -466,8 +488,41 @@ function refreshCollectionStatus() {
                                             </div>
                                         </div>
                                     `;
+                                } else if (hasManual) {
+                                    // Manually marked - show clear button
+                                    actionCell.innerHTML = `
+                                        <button class="btn btn-sm btn-outline-secondary"
+                                            onclick="clearManualStatus('${issueNum}')"
+                                            title="Clear ${manualStatus.status} status">
+                                            <i class="bi bi-arrow-counterclockwise"></i>
+                                        </button>
+                                    `;
                                 } else {
-                                    actionCell.innerHTML = '<span class="text-muted">-</span>';
+                                    // Not found - show search with mark dropdown
+                                    const seriesName = seriesData.name ? seriesData.name.replace(/'/g, "\\'") : '';
+                                    actionCell.innerHTML = `
+                                        <div class="btn-group" role="group">
+                                            <button class="btn btn-sm btn-outline-primary"
+                                                onclick="searchGetComics('${seriesName}', '${issueNum}')"
+                                                title="Search GetComics">
+                                                <i class="bi bi-search"></i>
+                                            </button>
+                                            <button class="btn btn-sm btn-outline-secondary dropdown-toggle dropdown-toggle-split"
+                                                data-bs-toggle="dropdown" aria-expanded="false" title="Mark issue">
+                                                <span class="visually-hidden">Toggle Dropdown</span>
+                                            </button>
+                                            <ul class="dropdown-menu dropdown-menu-end shadow">
+                                                <li><a class="dropdown-item" href="#"
+                                                        onclick="markIssue('${issueNum}', 'owned'); return false;">
+                                                        <i class="bi bi-bookmark-check me-2"></i>Mark as Owned
+                                                    </a></li>
+                                                <li><a class="dropdown-item" href="#"
+                                                        onclick="markIssue('${issueNum}', 'skipped'); return false;">
+                                                        <i class="bi bi-skip-forward-circle me-2"></i>Mark as Skipped
+                                                    </a></li>
+                                            </ul>
+                                        </div>
+                                    `;
                                 }
                             }
                         }
@@ -477,12 +532,22 @@ function refreshCollectionStatus() {
                 // Update footer counts
                 const footer = document.querySelector('#issues .card-footer small:first-child');
                 if (footer) {
-                    const wantedCount = data.total_count - data.found_count;
-                    footer.innerHTML = `
+                    const manualCount = data.manual_count || 0;
+                    const wantedCount = data.missing_count || (data.total_count - data.found_count - manualCount);
+                    let footerHtml = `
                         <span class="text-success"><i class="bi bi-check-circle-fill me-1"></i>${data.found_count} found</span>
+                    `;
+                    if (manualCount > 0) {
+                        footerHtml += `
+                            <span class="mx-2">|</span>
+                            <span class="text-success"><i class="bi bi-bookmark-check me-1"></i>${manualCount} marked</span>
+                        `;
+                    }
+                    footerHtml += `
                         <span class="mx-2">|</span>
                         <span class="text-warning"><i class="bi bi-star-fill me-1"></i>${wantedCount} wanted</span>
                     `;
+                    footer.innerHTML = footerHtml;
                 }
 
             } else {
@@ -538,5 +603,166 @@ function hideProgressIndicator() {
     const progressContainer = document.getElementById('progress-container');
     if (progressContainer) {
         progressContainer.style.display = 'none';
+    }
+}
+
+/**
+ * Open the mark issue modal
+ * @param {string} issueNumber - Issue number to mark
+ * @param {string} status - 'owned' or 'skipped'
+ */
+function markIssue(issueNumber, status) {
+    document.getElementById('markIssueNumber').value = issueNumber;
+    document.getElementById('markNotes').value = '';
+
+    // Set the status radio button
+    if (status === 'skipped') {
+        document.getElementById('markSkipped').checked = true;
+    } else {
+        document.getElementById('markOwned').checked = true;
+    }
+
+    const modal = new bootstrap.Modal(document.getElementById('markIssueModal'));
+    modal.show();
+}
+
+/**
+ * Submit the mark issue form
+ */
+function submitMarkIssue() {
+    if (!seriesData || !seriesData.id) {
+        console.error('No series data available');
+        return;
+    }
+
+    const issueNumber = document.getElementById('markIssueNumber').value;
+    const status = document.querySelector('input[name="markStatus"]:checked').value;
+    const notes = document.getElementById('markNotes').value.trim();
+
+    fetch(`/api/series/${seriesData.id}/issue/${issueNumber}/manual-status`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            status: status,
+            notes: notes || null
+        })
+    })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                // Close modal
+                bootstrap.Modal.getInstance(document.getElementById('markIssueModal')).hide();
+
+                // Update the row in the table
+                updateIssueRow(issueNumber, status, notes);
+
+                // Show success toast or notification
+                console.log(`Issue #${issueNumber} marked as ${status}`);
+            } else {
+                alert('Failed to mark issue: ' + (data.error || 'Unknown error'));
+            }
+        })
+        .catch(error => {
+            console.error('Error marking issue:', error);
+            alert('Error marking issue');
+        });
+}
+
+/**
+ * Clear manual status for an issue
+ * @param {string} issueNumber - Issue number to clear
+ */
+function clearManualStatus(issueNumber) {
+    if (!seriesData || !seriesData.id) {
+        console.error('No series data available');
+        return;
+    }
+
+    fetch(`/api/series/${seriesData.id}/issue/${issueNumber}/manual-status`, {
+        method: 'DELETE'
+    })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                // Refresh to show updated status
+                refreshCollectionStatus();
+            } else {
+                alert('Failed to clear status: ' + (data.error || 'Unknown error'));
+            }
+        })
+        .catch(error => {
+            console.error('Error clearing status:', error);
+            alert('Error clearing status');
+        });
+}
+
+/**
+ * Update a single issue row after marking
+ * @param {string} issueNumber - Issue number
+ * @param {string} status - 'owned' or 'skipped'
+ * @param {string} notes - Optional notes
+ */
+function updateIssueRow(issueNumber, status, notes) {
+    // Find the row by data attribute
+    const row = document.querySelector(`tr[data-issue-number="${issueNumber}"]`);
+    if (!row) {
+        // Fallback: refresh the whole collection status
+        refreshCollectionStatus();
+        return;
+    }
+
+    // Update row class to success (green)
+    row.className = 'table-success';
+
+    // Update the icon in the first cell
+    const firstCell = row.querySelector('td:first-child');
+    if (firstCell) {
+        const icon = firstCell.querySelector('i');
+        if (icon) {
+            const iconClass = status === 'owned' ? 'bookmark-check-fill' : 'skip-forward-circle-fill';
+            const title = status === 'owned' ? 'Owned' : 'Skipped';
+            icon.className = `bi bi-${iconClass} text-success me-1`;
+            icon.title = notes ? `${title}: ${notes}` : title;
+        }
+
+        // Remove "Wanted" badge if present
+        const wantedBadge = firstCell.querySelector('.badge');
+        if (wantedBadge) {
+            wantedBadge.remove();
+        }
+    }
+
+    // Update action cell to show clear button
+    const actionCell = row.querySelector('td:last-child');
+    if (actionCell) {
+        actionCell.innerHTML = `
+            <button class="btn btn-sm btn-outline-secondary"
+                onclick="clearManualStatus('${issueNumber}')"
+                title="Clear ${status} status">
+                <i class="bi bi-arrow-counterclockwise"></i>
+            </button>
+        `;
+    }
+
+    // Update footer counts
+    updateFooterCounts();
+}
+
+/**
+ * Update the footer counts after marking/clearing an issue
+ */
+function updateFooterCounts() {
+    // Count rows by class
+    const successRows = document.querySelectorAll('#issues tbody tr.table-success').length;
+    const dangerRows = document.querySelectorAll('#issues tbody tr.table-danger').length;
+    const totalRows = document.querySelectorAll('#issues tbody tr').length;
+
+    // Update footer - this is a simplified version, full refresh might be better
+    const footer = document.querySelector('.card-footer small');
+    if (footer) {
+        // Refresh the whole collection status for accurate counts
+        refreshCollectionStatus();
     }
 }

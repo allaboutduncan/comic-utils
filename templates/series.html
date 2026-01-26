@@ -230,23 +230,35 @@
                     <tbody>
                         {% for issue in issues|reverse %}
                         {% set status = issue_status.get(issue.number|string, {}) if issue_status else {} %}
+                        {% set manual = manual_status.get(issue.number|string, {}) if manual_status else {} %}
+                        {% set has_manual = manual.get('status') %}
                         {% set is_upcoming = issue.store_date and (issue.store_date|string) > today %}
-                        <tr
-                            class="{% if mapped_path %}{% if status.get('found') %}table-success{% elif is_upcoming %}table-info{% else %}table-danger{% endif %}{% endif %}">
+                        <tr data-issue-number="{{ issue.number }}"
+                            class="{% if mapped_path %}{% if status.get('found') or has_manual %}table-success{% elif is_upcoming %}table-info{% else %}table-danger{% endif %}{% endif %}">
                             <td class="ps-4 fw-bold">
                                 {% if mapped_path %}
-                                <i
-                                    class="bi bi-{% if status.get('found') %}check-circle-fill{% else %}x-circle-fill{% endif %} me-1"></i>
+                                {% if status.get('found') %}
+                                <i class="bi bi-check-circle-fill text-success me-1" title="Found in collection"></i>
+                                {% elif has_manual == 'owned' %}
+                                <i class="bi bi-bookmark-check-fill text-success me-1"
+                                    title="Owned{% if manual.notes %}: {{ manual.notes }}{% endif %}"></i>
+                                {% elif has_manual == 'skipped' %}
+                                <i class="bi bi-skip-forward-circle-fill text-success me-1"
+                                    title="Skipped{% if manual.notes %}: {{ manual.notes }}{% endif %}"></i>
+                                {% else %}
+                                <i class="bi bi-x-circle-fill text-danger me-1" title="Not found"></i>
+                                {% endif %}
                                 {% endif %}
                                 #{{ '%03d'|format(issue.number|int) if issue.number|int|string == issue.number|string
                                 else issue.number }}
-                                {% if mapped_path and not status.get('found') %}
+                                {% if mapped_path and not status.get('found') and not has_manual and not is_upcoming %}
                                 <span class="badge bg-warning text-dark ms-2">Wanted</span>
                                 {% endif %}
                             </td>
                             <td>{{ issue.store_date or '-' }}</td>
                             <td class="text-end pe-4">
                                 {% if mapped_path and status.get('found') and status.get('file_path') %}
+                                <!-- Found in collection - show file actions -->
                                 <div class="btn-group" role="group">
                                     <button type="button" class="btn btn-sm btn-outline-info text-info"
                                         onclick="viewIssueFile('{{ status.get('file_path')|replace('\\', '/')|e }}', '{{ issue.number }}')"
@@ -287,12 +299,38 @@
                                         </ul>
                                     </div>
                                 </div>
-                                {% else %}
-                                <button class="btn btn-sm btn-outline-primary"
-                                    onclick="searchGetComics('{{ series.name|e }}', '{{ issue.number }}')"
-                                    title="Search GetComics">
-                                    <i class="bi bi-search"></i>
+                                {% elif mapped_path and has_manual %}
+                                <!-- Manually marked as owned/skipped - show clear button -->
+                                <button class="btn btn-sm btn-outline-dark"
+                                    onclick="clearManualStatus('{{ issue.number }}')"
+                                    title="Clear {{ manual.status }} status">
+                                    <i class="bi bi-x-circle"></i>
                                 </button>
+                                {% else %}
+                                <!-- Not found - show search with mark dropdown -->
+                                <div class="btn-group" role="group">
+                                    <button class="btn btn-sm btn-outline-primary"
+                                        onclick="searchGetComics('{{ series.name|e }}', '{{ issue.number }}')"
+                                        title="Search GetComics">
+                                        <i class="bi bi-search"></i>
+                                    </button>
+                                    {% if mapped_path %}
+                                    <button class="btn btn-sm btn-outline-primary dropdown-toggle dropdown-toggle-split"
+                                        data-bs-toggle="dropdown" aria-expanded="false" title="Mark issue">
+                                        <span class="visually-hidden">Toggle Dropdown</span>
+                                    </button>
+                                    <ul class="dropdown-menu dropdown-menu-end shadow">
+                                        <li><a class="dropdown-item" href="#"
+                                                onclick="markIssue('{{ issue.number }}', 'owned'); return false;">
+                                                <i class="bi bi-bookmark-check me-2"></i>Mark as Owned
+                                            </a></li>
+                                        <li><a class="dropdown-item" href="#"
+                                                onclick="markIssue('{{ issue.number }}', 'skipped'); return false;">
+                                                <i class="bi bi-skip-forward-circle me-2"></i>Mark as Skipped
+                                            </a></li>
+                                    </ul>
+                                    {% endif %}
+                                </div>
                                 {% endif %}
                             </td>
                         </tr>
@@ -304,9 +342,20 @@
         <div class="card-footer bg-white d-flex justify-content-between align-items-center py-3 px-4">
             {% if mapped_path and issue_status %}
             {% set found_count = issue_status.values()|selectattr('found')|list|length %}
-            {% set wanted_count = issues|length - found_count %}
+            {% set manual_count = manual_status|length if manual_status else 0 %}
+            {% set manual_not_found = namespace(count=0) %}
+            {% for num in (manual_status.keys() if manual_status else []) %}
+            {% if not issue_status.get(num, {}).get('found') %}
+            {% set manual_not_found.count = manual_not_found.count + 1 %}
+            {% endif %}
+            {% endfor %}
+            {% set wanted_count = issues|length - found_count - manual_not_found.count %}
             <small>
                 <span class="text-success"><i class="bi bi-check-circle-fill me-1"></i>{{ found_count }} found</span>
+                {% if manual_count > 0 %}
+                <span class="mx-2">|</span>
+                <span class="text-success"><i class="bi bi-bookmark-check me-1"></i>{{ manual_count }} marked</span>
+                {% endif %}
                 <span class="mx-2">|</span>
                 <span class="text-warning"><i class="bi bi-star-fill me-1"></i>{{ wanted_count }} wanted</span>
             </small>
@@ -368,6 +417,46 @@
     </div>
 </div>
 <!-- End of CBZ Info Modal -->
+
+<!-- Mark Issue Modal -->
+<div class="modal fade" id="markIssueModal" tabindex="-1" aria-labelledby="markIssueModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="markIssueModalLabel">Mark Issue</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="markIssueNumber">
+                <div class="mb-3">
+                    <label class="form-label">Status</label>
+                    <div class="btn-group w-100" role="group">
+                        <input type="radio" class="btn-check" name="markStatus" id="markOwned" value="owned" checked>
+                        <label class="btn btn-outline-success" for="markOwned">
+                            <i class="bi bi-bookmark-check me-1"></i>Owned
+                        </label>
+                        <input type="radio" class="btn-check" name="markStatus" id="markSkipped" value="skipped">
+                        <label class="btn btn-outline-dark" for="markSkipped">
+                            <i class="bi bi-skip-forward-circle me-1"></i>Skipped
+                        </label>
+                    </div>
+                </div>
+                <div class="mb-3">
+                    <label for="markNotes" class="form-label">Notes (optional)</label>
+                    <input type="text" class="form-control" id="markNotes"
+                        placeholder="e.g., In Amazing Spider-Man Omnibus Vol. 1">
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" onclick="submitMarkIssue()">
+                    <i class="bi bi-check-lg me-1"></i>Mark Issue
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+<!-- End of Mark Issue Modal -->
 
 <!-- GCD Series Selection Modal -->
 <div class="modal fade" id="gcdSeriesModal" tabindex="-1" aria-labelledby="gcdSeriesModalLabel" aria-hidden="true">

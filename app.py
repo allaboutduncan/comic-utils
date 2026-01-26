@@ -1318,7 +1318,8 @@ def refresh_wanted_cache_background():
 
     try:
         from database import (get_all_mapped_series, get_issues_for_series,
-                             save_wanted_issues_for_series, clear_wanted_cache_all)
+                             save_wanted_issues_for_series, clear_wanted_cache_all,
+                             get_manual_status_for_series)
 
         app_logger.info("Starting wanted issues cache refresh...")
         start_time = time.time()
@@ -1368,13 +1369,17 @@ def refresh_wanted_cache_background():
             # Check which issues are in collection
             issue_status = match_issues_to_collection(mapped_path, issue_objs, series_obj)
 
-            # Find missing/wanted issues
+            # Get manual status for this series (owned/skipped)
+            manual_status = get_manual_status_for_series(series_id)
+
+            # Find missing/wanted issues (exclude found and manually marked)
             wanted_list = []
             for issue in issues:
                 issue_num = str(issue.get('number', ''))
                 status = issue_status.get(issue_num, {})
+                has_manual = issue_num in manual_status
 
-                if not status.get('found'):
+                if not status.get('found') and not has_manual:
                     wanted_list.append(issue)
 
             # Save to cache
@@ -2242,13 +2247,18 @@ def series_view(slug):
                 first_issue_image = get_attr(sorted_issues[0], 'image')
 
         # Check for existing mapping
-        from database import get_series_mapping
+        from database import get_series_mapping, get_manual_status_for_series
         mapped_path = get_series_mapping(series_id)
 
         # If mapped, check which issues are present in the collection
         issue_status = {}  # issue_number -> {'found': bool, 'file_path': str or None}
         if mapped_path and os.path.isdir(mapped_path):
             issue_status = match_issues_to_collection(mapped_path, all_issues, series_info)
+
+        # Get manual status (owned/skipped) for this series
+        manual_status = get_manual_status_for_series(series_id)
+        if manual_status:
+            app_logger.info(f"Series {series_id} manual_status: {manual_status}")
 
         # Convert series_info to dict for JSON serialization
         series_dict = None
@@ -2311,6 +2321,7 @@ def series_view(slug):
                              first_issue_image=first_issue_image,
                              mapped_path=mapped_path,
                              issue_status=issue_status,
+                             manual_status=manual_status,
                              last_synced_at=last_synced_at,
                              today=datetime.now().strftime('%Y-%m-%d'))
     except Exception as e:
@@ -2489,7 +2500,7 @@ def check_series_collection(series_id):
     """
     from database import (
         get_series_mapping, get_series_by_id, get_issues_for_series,
-        invalidate_collection_status_for_series
+        invalidate_collection_status_for_series, get_manual_status_for_series
     )
 
     # Check if refresh is requested (bypass cache)
@@ -2535,14 +2546,23 @@ def check_series_collection(series_id):
         # Check which issues are present (use_cache=False if refresh requested)
         issue_status = match_issues_to_collection(mapped_path, all_issues, series_info, use_cache=not refresh)
 
-        # Calculate counts
+        # Get manual status (owned/skipped) for this series
+        manual_status = get_manual_status_for_series(series_id)
+
+        # Calculate counts - exclude manually-marked issues from wanted
         found_count = sum(1 for s in issue_status.values() if s.get('found'))
-        missing_count = len(all_issues) - found_count
+        manual_count = len(manual_status)
+        # Missing = total - found - manually marked (that aren't also found)
+        manual_not_found = sum(1 for num in manual_status.keys()
+                               if not issue_status.get(num, {}).get('found'))
+        missing_count = len(all_issues) - found_count - manual_not_found
 
         return jsonify({
             'success': True,
             'issue_status': issue_status,
+            'manual_status': manual_status,
             'found_count': found_count,
+            'manual_count': manual_count,
             'missing_count': missing_count,
             'total_count': len(all_issues)
         })
@@ -2550,6 +2570,68 @@ def check_series_collection(series_id):
     except Exception as e:
         app_logger.error(f"Error checking collection for series {series_id}: {e}")
         return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/series/<int:series_id>/manual-status', methods=['GET'])
+def get_series_manual_status(series_id):
+    """Get all manually-marked issue statuses for a series."""
+    from database import get_manual_status_for_series
+    manual_status = get_manual_status_for_series(series_id)
+    return jsonify({'success': True, 'manual_status': manual_status})
+
+
+@app.route('/api/series/<int:series_id>/issue/<issue_number>/manual-status', methods=['POST'])
+def set_issue_manual_status(series_id, issue_number):
+    """Set or update manual status for an issue."""
+    from database import set_manual_status
+
+    data = request.get_json() or {}
+    status = data.get('status')
+    notes = (data.get('notes') or '').strip() or None
+
+    if status not in ('owned', 'skipped'):
+        return jsonify({'error': 'Invalid status. Must be "owned" or "skipped"'}), 400
+
+    success = set_manual_status(series_id, issue_number, status, notes)
+    if success:
+        return jsonify({'success': True, 'status': status, 'notes': notes})
+    else:
+        return jsonify({'error': 'Failed to set manual status'}), 500
+
+
+@app.route('/api/series/<int:series_id>/issue/<issue_number>/manual-status', methods=['DELETE'])
+def delete_issue_manual_status(series_id, issue_number):
+    """Clear manual status for an issue (revert to normal detection)."""
+    from database import clear_manual_status
+
+    success = clear_manual_status(series_id, issue_number)
+    if success:
+        return jsonify({'success': True})
+    else:
+        return jsonify({'error': 'Failed to clear manual status'}), 500
+
+
+@app.route('/api/series/<int:series_id>/bulk-manual-status', methods=['POST'])
+def set_bulk_manual_status(series_id):
+    """Set manual status for multiple issues at once."""
+    from database import bulk_set_manual_status
+
+    data = request.get_json() or {}
+    issue_numbers = data.get('issue_numbers', [])
+    status = data.get('status')
+    notes = data.get('notes', '').strip() or None
+
+    if not issue_numbers:
+        return jsonify({'error': 'No issue numbers provided'}), 400
+
+    if status not in ('owned', 'skipped'):
+        return jsonify({'error': 'Invalid status. Must be "owned" or "skipped"'}), 400
+
+    count = bulk_set_manual_status(series_id, issue_numbers, status, notes)
+    if count >= 0:
+        return jsonify({'success': True, 'count': count, 'status': status})
+    else:
+        return jsonify({'error': 'Failed to set bulk manual status'}), 500
 
 
 @app.route('/api/sync/series/<int:series_id>', methods=['POST'])

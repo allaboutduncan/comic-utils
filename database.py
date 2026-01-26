@@ -519,6 +519,21 @@ def init_db():
         ''')
         c.execute('CREATE INDEX IF NOT EXISTS idx_collection_status_series ON collection_status(series_id)')
 
+        # Create issue_manual_status table (for manually marking issues as owned/skipped)
+        c.execute('''
+            CREATE TABLE IF NOT EXISTS issue_manual_status (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                series_id INTEGER NOT NULL,
+                issue_number TEXT NOT NULL,
+                status TEXT NOT NULL,
+                notes TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(series_id, issue_number),
+                FOREIGN KEY (series_id) REFERENCES series(id) ON DELETE CASCADE
+            )
+        ''')
+        c.execute('CREATE INDEX IF NOT EXISTS idx_issue_manual_status_series ON issue_manual_status(series_id)')
+
         conn.commit()
         conn.close()
         app_logger.info("Database initialized successfully")
@@ -5052,6 +5067,205 @@ def get_wanted_cache_age():
     except Exception as e:
         app_logger.error(f"Failed to get wanted cache age: {e}")
         return None
+    finally:
+        if conn:
+            conn.close()
+
+
+# ============================================================
+# Issue Manual Status Functions (owned/skipped)
+# ============================================================
+
+def ensure_manual_status_table():
+    """Ensure the issue_manual_status table exists (for existing databases)."""
+    conn = None
+    try:
+        conn = get_db_connection()
+        if not conn:
+            return False
+
+        c = conn.cursor()
+        c.execute('''
+            CREATE TABLE IF NOT EXISTS issue_manual_status (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                series_id INTEGER NOT NULL,
+                issue_number TEXT NOT NULL,
+                status TEXT NOT NULL,
+                notes TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(series_id, issue_number),
+                FOREIGN KEY (series_id) REFERENCES series(id) ON DELETE CASCADE
+            )
+        ''')
+        c.execute('CREATE INDEX IF NOT EXISTS idx_issue_manual_status_series ON issue_manual_status(series_id)')
+        conn.commit()
+        return True
+    except Exception as e:
+        app_logger.error(f"Failed to ensure manual status table: {e}")
+        return False
+    finally:
+        if conn:
+            conn.close()
+
+
+def get_manual_status_for_series(series_id):
+    """
+    Get all manually-marked issue statuses for a series.
+
+    Args:
+        series_id: Metron series ID
+
+    Returns:
+        Dict mapping issue_number to {status, notes} or empty dict
+    """
+    conn = None
+    try:
+        conn = get_db_connection()
+        if not conn:
+            return {}
+
+        c = conn.cursor()
+        c.execute('''
+            SELECT issue_number, status, notes
+            FROM issue_manual_status
+            WHERE series_id = ?
+        ''', (series_id,))
+
+        rows = c.fetchall()
+        result = {row['issue_number']: {'status': row['status'], 'notes': row['notes']} for row in rows}
+        if result:
+            app_logger.debug(f"Manual status for series {series_id}: {result}")
+        return result
+    except Exception as e:
+        app_logger.error(f"Failed to get manual status for series {series_id}: {e}")
+        return {}
+    finally:
+        if conn:
+            conn.close()
+
+
+def set_manual_status(series_id, issue_number, status, notes=None):
+    """
+    Set or update manual status for an issue.
+
+    Args:
+        series_id: Metron series ID
+        issue_number: Issue number (as string)
+        status: 'owned' or 'skipped'
+        notes: Optional notes text
+
+    Returns:
+        True if successful, False otherwise
+    """
+    if status not in ('owned', 'skipped'):
+        app_logger.error(f"Invalid manual status: {status}")
+        return False
+
+    # Ensure table exists (for existing databases)
+    ensure_manual_status_table()
+
+    conn = None
+    try:
+        conn = get_db_connection()
+        if not conn:
+            return False
+
+        c = conn.cursor()
+        c.execute('''
+            INSERT INTO issue_manual_status (series_id, issue_number, status, notes)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(series_id, issue_number) DO UPDATE SET
+                status = excluded.status,
+                notes = excluded.notes,
+                created_at = CURRENT_TIMESTAMP
+        ''', (series_id, str(issue_number), status, notes))
+        conn.commit()
+        app_logger.info(f"Set manual status for series {series_id} issue {issue_number}: {status}")
+        return True
+    except Exception as e:
+        app_logger.error(f"Failed to set manual status for series {series_id} issue {issue_number}: {e}")
+        return False
+    finally:
+        if conn:
+            conn.close()
+
+
+def clear_manual_status(series_id, issue_number):
+    """
+    Clear manual status for an issue (revert to normal detection).
+
+    Args:
+        series_id: Metron series ID
+        issue_number: Issue number (as string)
+
+    Returns:
+        True if successful, False otherwise
+    """
+    conn = None
+    try:
+        conn = get_db_connection()
+        if not conn:
+            return False
+
+        c = conn.cursor()
+        c.execute('''
+            DELETE FROM issue_manual_status
+            WHERE series_id = ? AND issue_number = ?
+        ''', (series_id, str(issue_number)))
+        deleted = c.rowcount
+        conn.commit()
+        if deleted > 0:
+            app_logger.info(f"Cleared manual status for series {series_id} issue {issue_number}")
+        return True
+    except Exception as e:
+        app_logger.error(f"Failed to clear manual status for series {series_id} issue {issue_number}: {e}")
+        return False
+    finally:
+        if conn:
+            conn.close()
+
+
+def bulk_set_manual_status(series_id, issue_numbers, status, notes=None):
+    """
+    Set manual status for multiple issues at once.
+
+    Args:
+        series_id: Metron series ID
+        issue_numbers: List of issue numbers (as strings)
+        status: 'owned' or 'skipped'
+        notes: Optional notes text (applies to all)
+
+    Returns:
+        Number of issues updated, or -1 on error
+    """
+    if status not in ('owned', 'skipped'):
+        app_logger.error(f"Invalid manual status: {status}")
+        return -1
+
+    conn = None
+    try:
+        conn = get_db_connection()
+        if not conn:
+            return -1
+
+        c = conn.cursor()
+        count = 0
+        for issue_number in issue_numbers:
+            c.execute('''
+                INSERT INTO issue_manual_status (series_id, issue_number, status, notes)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(series_id, issue_number) DO UPDATE SET
+                    status = excluded.status,
+                    notes = excluded.notes,
+                    created_at = CURRENT_TIMESTAMP
+            ''', (series_id, str(issue_number), status, notes))
+            count += 1
+        conn.commit()
+        app_logger.info(f"Bulk set manual status for series {series_id}: {count} issues marked as {status}")
+        return count
+    except Exception as e:
+        app_logger.error(f"Failed to bulk set manual status for series {series_id}: {e}")
+        return -1
     finally:
         if conn:
             conn.close()
