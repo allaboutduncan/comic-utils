@@ -15,6 +15,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!initialPath || initialPath === '/' || initialPath === '/data') {
         loadFavoritePublishers();
         loadWantToRead();
+        loadContinueReadingSwiper();
         loadRecentlyAddedSwiper();
     }
 
@@ -43,6 +44,9 @@ let backgroundLoadingActive = false; // Track if background loading is happening
 
 // Recently Added mode state
 let isRecentlyAddedMode = false;
+
+// Continue Reading mode state
+let isContinueReadingMode = false;
 
 // Filter state
 let currentFilter = 'all';
@@ -239,6 +243,9 @@ async function loadDirectory(path, preservePage = false, forceRefresh = false) {
 
         // Reset Recently Added mode when loading a new directory
         isRecentlyAddedMode = false;
+
+        // Reset Continue Reading mode when loading a new directory
+        isContinueReadingMode = false;
 
         // Update main view button states
         updateMainViewButtons();
@@ -655,6 +662,7 @@ function returnToFolderView() {
 
     isAllBooksMode = false;
     isRecentlyAddedMode = false;
+    isContinueReadingMode = false;
     allBooksData = null;
     loadDirectory(folderViewPath);
 }
@@ -663,13 +671,14 @@ function returnToFolderView() {
  * Load directory view mode (default view)
  */
 function loadDirectoryView() {
-    // If we're already in directory mode and not in recent mode, do nothing
-    if (!isRecentlyAddedMode) {
+    // If we're already in directory mode and not in a special mode, do nothing
+    if (!isRecentlyAddedMode && !isContinueReadingMode) {
         return;
     }
 
-    // Exit recently added mode
+    // Exit special modes
     isRecentlyAddedMode = false;
+    isContinueReadingMode = false;
 
     // Return to the last folder view
     if (folderViewPath) {
@@ -755,6 +764,85 @@ async function loadRecentlyAdded(preservePage = false) {
         console.error('Error loading recently added files:', error);
         showError('Failed to load recently added files: ' + error.message);
         isRecentlyAddedMode = false;
+        setLoading(false);
+    }
+}
+
+/**
+ * Load continue reading items in full-page grid view (View All)
+ */
+async function loadContinueReading(preservePage = false) {
+    if (isLoading) return;
+
+    setLoading(true);
+    folderViewPath = currentPath; // Save current path to return to
+    isContinueReadingMode = true;
+
+    try {
+        const response = await fetch('/api/continue-reading?limit=100');
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+
+        const data = await response.json();
+
+        // Map the items to grid format
+        const continueReadingFiles = (data.items || []).map(item => ({
+            name: item.file_name,
+            path: item.comic_path,
+            type: 'file',
+            hasThumbnail: true,
+            thumbnailUrl: `/api/thumbnail?path=${encodeURIComponent(item.comic_path)}`,
+            pageNumber: item.page_number,
+            totalPages: item.total_pages,
+            progressPercent: item.progress_percent,
+            updatedAt: item.updated_at
+        }));
+
+        allItems = continueReadingFiles;
+        if (!preservePage) {
+            currentPage = 1;
+            currentFilter = 'all';
+            gridSearchTerm = '';
+            gridSearchRaw = '';
+        }
+
+        // Update breadcrumb
+        updateBreadcrumb('Continue Reading');
+
+        // Hide filter buttons and show search
+        document.getElementById('gridFilterButtons').style.display = 'none';
+        document.getElementById('gridSearchRow').style.display = 'block';
+
+        // Update search placeholder
+        const searchInput = document.querySelector('#gridSearchRow input');
+        if (searchInput) {
+            searchInput.placeholder = 'Search in-progress comics...';
+        }
+
+        // Hide dashboard sections
+        const dashboardSections = document.getElementById('dashboard-sections');
+        if (dashboardSections) {
+            dashboardSections.style.display = 'none';
+        }
+
+        // Show Folder View button to allow returning to dashboard
+        const viewToggleButtons = document.getElementById('viewToggleButtons');
+        const folderViewBtn = document.getElementById('folderViewBtn');
+        const allBooksBtn = document.getElementById('allBooksBtn');
+        if (viewToggleButtons && folderViewBtn) {
+            viewToggleButtons.style.display = 'block';
+            folderViewBtn.style.display = 'inline-block';
+            if (allBooksBtn) allBooksBtn.style.display = 'none';
+        }
+
+        renderPage();
+        setLoading(false);
+
+    } catch (error) {
+        console.error('Error loading continue reading items:', error);
+        showError('Failed to load continue reading items: ' + error.message);
+        isContinueReadingMode = false;
         setLoading(false);
     }
 }
@@ -4412,6 +4500,73 @@ async function loadRecentlyAddedSwiper() {
 
     } catch (error) {
         console.error('Error loading recently added files:', error);
+    }
+}
+
+async function loadContinueReadingSwiper() {
+    const swiper = document.querySelector('#continueReadingSwiper .swiper-wrapper');
+    if (!swiper) return;
+
+    try {
+        const response = await fetch('/api/continue-reading?limit=10');
+        const data = await response.json();
+
+        if (!data.success || !data.items || !data.items.length) {
+            // Show empty state
+            swiper.innerHTML = `
+                <div class="swiper-slide">
+                    <div class="dashboard-card text-center p-4">
+                        <i class="bi bi-book-half text-muted" style="font-size: 3rem;"></i>
+                        <p class="text-muted mt-2">No comics in progress</p>
+                    </div>
+                </div>
+            `;
+            return;
+        }
+
+        // Helper to format relative time for reading
+        const formatReadTimeAgo = (dateStr) => {
+            const date = new Date(dateStr);
+            const now = new Date();
+            const diffMs = now - date;
+            const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+
+            if (diffDays === 0) return 'Read Today';
+            if (diffDays === 1) return 'Read Yesterday';
+            if (diffDays < 7) return `Read ${diffDays} days ago`;
+            if (diffDays < 30) return `Read ${Math.floor(diffDays / 7)} week${Math.floor(diffDays / 7) > 1 ? 's' : ''} ago`;
+            return `Read ${Math.floor(diffDays / 30)} month${Math.floor(diffDays / 30) > 1 ? 's' : ''} ago`;
+        };
+
+        // Render slides
+        swiper.innerHTML = data.items.map(item => {
+            const name = item.file_name;
+            const path = item.comic_path;
+            const thumbnailUrl = `/api/thumbnail?path=${encodeURIComponent(path)}`;
+            const timeAgo = formatReadTimeAgo(item.updated_at);
+            const progress = item.progress_percent || 0;
+            const pageInfo = item.total_pages ? `Page ${item.page_number + 1} of ${item.total_pages}` : `${progress}%`;
+
+            return `
+            <div class="swiper-slide">
+                <div class="dashboard-card has-thumbnail" data-path="${path}" onclick="openReaderForFile('${path.replace(/'/g, "\\'")}')">
+                    <div class="dashboard-card-img-container">
+                        <img src="${thumbnailUrl}" alt="${name}" class="thumbnail">
+                        <div class="progress" style="height: 4px; position: absolute; bottom: 0; left: 0; width: 100%; border-radius: 0;">
+                            <div class="progress-bar bg-info" role="progressbar" style="width: ${progress}%" aria-valuenow="${progress}" aria-valuemin="0" aria-valuemax="100"></div>
+                        </div>
+                    </div>
+                    <div class="dashboard-card-body">
+                        <div class="text-truncate text-dark item-name" title="${name}">${name}</div>
+                        <small class="text-muted">${pageInfo}</small>
+                        <small class="text-muted">${timeAgo}</small>
+                    </div>
+                </div>
+            </div>
+        `}).join('');
+
+    } catch (error) {
+        console.error('Error loading continue reading items:', error);
     }
 }
 

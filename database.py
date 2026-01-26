@@ -3463,6 +3463,64 @@ def get_all_reading_positions():
         return []
 
 
+def get_continue_reading_items(limit=10):
+    """
+    Get comics with saved reading positions that are in-progress (not completed).
+
+    Args:
+        limit: Maximum number of items to return (default 10)
+
+    Returns:
+        List of dicts with comic_path, file_name, page_number, total_pages,
+        updated_at, and progress_percent
+    """
+    try:
+        conn = get_db_connection()
+        if not conn:
+            return []
+
+        c = conn.cursor()
+        c.execute('''
+            SELECT rp.comic_path,
+                   COALESCE(fi.name, rp.comic_path) as file_name,
+                   rp.page_number,
+                   rp.total_pages,
+                   rp.updated_at
+            FROM reading_positions rp
+            LEFT JOIN file_index fi ON rp.comic_path = fi.path
+            WHERE rp.page_number > 0
+              AND rp.total_pages IS NOT NULL
+              AND rp.total_pages > 0
+              AND rp.page_number < rp.total_pages - 1
+            ORDER BY rp.updated_at DESC
+            LIMIT ?
+        ''', (limit,))
+
+        rows = c.fetchall()
+        conn.close()
+
+        items = []
+        for row in rows:
+            item = dict(row)
+            # Calculate progress percentage
+            if item['total_pages'] and item['total_pages'] > 0:
+                item['progress_percent'] = round((item['page_number'] / item['total_pages']) * 100)
+            else:
+                item['progress_percent'] = 0
+            # Extract just filename if full path
+            if '/' in item['file_name']:
+                item['file_name'] = item['file_name'].split('/')[-1]
+            elif '\\' in item['file_name']:
+                item['file_name'] = item['file_name'].split('\\')[-1]
+            items.append(item)
+
+        return items
+
+    except Exception as e:
+        app_logger.error(f"Failed to get continue reading items: {e}")
+        return []
+
+
 #########################
 #   Reading Lists       #
 #########################

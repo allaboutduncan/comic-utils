@@ -65,7 +65,8 @@ from database import (init_db, get_db_connection, get_recent_files, log_recent_f
                       get_path_counts_batch, get_directory_children, clear_stats_cache,
                       clear_stats_cache_keys, mark_issue_read, get_issues_read, get_recent_read_issues,
                       save_issues_bulk, get_issues_for_series, update_series_sync_time, get_wanted_issues,
-                      delete_issues_for_series, get_series_needing_sync, get_all_mapped_series, get_series_by_id)
+                      delete_issues_for_series, get_series_needing_sync, get_all_mapped_series, get_series_by_id,
+                      get_continue_reading_items)
 import recommendations
 from models.stats import (get_library_stats, get_file_type_distribution, get_top_publishers,
                           get_reading_history_stats, get_largest_comics, get_top_series_by_count,
@@ -5006,6 +5007,28 @@ def list_recent_files():
     except Exception as e:
         app_logger.error(f"Error in list_recent_files: {e}")
         return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/continue-reading', methods=['GET'])
+def api_continue_reading():
+    """Get comics with in-progress reading positions for Continue Reading section."""
+    try:
+        limit = request.args.get('limit', 10, type=int)
+        if limit > 100:
+            limit = 100  # Cap at 100
+
+        items = get_continue_reading_items(limit=limit)
+
+        return jsonify({
+            "success": True,
+            "items": items,
+            "total_count": len(items)
+        })
+
+    except Exception as e:
+        app_logger.error(f"Error in api_continue_reading: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
 
 #####################################
 #  Auto-Fetch ComicVine Metadata    #
