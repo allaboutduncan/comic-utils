@@ -651,6 +651,7 @@ def get_recent_files(limit=100):
             WHERE type = 'file'
             AND (name LIKE '%.cbz' OR name LIKE '%.cbr')
             AND first_indexed_at IS NOT NULL
+            AND parent != '/downloads/processed'
             ORDER BY first_indexed_at DESC
             LIMIT ?
         ''', (limit,))
