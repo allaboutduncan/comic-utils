@@ -3913,12 +3913,12 @@ def get_all_reading_list_tags():
         app_logger.error(f"Error getting all reading list tags: {str(e)}")
         return []
 
-def get_recent_read_issues(limit=200):
+def get_recent_read_issues(limit=None):
     """
     Get the most recently read issues for recommendation context.
 
     Args:
-        limit: Maximum number of issues to return (default 200)
+        limit: Maximum number of issues to return (None = no limit)
 
     Returns:
         List of dictionaries with 'issue_path', 'series_name' (inferred), 'read_at'
@@ -3932,12 +3932,19 @@ def get_recent_read_issues(limit=200):
 
         # We need to extract series info. For now, we'll return the path and let the consumer process it,
         # or we can try to be smart about it.
-        c.execute('''
-            SELECT issue_path, read_at
-            FROM issues_read
-            ORDER BY read_at DESC
-            LIMIT ?
-        ''', (limit,))
+        if limit:
+            c.execute('''
+                SELECT issue_path, read_at
+                FROM issues_read
+                ORDER BY read_at DESC
+                LIMIT ?
+            ''', (limit,))
+        else:
+            c.execute('''
+                SELECT issue_path, read_at
+                FROM issues_read
+                ORDER BY read_at DESC
+            ''')
 
         rows = c.fetchall()
         conn.close()

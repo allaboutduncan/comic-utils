@@ -1,4 +1,5 @@
 import os
+import re
 import json
 import logging
 from config import config
@@ -16,6 +17,43 @@ except ImportError:
 
 # Set up logging
 logger = logging.getLogger(__name__)
+
+
+def extract_series_from_path(path):
+    """
+    Extract series name with year from path.
+
+    Examples:
+        /data/Marvel/Ultimate Spider-Man/v2024/Ultimate Spider-Man 022 (2024).cbz
+        -> "Ultimate Spider-Man (2024)"
+
+        /data/Boom!/Something Is Killing the Children (2019)/issue.cbz
+        -> "Something Is Killing the Children (2019)"
+    """
+    # Get parent folder name
+    parent = os.path.basename(os.path.dirname(path))
+
+    # Check if parent looks like a year volume (v2024, v2019, etc.)
+    if re.match(r'^v\d{4}$', parent):
+        # Go up one more level for the series name
+        grandparent = os.path.basename(os.path.dirname(os.path.dirname(path)))
+        year = parent[1:]  # Remove 'v' prefix
+        return f"{grandparent} ({year})"
+
+    # Check if parent already has year in it like "Series Name (2019)"
+    year_match = re.search(r'\((\d{4})\)$', parent)
+    if year_match:
+        return parent  # Already formatted correctly
+
+    # Try to extract year from filename
+    filename = os.path.basename(path)
+    year_match = re.search(r'\((\d{4})\)', filename)
+    if year_match:
+        return f"{parent} ({year_match.group(1)})"
+
+    # Fallback: just return parent folder name
+    return parent
+
 
 def get_recommendations(api_key, provider, model, reading_history):
     """
@@ -44,13 +82,32 @@ def get_recommendations(api_key, provider, model, reading_history):
     if provider == 'anthropic' and anthropic is None:
         return {"error": "The 'anthropic' python package is required. Please run: pip install anthropic"}
 
-    # Format the prompt
-    history_text = "\n".join([f"- {item['series']} ({item['title']})" for item in reading_history])
+    # Extract unique series from reading history
+    series_set = set()
+    for item in reading_history:
+        series_name = extract_series_from_path(item['path'])
+        series_set.add(series_name)
+
+    # Sort alphabetically for consistent output
+    history_text = "\n".join([f"- {s}" for s in sorted(series_set)])
+
+    # Get TO READ items and extract unique series
+    from database import get_to_read_items
+    to_read_items = get_to_read_items()
+    to_read_set = set()
+    for item in to_read_items:
+        series_name = extract_series_from_path(item['path'])
+        to_read_set.add(series_name)
+
+    to_read_text = "\n".join([f"- {s}" for s in sorted(to_read_set)])
     
     system_prompt = (
         "You are an expert comic book librarian with deep knowledge of comics, graphic novels, and manga. "
         "Based on the user's recent reading history provided below, suggest 5 new series they might enjoy. "
         "Focus on finding hidden gems, critically acclaimed runs, or similar tones/themes, avoid suggesting the exact same series they just read. "
+        "Avoid suggesting the same publisher for all recommendations. "
+        "Avoid suggesting the same genre for all recommendations. "
+        "Avoid suggesting series from the list of titles the user has marked as TO READ. "
         "\n\n"
         "Return the response ONLY as a valid JSON array of objects with these keys:\n"
         "- title: The title of the series\n"
@@ -59,7 +116,11 @@ def get_recommendations(api_key, provider, model, reading_history):
         "- volume: (Optional) A specific starting volume or 'Vol 1' if applicable\n"
     )
     
-    user_prompt = f"Here is my recent reading history:\n{history_text}\n\nSuggest 5 recommendations in JSON format."
+    # Build user prompt with reading history and TO READ list
+    user_prompt = f"Here is my reading history (series I have read):\n{history_text}"
+    if to_read_text:
+        user_prompt += f"\n\nTO READ (do not recommend these, I already plan to read them):\n{to_read_text}"
+    user_prompt += "\n\nSuggest 5 recommendations in JSON format."
 
     try:
         if provider == "gemini":

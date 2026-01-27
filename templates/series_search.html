@@ -183,9 +183,10 @@
                 row.dataset.year = series.year_began || '';
                 row.dataset.issues = series.issue_count || 0;
 
+                const slug = generateSeriesSlug(series.name, series.id, series.volume);
                 row.innerHTML = `
                 <td class="ps-4">
-                    <a href="/series/${series.slug}" class="text-decoration-none fw-bold">
+                    <a href="/series/${slug}" class="text-decoration-none fw-bold">
                         ${escapeHtml(series.name)}
                     </a>
                     ${series.volume ? `<span class="text-muted fw-normal ms-1">Vol. ${series.volume}</span>` : ''}
@@ -206,6 +207,27 @@
             const div = document.createElement('div');
             div.textContent = text || '';
             return div.innerHTML;
+        }
+
+        // Generate series slug matching the Python generate_series_slug function
+        function generateSeriesSlug(seriesName, seriesId, volume) {
+            if (!seriesId) return null;
+            if (!seriesName) return String(seriesId);
+
+            // Convert to lowercase and replace non-alphanumeric chars with hyphens
+            let slug = String(seriesName).toLowerCase();
+            slug = slug.replace(/[^a-z0-9]+/g, '-');
+            slug = slug.replace(/^-+|-+$/g, ''); // Trim leading/trailing hyphens
+
+            // Add volume if provided
+            if (volume) {
+                slug = `${slug}-v${volume}`;
+            }
+
+            // Always append series_id for reliable lookup
+            slug = `${slug}-${seriesId}`;
+
+            return slug;
         }
 
         // Filter functionality
