@@ -534,6 +534,30 @@ def init_db():
         ''')
         c.execute('CREATE INDEX IF NOT EXISTS idx_issue_manual_status_series ON issue_manual_status(series_id)')
 
+        # Create libraries table (multiple library roots support)
+        c.execute('''
+            CREATE TABLE IF NOT EXISTS libraries (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                path TEXT NOT NULL UNIQUE,
+                enabled INTEGER DEFAULT 1,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+        c.execute('CREATE INDEX IF NOT EXISTS idx_libraries_path ON libraries(path)')
+        c.execute('CREATE INDEX IF NOT EXISTS idx_libraries_enabled ON libraries(enabled)')
+
+        # Migration: Auto-create default library if table is empty and /data exists
+        c.execute('SELECT COUNT(*) FROM libraries')
+        if c.fetchone()[0] == 0:
+            # Check if /data exists (Docker mount) or use first available path
+            if os.path.exists('/data'):
+                c.execute('''
+                    INSERT INTO libraries (name, path, enabled)
+                    VALUES ('Library', '/data', 1)
+                ''')
+                app_logger.info("Created default library with path /data")
+
         conn.commit()
         conn.close()
         app_logger.info("Database initialized successfully")
@@ -555,6 +579,187 @@ def get_db_connection():
     except Exception as e:
         app_logger.error(f"Failed to connect to database: {e}")
         return None
+
+
+# =============================================================================
+# Libraries CRUD Operations
+# =============================================================================
+
+def get_libraries(enabled_only=True):
+    """
+    Get all libraries.
+
+    Args:
+        enabled_only: If True, only return enabled libraries (default True)
+
+    Returns:
+        List of dictionaries with id, name, path, enabled, created_at
+    """
+    try:
+        conn = get_db_connection()
+        if not conn:
+            return []
+
+        c = conn.cursor()
+        if enabled_only:
+            c.execute('SELECT id, name, path, enabled, created_at FROM libraries WHERE enabled = 1 ORDER BY name')
+        else:
+            c.execute('SELECT id, name, path, enabled, created_at FROM libraries ORDER BY name')
+
+        results = [dict(row) for row in c.fetchall()]
+        conn.close()
+        return results
+    except Exception as e:
+        app_logger.error(f"Error getting libraries: {e}")
+        return []
+
+
+def get_library_by_id(library_id):
+    """
+    Get a library by its ID.
+
+    Args:
+        library_id: The library ID
+
+    Returns:
+        Dictionary with library data, or None if not found
+    """
+    try:
+        conn = get_db_connection()
+        if not conn:
+            return None
+
+        c = conn.cursor()
+        c.execute('SELECT id, name, path, enabled, created_at FROM libraries WHERE id = ?', (library_id,))
+        row = c.fetchone()
+        conn.close()
+
+        return dict(row) if row else None
+    except Exception as e:
+        app_logger.error(f"Error getting library by ID {library_id}: {e}")
+        return None
+
+
+def add_library(name, path):
+    """
+    Add a new library.
+
+    Args:
+        name: Display name for the library
+        path: Root path for the library (must be unique)
+
+    Returns:
+        The new library ID, or None on error
+    """
+    try:
+        # Normalize the path
+        normalized_path = os.path.normpath(path)
+
+        conn = get_db_connection()
+        if not conn:
+            return None
+
+        c = conn.cursor()
+        c.execute('''
+            INSERT INTO libraries (name, path, enabled)
+            VALUES (?, ?, 1)
+        ''', (name, normalized_path))
+
+        library_id = c.lastrowid
+        conn.commit()
+        conn.close()
+
+        app_logger.info(f"Added library '{name}' with path {normalized_path}")
+        return library_id
+    except sqlite3.IntegrityError:
+        app_logger.error(f"Library with path {path} already exists")
+        return None
+    except Exception as e:
+        app_logger.error(f"Error adding library: {e}")
+        return None
+
+
+def update_library(library_id, name=None, path=None, enabled=None):
+    """
+    Update a library.
+
+    Args:
+        library_id: The library ID to update
+        name: New name (optional)
+        path: New path (optional)
+        enabled: New enabled state (optional)
+
+    Returns:
+        True if successful, False otherwise
+    """
+    try:
+        updates = []
+        params = []
+
+        if name is not None:
+            updates.append('name = ?')
+            params.append(name)
+        if path is not None:
+            updates.append('path = ?')
+            params.append(os.path.normpath(path))
+        if enabled is not None:
+            updates.append('enabled = ?')
+            params.append(1 if enabled else 0)
+
+        if not updates:
+            return True  # Nothing to update
+
+        params.append(library_id)
+
+        conn = get_db_connection()
+        if not conn:
+            return False
+
+        c = conn.cursor()
+        c.execute(f'''
+            UPDATE libraries SET {', '.join(updates)} WHERE id = ?
+        ''', params)
+
+        conn.commit()
+        conn.close()
+
+        app_logger.info(f"Updated library ID {library_id}")
+        return True
+    except sqlite3.IntegrityError:
+        app_logger.error(f"Cannot update library - path already exists")
+        return False
+    except Exception as e:
+        app_logger.error(f"Error updating library {library_id}: {e}")
+        return False
+
+
+def delete_library(library_id):
+    """
+    Delete a library.
+
+    Args:
+        library_id: The library ID to delete
+
+    Returns:
+        True if successful, False otherwise
+    """
+    try:
+        conn = get_db_connection()
+        if not conn:
+            return False
+
+        c = conn.cursor()
+        c.execute('DELETE FROM libraries WHERE id = ?', (library_id,))
+
+        conn.commit()
+        conn.close()
+
+        app_logger.info(f"Deleted library ID {library_id}")
+        return True
+    except Exception as e:
+        app_logger.error(f"Error deleting library {library_id}: {e}")
+        return False
+
 
 def log_recent_file(file_path, file_name=None, file_size=None):
     """
@@ -635,6 +840,7 @@ def get_recent_files(limit=100):
     Returns:
         List of dictionaries containing file information, or empty list on error
     """
+    target = config.get("SETTINGS", "TARGET", fallback="/data/downloads/processed")
     try:
         conn = get_db_connection()
         if not conn:
@@ -651,10 +857,10 @@ def get_recent_files(limit=100):
             WHERE type = 'file'
             AND (name LIKE '%.cbz' OR name LIKE '%.cbr')
             AND first_indexed_at IS NOT NULL
-            AND parent != '/downloads/processed'
+            AND parent NOT LIKE ?
             ORDER BY first_indexed_at DESC
             LIMIT ?
-        ''', (limit,))
+        ''', (f"{target}%", limit))
 
         rows = c.fetchall()
         conn.close()

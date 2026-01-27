@@ -11,8 +11,11 @@ document.addEventListener('DOMContentLoaded', () => {
         '';
     loadDirectory(initialPath);
 
-    // Load dashboard data if at root
-    if (!initialPath || initialPath === '/' || initialPath === '/data') {
+    // Load dashboard data if at root or library root level
+    // Check if path is empty, '/', or a library root (e.g., '/data', '/manga')
+    const isLibraryRoot = !initialPath || initialPath === '/' ||
+        (initialPath.startsWith('/') && initialPath.split('/').filter(Boolean).length <= 1);
+    if (isLibraryRoot) {
         loadFavoritePublishers();
         loadWantToRead();
         loadContinueReadingSwiper();
@@ -106,10 +109,11 @@ async function loadDirectory(path, preservePage = false, forceRefresh = false) {
     setLoading(true);
     currentPath = path;
 
-    // Show/hide dashboard sections based on path (only show at root)
+    // Show/hide dashboard sections based on path (only show at library root level)
     const dashboardSections = document.getElementById('dashboard-sections');
     if (dashboardSections) {
-        const isRoot = !path || path === '/' || path === '/data';
+        const isRoot = !path || path === '/' ||
+            (path.startsWith('/') && path.split('/').filter(Boolean).length <= 1);
         dashboardSections.style.display = isRoot ? 'block' : 'none';
     }
 
@@ -871,20 +875,21 @@ function renderGrid(items) {
     const grid = document.getElementById('file-grid');
     const emptyState = document.getElementById('empty-state');
     const template = document.getElementById('grid-item-template');
-    const libraryHeader = document.getElementById('library-header');
+    const librarySection = document.getElementById('library-section');
 
     grid.innerHTML = '';
+
+    // Show library section (empty-state and file-grid are inside it)
+    if (librarySection) librarySection.style.display = 'block';
 
     if (items.length === 0 && allItems.length === 0) {
         grid.style.display = 'none';
         emptyState.style.display = 'block';
-        if (libraryHeader) libraryHeader.style.display = 'none';
         return;
     }
 
     grid.style.display = 'grid';
     emptyState.style.display = 'none';
-    if (libraryHeader) libraryHeader.style.display = 'block';
 
     // Create document fragment for better performance
     const fragment = document.createDocumentFragment();
@@ -1642,6 +1647,11 @@ function renderBreadcrumbs(path) {
         }
         breadcrumb.appendChild(li);
     });
+
+    // Update library header title if function exists (multi-library support)
+    if (typeof updateLibraryHeaderTitle === 'function') {
+        updateLibraryHeaderTitle(path);
+    }
 }
 
 /**
@@ -1945,11 +1955,8 @@ function executeScript(scriptType, filePath) {
  */
 function initEditMode(filePath) {
     // Hide the file grid and other collection UI elements
-    document.getElementById('file-grid').style.display = 'none';
-    const libraryHeader = document.getElementById('library-header');
-    if (libraryHeader) libraryHeader.style.display = 'none';
-    const paginationControls = document.getElementById('pagination-controls');
-    if (paginationControls) paginationControls.style.display = 'none';
+    const librarySection = document.getElementById('library-section');
+    if (librarySection) librarySection.style.display = 'none';
 
     // Show the edit section
     document.getElementById('edit').classList.remove('collapse');
@@ -2027,9 +2034,9 @@ function setupSaveFormHandler() {
                 if (result.success) {
                     // Hide edit section and show collection grid
                     document.getElementById('edit').classList.add('collapse');
+                    const librarySection = document.getElementById('library-section');
+                    if (librarySection) librarySection.style.display = 'block';
                     document.getElementById('file-grid').style.display = 'grid';
-                    const libraryHeader = document.getElementById('library-header');
-                    if (libraryHeader) libraryHeader.style.display = 'block';
                     const paginationControls = document.getElementById('pagination-controls');
                     if (paginationControls && allItems.length > itemsPerPage) {
                         paginationControls.style.display = 'block';

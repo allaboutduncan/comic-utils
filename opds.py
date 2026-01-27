@@ -6,7 +6,7 @@ and downloading comics from OPDS-compatible readers like Panels, Chunky, etc.
 """
 
 from flask import Blueprint, render_template, request, url_for, Response
-from database import get_to_read_items
+from database import get_to_read_items, get_libraries
 from app_logging import app_logger
 import os
 import hashlib
@@ -15,8 +15,26 @@ from urllib.parse import quote
 
 opds_bp = Blueprint('opds', __name__, url_prefix='/opds')
 
-# Directory to browse (same as app.py)
-DATA_DIR = "/data"
+
+def get_library_roots():
+    """Get list of all enabled library root paths."""
+    libraries = get_libraries(enabled_only=True)
+    if libraries:
+        return [lib['path'] for lib in libraries]
+    # Fallback for backwards compatibility
+    return ['/data'] if os.path.exists('/data') else []
+
+
+def is_valid_library_path(path):
+    """Check if a path is within any enabled library."""
+    if not path:
+        return False
+    normalized = os.path.normpath(path)
+    for root in get_library_roots():
+        root_normalized = os.path.normpath(root)
+        if normalized == root_normalized or normalized.startswith(root_normalized + os.sep):
+            return True
+    return False
 
 # MIME types for comic files
 COMIC_MIME_TYPES = {
@@ -138,12 +156,44 @@ def root():
 @opds_bp.route('/browse')
 def browse():
     """Browse library directories and comics."""
-    current_path = request.args.get('path', DATA_DIR)
+    current_path = request.args.get('path', None)
+    library_roots = get_library_roots()
 
-    # Security check - ensure path is within DATA_DIR
-    normalized_path = os.path.normpath(current_path)
-    normalized_data_dir = os.path.normpath(DATA_DIR)
-    if not normalized_path.startswith(normalized_data_dir):
+    # If no path specified, show all libraries at root level
+    if not current_path:
+        entries = []
+        libraries = get_libraries(enabled_only=True)
+
+        for lib in libraries:
+            if os.path.exists(lib['path']):
+                thumb_path = check_folder_thumbnail(lib['path'])
+                thumbnail_url = None
+                if thumb_path:
+                    thumbnail_url = url_for('serve_folder_thumbnail', path=thumb_path, _external=True)
+
+                entries.append({
+                    'id': generate_feed_id(lib['path']),
+                    'title': lib['name'],
+                    'updated': get_timestamp(),
+                    'type': 'navigation',
+                    'href': url_for('opds.browse', path=lib['path'], _external=True),
+                    'thumbnail_url': thumbnail_url
+                })
+
+        xml = render_template(
+            'opds_feed.xml',
+            feed_id=generate_feed_id('/opds/browse'),
+            feed_title='Libraries',
+            updated=get_timestamp(),
+            start_url=url_for('opds.root', _external=True),
+            self_url=url_for('opds.browse', _external=True),
+            parent_url=url_for('opds.root', _external=True),
+            entries=entries
+        )
+        return Response(xml, mimetype=OPDS_MIME)
+
+    # Security check - ensure path is within any configured library
+    if not is_valid_library_path(current_path):
         return Response("Access denied", status=403)
 
     if not os.path.exists(current_path):
@@ -185,23 +235,20 @@ def browse():
             'thumbnail_url': thumbnail_url
         })
 
-    # Determine parent URL
+    # Determine parent URL - check if we're at a library root
     parent_url = None
-    if current_path != DATA_DIR:
-        parent_path = os.path.dirname(current_path)
-        if parent_path == DATA_DIR:
-            parent_url = url_for('opds.browse', _external=True)
-        else:
-            parent_url = url_for('opds.browse', path=parent_path, _external=True)
-    else:
-        # At library root, parent is the OPDS root
-        parent_url = url_for('opds.root', _external=True)
+    normalized_path = os.path.normpath(current_path)
+    is_library_root = normalized_path in [os.path.normpath(r) for r in library_roots]
 
-    # Feed title is the folder name or "Library" for root
-    if current_path == DATA_DIR:
-        feed_title = 'Library'
+    if is_library_root:
+        # At library root, parent is the browse root (library listing)
+        parent_url = url_for('opds.browse', _external=True)
     else:
-        feed_title = os.path.basename(current_path)
+        parent_path = os.path.dirname(current_path)
+        parent_url = url_for('opds.browse', path=parent_path, _external=True)
+
+    # Feed title is the folder name or library name for root
+    feed_title = os.path.basename(current_path) or 'Library'
 
     xml = render_template(
         'opds_feed.xml',
@@ -209,7 +256,7 @@ def browse():
         feed_title=feed_title,
         updated=get_timestamp(),
         start_url=url_for('opds.root', _external=True),
-        self_url=url_for('opds.browse', path=current_path, _external=True) if current_path != DATA_DIR else url_for('opds.browse', _external=True),
+        self_url=url_for('opds.browse', path=current_path, _external=True),
         parent_url=parent_url,
         entries=entries
     )

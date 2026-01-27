@@ -6,7 +6,17 @@
 
 <script>
     // Initial path from URL (e.g., /collection/Marvel -> /data/Marvel)
-    window.INITIAL_PATH = {{ initial_path | default ('') | tojson | safe }};
+    // If no URL path specified, check localStorage for saved library selection
+    (function() {
+        const urlPath = {{ initial_path | default ('') | tojson | safe }};
+        if (urlPath && urlPath !== '') {
+            window.INITIAL_PATH = urlPath;
+        } else {
+            // Check localStorage for saved library preference
+            const savedLibrary = localStorage.getItem('selectedLibrary');
+            window.INITIAL_PATH = savedLibrary || '';
+        }
+    })();
 </script>
 {% endblock %}
 {% block content %}
@@ -20,6 +30,12 @@
                 <li class="breadcrumb-item active">Loading...</li>
             </ol>
         </nav>
+        <!-- Library Selector -->
+        <div class="mx-3" id="librarySelectorContainer" style="display: none;">
+            <select class="form-select form-select-sm" id="librarySelector" onchange="switchLibrary(this.value)" style="min-width: 150px;">
+                <!-- Options populated by JavaScript -->
+            </select>
+        </div>
         <!-- View Toggle Buttons -->
         <div class="mx-3" id="viewToggleButtons">
             <button class="btn btn-outline-primary btn-sm" id="allBooksBtn" onclick="loadAllBooks()"
@@ -185,22 +201,24 @@
             <span class="visually-hidden">Loading...</span>
         </div>
     </div>
-    <!-- Library Section Header -->
-    <div id="library-header" class="mb-3 px-2" style="display: none;">
-        <h4 class="m-0"><i class="bi bi-collection-fill text-primary me-2"></i>Library</h4>
-    </div>
-    <div id="file-grid" class="file-grid" style="display: none;">
-        <!-- Grid items will be populated by JS -->
-    </div>
-    <div id="empty-state" class="text-center py-5" style="display: none;">
-        <i class="bi bi-folder2-open display-1 text-muted"></i>
-        <p class="lead text-muted mt-3">This folder is empty</p>
-    </div>
-    <nav id="pagination-controls" aria-label="File browser pagination" class="mt-4" style="display: none;">
-        <ul class="pagination justify-content-center" id="pagination-list">
-            <!-- Pagination items will be populated by JS -->
-        </ul>
-    </nav>
+    <!-- Library Section -->
+    <section class="mb-4 dashboard-section" id="library-section" style="display: none;">
+        <div class="d-flex justify-content-between align-items-center mb-3 px-2">
+            <h4 class="m-0" id="library-header-title"><i class="bi bi-collection-fill text-primary me-2"></i>Library</h4>
+        </div>
+        <div id="file-grid" class="file-grid">
+            <!-- Grid items will be populated by JS -->
+        </div>
+        <div id="empty-state" class="text-center py-5" style="display: none;">
+            <i class="bi bi-folder2-open display-1 text-muted"></i>
+            <p class="lead text-muted mt-3">This folder is empty</p>
+        </div>
+        <nav id="pagination-controls" aria-label="File browser pagination" class="mt-4" style="display: none;">
+            <ul class="pagination justify-content-center" id="pagination-list">
+                <!-- Pagination items will be populated by JS -->
+            </ul>
+        </nav>
+    </section>
 </div>
 <!-- Template for Grid Item -->
 <template id="grid-item-template">
@@ -575,7 +593,83 @@
 
         // Load saved recommendations on startup
         loadSavedRecommendations();
+
+        // Initialize library selector
+        loadLibrarySelector();
     });
+
+    // Library selector functions
+    async function loadLibrarySelector() {
+        try {
+            const response = await fetch('/api/libraries');
+            const data = await response.json();
+
+            if (data.success && data.libraries.length > 1) {
+                // Only show selector if there are multiple libraries
+                const container = document.getElementById('librarySelectorContainer');
+                const selector = document.getElementById('librarySelector');
+
+                if (container && selector) {
+                    selector.innerHTML = '';
+
+                    // Get currently selected library from localStorage or default to first
+                    const savedLibrary = localStorage.getItem('selectedLibrary');
+
+                    data.libraries.forEach(lib => {
+                        const option = document.createElement('option');
+                        option.value = lib.path;
+                        option.textContent = lib.name;
+                        if (lib.path === savedLibrary || (!savedLibrary && data.libraries.indexOf(lib) === 0)) {
+                            option.selected = true;
+                        }
+                        selector.appendChild(option);
+                    });
+
+                    container.style.display = 'block';
+
+                    // Store libraries for header title lookup
+                    window.libraryData = data.libraries;
+
+                    // Update the header title based on current selection
+                    const selectedPath = selector.value;
+                    if (selectedPath) {
+                        updateLibraryHeaderTitle(selectedPath);
+                    }
+                }
+            }
+        } catch (e) {
+            console.error('Error loading library selector:', e);
+        }
+    }
+
+    function switchLibrary(path) {
+        // Save selection to localStorage
+        localStorage.setItem('selectedLibrary', path);
+
+        // Update the library header title
+        updateLibraryHeaderTitle(path);
+
+        // Navigate to the new library root
+        if (typeof loadDirectory === 'function') {
+            loadDirectory(path);
+        }
+    }
+
+    function updateLibraryHeaderTitle(path) {
+        const headerTitle = document.getElementById('library-header-title');
+        if (!headerTitle) return;
+
+        // Find the library name from the path
+        let libraryName = 'Library';
+        if (window.libraryData) {
+            const lib = window.libraryData.find(l => l.path === path || path.startsWith(l.path + '/'));
+            if (lib) {
+                libraryName = lib.name;
+            }
+        }
+
+        headerTitle.innerHTML = `<i class="bi bi-collection-fill text-primary me-2"></i>${libraryName}`;
+    }
 
     async function loadSavedRecommendations() {
         const grid = document.getElementById('recommendationsGrid');

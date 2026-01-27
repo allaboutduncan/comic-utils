@@ -1098,7 +1098,7 @@ thumbnail_executor = ThreadPoolExecutor(max_workers=2)
 def scan_library_task():
     """Background task to scan library for new/changed files and generate thumbnails."""
     app_logger.info("Starting background library scan for thumbnails...")
-    
+
     conn = get_db_connection()
     if not conn:
         app_logger.error("Could not connect to DB for library scan")
@@ -1109,66 +1109,73 @@ def scan_library_task():
         # Map path -> (status, file_mtime)
         cursor = conn.execute("SELECT path, status, file_mtime FROM thumbnail_jobs")
         existing_jobs = {row['path']: (row['status'], row['file_mtime']) for row in cursor.fetchall()}
-        
+
         count_queued = 0
         count_skipped = 0
-        
-        for root, dirs, files in os.walk(DATA_DIR):
-            for file in files:
-                if file.lower().endswith(('.cbz', '.cbr', '.zip', '.rar', '.pdf')):
-                    full_path = os.path.join(root, file)
-                    try:
-                        stat = os.stat(full_path)
-                        current_mtime = stat.st_mtime
-                        
-                        should_process = False
-                        
-                        if full_path not in existing_jobs:
-                            should_process = True # New file
-                        else:
-                            status, stored_mtime = existing_jobs[full_path]
-                            # Check if file modified since last scan
-                            # stored_mtime might be None if migrated
-                            if stored_mtime is None or current_mtime > stored_mtime:
-                                should_process = True
-                            elif status == 'error':
-                                # Optional: Retry errors? Let's skip for now to avoid loops, 
-                                # or maybe retry once per startup? 
-                                # For now, assume errors are permanent until file changes.
-                                pass
-                                
-                        if should_process:
-                            # Update DB to mark as pending/processing and update mtime
-                            conn.execute("""
-                                INSERT INTO thumbnail_jobs (path, status, file_mtime, updated_at) 
-                                VALUES (?, 'processing', ?, CURRENT_TIMESTAMP)
-                                ON CONFLICT(path) DO UPDATE SET 
-                                    status='processing', 
-                                    file_mtime=excluded.file_mtime,
-                                    updated_at=CURRENT_TIMESTAMP
-                            """, (full_path, current_mtime))
-                            
-                            # Queue the job
-                            # We need to calculate cache_path here or let the task do it?
-                            # The task takes (file_path, cache_path).
-                            # We need to replicate the cache path logic.
-                            
-                            path_hash = hashlib.md5(full_path.encode('utf-8')).hexdigest()
-                            shard_dir = path_hash[:2]
-                            filename = f"{path_hash}.jpg"
-                            thumbnails_dir = os.path.join(config.get("SETTINGS", "CACHE_DIR", fallback="/cache"), "thumbnails")
-                            cache_path = os.path.join(thumbnails_dir, shard_dir, filename)
-                            
-                            thumbnail_executor.submit(generate_thumbnail_task, full_path, cache_path)
-                            count_queued += 1
-                        else:
-                            count_skipped += 1
-                            
-                    except OSError as e:
-                        app_logger.error(f"Error accessing file {full_path}: {e}")
-                        
-            # Commit batches or at end? At end is fine for single thread scan
-            conn.commit()
+
+        # Iterate over all configured library roots
+        library_roots = get_library_roots()
+        if not library_roots:
+            app_logger.warning("No libraries configured, skipping scan")
+            return
+
+        for library_root in library_roots:
+            if not os.path.exists(library_root):
+                app_logger.warning(f"Library path not found, skipping: {library_root}")
+                continue
+            app_logger.info(f"Scanning library: {library_root}")
+            for root, dirs, files in os.walk(library_root):
+                for file in files:
+                    if file.lower().endswith(('.cbz', '.cbr', '.zip', '.rar', '.pdf')):
+                        full_path = os.path.join(root, file)
+                        try:
+                            stat = os.stat(full_path)
+                            current_mtime = stat.st_mtime
+
+                            should_process = False
+
+                            if full_path not in existing_jobs:
+                                should_process = True  # New file
+                            else:
+                                status, stored_mtime = existing_jobs[full_path]
+                                # Check if file modified since last scan
+                                # stored_mtime might be None if migrated
+                                if stored_mtime is None or current_mtime > stored_mtime:
+                                    should_process = True
+                                elif status == 'error':
+                                    # Optional: Retry errors? Let's skip for now to avoid loops,
+                                    # or maybe retry once per startup?
+                                    # For now, assume errors are permanent until file changes.
+                                    pass
+
+                            if should_process:
+                                # Update DB to mark as pending/processing and update mtime
+                                conn.execute("""
+                                    INSERT INTO thumbnail_jobs (path, status, file_mtime, updated_at)
+                                    VALUES (?, 'processing', ?, CURRENT_TIMESTAMP)
+                                    ON CONFLICT(path) DO UPDATE SET
+                                        status='processing',
+                                        file_mtime=excluded.file_mtime,
+                                        updated_at=CURRENT_TIMESTAMP
+                                """, (full_path, current_mtime))
+
+                                # Queue the job
+                                path_hash = hashlib.md5(full_path.encode('utf-8')).hexdigest()
+                                shard_dir = path_hash[:2]
+                                filename = f"{path_hash}.jpg"
+                                thumbnails_dir = os.path.join(config.get("SETTINGS", "CACHE_DIR", fallback="/cache"), "thumbnails")
+                                cache_path = os.path.join(thumbnails_dir, shard_dir, filename)
+
+                                thumbnail_executor.submit(generate_thumbnail_task, full_path, cache_path)
+                                count_queued += 1
+                            else:
+                                count_skipped += 1
+
+                        except OSError as e:
+                            app_logger.error(f"Error accessing file {full_path}: {e}")
+
+                # Commit batches or at end? At end is fine for single thread scan
+                conn.commit()
             
         app_logger.info(f"Library scan complete. Queued {count_queued} thumbnails, skipped {count_skipped}.")
         
@@ -1550,6 +1557,138 @@ def publishers_page():
     return render_template('publishers.html',
                          publishers=publishers,
                          total_publishers=len(publishers))
+
+
+# =============================================================================
+# Libraries API Endpoints
+# =============================================================================
+
+@app.route('/api/libraries', methods=['GET'])
+def api_get_libraries():
+    """Get all configured libraries."""
+    from database import get_libraries
+
+    try:
+        # Include disabled libraries if requested
+        include_disabled = request.args.get('all', '').lower() == 'true'
+        libraries = get_libraries(enabled_only=not include_disabled)
+        return jsonify({
+            "success": True,
+            "libraries": libraries
+        })
+    except Exception as e:
+        app_logger.error(f"Error getting libraries: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route('/api/libraries', methods=['POST'])
+def api_add_library():
+    """Add a new library."""
+    from database import add_library
+
+    data = request.get_json() or {}
+    name = data.get('name', '').strip()
+    path = data.get('path', '').strip()
+
+    if not name:
+        return jsonify({"success": False, "error": "Library name is required"}), 400
+    if not path:
+        return jsonify({"success": False, "error": "Library path is required"}), 400
+
+    # Validate path exists
+    if not os.path.exists(path):
+        return jsonify({"success": False, "error": f"Path does not exist: {path}"}), 400
+    if not os.path.isdir(path):
+        return jsonify({"success": False, "error": f"Path is not a directory: {path}"}), 400
+
+    try:
+        library_id = add_library(name, path)
+        if library_id:
+            # Trigger background file index rebuild to scan the new library
+            def rebuild_index_for_new_library():
+                try:
+                    app_logger.info(f"Rebuilding file index after adding library: {name}")
+                    invalidate_file_index()  # Clear in-memory cache
+                    # Perform incremental sync which will pick up the new library
+                    filesystem_entries = scan_filesystem_for_sync()
+                    from database import sync_file_index_incremental
+                    sync_file_index_incremental(filesystem_entries)
+                    app_logger.info(f"File index rebuilt successfully for new library: {name}")
+                except Exception as e:
+                    app_logger.error(f"Error rebuilding index for new library: {e}")
+
+            thread = threading.Thread(target=rebuild_index_for_new_library, daemon=True)
+            thread.start()
+
+            return jsonify({
+                "success": True,
+                "id": library_id,
+                "message": f"Library '{name}' added successfully. File index is being rebuilt."
+            })
+        else:
+            return jsonify({"success": False, "error": "Failed to add library (path may already exist)"}), 400
+    except Exception as e:
+        app_logger.error(f"Error adding library: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route('/api/libraries/<int:library_id>', methods=['PUT', 'PATCH'])
+def api_update_library(library_id):
+    """Update an existing library."""
+    from database import update_library, get_library_by_id
+
+    # Verify library exists
+    existing = get_library_by_id(library_id)
+    if not existing:
+        return jsonify({"success": False, "error": "Library not found"}), 404
+
+    data = request.get_json() or {}
+    name = data.get('name')
+    path = data.get('path')
+    enabled = data.get('enabled')
+
+    # Validate path if provided
+    if path:
+        path = path.strip()
+        if not os.path.exists(path):
+            return jsonify({"success": False, "error": f"Path does not exist: {path}"}), 400
+        if not os.path.isdir(path):
+            return jsonify({"success": False, "error": f"Path is not a directory: {path}"}), 400
+
+    try:
+        if update_library(library_id, name=name, path=path, enabled=enabled):
+            return jsonify({
+                "success": True,
+                "message": "Library updated successfully"
+            })
+        else:
+            return jsonify({"success": False, "error": "Failed to update library"}), 400
+    except Exception as e:
+        app_logger.error(f"Error updating library: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route('/api/libraries/<int:library_id>', methods=['DELETE'])
+def api_delete_library(library_id):
+    """Delete a library."""
+    from database import delete_library, get_library_by_id
+
+    # Verify library exists
+    existing = get_library_by_id(library_id)
+    if not existing:
+        return jsonify({"success": False, "error": "Library not found"}), 404
+
+    try:
+        if delete_library(library_id):
+            return jsonify({
+                "success": True,
+                "message": "Library deleted successfully"
+            })
+        else:
+            return jsonify({"success": False, "error": "Failed to delete library"}), 400
+    except Exception as e:
+        app_logger.error(f"Error deleting library: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
 
 
 @app.route('/api/publishers', methods=['GET'])
@@ -2843,8 +2982,83 @@ def sync_all_series():
 
 # app = Flask(__name__)
 
-DATA_DIR = "/data"  # Directory to browse
+# Legacy constant for backwards compatibility - use get_library_roots() instead
+DATA_DIR = "/data"  # Directory to browse (deprecated, kept for compatibility)
 TARGET_DIR = config.get("SETTINGS", "TARGET", fallback="/processed")
+
+
+#########################
+#   Library Helpers     #
+#########################
+
+def get_library_roots():
+    """
+    Get list of all enabled library root paths.
+
+    Returns:
+        List of path strings for enabled libraries.
+        Falls back to ['/data'] if no libraries configured.
+    """
+    from database import get_libraries
+    libraries = get_libraries(enabled_only=True)
+    if libraries:
+        return [lib['path'] for lib in libraries]
+    # Fallback for backwards compatibility
+    return ['/data'] if os.path.exists('/data') else []
+
+
+def get_default_library():
+    """
+    Get the first enabled library or None.
+
+    Returns:
+        Dictionary with library data, or None if no libraries configured.
+    """
+    from database import get_libraries
+    libraries = get_libraries(enabled_only=True)
+    return libraries[0] if libraries else None
+
+
+def is_valid_library_path(path):
+    """
+    Check if a path is within any enabled library.
+
+    Args:
+        path: The path to validate
+
+    Returns:
+        True if path is within a configured library, False otherwise.
+    """
+    if not path:
+        return False
+    normalized = os.path.normpath(path)
+    for root in get_library_roots():
+        root_normalized = os.path.normpath(root)
+        # Check if path equals root or is a subdirectory of root
+        if normalized == root_normalized or normalized.startswith(root_normalized + os.sep):
+            return True
+    return False
+
+
+def get_library_for_path(path):
+    """
+    Get the library that contains this path.
+
+    Args:
+        path: The path to look up
+
+    Returns:
+        Dictionary with library data, or None if path not in any library.
+    """
+    if not path:
+        return None
+    from database import get_libraries
+    normalized = os.path.normpath(path)
+    for lib in get_libraries(enabled_only=True):
+        root = os.path.normpath(lib['path'])
+        if normalized == root or normalized.startswith(root + os.sep):
+            return lib
+    return None
 
 #########################
 #   Recent Files Helper #
@@ -2852,27 +3066,15 @@ TARGET_DIR = config.get("SETTINGS", "TARGET", fallback="/processed")
 
 def log_file_if_in_data(file_path):
     """
-    Log a file to recent_files if it's in /data and is a comic file.
+    Log a file to recent_files if it's in a configured library and is a comic file.
 
     Args:
         file_path: Full path to the file
     """
     try:
-        # Normalize paths for comparison (handles different path separators)
-        normalized_file_path = os.path.normpath(file_path)
-        normalized_data_dir = os.path.normpath(DATA_DIR)
-
-        # Check if file is in DATA_DIR directory
-        # Use os.path.commonpath to handle Windows/Unix path differences
-        try:
-            common_path = os.path.commonpath([normalized_file_path, normalized_data_dir])
-            is_in_data_dir = os.path.samefile(common_path, normalized_data_dir)
-        except (ValueError, OSError):
-            # Fallback: Check if normalized path starts with DATA_DIR
-            is_in_data_dir = normalized_file_path.startswith(normalized_data_dir)
-
-        if not is_in_data_dir:
-            app_logger.debug(f"File not in DATA_DIR ({DATA_DIR}): {file_path}")
+        # Check if file is in any configured library
+        if not is_valid_library_path(file_path):
+            app_logger.debug(f"File not in any configured library: {file_path}")
             return
 
         # Check if it's a file (not directory)
@@ -4344,65 +4546,86 @@ def build_file_index():
         return 0
 
     try:
-        for root, dirs, files in os.walk(DATA_DIR):
-            # Skip hidden directories
-            dirs[:] = [d for d in dirs if not d.startswith('.') and not d.startswith('_')]
+        # Iterate over all configured library roots
+        library_roots = get_library_roots()
+        if not library_roots:
+            app_logger.warning("No libraries configured, cannot build file index")
+            return
 
-            # Index directories
-            for name in dirs:
-                try:
-                    full_dir_path = os.path.join(root, name)
-                    rel_path = os.path.relpath(full_dir_path, DATA_DIR)
-                    file_index.append({
-                        "name": name,
-                        "path": f"/data/{rel_path}",
-                        "type": "directory",
-                        "parent": f"/data/{os.path.dirname(rel_path)}" if os.path.dirname(rel_path) else "/data",
-                        "has_thumbnail": check_has_thumbnail(full_dir_path)
-                    })
-                except (OSError, IOError):
-                    continue
+        for library_root in library_roots:
+            if not os.path.exists(library_root):
+                app_logger.warning(f"Library path not found, skipping: {library_root}")
+                continue
 
-            # Index files (excluding certain extensions, but allow specific files)
-            for name in files:
-                if name.startswith('.') or name.startswith('_'):
-                    continue
+            app_logger.info(f"Indexing library: {library_root}")
 
-                # Skip excluded file types (but allow specific files like missing.txt and cvinfo)
-                if name.lower() not in allowed_files and any(name.lower().endswith(ext) for ext in excluded_extensions):
-                    continue
+            for root, dirs, files in os.walk(library_root):
+                # Skip hidden directories
+                dirs[:] = [d for d in dirs if not d.startswith('.') and not d.startswith('_')]
 
-                try:
-                    full_path = os.path.join(root, name)
-                    rel_path = os.path.relpath(full_path, DATA_DIR)
-                    file_size = os.path.getsize(full_path)
-                    mtime = os.path.getmtime(full_path)
+                # Index directories
+                for name in dirs:
+                    try:
+                        full_dir_path = os.path.join(root, name)
+                        rel_path = os.path.relpath(full_dir_path, library_root)
+                        # Use actual library root path in the stored path
+                        dir_path = os.path.join(library_root, rel_path).replace('\\', '/')
+                        parent_rel = os.path.dirname(rel_path)
+                        parent_path = os.path.join(library_root, parent_rel).replace('\\', '/') if parent_rel else library_root
+                        file_index.append({
+                            "name": name,
+                            "path": dir_path,
+                            "type": "directory",
+                            "parent": parent_path,
+                            "has_thumbnail": check_has_thumbnail(full_dir_path)
+                        })
+                    except (OSError, IOError):
+                        continue
 
-                    file_index.append({
-                        "name": name,
-                        "path": f"/data/{rel_path}",
-                        "type": "file",
-                        "size": file_size,
-                        "parent": f"/data/{os.path.dirname(rel_path)}" if os.path.dirname(rel_path) else "/data",
-                        "modified_at": mtime
-                    })
+                # Index files (excluding certain extensions, but allow specific files)
+                for name in files:
+                    if name.startswith('.') or name.startswith('_'):
+                        continue
 
-                    # Track comic files for recent files list (Legacy logic, but strictly speaking we don't need the separate list anymore
-                    # since we populate modified_at directly in file_index. But keeping standard structure for now)
-                    if name.lower().endswith(('.cbz', '.cbr')):
-                        try:
-                            mtime = os.path.getmtime(full_path)
-                            comic_files.append({
-                                'path': full_path,
-                                'name': name,
-                                'size': file_size,
-                                'mtime': mtime
-                            })
-                        except (OSError, IOError):
-                            pass
+                    # Skip excluded file types (but allow specific files like missing.txt and cvinfo)
+                    if name.lower() not in allowed_files and any(name.lower().endswith(ext) for ext in excluded_extensions):
+                        continue
 
-                except (OSError, IOError):
-                    continue
+                    try:
+                        full_path = os.path.join(root, name)
+                        rel_path = os.path.relpath(full_path, library_root)
+                        file_size = os.path.getsize(full_path)
+                        mtime = os.path.getmtime(full_path)
+
+                        # Use actual library root path in the stored path
+                        file_path = os.path.join(library_root, rel_path).replace('\\', '/')
+                        parent_rel = os.path.dirname(rel_path)
+                        parent_path = os.path.join(library_root, parent_rel).replace('\\', '/') if parent_rel else library_root
+
+                        file_index.append({
+                            "name": name,
+                            "path": file_path,
+                            "type": "file",
+                            "size": file_size,
+                            "parent": parent_path,
+                            "modified_at": mtime
+                        })
+
+                        # Track comic files for recent files list
+                        if name.lower().endswith(('.cbz', '.cbr')):
+                            try:
+                                mtime = os.path.getmtime(full_path)
+                                comic_files.append({
+                                    'path': full_path,
+                                    'name': name,
+                                    'size': file_size,
+                                    'mtime': mtime
+                                })
+                            except (OSError, IOError):
+                                pass
+
+                    except (OSError, IOError):
+                        continue
 
     except Exception as e:
         app_logger.error(f"Error building file index: {e}")
@@ -4432,6 +4655,7 @@ def scan_filesystem_for_sync():
 
     Used by incremental sync to compare filesystem state with database state.
     Excludes TARGET folder (from app.config) as those files should not be indexed.
+    Scans all enabled libraries.
 
     Returns:
         List of dicts with {name, path, type, size, parent, has_thumbnail, modified_at}
@@ -4459,58 +4683,66 @@ def scan_filesystem_for_sync():
                 return 1
         return 0
 
-    try:
-        for root, dirs, files in os.walk(DATA_DIR):
-            # Skip hidden directories and TARGET_DIR
-            dirs[:] = [d for d in dirs if not d.startswith('.') and not d.startswith('_')
-                       and not is_in_target_dir(os.path.join(root, d))]
+    # Get all library roots to scan
+    library_roots = get_library_roots()
 
-            # Index directories
-            for name in dirs:
-                try:
-                    full_dir_path = os.path.join(root, name)
-                    rel_path = os.path.relpath(full_dir_path, DATA_DIR)
-                    entries.append({
-                        "name": name,
-                        "path": f"/data/{rel_path}",
-                        "type": "directory",
-                        "parent": f"/data/{os.path.dirname(rel_path)}" if os.path.dirname(rel_path) else "/data",
-                        "has_thumbnail": check_has_thumbnail(full_dir_path),
-                        "size": None,
-                        "modified_at": None
-                    })
-                except (OSError, IOError):
-                    continue
+    for library_root in library_roots:
+        if not os.path.exists(library_root):
+            app_logger.warning(f"Library path does not exist, skipping: {library_root}")
+            continue
 
-            # Index files
-            for name in files:
-                if name.startswith('.') or name.startswith('_'):
-                    continue
+        try:
+            for root, dirs, files in os.walk(library_root):
+                # Skip hidden directories and TARGET_DIR
+                dirs[:] = [d for d in dirs if not d.startswith('.') and not d.startswith('_')
+                           and not is_in_target_dir(os.path.join(root, d))]
 
-                # Skip excluded file types (but allow specific files like missing.txt and cvinfo)
-                if name.lower() not in allowed_files and any(name.lower().endswith(ext) for ext in excluded_extensions):
-                    continue
+                # Index directories
+                for name in dirs:
+                    try:
+                        full_dir_path = os.path.join(root, name)
+                        rel_path = os.path.relpath(full_dir_path, library_root)
+                        entries.append({
+                            "name": name,
+                            "path": f"{library_root}/{rel_path}",
+                            "type": "directory",
+                            "parent": f"{library_root}/{os.path.dirname(rel_path)}" if os.path.dirname(rel_path) else library_root,
+                            "has_thumbnail": check_has_thumbnail(full_dir_path),
+                            "size": None,
+                            "modified_at": None
+                        })
+                    except (OSError, IOError):
+                        continue
 
-                try:
-                    full_path = os.path.join(root, name)
-                    rel_path = os.path.relpath(full_path, DATA_DIR)
-                    file_size = os.path.getsize(full_path)
-                    mtime = os.path.getmtime(full_path)
+                # Index files
+                for name in files:
+                    if name.startswith('.') or name.startswith('_'):
+                        continue
 
-                    entries.append({
-                        "name": name,
-                        "path": f"/data/{rel_path}",
-                        "type": "file",
-                        "size": file_size,
-                        "parent": f"/data/{os.path.dirname(rel_path)}" if os.path.dirname(rel_path) else "/data",
-                        "has_thumbnail": 0,
-                        "modified_at": mtime
-                    })
-                except (OSError, IOError):
-                    continue
+                    # Skip excluded file types (but allow specific files like missing.txt and cvinfo)
+                    if name.lower() not in allowed_files and any(name.lower().endswith(ext) for ext in excluded_extensions):
+                        continue
 
-    except Exception as e:
-        app_logger.error(f"Error scanning filesystem for sync: {e}")
+                    try:
+                        full_path = os.path.join(root, name)
+                        rel_path = os.path.relpath(full_path, library_root)
+                        file_size = os.path.getsize(full_path)
+                        mtime = os.path.getmtime(full_path)
+
+                        entries.append({
+                            "name": name,
+                            "path": f"{library_root}/{rel_path}",
+                            "type": "file",
+                            "size": file_size,
+                            "parent": f"{library_root}/{os.path.dirname(rel_path)}" if os.path.dirname(rel_path) else library_root,
+                            "has_thumbnail": 0,
+                            "modified_at": mtime
+                        })
+                    except (OSError, IOError):
+                        continue
+
+        except Exception as e:
+            app_logger.error(f"Error scanning library {library_root} for sync: {e}")
 
     return entries
 
@@ -4758,20 +4990,46 @@ initialize_memory_management()
 def list_directories():
     """List directories and files in the given path, excluding images,
     and excluding any directories or files that start with '.' or '_'."""
-    current_path = request.args.get('path', DATA_DIR)  # Default to /data
+    current_path = request.args.get('path', '')
+
+    # If no path provided, use default library
+    if not current_path:
+        default_lib = get_default_library()
+        current_path = default_lib['path'] if default_lib else DATA_DIR
+
+    # Validate path is within a library OR the downloads/target directory (security)
+    target_dir = app.config.get('TARGET', '/downloads/processed')
+    normalized_path = os.path.normpath(current_path)
+    normalized_target = os.path.normpath(target_dir)
+    is_in_target = normalized_path == normalized_target or normalized_path.startswith(normalized_target + os.sep)
+
+    if not is_valid_library_path(current_path) and not is_in_target:
+        return jsonify({"error": "Access denied - path not in any library"}), 403
 
     if not os.path.exists(current_path):
         return jsonify({"error": "Directory not found"}), 404
 
+    # Get library roots and target dir for parent directory logic
+    library_roots = get_library_roots()
+    all_roots = [os.path.normpath(r) for r in library_roots]
+    all_roots.append(normalized_target)  # Include downloads/target as a root
+
+    def get_parent_dir(path):
+        """Get parent directory, returning None if at library or target root."""
+        normalized_path = os.path.normpath(path)
+        if normalized_path in all_roots:
+            return None
+        return os.path.dirname(path)
+
     try:
         # Clean up expired cache entries
         cleanup_cache()
-        
+
         # Check if we have valid cached data
         if is_cache_valid(current_path):
             cached_data = directory_cache[current_path]
-            parent_dir = os.path.dirname(current_path) if current_path != DATA_DIR else None
-            
+            parent_dir = get_parent_dir(current_path)
+
             return jsonify({
                 "current_path": current_path,
                 "directories": cached_data["directories"],
@@ -4779,7 +5037,7 @@ def list_directories():
                 "parent": parent_dir,
                 "cached": True
             })
-        
+
         # Get fresh directory listing
         listing_data = get_directory_listing(current_path)
 
@@ -4793,7 +5051,7 @@ def list_directories():
             if len(directory_cache) > MAX_CACHE_SIZE:
                 cleanup_cache()
 
-        parent_dir = os.path.dirname(current_path) if current_path != DATA_DIR else None
+        parent_dir = get_parent_dir(current_path)
 
         return jsonify({
             "current_path": current_path,
@@ -6011,7 +6269,7 @@ def combine_cbz():
 
     for f in files:
         normalized = os.path.normpath(f)
-        if not (normalized.startswith(os.path.normpath(DATA_DIR)) or
+        if not (is_valid_library_path(normalized) or
                 normalized.startswith(os.path.normpath(watch_dir)) or
                 normalized.startswith(os.path.normpath(target_dir))):
             return jsonify({"error": "Access denied"}), 403
@@ -7684,7 +7942,7 @@ def download_file():
 
     # Security: Ensure the file path is within allowed directories
     normalized_path = os.path.normpath(file_path)
-    if not (normalized_path.startswith(os.path.normpath(DATA_DIR)) or
+    if not (is_valid_library_path(normalized_path) or
             normalized_path.startswith(os.path.normpath(TARGET_DIR))):
         return jsonify({"error": "Access denied"}), 403
 
@@ -7717,7 +7975,7 @@ def read_text_file():
 
     # Security: Ensure the file path is within allowed directories
     normalized_path = os.path.normpath(file_path)
-    if not (normalized_path.startswith(os.path.normpath(DATA_DIR)) or
+    if not (is_valid_library_path(normalized_path) or
             normalized_path.startswith(os.path.normpath(TARGET_DIR))):
         return "Access denied", 403
 
@@ -7756,7 +8014,7 @@ def save_cvinfo():
 
     # Security: Ensure the directory path is within allowed directories
     normalized_path = os.path.normpath(directory)
-    if not (normalized_path.startswith(os.path.normpath(DATA_DIR)) or
+    if not (is_valid_library_path(normalized_path) or
             normalized_path.startswith(os.path.normpath(TARGET_DIR))):
         return jsonify({"error": "Access denied"}), 403
 
@@ -7801,7 +8059,7 @@ def batch_metadata():
 
         # Security: Ensure the directory path is within allowed directories
         normalized_path = os.path.normpath(directory)
-        if not (normalized_path.startswith(os.path.normpath(DATA_DIR)) or
+        if not (is_valid_library_path(normalized_path) or
                 normalized_path.startswith(os.path.normpath(TARGET_DIR))):
             return jsonify({"error": "Access denied"}), 403
 
@@ -8439,7 +8697,7 @@ def update_xml():
 
         # Security check - ensure path is within allowed directories
         normalized_path = os.path.normpath(directory)
-        if not (normalized_path.startswith(os.path.normpath(DATA_DIR)) or
+        if not (is_valid_library_path(normalized_path) or
                 normalized_path.startswith(os.path.normpath(TARGET_DIR))):
             return jsonify({"error": "Access denied"}), 403
 

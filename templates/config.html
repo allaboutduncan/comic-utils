@@ -28,9 +28,14 @@
         <!-- Navigation Tabs -->
         <ul class="nav nav-tabs mb-4" id="configTabs" role="tablist">
             <li class="nav-item" role="presentation">
-                <button class="nav-link active" id="file-processing-tab" data-bs-toggle="tab"
+                <button class="nav-link active" id="libraries-tab" data-bs-toggle="tab"
+                    data-bs-target="#libraries" type="button" role="tab" aria-controls="libraries"
+                    aria-selected="true">Libraries</button>
+            </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link" id="file-processing-tab" data-bs-toggle="tab"
                     data-bs-target="#file-processing" type="button" role="tab" aria-controls="file-processing"
-                    aria-selected="true">File Processing</button>
+                    aria-selected="false">File Processing</button>
             </li>
             <li class="nav-item" role="presentation">
                 <button class="nav-link" id="download-api-tab" data-bs-toggle="tab" data-bs-target="#download-api"
@@ -56,9 +61,39 @@
         <div class="tab-content" id="configTabsContent">
 
             <!-- ========================================== -->
+            <!-- TAB 0: Libraries -->
+            <!-- ========================================== -->
+            <div class="tab-pane fade show active" id="libraries" role="tabpanel" aria-labelledby="libraries-tab">
+                <div class="container p-4 border rounded shadow-sm mb-4">
+                    <h4>Comic Libraries</h4>
+                    <p class="text-muted">Configure your comic library locations. Each library can have a custom name and path.</p>
+
+                    <div id="librariesList" class="mb-3">
+                        <!-- Libraries will be loaded here by JavaScript -->
+                        <div class="text-center py-3">
+                            <div class="spinner-border spinner-border-sm" role="status">
+                                <span class="visually-hidden">Loading...</span>
+                            </div>
+                            <span class="ms-2">Loading libraries...</span>
+                        </div>
+                    </div>
+
+                    <button type="button" class="btn btn-primary" onclick="showAddLibraryModal()">
+                        <i class="bi bi-plus-lg me-1"></i> Add Library
+                    </button>
+
+                    <div class="alert alert-info mt-3 mb-0">
+                        <i class="bi bi-info-circle me-1"></i>
+                        <strong>Note:</strong> For libraries on different drives, you must first add the volume mapping in your Docker configuration
+                        (e.g., <code>/e/Manga:/manga</code>), then add the library path here (e.g., <code>/manga</code>).
+                    </div>
+                </div>
+            </div>
+
+            <!-- ========================================== -->
             <!-- TAB 1: File Processing -->
             <!-- ========================================== -->
-            <div class="tab-pane fade show active" id="file-processing" role="tabpanel"
+            <div class="tab-pane fade" id="file-processing" role="tabpanel"
                 aria-labelledby="file-processing-tab">
 
                 <!-- Folder Monitoring Configuration -->
@@ -1844,5 +1879,196 @@
             });
         });
     });
+</script>
+
+<!-- Library Modal -->
+<div class="modal fade" id="libraryModal" tabindex="-1" aria-labelledby="libraryModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="libraryModalLabel">Add Library</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="libraryEditId">
+                <div class="mb-3">
+                    <label for="libraryName" class="form-label">Library Name</label>
+                    <input type="text" class="form-control" id="libraryName" placeholder="e.g., Comics, Manga, Graphic Novels">
+                    <small class="form-text text-muted">A friendly name for this library</small>
+                </div>
+                <div class="mb-3">
+                    <label for="libraryPath" class="form-label">Library Path</label>
+                    <input type="text" class="form-control" id="libraryPath" placeholder="e.g., /data, /comics, /manga">
+                    <small class="form-text text-muted">The mounted path inside the Docker container</small>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" onclick="saveLibrary()">Save Library</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    // Library Management Functions
+    let libraryModal;
+
+    document.addEventListener('DOMContentLoaded', function() {
+        libraryModal = new bootstrap.Modal(document.getElementById('libraryModal'));
+        loadLibraries();
+    });
+
+    async function loadLibraries() {
+        const container = document.getElementById('librariesList');
+        try {
+            const response = await fetch('/api/libraries?all=true');
+            const data = await response.json();
+
+            if (!data.success) {
+                container.innerHTML = '<div class="alert alert-danger">Failed to load libraries</div>';
+                return;
+            }
+
+            if (data.libraries.length === 0) {
+                container.innerHTML = `
+                    <div class="alert alert-warning">
+                        <i class="bi bi-exclamation-triangle me-1"></i>
+                        No libraries configured. Add a library to get started.
+                    </div>`;
+                return;
+            }
+
+            let html = '<div class="list-group">';
+            for (const lib of data.libraries) {
+                const enabledBadge = lib.enabled
+                    ? '<span class="badge bg-success">Enabled</span>'
+                    : '<span class="badge bg-secondary">Disabled</span>';
+                html += `
+                    <div class="list-group-item d-flex justify-content-between align-items-center">
+                        <div>
+                            <strong>${escapeHtml(lib.name)}</strong>
+                            <span class="text-muted ms-2">${escapeHtml(lib.path)}</span>
+                            ${enabledBadge}
+                        </div>
+                        <div class="btn-group btn-group-sm">
+                            <button type="button" class="btn btn-outline-primary" onclick="editLibrary(${lib.id}, '${escapeHtml(lib.name)}', '${escapeHtml(lib.path)}')">
+                                <i class="bi bi-pencil"></i>
+                            </button>
+                            <button type="button" class="btn btn-outline-${lib.enabled ? 'warning' : 'success'}" onclick="toggleLibrary(${lib.id}, ${!lib.enabled})">
+                                <i class="bi bi-${lib.enabled ? 'pause' : 'play'}"></i>
+                            </button>
+                            <button type="button" class="btn btn-outline-danger" onclick="deleteLibrary(${lib.id}, '${escapeHtml(lib.name)}')">
+                                <i class="bi bi-trash"></i>
+                            </button>
+                        </div>
+                    </div>`;
+            }
+            html += '</div>';
+            container.innerHTML = html;
+        } catch (e) {
+            container.innerHTML = '<div class="alert alert-danger">Error loading libraries: ' + e.message + '</div>';
+        }
+    }
+
+    function showAddLibraryModal() {
+        document.getElementById('libraryModalLabel').textContent = 'Add Library';
+        document.getElementById('libraryEditId').value = '';
+        document.getElementById('libraryName').value = '';
+        document.getElementById('libraryPath').value = '';
+        libraryModal.show();
+    }
+
+    function editLibrary(id, name, path) {
+        document.getElementById('libraryModalLabel').textContent = 'Edit Library';
+        document.getElementById('libraryEditId').value = id;
+        document.getElementById('libraryName').value = name;
+        document.getElementById('libraryPath').value = path;
+        libraryModal.show();
+    }
+
+    async function saveLibrary() {
+        const id = document.getElementById('libraryEditId').value;
+        const name = document.getElementById('libraryName').value.trim();
+        const path = document.getElementById('libraryPath').value.trim();
+
+        if (!name || !path) {
+            alert('Please enter both name and path');
+            return;
+        }
+
+        try {
+            let response;
+            if (id) {
+                // Update existing
+                response = await fetch(`/api/libraries/${id}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name, path })
+                });
+            } else {
+                // Add new
+                response = await fetch('/api/libraries', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name, path })
+                });
+            }
+
+            const data = await response.json();
+            if (data.success) {
+                libraryModal.hide();
+                loadLibraries();
+            } else {
+                alert('Error: ' + data.error);
+            }
+        } catch (e) {
+            alert('Error saving library: ' + e.message);
+        }
+    }
+
+    async function toggleLibrary(id, enabled) {
+        try {
+            const response = await fetch(`/api/libraries/${id}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ enabled })
+            });
+            const data = await response.json();
+            if (data.success) {
+                loadLibraries();
+            } else {
+                alert('Error: ' + data.error);
+            }
+        } catch (e) {
+            alert('Error toggling library: ' + e.message);
+        }
+    }
+
+    async function deleteLibrary(id, name) {
+        if (!confirm(`Are you sure you want to delete the library "${name}"?\n\nThis will not delete any files, only the library configuration.`)) {
+            return;
+        }
+
+        try {
+            const response = await fetch(`/api/libraries/${id}`, {
+                method: 'DELETE'
+            });
+            const data = await response.json();
+            if (data.success) {
+                loadLibraries();
+            } else {
+                alert('Error: ' + data.error);
+            }
+        } catch (e) {
+            alert('Error deleting library: ' + e.message);
+        }
+    }
+
+    function escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
 </script>
 {% endblock %}

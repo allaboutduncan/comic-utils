@@ -1,6 +1,7 @@
 // Global variables to track current navigation paths.
-let currentSourcePath = '/data';
-let currentDestinationPath = '/data';
+// Initialized empty - will be set by loadLibraryDropdowns on page load
+let currentSourcePath = '';
+let currentDestinationPath = '';
 // Global variables for deletion.
 let deleteTarget = "";
 let deletePanel = ""; // 'source' or 'destination'
@@ -1214,8 +1215,10 @@ function loadDirectories(path, panel) {
 
   // Save scroll position before loading new content
   saveScrollPosition(panel);
-  document.getElementById('btnDirectories').classList.add('active');
-  document.getElementById('btnDownloads').classList.remove('active');
+
+  // Update button states - library dropdown replaces btnDirectories
+  const btnDownloads = document.getElementById('btnDownloads');
+  if (btnDownloads) btnDownloads.classList.remove('active');
   const btnRecentFiles = document.getElementById('btnRecentFiles');
   if (btnRecentFiles) btnRecentFiles.classList.remove('active');
 
@@ -1389,8 +1392,8 @@ function filterDirectories(letter, panel) {
 // New loadDownloads function to fetch downloads data.
 function loadDownloads(path, panel) {
   console.log("loadDownloads called with path:", path, "panel:", panel);
-  document.getElementById('btnDownloads').classList.add('active');
-  document.getElementById('btnDirectories').classList.remove('active');
+  const btnDownloads = document.getElementById('btnDownloads');
+  if (btnDownloads) btnDownloads.classList.add('active');
   const btnRecentFiles = document.getElementById('btnRecentFiles');
   if (btnRecentFiles) btnRecentFiles.classList.remove('active');
 
@@ -1467,9 +1470,10 @@ function loadRecentFiles(panel) {
   console.log("loadRecentFiles called for panel:", panel);
 
   // Update button states
-  document.getElementById('btnRecentFiles').classList.add('active');
-  document.getElementById('btnDownloads').classList.remove('active');
-  document.getElementById('btnDirectories').classList.remove('active');
+  const btnRecentFiles = document.getElementById('btnRecentFiles');
+  if (btnRecentFiles) btnRecentFiles.classList.add('active');
+  const btnDownloads = document.getElementById('btnDownloads');
+  if (btnDownloads) btnDownloads.classList.remove('active');
 
   // Hide filter bar (not needed for recent files)
   const filterBar = document.getElementById(`${panel}-directory-filter`);
