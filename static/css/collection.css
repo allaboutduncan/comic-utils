@@ -918,6 +918,43 @@
     background: rgba(255, 193, 7, 1);
 }
 
+/* Mark Unread Button Styling (for Continue Reading cards) */
+.mark-unread-btn {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    background: rgba(220, 53, 69, 0.8);
+    border: none;
+    border-radius: 50%;
+    width: 28px;
+    height: 28px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    z-index: 10;
+    opacity: 0;
+    transition: opacity 0.2s ease, background 0.2s ease;
+}
+
+.mark-unread-btn i {
+    color: white;
+    font-size: 14px;
+}
+
+.dashboard-card-img-container:hover .mark-unread-btn {
+    opacity: 1;
+}
+
+.mark-unread-btn:hover {
+    background: rgba(220, 53, 69, 1);
+}
+
+.mark-unread-btn:focus {
+    outline: 2px solid #dc3545;
+    outline-offset: 2px;
+}
+
 /* Issue Number Badge Styling */
 .issue-badge {
     position: absolute;

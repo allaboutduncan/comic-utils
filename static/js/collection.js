@@ -4562,11 +4562,13 @@ async function loadContinueReadingSwiper() {
                         <div class="progress" style="height: 4px; position: absolute; bottom: 0; left: 0; width: 100%; border-radius: 0;">
                             <div class="progress-bar bg-info" role="progressbar" style="width: ${progress}%" aria-valuenow="${progress}" aria-valuemin="0" aria-valuemax="100"></div>
                         </div>
+                        <button class="mark-unread-btn" onclick="event.stopPropagation(); markAsUnread('${path.replace(/'/g, "\\'")}')" title="Mark as Unread">
+                            <i class="bi bi-x-circle-fill"></i>
+                        </button>
                     </div>
                     <div class="dashboard-card-body">
                         <div class="text-truncate text-dark item-name" title="${name}">${name}</div>
-                        <small class="text-muted">${pageInfo}</small>
-                        <small class="text-muted">${timeAgo}</small>
+                        <small class="text-muted">${pageInfo}<br/>${timeAgo}</small>
                     </div>
                 </div>
             </div>
@@ -4574,6 +4576,30 @@ async function loadContinueReadingSwiper() {
 
     } catch (error) {
         console.error('Error loading continue reading items:', error);
+    }
+}
+
+/**
+ * Mark a comic as unread by deleting its reading position
+ * @param {string} path - Full path to the comic file
+ */
+async function markAsUnread(path) {
+    try {
+        const response = await fetch(`/api/reading-position?path=${encodeURIComponent(path)}`, {
+            method: 'DELETE'
+        });
+        const data = await response.json();
+
+        if (data.success) {
+            // Refresh the Continue Reading swiper to remove the item
+            loadContinueReadingSwiper();
+            showSuccessToast('Marked as unread');
+        } else {
+            showErrorToast('Failed to mark as unread');
+        }
+    } catch (error) {
+        console.error('Error marking as unread:', error);
+        showErrorToast('Error marking as unread');
     }
 }
 
