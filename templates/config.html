@@ -28,14 +28,13 @@
         <!-- Navigation Tabs -->
         <ul class="nav nav-tabs mb-4" id="configTabs" role="tablist">
             <li class="nav-item" role="presentation">
-                <button class="nav-link active" id="libraries-tab" data-bs-toggle="tab"
-                    data-bs-target="#libraries" type="button" role="tab" aria-controls="libraries"
-                    aria-selected="true">Libraries</button>
+                <button class="nav-link active" id="libraries-tab" data-bs-toggle="tab" data-bs-target="#libraries"
+                    type="button" role="tab" aria-controls="libraries" aria-selected="true">Libraries</button>
             </li>
             <li class="nav-item" role="presentation">
-                <button class="nav-link" id="file-processing-tab" data-bs-toggle="tab"
-                    data-bs-target="#file-processing" type="button" role="tab" aria-controls="file-processing"
-                    aria-selected="false">File Processing</button>
+                <button class="nav-link" id="file-processing-tab" data-bs-toggle="tab" data-bs-target="#file-processing"
+                    type="button" role="tab" aria-controls="file-processing" aria-selected="false">File
+                    Processing</button>
             </li>
             <li class="nav-item" role="presentation">
                 <button class="nav-link" id="download-api-tab" data-bs-toggle="tab" data-bs-target="#download-api"
@@ -66,7 +65,8 @@
             <div class="tab-pane fade show active" id="libraries" role="tabpanel" aria-labelledby="libraries-tab">
                 <div class="container p-4 border rounded shadow-sm mb-4">
                     <h4>Comic Libraries</h4>
-                    <p class="text-muted">Configure your comic library locations. Each library can have a custom name and path.</p>
+                    <p class="text-muted">Configure your comic library locations. Each library can have a custom name
+                        and path.</p>
 
                     <div id="librariesList" class="mb-3">
                         <!-- Libraries will be loaded here by JavaScript -->
@@ -84,8 +84,10 @@
 
                     <div class="alert alert-info mt-3 mb-0">
                         <i class="bi bi-info-circle me-1"></i>
-                        <strong>Note:</strong> For libraries on different drives, you must first add the volume mapping in your Docker configuration
-                        (e.g., <code>/e/Manga:/manga</code>), then add the library path here (e.g., <code>/manga</code>).
+                        <strong>Note:</strong> For libraries, you must first add the volume mapping in your Docker
+                        configuration
+                        (e.g., <code>/e/Manga:/manga</code>), then add the library path here (e.g.,
+                        <code>/manga</code>).
                     </div>
                 </div>
             </div>
@@ -93,8 +95,7 @@
             <!-- ========================================== -->
             <!-- TAB 1: File Processing -->
             <!-- ========================================== -->
-            <div class="tab-pane fade" id="file-processing" role="tabpanel"
-                aria-labelledby="file-processing-tab">
+            <div class="tab-pane fade" id="file-processing" role="tabpanel" aria-labelledby="file-processing-tab">
 
                 <!-- Folder Monitoring Configuration -->
                 <div class="container p-4 border rounded shadow-sm mb-4">
@@ -358,7 +359,8 @@
                                 <input type="password" name="pixeldrainApiKey" id="pixeldrainApiKey"
                                     value="{{ pixeldrainApiKey }}" class="form-control password-field"
                                     placeholder="Enter your PixelDrain API key">
-                                <button class="btn btn-outline-secondary toggle-password" type="button" data-target="pixeldrainApiKey">
+                                <button class="btn btn-outline-secondary toggle-password" type="button"
+                                    data-target="pixeldrainApiKey">
                                     <i class="bi bi-eye"></i>
                                 </button>
                             </div>
@@ -383,7 +385,8 @@
                                 <input type="password" name="comicvineApiKey" id="comicvineApiKey"
                                     value="{{ comicvineApiKey }}" class="form-control password-field"
                                     placeholder="Enter your ComicVine API key">
-                                <button class="btn btn-outline-secondary toggle-password" type="button" data-target="comicvineApiKey">
+                                <button class="btn btn-outline-secondary toggle-password" type="button"
+                                    data-target="comicvineApiKey">
                                     <i class="bi bi-eye"></i>
                                 </button>
                             </div>
@@ -421,7 +424,8 @@
                                 <input type="password" name="metronPassword" id="metronPassword"
                                     value="{{ metronPassword }}" class="form-control password-field"
                                     placeholder="Enter your Metron password">
-                                <button class="btn btn-outline-secondary toggle-password" type="button" data-target="metronPassword">
+                                <button class="btn btn-outline-secondary toggle-password" type="button"
+                                    data-target="metronPassword">
                                     <i class="bi bi-eye"></i>
                                 </button>
                             </div>
@@ -771,7 +775,8 @@
                     <!-- Weekly Packs Warning Banner -->
                     <div id="weeklyPacksWarning" class="alert alert-info d-none mb-3">
                         <i class="bi bi-info-circle me-2"></i>
-                        <strong>Weekly Packs Enabled:</strong> Individual issue auto-download is disabled because Weekly Packs is enabled.
+                        <strong>Weekly Packs Enabled:</strong> Individual issue auto-download is disabled because Weekly
+                        Packs is enabled.
                         <a href="{{ url_for('weekly_packs') }}">Manage Weekly Packs</a>
                     </div>
 
@@ -1079,7 +1084,8 @@
                             <div class="input-group">
                                 <input type="password" name="recApiKey" id="recApiKey" value="{{ rec_api_key }}"
                                     class="form-control password-field" autocomplete="off">
-                                <button class="btn btn-outline-secondary toggle-password" type="button" data-target="recApiKey">
+                                <button class="btn btn-outline-secondary toggle-password" type="button"
+                                    data-target="recApiKey">
                                     <i class="bi bi-eye"></i>
                                 </button>
                             </div>
@@ -1860,9 +1866,9 @@
 
 <script>
     // Password visibility toggle
-    document.addEventListener('DOMContentLoaded', function() {
-        document.querySelectorAll('.toggle-password').forEach(function(button) {
-            button.addEventListener('click', function() {
+    document.addEventListener('DOMContentLoaded', function () {
+        document.querySelectorAll('.toggle-password').forEach(function (button) {
+            button.addEventListener('click', function () {
                 const targetId = this.getAttribute('data-target');
                 const input = document.getElementById(targetId);
                 const icon = this.querySelector('i');
@@ -1893,7 +1899,8 @@
                 <input type="hidden" id="libraryEditId">
                 <div class="mb-3">
                     <label for="libraryName" class="form-label">Library Name</label>
-                    <input type="text" class="form-control" id="libraryName" placeholder="e.g., Comics, Manga, Graphic Novels">
+                    <input type="text" class="form-control" id="libraryName"
+                        placeholder="e.g., Comics, Manga, Graphic Novels">
                     <small class="form-text text-muted">A friendly name for this library</small>
                 </div>
                 <div class="mb-3">
@@ -1914,7 +1921,7 @@
     // Library Management Functions
     let libraryModal;
 
-    document.addEventListener('DOMContentLoaded', function() {
+    document.addEventListener('DOMContentLoaded', function () {
         libraryModal = new bootstrap.Modal(document.getElementById('libraryModal'));
         loadLibraries();
     });
