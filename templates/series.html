@@ -813,15 +813,30 @@
     const dataPath = '{{ config.DATA | default("/data") }}';
 
     function openSubscribeModal() {
-        const publisher = seriesData.publisher?.name || 'Unknown';
-        const seriesName = seriesData.name || 'Unknown';
+        // Sanitize values so they don't break folder paths
+        function sanitizePathSegment(val) {
+            return val.replace(/\//g, '-').replace(/:/g, ' -');
+        }
+
+        const publisher = sanitizePathSegment(seriesData.publisher?.name || 'Unknown');
+        const seriesName = sanitizePathSegment(seriesData.name || 'Unknown');
         // Handle both API field (year_began) and database field (volume_year)
         const startYear = seriesData.year_began || seriesData.volume_year || '';
+        // Volume number from Metron API (e.g., 2 -> "v2")
+        const volumeRaw = seriesData.volume || seriesData.volume_number || '';
+        const volumeNumber = volumeRaw ? 'v' + volumeRaw : '';
 
         let path = subscribePattern
             .replace('{publisher}', publisher)
             .replace('{series_name}', seriesName)
-            .replace('{start_year}', startYear);
+            .replace('{start_year}', startYear)
+            .replace('{volume_number}', volumeNumber);
+
+        // Clean up if placeholders had no value: remove empty parens, brackets, extra spaces
+        path = path.replace(/\s*\(\s*\)/g, '').replace(/\s*\[\s*\]/g, '');
+        path = path.replace(/\s+/g, ' ').trim();
+        // Clean empty path segments (e.g., "Marvel//Spider-Man" -> "Marvel/Spider-Man")
+        path = path.replace(/\/+/g, '/');
 
         // Combine with DATA base path
         const fullPath = dataPath.replace(/\/$/, '') + '/' + path.replace(/^\//, '');
