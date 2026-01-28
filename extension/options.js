@@ -1,3 +1,7 @@
+// Browser API compatibility layer (Chrome/Firefox)
+const browserAPI = typeof browser !== 'undefined' ? browser : chrome;
+const storageAPI = browserAPI.storage.local; // Use local for both (sync not supported in Firefox)
+
 document.addEventListener('DOMContentLoaded', function() {
   const apiUrlField = document.getElementById('apiUrl');
   const headersField = document.getElementById('headers');
@@ -6,7 +10,7 @@ document.addEventListener('DOMContentLoaded', function() {
   const savedMessage = document.getElementById('saved');
 
   // Load previously saved options from storage
-  chrome.storage.sync.get({ apiUrl: '', customHeaders: '' }, (data) => {
+  storageAPI.get({ apiUrl: '', customHeaders: '' }, (data) => {
     apiUrlField.value = data.apiUrl;
     headersField.value = data.customHeaders;
   });
@@ -28,7 +32,7 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     // If validation passes, save the options.
-    chrome.storage.sync.set(
+    storageAPI.set(
       {
         apiUrl: newApiUrl,
         customHeaders: newHeaders
