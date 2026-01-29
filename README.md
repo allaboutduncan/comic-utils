@@ -77,7 +77,7 @@ services:
             - PUID=99
             - PGID=100
             ## Set the file creation mask (UMASK). 022 is a common value.
-            - UMASK=022```
+            - UMASK=022
 
 __Update your Docker Compose:__ Mapping the `/config` directory is required now to ensure that config settings are persisted on updates.
 __First Install:__ On the first install with new config settings, visit the config page, ensure everything is configured as desired.
