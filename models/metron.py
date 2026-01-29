@@ -5,13 +5,17 @@ from app_logging import app_logger
 from typing import Optional, Dict, Any, List
 import re
 from datetime import datetime, timedelta
+from version import __version__
 
 # Check if mokkari is available
 try:
-    import mokkari
+    from mokkari.session import Session as MokkariSession
     MOKKARI_AVAILABLE = True
 except ImportError:
     MOKKARI_AVAILABLE = False
+
+# User agent for Metron API requests
+CLU_USER_AGENT = f"CLU/{__version__}"
 
 
 def is_mokkari_available() -> bool:
@@ -21,14 +25,14 @@ def is_mokkari_available() -> bool:
 
 def get_api(username: str, password: str):
     """
-    Initialize and return a Metron API client.
+    Initialize and return a Metron API client using Mokkari Session.
 
     Args:
         username: Metron username
         password: Metron password
 
     Returns:
-        Mokkari API client or None if unavailable
+        Mokkari Session client or None if unavailable
     """
     if not MOKKARI_AVAILABLE:
         app_logger.warning("Mokkari library not available. Install with: pip install mokkari")
@@ -37,7 +41,7 @@ def get_api(username: str, password: str):
         app_logger.warning("Metron credentials not configured")
         return None
     try:
-        return mokkari.api(username, password)
+        return MokkariSession(username=username, passwd=password, user_agent=CLU_USER_AGENT)
     except Exception as e:
         app_logger.error(f"Failed to initialize Metron API: {e}")
         return None

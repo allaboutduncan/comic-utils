@@ -88,20 +88,23 @@ def basename_filter(path):
     return ''
 
 
-def generate_series_slug(series_name, issue_id, volume=None):
+def generate_series_slug(series_name, metron_id, volume=None):
     """
     Generate a URL-friendly slug for a series page.
-    Format: series-name-vVOLUME-ISSUEID (e.g., amazing-spider-man-v1-159721)
-    The issue_id is used to look up the series (since we don't have series_id in releases).
+    Format: series-name-vVOLUME-ID (e.g., amazing-spider-man-v1-4984)
+
+    The metron_id can be either a series_id or issue_id:
+    - From releases page: issue_id (series_view will look up the series via issue)
+    - From series search/pull list: series_id (series_view uses directly)
     """
     import re
 
-    # Ensure we have a valid issue_id
-    if not issue_id:
+    # Ensure we have a valid ID
+    if not metron_id:
         return None
 
     if not series_name:
-        return str(issue_id)
+        return str(metron_id)
 
     # Convert to lowercase and replace spaces/special chars with hyphens
     slug = str(series_name).lower()
@@ -112,8 +115,8 @@ def generate_series_slug(series_name, issue_id, volume=None):
     if volume:
         slug = f"{slug}-v{volume}"
 
-    # Always append issue_id for reliable lookup
-    slug = f"{slug}-{issue_id}"
+    # Always append ID for reliable lookup
+    slug = f"{slug}-{metron_id}"
 
     return slug
 
@@ -2212,7 +2215,12 @@ def series_view(slug):
     View all issues in a series.
     URL format: /series/series-name-vVOLUME-ID (e.g., /series/amazing-spider-man-v1-4984)
     The ID at the end can be either a series_id or an issue_id.
-    We first try to look it up as a series_id, then fall back to issue_id.
+
+    Lookup order (to minimize API 404s):
+    1. Check local DB cache for series_id
+    2. Check local DB cache for issue_id (to get series_id)
+    3. API: Try as issue_id first (common case from releases page)
+    4. API: Fall back to series_id (for series search links)
 
     Uses cached data if available and recently synced, otherwise fetches from API.
     """
@@ -2296,20 +2304,21 @@ def series_view(slug):
                 app_logger.info(f"Fetching series details for series_id: {series_id}")
                 series_info = api.series(series_id)
             else:
-                # slug_id not found in database - try as series first (for series search),
-                # then fall back to issue lookup (for releases page)
-                app_logger.info(f"Trying to fetch slug_id {slug_id} as series first...")
+                # slug_id not found in database - try as issue first (for releases page),
+                # then fall back to series lookup (for series search)
+                # This order avoids 404s on /api/series when the ID is actually an issue_id
+                app_logger.info(f"Trying to fetch slug_id {slug_id} as issue first...")
                 try:
+                    full_issue = api.issue(slug_id)
+                    series_id = full_issue.series.id
+                    app_logger.info(f"Got series_id: {series_id} from issue {slug_id}")
+                    series_info = api.series(series_id)
+                except Exception as e:
+                    app_logger.info(f"Not a valid issue_id, trying as series_id: {e}")
+                    # Try as series directly
                     series_info = api.series(slug_id)
                     series_id = slug_id
                     app_logger.info(f"Successfully fetched as series_id: {series_id}")
-                except Exception as e:
-                    app_logger.info(f"Not a valid series_id, trying as issue_id: {e}")
-                    # Try to get series from issue
-                    full_issue = api.issue(slug_id)
-                    series_id = full_issue.series.id
-                    app_logger.info(f"Got series_id: {series_id} from issue")
-                    series_info = api.series(series_id)
 
             # Got series_info - log it
             app_logger.info(f"Got series_info: {series_info.name if series_info else 'None'}")
