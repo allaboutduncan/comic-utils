@@ -1,8 +1,8 @@
 <?xml version="1.0"?>
 <Container version="2">
   <Name>CLU Comic Library Utilities</Name>
-  <Repository>allaboutduncan/comic-utils:latest</Repository>
-  <Registry>https://hub.docker.com/r/allaboutduncan/comic-utils/</Registry>
+  <Repository>allaboutduncan/comic-utils-web:latest</Repository>
+  <Registry>https://hub.docker.com/r/allaboutduncan/comic-utils-web/</Registry>
   <Network>bridge</Network>
   <MyIP/>
   <Shell>sh</Shell>
