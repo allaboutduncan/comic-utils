@@ -38,7 +38,6 @@ Here's a quick list of features
 
 Copy the following and edit the environment variables
 
-
 ```yaml
 version: '3.9'
 services:
