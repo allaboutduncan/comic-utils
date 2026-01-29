@@ -33,10 +33,11 @@ Features:&#xD;
   <Config Name="Manga Library" Target="/manga" Default="/mnt/user/Manga" Mode="rw" Description="Map this to your Manga library folder." Type="Path" Display="always" Required="false" Mask="false">/mnt/user/Manga</Config>
   -->
   <Config Name="Cache" Target="/cache" Default="/mnt/user/appdata/clu-comics/cache" Mode="rw" Description="Storage for DB and thumbnails." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/clu-comics/cache</Config>
+  <!-- Ensure the folder you want to monitor is mapped to /downloads -->
+  <Config Name="Monitor" Target="MONITOR" Default="no" Mode="" Description="Set to 'yes' if you want to use folder monitoring." Type="Variable" Display="always" Required="false" Mask="false">no</Config>
   <Config Name="Downloads" Target="/downloads" Default="/mnt/user/Downloads" Mode="rw" Description="Optional: Map if you use folder monitoring." Type="Path" Display="always" Required="false" Mask="false"/>
   
   <Config Name="Flask Env" Target="FLASK_ENV" Default="development" Mode="" Description="Flask Environment" Type="Variable" Display="advanced" Required="false" Mask="false">development</Config>
-  <Config Name="Monitor" Target="MONITOR" Default="no" Mode="" Description="Set to 'yes' if you want to use folder monitoring." Type="Variable" Display="always" Required="false" Mask="false">no</Config>
   <Config Name="PUID" Target="PUID" Default="99" Mode="" Description="User ID" Type="Variable" Display="advanced" Required="true" Mask="false">99</Config>
   <Config Name="PGID" Target="PGID" Default="100" Mode="" Description="Group ID" Type="Variable" Display="advanced" Required="true" Mask="false">100</Config>
   <Config Name="UMASK" Target="UMASK" Default="022" Mode="" Description="File creation mask." Type="Variable" Display="advanced" Required="false" Mask="false">022</Config>
