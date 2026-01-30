@@ -4969,8 +4969,11 @@ def update_index_on_create(path):
         app_logger.error(f"Failed to update index on create {path}: {e}")
 
 @app.context_processor
-def inject_monitor():
-    return {'monitor': os.getenv("MONITOR", "no")}  # Default to "no" if not set
+def inject_global_vars():
+    return {
+        'monitor': os.getenv("MONITOR", "no"),
+        'version': __version__
+    }
 
 @app.context_processor
 def inject_metron_available():
