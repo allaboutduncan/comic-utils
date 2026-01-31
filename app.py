@@ -27,11 +27,9 @@ import hashlib
 import re
 import xml.etree.ElementTree as ET
 import heapq
-import hashlib
 import zipfile
 import rarfile
 import traceback
-import shutil
 import mysql.connector
 import base64
 from io import BytesIO
@@ -74,7 +72,6 @@ from models.stats import (get_library_stats, get_file_type_distribution, get_top
 from models.timeline import get_reading_timeline
 # Add URL encoding support for template filters
 from urllib.parse import quote_plus
-from concurrent.futures import ThreadPoolExecutor
 from file_watcher import FileWatcher
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
@@ -97,7 +94,6 @@ def generate_series_slug(series_name, metron_id, volume=None):
     - From releases page: issue_id (series_view will look up the series via issue)
     - From series search/pull list: series_id (series_view uses directly)
     """
-    import re
 
     # Ensure we have a valid ID
     if not metron_id:
@@ -644,7 +640,6 @@ def scheduled_getcomics_download():
         from models.getcomics import search_getcomics, get_download_links, score_getcomics_result
         from api import download_queue, download_progress
         from datetime import date
-        import uuid
 
         app_logger.info("📥 Starting scheduled GetComics auto-download...")
         start_time = time.time()
@@ -852,8 +847,7 @@ def scheduled_weekly_packs_download():
                                       parse_weekly_pack_page, get_weekly_pack_url_for_date,
                                       get_weekly_pack_dates_in_range)
         from api import download_queue, download_progress
-        from datetime import datetime
-        import uuid
+
 
         app_logger.info("📦 Starting scheduled Weekly Packs download...")
         start_time = time.time()
@@ -1019,7 +1013,6 @@ def schedule_weekly_packs_retry():
     """Schedule a one-time retry job for tomorrow at the same time."""
     try:
         from database import get_weekly_packs_config
-        from datetime import datetime, timedelta
 
         config = get_weekly_packs_config()
         if not config:
@@ -1932,7 +1925,6 @@ def generate_filename_pattern(custom_pattern, series_name, issue_number):
     Returns:
         Compiled regex pattern or None if pattern is invalid
     """
-    import re
 
     if not custom_pattern or not series_name:
         return None
@@ -2049,7 +2041,6 @@ def match_issues_to_collection(mapped_path, issues, series_info, use_cache=True)
     Returns:
         Dict mapping issue_number -> {'found': bool, 'file_path': str or None}
     """
-    import re
     from database import (
         get_collection_status_for_series,
         save_collection_status_bulk,
@@ -2228,8 +2219,6 @@ def series_view(slug):
 
     Uses cached data if available and recently synced, otherwise fetches from API.
     """
-    import re
-    from datetime import datetime, timedelta
     from database import (get_series_by_id, get_issues_for_series, save_issues_bulk,
                           update_series_sync_time, save_series_mapping, get_publisher)
 
@@ -2892,7 +2881,7 @@ def api_getcomics_download():
     """Get download link from getcomics page and queue download."""
     from models.getcomics import get_download_links
     from api import download_queue, download_progress
-    import uuid
+
 
     data = request.get_json() or {}
     page_url = data.get('url')
@@ -4278,7 +4267,6 @@ def api_save_weekly_packs_config():
         # Validate start_date if provided
         if start_date:
             try:
-                from datetime import datetime, timedelta
                 parsed_date = datetime.strptime(start_date, '%Y-%m-%d')
                 # Validate it's within 6 months back to current
                 now = datetime.now()
@@ -6792,7 +6780,6 @@ def api_clear_browse_cache():
 @app.route('/api/browse-recursive')
 def api_browse_recursive():
     """Get all files recursively from a directory and subdirectories."""
-    import re
 
     path = request.args.get('path', '')
 
@@ -8918,8 +8905,7 @@ def version_check():
 #########################
 #   Scrape Page Routes  #
 #########################
-import uuid
-import threading
+
 from queue import Queue
 from scrape.scrape_readcomiconline import scrape_series
 from scrape.scrape_ehentai import scrape_urls as scrape_ehentai_urls
@@ -9427,9 +9413,6 @@ def stream_logs(script_type):
                 bufsize=0
             )
             
-            # Use select to handle timeouts and prevent blocking
-            import select
-            
             while True:
                 # Check if process is still running
                 if process.poll() is not None:
@@ -9554,7 +9537,6 @@ def cleanup_orphan_files():
                     return True
             
             # Check for numbered temporary files (e.g., .0, .1, .2)
-            import re
             if re.search(r'\.\d+\.(crdownload|tmp|part|download)$', filename_lower):
                 return True
             
