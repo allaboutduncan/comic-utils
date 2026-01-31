@@ -1,6 +1,9 @@
 import sqlite3
 import os
 import re
+import hashlib
+import zipfile
+from datetime import datetime
 from config import config
 from app_logging import app_logger
 
@@ -579,6 +582,105 @@ def get_db_connection():
     except Exception as e:
         app_logger.error(f"Failed to connect to database: {e}")
         return None
+
+
+# =============================================================================
+# Database Backup Functions
+# =============================================================================
+
+def backup_database(max_backups: int = 3) -> bool:
+    """
+    Create a ZIP backup of the database if it has changed since last backup.
+
+    Args:
+        max_backups: Maximum number of backups to retain (default 3)
+
+    Returns:
+        True if backup created, False if skipped or error
+    """
+    try:
+        db_path = get_db_path()
+        if not os.path.exists(db_path):
+            app_logger.info("Database does not exist yet, skipping backup")
+            return False
+
+        cache_dir = os.path.dirname(db_path)
+
+        # Calculate current DB hash (MD5 for speed)
+        def get_file_hash(filepath):
+            hash_md5 = hashlib.md5()
+            with open(filepath, "rb") as f:
+                for chunk in iter(lambda: f.read(8192), b""):
+                    hash_md5.update(chunk)
+            return hash_md5.hexdigest()
+
+        current_hash = get_file_hash(db_path)
+
+        # Check last backup hash
+        hash_file = os.path.join(cache_dir, ".db_backup_hash")
+        if os.path.exists(hash_file):
+            with open(hash_file, "r") as f:
+                last_hash = f.read().strip()
+            if last_hash == current_hash:
+                app_logger.debug("Database unchanged since last backup, skipping")
+                return False
+
+        # Create timestamped backup filename
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        backup_name = f"comic_utils_backup_{timestamp}.zip"
+        backup_path = os.path.join(cache_dir, backup_name)
+
+        # Create ZIP with database and WAL files
+        with zipfile.ZipFile(backup_path, 'w', zipfile.ZIP_DEFLATED) as zf:
+            zf.write(db_path, "comic_utils.db")
+
+            # Include WAL files if they exist
+            wal_path = db_path + "-wal"
+            shm_path = db_path + "-shm"
+            if os.path.exists(wal_path):
+                zf.write(wal_path, "comic_utils.db-wal")
+            if os.path.exists(shm_path):
+                zf.write(shm_path, "comic_utils.db-shm")
+
+        app_logger.info(f"Database backup created: {backup_name}")
+
+        # Save current hash
+        with open(hash_file, "w") as f:
+            f.write(current_hash)
+
+        # Cleanup old backups (keep only max_backups most recent)
+        _cleanup_old_backups(cache_dir, max_backups)
+
+        return True
+
+    except Exception as e:
+        app_logger.error(f"Database backup failed: {e}")
+        return False
+
+
+def _cleanup_old_backups(cache_dir: str, max_backups: int):
+    """Remove old backup files, keeping only the most recent ones."""
+    try:
+        # Find all backup files
+        backup_files = [
+            f for f in os.listdir(cache_dir)
+            if f.startswith("comic_utils_backup_") and f.endswith(".zip")
+        ]
+
+        if len(backup_files) <= max_backups:
+            return
+
+        # Sort by name (timestamp in name ensures chronological order)
+        backup_files.sort(reverse=True)
+
+        # Delete oldest backups beyond max_backups
+        for old_backup in backup_files[max_backups:]:
+            old_path = os.path.join(cache_dir, old_backup)
+            os.remove(old_path)
+            app_logger.info(f"Removed old backup: {old_backup}")
+
+    except Exception as e:
+        app_logger.warning(f"Error cleaning up old backups: {e}")
 
 
 # =============================================================================

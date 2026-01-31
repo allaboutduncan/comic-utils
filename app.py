@@ -129,6 +129,10 @@ load_config()
 # Initialize Database
 init_db()
 
+# Backup database on startup (only if changed since last backup)
+from database import backup_database
+backup_database(max_backups=3)
+
 # Register Blueprints
 app.register_blueprint(favorites_bp)
 app.register_blueprint(opds_bp)
