@@ -151,6 +151,9 @@ def score_getcomics_result(result_title: str, series_name: str, issue_number: st
     - Issue number matches: +40
     - Year matches: +20
 
+    Penalties:
+    - Issue range detected (e.g., "#1-18" or "#1 – 18"): -100 (disqualify)
+
     Args:
         result_title: Title from GetComics search result
         series_name: Expected series name
@@ -158,13 +161,35 @@ def score_getcomics_result(result_title: str, series_name: str, issue_number: st
         year: Expected year (series year_began or store_date year)
 
     Returns:
-        Score from 0-100
+        Score from 0-100 (negative scores indicate disqualification)
     """
     import re
 
     score = 0
     title_lower = result_title.lower()
     series_lower = series_name.lower()
+
+    # Normalize issue number (remove leading zeros for comparison)
+    issue_num = str(issue_number).lstrip('0') or '0'
+
+    # Check for issue range patterns FIRST - these indicate collected editions, not single issues
+    # Patterns like: "#1 – 18", "#1-18", "#1 - 18", "Issues 1-18", "#001-018"
+    # The dash can be hyphen (-), en-dash (–), or em-dash (—)
+    issue_range_patterns = [
+        rf'#\d+\s*[-–—]\s*\d+',                    # #1-18, #1 – 18, #001-018
+        rf'issues?\s*\d+\s*[-–—]\s*\d+',           # Issue 1-18, Issues 1 - 18
+        rf'\(\d{4}\s*[-–—]\s*\d{4}\)',             # (2002-2003) year range in parens
+    ]
+
+    for range_pattern in issue_range_patterns:
+        range_match = re.search(range_pattern, title_lower, re.IGNORECASE)
+        if range_match:
+            # Check if our issue number appears at the END of a range (e.g., "#1-18" when looking for #18)
+            # This means it's a collected edition, not the specific issue
+            end_of_range_pattern = rf'[-–—]\s*0*{re.escape(issue_num)}\b'
+            if re.search(end_of_range_pattern, result_title, re.IGNORECASE):
+                logger.debug(f"Issue range detected ending with #{issue_num}: '{range_match.group()}' - disqualifying")
+                return -100  # Disqualify this result
 
     # Series name check (fuzzy - all words present)
     series_words = series_lower.split()
@@ -173,21 +198,32 @@ def score_getcomics_result(result_title: str, series_name: str, issue_number: st
         logger.debug(f"Series name match: +40")
 
     # Issue number check (exact)
-    # Normalize issue number (remove leading zeros for comparison)
-    issue_num = str(issue_number).lstrip('0') or '0'
-
     # Look for patterns: #15, #015, Issue 15, etc.
     issue_patterns = [
         rf'#0*{re.escape(issue_num)}\b',           # #15, #015
         rf'issue\s*0*{re.escape(issue_num)}\b',    # Issue 15, Issue15
-        rf'\b0*{re.escape(issue_num)}\b'           # Standalone number
     ]
 
+    issue_matched = False
     for pattern in issue_patterns:
         if re.search(pattern, title_lower, re.IGNORECASE):
             score += 40
             logger.debug(f"Issue number match ({pattern}): +40")
+            issue_matched = True
             break
+
+    # Only use standalone number match if no better match found and it's not part of a range
+    if not issue_matched:
+        # Check standalone number but exclude if it's part of a range
+        standalone_pattern = rf'\b0*{re.escape(issue_num)}\b'
+        standalone_match = re.search(standalone_pattern, title_lower, re.IGNORECASE)
+        if standalone_match:
+            # Verify this isn't the end of a range by checking what comes before
+            match_start = standalone_match.start()
+            prefix = result_title[max(0, match_start-3):match_start]
+            if not re.search(r'[-–—]\s*$', prefix):
+                score += 40
+                logger.debug(f"Issue number match (standalone): +40")
 
     # Year check
     if year and str(year) in result_title:
