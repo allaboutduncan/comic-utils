@@ -19,10 +19,10 @@ class MemoryMonitor:
     Memory monitoring and management utility.
     """
     
-    def __init__(self, threshold_mb=1000, cleanup_threshold_mb=500):
+    def __init__(self, threshold_mb=1500, cleanup_threshold_mb=1000):
         """
         Initialize memory monitor.
-        
+
         Args:
             threshold_mb: Memory threshold in MB to trigger warnings
             cleanup_threshold_mb: Memory threshold in MB to trigger cleanup
@@ -32,6 +32,8 @@ class MemoryMonitor:
         self.process = psutil.Process()
         self.monitoring = False
         self.monitor_thread = None
+        self._last_cleanup_time = 0
+        self._min_cleanup_interval = 300  # Minimum 5 minutes between cleanups
         
     def get_memory_usage(self):
         """
@@ -67,28 +69,34 @@ class MemoryMonitor:
             
         return memory_mb
     
-    def force_cleanup(self):
+    def force_cleanup(self, log_always=False):
         """
         Force garbage collection and memory cleanup.
+
+        Args:
+            log_always: If True, log even when nothing was freed
         """
         try:
+            # Get memory before cleanup
+            memory_before = self.get_memory_usage()
+
             # Force garbage collection
             collected = gc.collect()
-            
-            # Get memory before and after
-            memory_before = self.get_memory_usage()
-            
+
             # Additional cleanup steps
             if hasattr(gc, 'collect_generations'):
                 gc.collect_generations()
-            
+
             memory_after = self.get_memory_usage()
             freed_mb = memory_before - memory_after
-            
-            app_logger.info(f"Memory cleanup: freed {freed_mb:.1f}MB, collected {collected} objects")
-            
+
+            # Only log if we freed meaningful memory or explicitly requested
+            if log_always or freed_mb > 1.0 or collected > 100:
+                app_logger.info(f"Memory cleanup: freed {freed_mb:.1f}MB, collected {collected} objects")
+
+            self._last_cleanup_time = time.time()
             return freed_mb
-            
+
         except Exception as e:
             app_logger.error(f"Error during memory cleanup: {e}")
             return 0
@@ -100,38 +108,41 @@ class MemoryMonitor:
         memory_mb = self.get_memory_usage()
         return memory_mb > self.cleanup_threshold_mb
     
-    def start_monitoring(self, interval=30):
+    def start_monitoring(self, interval=60):
         """
         Start background memory monitoring.
-        
+
         Args:
-            interval: Monitoring interval in seconds
+            interval: Monitoring interval in seconds (default: 60)
         """
         if self.monitoring:
             return
-            
+
         self.monitoring = True
-        
+
         def monitor_loop():
             while self.monitoring:
                 try:
                     memory_mb = self.get_memory_usage()
-                    
+
                     if memory_mb > self.threshold_mb:
-                        app_logger.warning(f"High memory usage in background monitor: {memory_mb:.1f}MB")
-                        
+                        app_logger.warning(f"High memory usage: {memory_mb:.1f}MB (threshold: {self.threshold_mb}MB)")
+
+                    # Only cleanup if above threshold AND enough time has passed
                     if self.should_cleanup():
-                        app_logger.info("Background memory cleanup triggered")
-                        self.force_cleanup()
-                        
+                        time_since_last = time.time() - self._last_cleanup_time
+                        if time_since_last >= self._min_cleanup_interval:
+                            app_logger.debug(f"Background memory cleanup triggered (usage: {memory_mb:.1f}MB)")
+                            self.force_cleanup()
+
                 except Exception as e:
                     app_logger.error(f"Error in memory monitoring: {e}")
-                    
+
                 time.sleep(interval)
-        
+
         self.monitor_thread = threading.Thread(target=monitor_loop, daemon=True)
         self.monitor_thread.start()
-        app_logger.info("Memory monitoring started")
+        app_logger.info(f"Memory monitoring started (interval: {interval}s, cleanup threshold: {self.cleanup_threshold_mb}MB)")
     
     def stop_monitoring(self):
         """
