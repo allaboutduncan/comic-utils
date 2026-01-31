@@ -2231,18 +2231,27 @@ def series_view(slug):
 
     slug_id = int(match.group(1))
 
+    # Check for force refresh parameter
+    force_refresh = request.args.get('refresh', '').lower() in ('1', 'true', 'yes')
+
     # First, try to look up as a series_id (preferred for wanted page links and series search)
     from database import get_issue_by_id
-    cached_series = get_series_by_id(slug_id)
-    series_id = slug_id if cached_series else None
-
-    # If not found as series, try to look up as an issue_id (for releases page links)
+    cached_series = None
     cached_issue = None
-    if not series_id:
-        cached_issue = get_issue_by_id(slug_id)
-        series_id = cached_issue['series_id'] if cached_issue else None
-        if series_id:
-            cached_series = get_series_by_id(series_id)
+    series_id = None
+
+    if not force_refresh:
+        cached_series = get_series_by_id(slug_id)
+        series_id = slug_id if cached_series else None
+
+        # If not found as series, try to look up as an issue_id (for releases page links)
+        if not series_id:
+            cached_issue = get_issue_by_id(slug_id)
+            series_id = cached_issue['series_id'] if cached_issue else None
+            if series_id:
+                cached_series = get_series_by_id(series_id)
+    else:
+        app_logger.info(f"Force refresh requested for slug_id {slug_id}, skipping cache")
 
     # Check for cached series with recent sync (within 24 hours)
     use_cache = False
@@ -2297,21 +2306,22 @@ def series_view(slug):
                 app_logger.info(f"Fetching series details for series_id: {series_id}")
                 series_info = api.series(series_id)
             else:
-                # slug_id not found in database - try as issue first (for releases page),
-                # then fall back to series lookup (for series search)
-                # This order avoids 404s on /api/series when the ID is actually an issue_id
-                app_logger.info(f"Trying to fetch slug_id {slug_id} as issue first...")
+                # slug_id not found in database - try as series first (most common case),
+                # then fall back to issue lookup (for releases page links)
+                # Series lookup is preferred because series_search, pull-list, and wanted
+                # pages all use series_id, only releases.html uses issue_id
+                app_logger.info(f"Trying to fetch slug_id {slug_id} as series first...")
                 try:
+                    series_info = api.series(slug_id)
+                    series_id = slug_id
+                    app_logger.info(f"Successfully fetched as series_id: {series_id}")
+                except Exception as e:
+                    app_logger.info(f"Not a valid series_id, trying as issue_id: {e}")
+                    # Try as issue (for releases page which links with issue_id)
                     full_issue = api.issue(slug_id)
                     series_id = full_issue.series.id
                     app_logger.info(f"Got series_id: {series_id} from issue {slug_id}")
                     series_info = api.series(series_id)
-                except Exception as e:
-                    app_logger.info(f"Not a valid issue_id, trying as series_id: {e}")
-                    # Try as series directly
-                    series_info = api.series(slug_id)
-                    series_id = slug_id
-                    app_logger.info(f"Successfully fetched as series_id: {series_id}")
 
             # Got series_info - log it
             app_logger.info(f"Got series_info: {series_info.name if series_info else 'None'}")
